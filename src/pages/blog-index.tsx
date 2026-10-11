@@ -116,7 +116,7 @@ export const BlogIndexPage = ({ data }: { data: BlogData }) => {
                 ) : featured ? null : filtered ? (
                     <EmptyPosts
                         title="No articles found"
-                        description="Nothing matches those filters. Try a different search or browse everything."
+                        description="Nothing matches that. Try a different search, or have a look through everything."
                         action={
                             <Button href="/blog" color="secondary" size="md">
                                 Show all articles
@@ -125,8 +125,8 @@ export const BlogIndexPage = ({ data }: { data: BlogData }) => {
                     />
                 ) : (
                     <EmptyPosts
-                        title="Nothing published yet"
-                        description="The first articles are on their way. Check back soon, or subscribe to the RSS feed."
+                        title="Nothing here yet"
+                        description="The first posts are on their way. Subscribe to the RSS feed and you'll see them as soon as they're up."
                     />
                 )}
             </section>
