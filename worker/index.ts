@@ -74,12 +74,14 @@ async function route(path: string, url: URL, store: PostStore): Promise<RouteRes
     if (path === "/blog") {
         const filters = readFilters(url);
         const unfiltered = !filters.q && !filters.category && !filters.tag;
-        const featured = unfiltered && filters.page === 1 ? await store.featured() : null;
+        // The featured post is left out of every unfiltered page so pagination stays stable;
+        // its card only appears on page 1.
+        const featured = unfiltered ? await store.featured() : null;
         const [result, categories] = await Promise.all([store.search(filters, featured?.slug ?? null), store.categories()]);
         return {
             data: {
                 route: "blog",
-                featured,
+                featured: result.page === 1 ? featured : null,
                 posts: result.posts,
                 categories,
                 filters: { ...filters, page: result.page },
@@ -251,18 +253,30 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return json({ error: "not found" }, 404);
 }
 
-/** Runs a sync unless one started recently and has not finished. Returns null when skipped. */
+/** Runs a sync unless another holds the lock. Returns null when skipped. */
 export async function guardedSync(env: Env, trigger: "cron" | "manual", force: boolean): Promise<SyncSummary | null> {
-    const cutoff = new Date(Date.now() - SYNC_LOCK_MINUTES * 60_000).toISOString();
-    const running = await env.DB.prepare("SELECT id FROM sync_runs WHERE status = 'running' AND started_at > ? LIMIT 1").bind(cutoff).first();
-    if (running) {
+    const now = Date.now();
+    const token = `${now}:${crypto.randomUUID()}`;
+    // Atomic claim: the upsert only takes the lock when it is free or older than the lock window
+    // (a crashed run), and RETURNING yields a row only when this invocation won it.
+    const claimed = await env.DB.prepare(
+        `INSERT INTO meta (key, value) VALUES ('sync_lock', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value
+         WHERE meta.value = '' OR CAST(substr(meta.value, 1, instr(meta.value, ':') - 1) AS INTEGER) < ?2
+         RETURNING value`,
+    )
+        .bind(token, now - SYNC_LOCK_MINUTES * 60_000)
+        .first<{ value: string }>();
+    if (claimed?.value !== token) {
         console.log(JSON.stringify({ event: "sync_skipped", reason: "already running", trigger }));
         return null;
     }
-    await env.DB.prepare("UPDATE sync_runs SET status = 'failed', log = '[\"Run did not finish\"]' WHERE status = 'running' AND started_at <= ?")
-        .bind(cutoff)
-        .run();
-    return runSync(env, { trigger, force });
+    try {
+        await env.DB.prepare("UPDATE sync_runs SET status = 'failed', log = '[\"Run did not finish\"]' WHERE status = 'running'").run();
+        return await runSync(env, { trigger, force });
+    } finally {
+        await env.DB.prepare("UPDATE meta SET value = '' WHERE key = 'sync_lock' AND value = ?").bind(token).run();
+    }
 }
 
 async function authorised(request: Request, env: Env) {

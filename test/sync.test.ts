@@ -247,6 +247,33 @@ describe("content", () => {
         expect((await page("/blog")).html).toMatch(/<img src="\/media\/[a-f0-9]{24}\.jpg"/);
     });
 
+    it("picks up changes to referenced objects once their cache goes stale", async () => {
+        await sync(mock);
+        mock.control.state.objects.get(IDS.tagWriting).properties.title.title.value = "Writing well";
+        mock.control.state.objects.get(IDS.imgInline).properties.description.text.value = "An updated caption.";
+        // Fresh caches: nothing re-read, nothing re-rendered.
+        expect((await sync(mock)).unchanged).toBe(3);
+        expect((await page(`/blog/${NOTEBOOK}`)).html).not.toContain("An updated caption.");
+
+        const old = new Date(Date.now() - 8 * 86_400_000).toISOString();
+        await testEnv.DB.batch([
+            testEnv.DB.prepare("UPDATE posts SET synced_at = ?").bind(old),
+            testEnv.DB.prepare("UPDATE entity_cache SET checked_at = ?").bind(old),
+            testEnv.DB.prepare("UPDATE media SET checked_at = ?").bind(old),
+        ]);
+        await sync(mock);
+        const { html } = await page(`/blog/${NOTEBOOK}`);
+        expect(html).toContain("<figcaption>An updated caption.</figcaption>");
+        expect(html).toContain("Writing well");
+    });
+
+    it("a forced sync refreshes cached images and references", async () => {
+        await sync(mock);
+        mock.control.state.objects.get(IDS.imgInline).properties.description.text.value = "Forced caption.";
+        await sync(mock, {}, true);
+        expect((await page(`/blog/${NOTEBOOK}`)).html).toContain("<figcaption>Forced caption.</figcaption>");
+    });
+
     it("resolves Capacities tags to names", async () => {
         await sync(mock);
         const tags = await testEnv.DB.prepare("SELECT tags FROM posts WHERE id = ?").bind(IDS.notebook).first<{ tags: string }>();

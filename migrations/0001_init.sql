@@ -54,7 +54,8 @@ CREATE TABLE media (
     bytes INTEGER NOT NULL,
     alt TEXT,
     caption TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    checked_at TEXT NOT NULL             -- last time the Capacities object was re-read
 );
 
 -- Small cache for tag names, web links and other referenced objects.

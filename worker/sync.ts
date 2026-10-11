@@ -41,6 +41,7 @@ interface PostRow {
     content_hash: string;
     source_updated_at: string | null;
     render_context: string | null;
+    synced_at: string;
 }
 
 interface Candidate {
@@ -67,6 +68,7 @@ interface MediaRow {
     height: number | null;
     alt: string | null;
     caption: string | null;
+    checked_at: string;
 }
 
 interface EntityRow {
@@ -179,7 +181,10 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     }
 
     const posts = new Map(
-        (await db.prepare("SELECT id, slug, title, content_hash, source_updated_at, render_context FROM posts").all<PostRow>()).results.map((r) => [r.id, r]),
+        (await db.prepare("SELECT id, slug, title, content_hash, source_updated_at, render_context, synced_at FROM posts").all<PostRow>()).results.map((r) => [
+            r.id,
+            r,
+        ]),
     );
     const sources = new Map(
         (await db.prepare("SELECT id, status, last_checked_at, missing_count FROM sources").all<SourceRow>()).results.map((r) => [r.id, r]),
@@ -228,7 +233,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     });
 
     const transforms = env.IMAGE_TRANSFORMS === "on";
-    const resolver = new Resolver(db, env.MEDIA, client, transforms, timestamp, options.fetchImpl);
+    const resolver = new Resolver(db, env.MEDIA, client, transforms, timestamp, !!options.force, options.fetchImpl);
 
     const recordError = async (id: string, error: unknown) => {
         summary.checked++;
@@ -377,7 +382,10 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
             mapped.lastUpdatedAt &&
             existing.source_updated_at === mapped.lastUpdatedAt &&
             existing.slug === slug &&
-            existing.render_context === renderContext
+            existing.render_context === renderContext &&
+            // Re-render periodically anyway, so changes to referenced tags, links, tables and
+            // images (which don't touch the post's own lastUpdatedAt) still come through.
+            !isStale(existing.synced_at, timestamp)
         ) {
             await markChecked(id, "published").run();
             return "unchanged";
@@ -386,7 +394,9 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
         const record = await buildRecord(slug, mapped);
         if (existing && existing.content_hash === record.content_hash) {
             await db.batch([
-                db.prepare("UPDATE posts SET source_updated_at = ?, render_context = ? WHERE id = ?").bind(mapped.lastUpdatedAt, renderContext, id),
+                db
+                    .prepare("UPDATE posts SET source_updated_at = ?, render_context = ?, synced_at = ? WHERE id = ?")
+                    .bind(mapped.lastUpdatedAt, renderContext, now().toISOString(), id),
                 markChecked(id, "published"),
             ]);
             return "unchanged";
@@ -452,6 +462,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
             content_hash: record.content_hash,
             source_updated_at: mapped.lastUpdatedAt,
             render_context: renderContext,
+            synced_at: now().toISOString(),
         });
 
         if (existing) {
@@ -523,6 +534,8 @@ class Resolver {
     private readonly mediaRows = new Map<string, MediaRow>();
     private readonly entities = new Map<string, EntityRow>();
     private readonly tables = new Map<string, string[][]>();
+    /** Objects already re-read during this run. */
+    private readonly refreshed = new Set<string>();
 
     constructor(
         private readonly db: D1Database,
@@ -530,20 +543,27 @@ class Resolver {
         private readonly client: CapacitiesClient,
         private readonly transforms: boolean,
         private readonly timestamp: string,
+        /** Re-read every referenced object, ignoring cache freshness. */
+        private readonly force: boolean,
         private readonly fetchImpl: typeof fetch = fetch.bind(globalThis),
     ) {}
 
+    private fresh(checkedAt: string | undefined) {
+        return !!checkedAt && !this.force && !isStale(checkedAt, this.timestamp);
+    }
+
     async preload(embedIds: string[], _linkIds: string[]) {
-        const ids = embedIds.filter((id) => !this.mediaRows.has(id) && !this.entities.has(id));
+        const ids = embedIds.filter((id) => !this.refreshed.has(id));
         if (!ids.length) return;
-        await this.loadCached(ids);
+        await this.loadCached(ids.filter((id) => !this.mediaRows.has(id) && !this.entities.has(id)));
 
         for (const id of ids) {
-            if (this.mediaRows.has(id)) continue;
+            if (this.fresh(this.mediaRows.get(id)?.checked_at)) continue;
             const cached = this.entities.get(id);
-            if (cached && !isStale(cached.checked_at, this.timestamp) && cached.structure_id !== "RootSimpleTable") continue;
+            if (cached && this.fresh(cached.checked_at) && cached.structure_id !== "RootSimpleTable") continue;
 
             const object = await this.client.object(id);
+            this.refreshed.add(id);
             if (object.structureId === "MediaImage") {
                 await this.importMedia(object);
                 continue;
@@ -570,7 +590,7 @@ class Resolver {
             const chunk = ids.slice(i, i + 50);
             const marks = chunk.map(() => "?").join(",");
             const media = await this.db
-                .prepare(`SELECT id, r2_key, width, height, alt, caption FROM media WHERE id IN (${marks})`)
+                .prepare(`SELECT id, r2_key, width, height, alt, caption, checked_at FROM media WHERE id IN (${marks})`)
                 .bind(...chunk)
                 .all<MediaRow>();
             for (const row of media.results) this.mediaRows.set(row.id, row);
@@ -588,8 +608,9 @@ class Resolver {
         const names: string[] = [];
         for (const id of ids) {
             let row = this.entities.get(id);
-            if (!row || isStale(row.checked_at, this.timestamp)) {
+            if (!row || (!this.fresh(row.checked_at) && !this.refreshed.has(id))) {
                 const object = await this.client.object(id);
+                this.refreshed.add(id);
                 row = { id, structure_id: object.structureId, title: textValue(object.properties?.title), url: null, checked_at: this.timestamp };
                 this.entities.set(id, row);
                 await this.db
@@ -653,7 +674,8 @@ class Resolver {
         const id = `url:${await sha256(url)}`;
         await this.loadCached([id]);
         const cached = this.mediaRows.get(id);
-        if (cached) return cached;
+        if (cached && (this.fresh(cached.checked_at) || this.refreshed.has(id))) return cached;
+        this.refreshed.add(id);
         const row = await this.store(id, url, null, "", null);
         if (row) this.mediaRows.set(id, row);
         return row;
@@ -676,12 +698,20 @@ class Resolver {
         const key = `${digest.slice(0, 24)}.${ext}`;
         const dims = imageDimensions(bytes, type);
         await this.bucket.put(key, bytes, { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" } });
-        const row: MediaRow = { id, r2_key: key, width: dims?.width ?? null, height: dims?.height ?? null, alt: alt || null, caption };
+        const row: MediaRow = {
+            id,
+            r2_key: key,
+            width: dims?.width ?? null,
+            height: dims?.height ?? null,
+            alt: alt || null,
+            caption,
+            checked_at: this.timestamp,
+        };
         await this.db
             .prepare(
-                "INSERT INTO media (id, r2_key, content_type, width, height, bytes, alt, caption, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET r2_key = excluded.r2_key, content_type = excluded.content_type, width = excluded.width, height = excluded.height, bytes = excluded.bytes, alt = excluded.alt, caption = excluded.caption",
+                "INSERT INTO media (id, r2_key, content_type, width, height, bytes, alt, caption, created_at, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET r2_key = excluded.r2_key, content_type = excluded.content_type, width = excluded.width, height = excluded.height, bytes = excluded.bytes, alt = excluded.alt, caption = excluded.caption, checked_at = excluded.checked_at",
             )
-            .bind(id, key, type, row.width, row.height, bytes.byteLength, row.alt, row.caption, this.timestamp)
+            .bind(id, key, type, row.width, row.height, bytes.byteLength, row.alt, row.caption, this.timestamp, this.timestamp)
             .run();
         return row;
     }
