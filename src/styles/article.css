@@ -1,0 +1,236 @@
+/* Styles for article HTML rendered from Capacities. Builds on the Untitled UI prose styles. */
+
+.article-body {
+    overflow-wrap: break-word;
+}
+
+.article-body :where(h2, h3, h4) {
+    scroll-margin-top: calc(var(--spacing) * 24);
+}
+
+.article-body :where(h2, h3) a,
+.article-body :where(p, li) a {
+    text-decoration-thickness: 1px;
+}
+
+.article-body :where(a:not(.link-card a)) {
+    color: var(--color-text-brand-secondary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.article-body :where(a:not(.link-card a)):hover {
+    color: var(--color-text-brand-secondary_hover);
+}
+
+.article-body mark {
+    background: var(--color-utility-yellow-100);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* Code */
+.article-body pre {
+    position: relative;
+    overflow-x: auto;
+    margin: calc(var(--spacing) * 6) 0;
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-secondary);
+    box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    tab-size: 4;
+}
+.article-body pre[data-lang] {
+    padding-top: calc(var(--spacing) * 8);
+}
+.article-body pre[data-lang]::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: calc(var(--spacing) * 2);
+    right: calc(var(--spacing) * 3);
+    color: var(--color-text-quaternary);
+    font-size: var(--text-xs);
+    font-family: var(--font-body);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.article-body pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+    border: 0;
+}
+.article-body pre.math {
+    text-align: center;
+}
+
+/* Figures */
+.article-body figure.image img {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-xl);
+}
+.article-body figure.image figcaption,
+.article-body figure.video figcaption {
+    text-align: center;
+}
+.article-body .video-frame {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-secondary);
+}
+.article-body .video-frame iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* Pull quote */
+.article-body figure.pullquote blockquote {
+    border: 0;
+    padding: 0;
+    text-align: center;
+    font-size: var(--text-display-xs);
+    line-height: var(--text-display-xs--line-height);
+    font-weight: 500;
+    font-style: italic;
+    color: var(--color-text-primary);
+}
+
+/* Callouts */
+.article-body .callout {
+    --callout-bg: var(--color-bg-secondary);
+    --callout-border: var(--color-border-secondary);
+    margin: calc(var(--spacing) * 6) 0;
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5);
+    border-radius: var(--radius-xl);
+    background: var(--callout-bg);
+    box-shadow: inset 0 0 0 1px var(--callout-border);
+    color: var(--color-text-secondary);
+}
+.article-body .callout > :first-child {
+    margin-top: 0;
+}
+.article-body .callout > :last-child {
+    margin-bottom: 0;
+}
+.article-body .callout[data-tone="info"] {
+    --callout-bg: var(--color-utility-blue-50);
+    --callout-border: var(--color-utility-blue-200);
+}
+.article-body .callout[data-tone="brand"] {
+    --callout-bg: var(--color-utility-brand-50);
+    --callout-border: var(--color-utility-brand-200);
+}
+.article-body .callout[data-tone="success"] {
+    --callout-bg: var(--color-utility-green-50);
+    --callout-border: var(--color-utility-green-200);
+}
+.article-body .callout[data-tone="warning"] {
+    --callout-bg: var(--color-utility-yellow-50);
+    --callout-border: var(--color-utility-yellow-200);
+}
+.article-body .callout[data-tone="danger"] {
+    --callout-bg: var(--color-utility-red-50);
+    --callout-border: var(--color-utility-red-200);
+}
+
+/* Link cards for embedded web links */
+.article-body .link-card a {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5);
+    border-radius: var(--radius-xl);
+    box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+    text-decoration: none;
+    transition:
+        box-shadow 100ms linear,
+        background-color 100ms linear;
+}
+.article-body .link-card a:hover {
+    background: var(--color-bg-primary_hover);
+    box-shadow: inset 0 0 0 1px var(--color-border-primary);
+}
+.article-body .link-card-title {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+.article-body .link-card-host {
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+}
+
+/* Tables */
+.article-body .table-wrap {
+    overflow-x: auto;
+    margin: calc(var(--spacing) * 6) 0;
+    border-radius: var(--radius-xl);
+    box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+}
+.article-body table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+}
+.article-body th {
+    background: var(--color-bg-secondary);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    text-align: left;
+}
+.article-body :where(th, td) {
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border-bottom: 1px solid var(--color-border-secondary);
+    vertical-align: top;
+}
+.article-body tr:last-child td {
+    border-bottom: 0;
+}
+
+/* Columns, toggles, task lists, nested content */
+.article-body .columns {
+    display: grid;
+    gap: calc(var(--spacing) * 6);
+}
+@media (width >= 48rem) {
+    .article-body .columns {
+        grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr));
+    }
+}
+.article-body .columns > div > :first-child {
+    margin-top: 0;
+}
+.article-body details {
+    margin: calc(var(--spacing) * 4) 0;
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+}
+.article-body details summary {
+    cursor: pointer;
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+.article-body ul.task-list {
+    list-style: none;
+    padding-inline-start: 0;
+}
+.article-body ul.task-list input {
+    margin-inline-end: calc(var(--spacing) * 2);
+    accent-color: var(--color-bg-brand-solid);
+}
+.article-body .indent {
+    padding-inline-start: calc(var(--spacing) * 6);
+}
