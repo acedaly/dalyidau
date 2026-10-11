@@ -67,4 +67,15 @@ The canonical identity of an article is its Capacities object id. Slugs can chan
 
 The UI uses Untitled UI React components from the official Vite starter kit (`npx untitledui init --vite`): Button, ButtonUtility, Badge, BadgeWithDot, Input, Tooltip, FeaturedIcon, background patterns, social icons and the theme tokens and typography. The header is adapted from the kit's marketing header.
 
-The Untitled UI MCP connector in this workspace reports PRO access, but the CLI needs a licence key to download PRO components and none was available during the build. **No PRO components are used.** The blog listing and article layouts are built from the free components following Untitled UI conventions. To swap in PRO blog sections later, run `npx untitledui@latest login`, then for example `npx untitledui@latest add blog-header-featured-post-02`.
+Untitled UI PRO sections were added with `npx untitledui@latest add` and adapted to the site's content, data and CSP. They live in `src/components/marketing/` and `src/components/application/`:
+
+| PRO component | Used for |
+| --- | --- |
+| `hero-simple-text-01` | Homepage hero |
+| `blog-section-simple-left-aligned-01` and its blog card (`Simple01Vertical`) | Homepage "Latest writing" and every post card |
+| `features-simple-icons-01` (`FeatureTextFeaturedIconTopLeft`) | Homepage "What I write about" |
+| `content-section-simple-01` | About page |
+| `footer-small-01` | Site footer |
+| `empty-state` | Empty and no-results states |
+
+Each file notes what was changed from the original. In short: demo content and stock photos were replaced with site data; remote pattern images were swapped for the local SVG patterns (the CSP only allows same-origin images); and unused variants (file-type icons, illustrations, the grid-check pattern) were removed to keep the client bundle small. The empty state uses a `div` and an `h2` instead of `main` and `h1` because it renders inside the page's own `main`.
