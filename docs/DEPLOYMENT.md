@@ -64,38 +64,21 @@ Until `CAPACITIES_API_TOKEN` is set, each cron run logs "CAPACITIES_API_TOKEN is
 
 Check it works at `https://dalyidau.<account>.workers.dev`, then run a manual sync ([OPERATIONS.md](OPERATIONS.md)).
 
-## DNS cut-over: needs your approval
+## DNS cut-over (done 11 October 2026)
 
-This is the only step that changes live DNS. It hasn't been done.
+`daly.id.au` and `www.daly.id.au` are Custom Domains on the `dalyidau` Worker, declared in the `routes` block of `wrangler.jsonc`. Cloudflare manages their DNS records and certificates. The Worker 301s `www` to the apex.
 
-**Current records (checked 11 October 2026):**
+**Records removed (the only DNS change):**
 
-| Name | Type | Value | Proxied | Used by |
+| Name | Type | Value | Proxied | Was used by |
 | --- | --- | --- | --- | --- |
-| `daly.id.au` | A | `103.168.172.37`, `103.168.172.52` | No | Current Fastmail-hosted homepage |
-| `www.daly.id.au` | A/CNAME | (proxied) | Yes | Old cPanel host serving a default page |
-| `*.daly.id.au` (inferred: unknown names resolve to the Fastmail IPs) | A | `103.168.172.37`, `103.168.172.52` | No | Fastmail web hosting |
-| `hub.daly.id.au` | (proxied) | | Yes | DalyHub, **leave alone** |
-| MX | | `us1-smtp.messagingengine.com` (10), `us2-smtp.messagingengine.com` (20) | | Email, **leave alone** |
-| TXT `daly.id.au` | | `v=spf1 a:my.daly.id.au include:spf.messagingengine.com ~all` | | SPF, **leave alone** |
-| `fm1/fm2/fm3._domainkey` | CNAME | `…dkim.fmhosted.com` | | DKIM, **leave alone** |
-| `_dmarc` | TXT | `v=DMARC1; p=quarantine` | | DMARC, **leave alone** |
+| `daly.id.au` | A | `103.168.172.37` | No | Fastmail-hosted homepage |
+| `daly.id.au` | A | `103.168.172.52` | No | Fastmail-hosted homepage |
+| `www.daly.id.au` | A | `110.232.143.111` | Yes | Old cPanel host serving a default page |
 
-**Change (two records only):**
+**Left alone:** the `*.daly.id.au` wildcard (Fastmail IPs, also what `my.daly.id.au` in the SPF record resolves through), `mail`, MX, SPF, DKIM (`fm1`–`fm3`), DMARC, the Fastmail SRV records, `hub.daly.id.au` and `mcp.daly.id.au` (DalyHub Workers) and every other subdomain.
 
-1. In Cloudflare DNS for `daly.id.au`, note down then delete the two apex **A** records (`103.168.172.37`, `103.168.172.52`) and the **www** record. Touch nothing else.
-2. Uncomment the `routes` block in `wrangler.jsonc`:
-   ```jsonc
-   "routes": [
-       { "pattern": "daly.id.au", "custom_domain": true },
-       { "pattern": "www.daly.id.au", "custom_domain": true }
-   ],
-   ```
-3. Push to `main`. Wrangler attaches both hostnames to the Worker, creates the DNS records and issues certificates. The Worker 301s `www` to the apex.
-
-Wrangler refuses to attach a custom domain while another A/AAAA/CNAME record exists for that name, so step 3 can't overwrite anything by accident. Email isn't affected: MX, SPF, DKIM and DMARC records are separate from the A records. Wildcard subdomains and `hub.daly.id.au` keep their own records.
-
-**Undo the cut-over:** comment the `routes` block again and deploy (or remove the custom domains under Workers & Pages → dalyidau → Settings → Domains), then recreate the two A records above.
+**Undo the cut-over:** remove the two Custom Domains (Workers & Pages → dalyidau → Settings → Domains & Routes), comment out the `routes` block, then recreate the three records above.
 
 ## Rollback
 

@@ -34,15 +34,14 @@
         "SYNC_REQUEST_SPACING_MS": "2100",
         "IMAGE_TRANSFORMS": "off",
     },
-    // The site is reachable on workers.dev until the DNS cut-over is approved.
-    // Cut-over: uncomment "routes" (see docs/DEPLOYMENT.md). Wrangler refuses to attach a
-    // custom domain while other A/AAAA/CNAME records exist for that hostname, so this cannot
-    // silently replace the existing apex records.
+    // daly.id.au and www.daly.id.au are Custom Domains on this Worker (cut over 11 October 2026,
+    // see docs/DEPLOYMENT.md). The Worker 301s www to the apex. workers.dev stays on as a
+    // noindex preview host.
     "workers_dev": true,
-    // "routes": [
-    //     { "pattern": "daly.id.au", "custom_domain": true },
-    //     { "pattern": "www.daly.id.au", "custom_domain": true }
-    // ],
+    "routes": [
+        { "pattern": "daly.id.au", "custom_domain": true },
+        { "pattern": "www.daly.id.au", "custom_domain": true },
+    ],
     "observability": { "enabled": true },
     "env": {
         "staging": {
