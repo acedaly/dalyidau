@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+# Point local dev at the mock Capacities server (npm run mock:capacities)...
+CAPACITIES_API_BASE=http://localhost:8790
+CAPACITIES_API_TOKEN=cap-api-local-mock
+ADMIN_TOKEN=local-admin-token-change-me-0123456789
+SYNC_REQUEST_SPACING_MS=0
+ENVIRONMENT=development
+SITE_URL=http://localhost:8787
