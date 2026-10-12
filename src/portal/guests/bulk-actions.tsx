@@ -102,7 +102,7 @@ export const BulkActions = ({ ids, clear, events, households, onDone }: BulkActi
                 isOpen={action === "delete"}
                 onOpenChange={(o) => !o && setAction(null)}
                 title={`Delete ${pluralise(ids.length, "guest")}?`}
-                description="They'll be removed from the guest list and every event. The audit log keeps a copy of their details."
+                description="They'll disappear from the guest list, counts, exports and the RSVP form. You can restore them from Settings → Privacy."
                 confirmLabel="Delete"
                 destructive
                 onConfirm={run}

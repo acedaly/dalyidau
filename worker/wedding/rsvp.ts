@@ -7,6 +7,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { RsvpHousehold, RsvpStatus } from "../../src/shared/portal/types";
 import { auditStatement, newId, normaliseRsvpCode, nowIso } from "../portal/db";
+import { REDACTED } from "../portal/redact";
 import { getSettings } from "../portal/settings";
 import { todayIn } from "../portal/stats";
 
@@ -55,7 +56,10 @@ const codeSchema = z.object({ code: z.string().min(4).max(20) });
 async function householdForCode(db: D1Database, rawCode: string) {
     const code = normaliseRsvpCode(rawCode);
     if (code.length < 6) return null;
-    return db.prepare("SELECT id, name, rsvp_code FROM households WHERE rsvp_code = ?").bind(code).first<{ id: string; name: string; rsvp_code: string }>();
+    return db
+        .prepare("SELECT id, name, rsvp_code FROM households WHERE rsvp_code = ? AND deleted_at IS NULL")
+        .bind(code)
+        .first<{ id: string; name: string; rsvp_code: string }>();
 }
 
 async function deadlinePassed(db: D1Database) {
@@ -66,14 +70,16 @@ async function deadlinePassed(db: D1Database) {
 async function loadHousehold(db: D1Database, household: { id: string; name: string }): Promise<RsvpHousehold> {
     const [guests, invitations, settings, passed] = await Promise.all([
         db
-            .prepare("SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? ORDER BY is_plus_one, age_group, first_name")
+            .prepare(
+                "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, age_group, first_name",
+            )
             .bind(household.id)
             .all<{ id: string; first_name: string; last_name: string; age_group: "adult" | "child" | "infant"; dietary: string | null }>(),
         db
             .prepare(
                 `SELECT ge.guest_id, ge.event_id, ge.status, e.name, e.starts_at, e.venue_name FROM guest_events ge
                  JOIN events e ON e.id = ge.event_id JOIN guests g ON g.id = ge.guest_id
-                 WHERE g.household_id = ? AND e.rsvp_enabled = 1 ORDER BY e.sort_order, e.starts_at`,
+                 WHERE g.household_id = ? AND g.deleted_at IS NULL AND e.rsvp_enabled = 1 ORDER BY e.sort_order, e.starts_at`,
             )
             .bind(household.id)
             .all<{ guest_id: string; event_id: string; status: RsvpStatus; name: string; starts_at: string | null; venue_name: string | null }>(),
@@ -193,7 +199,8 @@ export async function submitRsvp(db: D1Database, request: Request, input: unknow
             entityType: "household",
             entityId: household.id,
             summary: `${household.name} responded online (${attending} attending)`,
-            changes: { guests: summary },
+            // Who answered what is kept; dietary notes stay in the submission and the guest record only.
+            changes: { guests: summary.map(({ dietary, ...g }) => ({ ...g, dietary: dietary ? REDACTED : null })) },
         }),
     );
     await db.batch(statements);

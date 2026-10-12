@@ -9,6 +9,7 @@ import { deliveryAvailable, getMessage, listMessages } from "./comms";
 import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
+import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
 import { getSettings } from "./settings";
 import { computeStats } from "./stats";
@@ -154,16 +155,19 @@ const PAGES: PageDef[] = [
         },
     },
     {
-        pattern: /^\/portal\/settings(?:\/(general|features|fields|people))?$/,
+        pattern: /^\/portal\/settings(?:\/(general|features|fields|people|privacy))?$/,
         title: "Settings",
         permission: "wedding.view",
         load: async ({ env, user, match }) => {
-            const tab = (match[1] ?? "general") as "general" | "features" | "fields" | "people";
-            const [customFields, users] = await Promise.all([
+            const tab = (match[1] ?? "general") as "general" | "features" | "fields" | "people" | "privacy";
+            const [customFields, users, privacy, deleted, retention] = await Promise.all([
                 listEntities(env.DB, customFieldDef),
                 can(user, "portal.users.manage") ? listUsers(env, env.DB) : Promise.resolve(null),
+                getSettings(env.DB, "privacy"),
+                can(user, "wedding.guests.edit") ? listDeleted(env.DB) : Promise.resolve(null),
+                can(user, "portal.data.erase") ? retentionPreview(env.DB) : Promise.resolve(null),
             ]);
-            return { route: "settings", tab, customFields, users };
+            return { route: "settings", tab, customFields, users, privacy: deleted ? { settings: privacy, deleted, retention } : null };
         },
     },
     {

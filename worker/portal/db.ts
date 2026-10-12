@@ -1,6 +1,14 @@
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 
-export const nowIso = () => new Date().toISOString();
+let lastTimestamp = 0;
+/**
+ * The current time as ISO 8601, strictly increasing within an isolate. updated_at doubles as a
+ * record version for compare-and-set saves, so two writes in the same millisecond must differ.
+ */
+export const nowIso = () => {
+    lastTimestamp = Math.max(Date.now(), lastTimestamp + 1);
+    return new Date(lastTimestamp).toISOString();
+};
 
 const ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 /** Unambiguous for people reading codes off paper: no 0/O, 1/I/L, 5/S, 2/Z, U/V. */
@@ -60,6 +68,25 @@ export const auditStatement = (db: D1Database, entry: AuditInput): D1PreparedSta
             entry.summary.slice(0, 500),
             entry.changes === undefined ? null : JSON.stringify(entry.changes),
         );
+
+/** Like auditStatement, but only records anything if the previous statement in the batch changed a row. */
+export const auditIfChanged = (db: D1Database, entry: AuditInput): D1PreparedStatement =>
+    db
+        .prepare("INSERT INTO audit_log (at, actor, action, entity_type, entity_id, summary, changes) SELECT ?, ?, ?, ?, ?, ?, ? WHERE changes() > 0")
+        .bind(
+            nowIso(),
+            entry.actor,
+            entry.action,
+            entry.entityType,
+            entry.entityId ?? null,
+            entry.summary.slice(0, 500),
+            entry.changes === undefined ? null : JSON.stringify(entry.changes),
+        );
+
+/** Aborts (and rolls back) the batch if the previous statement changed no rows. */
+export const requireChange = (db: D1Database): D1PreparedStatement => db.prepare("INSERT INTO batch_guard (ok) SELECT 0 WHERE changes() = 0");
+
+export const isGuardFailure = (error: unknown) => /batch_guard|CHECK constraint failed: ok = 1/.test(String((error as Error)?.message ?? error));
 
 export const audit = async (db: D1Database, entry: AuditInput) => {
     await auditStatement(db, entry).run();

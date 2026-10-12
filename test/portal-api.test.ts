@@ -34,12 +34,13 @@ describe("guests", () => {
         // A partial update must not reset fields that weren't sent.
         expect(updated.json.guest).toMatchObject({ lastName: "Smith", side: "shared", tags: ["family"], householdId: household.id });
 
+        // The audit log records that dietary changed, not the value.
         const audit = await db().prepare("SELECT changes FROM audit_log WHERE action = 'guest.update'").first<{ changes: string }>();
-        expect(JSON.parse(audit!.changes)).toEqual({ dietary: [null, "Vegetarian"] });
+        expect(JSON.parse(audit!.changes)).toEqual({ dietary: ["[redacted]", "[redacted]"] });
 
         expect((await apiCall("DELETE", `/api/portal/wedding/guests/${guest.id}`)).status).toBe(200);
-        const snapshot = await db().prepare("SELECT changes FROM audit_log WHERE action = 'guest.delete'").first<{ changes: string }>();
-        expect(JSON.parse(snapshot!.changes).deleted.firstName).toBe("Sam");
+        const deletedEntry = await db().prepare("SELECT changes FROM audit_log WHERE action = 'guest.delete'").first<{ changes: string | null }>();
+        expect(deletedEntry!.changes).toBeNull();
         expect(await auditActions()).toEqual(["event.create", "household.create", "guest.create", "guest.update", "guest.delete"]);
     });
 
@@ -112,7 +113,9 @@ describe("guests", () => {
 
         await apiCall("POST", "/api/portal/wedding/guests/bulk", { action: "delete", ids: [a.id] });
         const audit = await db().prepare("SELECT changes FROM audit_log WHERE action = 'guest.bulk.delete'").first<{ changes: string }>();
-        expect(JSON.parse(audit!.changes).deleted[0].firstName).toBe("A");
+        expect(JSON.parse(audit!.changes)).toEqual({ ids: [a.id] });
+        const remaining = await apiCall<{ guests: Guest[] }>("GET", "/api/portal/wedding/guests");
+        expect(remaining.json.guests.map((g) => g.firstName)).toEqual(["B"]);
 
         // The guest's activity includes bulk changes that named them.
         const activity = await apiCall<{ entries: { action: string }[] }>("GET", `/api/portal/audit?entityId=${b.id}`);
@@ -310,6 +313,7 @@ describe("portal pages", () => {
         "/portal/wedding/website",
         "/portal/settings",
         "/portal/settings/people",
+        "/portal/settings/privacy",
         "/portal/audit",
         "/portal/wedding/website/preview",
         "/portal/wedding/website/preview/rsvp",

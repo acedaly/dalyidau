@@ -31,8 +31,8 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
             `SELECT COUNT(*) AS total,
                     SUM(age_group = 'adult') AS adults, SUM(age_group = 'child') AS children, SUM(age_group = 'infant') AS infants,
                     SUM(email IS NULL OR email = '') AS without_email,
-                    (SELECT COUNT(*) FROM households) AS households
-             FROM guests`,
+                    (SELECT COUNT(*) FROM households WHERE deleted_at IS NULL) AS households
+             FROM guests WHERE deleted_at IS NULL`,
         ),
         db.prepare(
             `SELECT
@@ -46,10 +46,11 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
                        SUM(ge.status = 'attending') AS attending,
                        SUM(ge.status = 'declined') AS declined
                 FROM guests g LEFT JOIN guest_events ge ON ge.guest_id = g.id
+                WHERE g.deleted_at IS NULL
                 GROUP BY g.id
              )`,
         ),
-        db.prepare("SELECT side, COUNT(*) AS count FROM guests GROUP BY side"),
+        db.prepare("SELECT side, COUNT(*) AS count FROM guests WHERE deleted_at IS NULL GROUP BY side"),
         db.prepare(
             `SELECT e.id, e.name, e.starts_at,
                     COUNT(ge.guest_id) AS invited,
@@ -57,24 +58,27 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
                     SUM(ge.status = 'declined') AS declined,
                     SUM(ge.status = 'pending') AS pending
              FROM events e LEFT JOIN guest_events ge ON ge.event_id = e.id
+                AND ge.guest_id IN (SELECT id FROM guests WHERE deleted_at IS NULL)
              GROUP BY e.id ORDER BY e.sort_order, e.starts_at`,
         ),
         // Dietary needs of guests who are coming to at least one event.
         db.prepare(
             `SELECT TRIM(dietary) AS label, COUNT(*) AS count FROM guests g
-             WHERE dietary IS NOT NULL AND TRIM(dietary) != ''
+             WHERE g.deleted_at IS NULL AND dietary IS NOT NULL AND TRIM(dietary) != ''
                AND EXISTS (SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id AND ge.status = 'attending')
              GROUP BY LOWER(TRIM(dietary)) ORDER BY count DESC LIMIT 12`,
         ),
         db.prepare(
             `SELECT s.submitted_at, s.payload, h.name AS household_name FROM rsvp_submissions s
-             JOIN households h ON h.id = s.household_id ORDER BY s.submitted_at DESC LIMIT 8`,
+             JOIN households h ON h.id = s.household_id AND h.deleted_at IS NULL ORDER BY s.submitted_at DESC LIMIT 8`,
         ),
         // The day each guest first answered anything.
         db.prepare(
             `SELECT day, COUNT(*) AS count FROM (
                 SELECT guest_id, MIN(substr(responded_at, 1, 10)) AS day FROM guest_events
-                WHERE status != 'pending' AND responded_at IS NOT NULL GROUP BY guest_id
+                WHERE status != 'pending' AND responded_at IS NOT NULL
+                  AND guest_id IN (SELECT id FROM guests WHERE deleted_at IS NULL)
+                GROUP BY guest_id
              ) GROUP BY day ORDER BY day`,
         ),
     ]);

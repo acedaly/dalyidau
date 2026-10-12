@@ -34,6 +34,7 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
         "/portal/settings",
+        "/portal/settings/privacy",
         "/portal/audit",
     ]) {
         await page.goto(path);
@@ -164,4 +165,41 @@ test("dark mode works in the portal", async ({ page }) => {
     await expect(page.locator("html")).toHaveClass(/dark-mode/);
     // Restore.
     await page.evaluate(() => localStorage.removeItem("ui-theme"));
+});
+
+test("deletes a guest, restores it, then erases it with typed confirmation", async ({ page, request }, info) => {
+    const name = `Rowan Erasable${info.project.name}`;
+    await api(request, "post", "/api/portal/wedding/guests", { firstName: "Rowan", lastName: `Erasable${info.project.name}` });
+
+    await page.goto("/portal/wedding/guests");
+    await page.getByRole("searchbox", { name: "Search guests" }).fill(name);
+    await page.getByRole("rowheader", { name: new RegExp(name) }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete guest" }).click();
+    await expect(page.getByText("Guest deleted")).toBeVisible();
+
+    await page.goto("/portal/settings/privacy");
+    const row = page.getByRole("row", { name: new RegExp(name) });
+    await row.getByRole("button", { name: "Restore" }).click();
+    await expect(page.getByText(`${name} restored`)).toBeVisible();
+    await expect(row).toBeHidden();
+
+    // Delete again via the API, then erase from the UI.
+    const guests = (await (await request.get("/api/portal/wedding/guests")).json()).guests as { id: string; firstName: string; lastName: string }[];
+    const id = guests.find((g) => `${g.firstName} ${g.lastName}` === name)!.id;
+    await request.delete(`/api/portal/wedding/guests/${id}`, { headers: { Origin: "http://localhost:8787" } });
+    await page.reload();
+    await page
+        .getByRole("row", { name: new RegExp(name) })
+        .getByRole("button", { name: "Erase" })
+        .click();
+    const dialog = page.getByRole("dialog");
+    const erase = dialog.getByRole("button", { name: "Erase permanently" });
+    await dialog.getByLabel(/Type .* to confirm/).fill("wrong name");
+    await erase.click();
+    await expect(page.getByText("Couldn't erase")).toBeVisible();
+    await dialog.getByLabel(/Type .* to confirm/).fill(name);
+    await erase.click();
+    await expect(page.getByText("Permanently erased")).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(name) })).toBeHidden();
 });

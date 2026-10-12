@@ -1,8 +1,9 @@
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { CustomField, Guest, GuestEventStatus, RsvpSource, RsvpStatus } from "../../src/shared/portal/types";
-import { auditStatement, chunk, diff, newId, nowIso, parseJson, placeholders } from "./db";
-import { NotFoundError, ValidationError, customFieldDef, fields, listEntities } from "./entities";
+import { auditStatement, chunk, diff, isGuardFailure, newId, nowIso, parseJson, placeholders, requireChange } from "./db";
+import { CONFLICT_MESSAGE, ConflictError, NotFoundError, ValidationError, customFieldDef, fields, listEntities, takeExpectedVersion } from "./entities";
+import { redactChanges } from "./redact";
 
 const guestSchema = z.object({
     firstName: fields.str(80).min(1, "First name is required"),
@@ -77,14 +78,14 @@ const toGuest = (row: Record<string, unknown>, events: GuestEventStatus[]): Gues
     updatedAt: row.updated_at as string,
 });
 
-const SELECT = "SELECT g.*, h.name AS household_name FROM guests g LEFT JOIN households h ON h.id = g.household_id";
+const SELECT = "SELECT g.*, h.name AS household_name FROM guests g LEFT JOIN households h ON h.id = g.household_id AND h.deleted_at IS NULL";
 
 type EventRow = { guest_id: string; event_id: string; status: RsvpStatus; source: RsvpSource | null; responded_at: string | null };
 const toEventStatus = (row: EventRow): GuestEventStatus => ({ eventId: row.event_id, status: row.status, source: row.source, respondedAt: row.responded_at });
 
 export async function listGuests(db: D1Database): Promise<Guest[]> {
     const [guests, events] = await db.batch([
-        db.prepare(`${SELECT} ORDER BY g.last_name COLLATE NOCASE, g.first_name COLLATE NOCASE`),
+        db.prepare(`${SELECT} WHERE g.deleted_at IS NULL ORDER BY g.last_name COLLATE NOCASE, g.first_name COLLATE NOCASE`),
         db.prepare("SELECT ge.* FROM guest_events ge JOIN events e ON e.id = ge.event_id ORDER BY e.sort_order, e.starts_at"),
     ]);
     const byGuest = new Map<string, GuestEventStatus[]>();
@@ -96,8 +97,12 @@ export async function listGuests(db: D1Database): Promise<Guest[]> {
     return (guests.results as Record<string, unknown>[]).map((row) => toGuest(row, byGuest.get(row.id as string) ?? []));
 }
 
-export async function getGuest(db: D1Database, id: string): Promise<Guest | null> {
-    const row = await db.prepare(`${SELECT} WHERE g.id = ?`).bind(id).first<Record<string, unknown>>();
+/** A live guest, or with includeDeleted a guest in the "deleted" state too. */
+export async function getGuest(db: D1Database, id: string, includeDeleted = false): Promise<Guest | null> {
+    const row = await db
+        .prepare(`${SELECT} WHERE g.id = ?${includeDeleted ? "" : " AND g.deleted_at IS NULL"}`)
+        .bind(id)
+        .first<Record<string, unknown>>();
     if (!row) return null;
     const events = await db
         .prepare("SELECT ge.* FROM guest_events ge JOIN events e ON e.id = ge.event_id WHERE ge.guest_id = ? ORDER BY e.sort_order, e.starts_at")
@@ -153,7 +158,7 @@ export function cleanCustom(input: Record<string, unknown>, definitions: CustomF
 
 async function checkReferences(db: D1Database, householdId: unknown, eventIds: string[] | undefined) {
     if (typeof householdId === "string") {
-        const exists = await db.prepare("SELECT 1 FROM households WHERE id = ?").bind(householdId).first();
+        const exists = await db.prepare("SELECT 1 FROM households WHERE id = ? AND deleted_at IS NULL").bind(householdId).first();
         if (!exists) throw new ValidationError("That household no longer exists", "householdId");
     }
     if (eventIds?.length) {
@@ -194,8 +199,10 @@ export async function createGuest(db: D1Database, input: unknown, actor: string)
 }
 
 export async function updateGuest(db: D1Database, id: string, input: unknown, actor: string): Promise<Guest> {
+    const expected = takeExpectedVersion(input);
     const before = await getGuest(db, id);
     if (!before) throw new NotFoundError("Guest not found");
+    if (expected && expected !== before.updatedAt) throw new ConflictError(CONFLICT_MESSAGE);
     const sent = new Set(input && typeof input === "object" ? Object.keys(input) : []);
     const parsed = guestSchema.partial().parse(input);
     const patch = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.has(key))) as Partial<z.output<typeof guestSchema>>;
@@ -223,37 +230,41 @@ export async function updateGuest(db: D1Database, id: string, input: unknown, ac
     }
     if (Object.keys(changes).length === 0) return before;
 
-    const statements: D1PreparedStatement[] = [];
-    if (sets.length) statements.push(db.prepare(`UPDATE guests SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`).bind(...values, nowIso(), id));
-    else statements.push(db.prepare("UPDATE guests SET updated_at = ? WHERE id = ?").bind(nowIso(), id));
-    statements.push(...invitationStatements(db, id, currentEvents, wantedEvents));
-    statements.push(
+    // Compare-and-set on updated_at: if someone saved in between, the whole batch rolls back.
+    const statements: D1PreparedStatement[] = [
+        db
+            .prepare(`UPDATE guests SET ${[...sets, "updated_at = ?"].join(", ")} WHERE id = ? AND updated_at = ? AND deleted_at IS NULL`)
+            .bind(...values, nowIso(), id, before.updatedAt),
+        requireChange(db),
+        ...invitationStatements(db, id, currentEvents, wantedEvents),
         auditStatement(db, {
             actor,
             action: "guest.update",
             entityType: "guest",
             entityId: id,
             summary: `Updated guest “${guestName({ ...before, ...patch })}”`,
-            changes,
+            changes: redactChanges(changes),
         }),
-    );
-    await db.batch(statements);
+    ];
+    try {
+        await db.batch(statements);
+    } catch (error) {
+        if (isGuardFailure(error)) throw new ConflictError(CONFLICT_MESSAGE);
+        throw error;
+    }
     return (await getGuest(db, id))!;
 }
 
+/**
+ * Moves a guest to "Deleted": hidden from every list, count, export, message and the RSVP form,
+ * but restorable. Permanent erasure is a separate, owner-only step (privacy.ts).
+ */
 export async function deleteGuest(db: D1Database, id: string, actor: string) {
     const before = await getGuest(db, id);
     if (!before) throw new NotFoundError("Guest not found");
     await db.batch([
-        db.prepare("DELETE FROM guests WHERE id = ?").bind(id),
-        auditStatement(db, {
-            actor,
-            action: "guest.delete",
-            entityType: "guest",
-            entityId: id,
-            summary: `Deleted guest “${guestName(before)}”`,
-            changes: { deleted: before },
-        }),
+        db.prepare("UPDATE guests SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL").bind(nowIso(), actor, id),
+        auditStatement(db, { actor, action: "guest.delete", entityType: "guest", entityId: id, summary: `Deleted guest “${guestName(before)}” (restorable)` }),
     ]);
 }
 
@@ -315,7 +326,7 @@ export async function bulkUpdateGuests(db: D1Database, input: unknown, actor: st
     const existing = new Set<string>();
     for (const part of chunk(ids)) {
         const rows = await db
-            .prepare(`SELECT id FROM guests WHERE id IN (${placeholders(part.length)})`)
+            .prepare(`SELECT id FROM guests WHERE deleted_at IS NULL AND id IN (${placeholders(part.length)})`)
             .bind(...part)
             .all<{ id: string }>();
         for (const row of rows.results) existing.add(row.id);
@@ -338,8 +349,8 @@ export async function bulkUpdateGuests(db: D1Database, input: unknown, actor: st
         const inList = `(${placeholders(part.length)})`;
         switch (command.action) {
             case "delete":
-                statements.push(db.prepare(`DELETE FROM guests WHERE id IN ${inList}`).bind(...part));
-                summary = `Deleted ${targets.length} guests`;
+                statements.push(db.prepare(`UPDATE guests SET deleted_at = ?, deleted_by = ? WHERE id IN ${inList}`).bind(now, actor, ...part));
+                summary = `Deleted ${targets.length} guests (restorable)`;
                 break;
             case "invite":
                 for (const id of part)
@@ -405,15 +416,13 @@ export async function bulkUpdateGuests(db: D1Database, input: unknown, actor: st
         }
     }
 
-    // For deletes, keep a snapshot of every removed guest so the audit log can restore them by hand.
-    const snapshot = command.action === "delete" ? (await listGuests(db)).filter((g) => existing.has(g.id)) : undefined;
     statements.push(
         auditStatement(db, {
             actor,
             action: `guest.bulk.${command.action}`,
             entityType: "guest",
             summary,
-            changes: { ids: targets, ...("eventId" in command ? { eventId: command.eventId } : {}), ...(snapshot ? { deleted: snapshot } : {}) },
+            changes: { ids: targets, ...("eventId" in command ? { eventId: command.eventId } : {}) },
         }),
     );
     await db.batch(statements);

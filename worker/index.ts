@@ -242,7 +242,8 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
 
 async function portalApi(request: Request, env: Env): Promise<Response> {
     const auth = await authenticate(request, env);
-    if (!auth.ok) return apiJson({ error: auth.status === 401 ? "unauthenticated" : "forbidden", reason: auth.reason }, auth.status);
+    // The reason is logged, not returned: it would tell an attacker which check failed.
+    if (!auth.ok) return apiJson({ error: auth.status === 401 ? "unauthenticated" : "forbidden" }, auth.status);
     // Owners can try the native RSVP form from the website preview before it goes live.
     const url = new URL(request.url);
     const test = /^\/api\/portal\/wedding\/rsvp-test\/(lookup|submit)$/.exec(url.pathname);

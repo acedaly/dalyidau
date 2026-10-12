@@ -54,7 +54,15 @@ export interface BudgetSettings {
     currency: string;
 }
 
+export interface PrivacySettings {
+    /** Audit entries older than this many days can be removed with "Apply retention". 0 keeps them forever. */
+    auditRetentionDays: number;
+    /** Deleted guests and households older than this many days can be erased with "Apply retention". */
+    deletedRetentionDays: number;
+}
+
 export interface SettingsDocuments {
+    privacy: PrivacySettings;
     wedding: WeddingDetails;
     website: WebsiteContent;
     rsvp: RsvpSettings;
@@ -282,6 +290,23 @@ export interface AuditEntry {
     changes: unknown;
 }
 
+export interface DeletedRecord {
+    type: "guest" | "household";
+    id: string;
+    name: string;
+    detail: string | null;
+    deletedAt: string;
+    deletedBy: string | null;
+}
+
+export interface RetentionPreview {
+    settings: PrivacySettings;
+    auditCutoff: string | null;
+    auditEntries: number;
+    deletedCutoff: string;
+    deletedRecords: number;
+}
+
 export interface PortalUserRecord {
     email: string;
     name: string | null;
@@ -371,9 +396,10 @@ export type PortalRoute =
     | { route: "website"; content: WebsiteContent; events: WeddingEvent[]; rsvp: RsvpSettings }
     | {
           route: "settings";
-          tab: "general" | "features" | "fields" | "people";
+          tab: "general" | "features" | "fields" | "people" | "privacy";
           customFields: CustomField[];
           users: PortalUserRecord[] | null;
+          privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
     | { route: "forbidden"; message: string }

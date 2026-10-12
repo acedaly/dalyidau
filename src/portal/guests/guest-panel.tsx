@@ -56,7 +56,7 @@ export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, cu
     const save = useSubmit(
         () =>
             guest
-                ? api<{ guest: Guest }>("PATCH", `/api/portal/wedding/guests/${guest.id}`, draftToPayload(draft))
+                ? api<{ guest: Guest }>("PATCH", `/api/portal/wedding/guests/${guest.id}`, { ...draftToPayload(draft), expectedUpdatedAt: guest.updatedAt })
                 : api<{ guest: Guest }>("POST", "/api/portal/wedding/guests", draftToPayload(draft)),
         {
             success: guest ? "Guest updated" : "Guest added",
@@ -220,7 +220,7 @@ export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, cu
                     isOpen={confirmDelete}
                     onOpenChange={setConfirmDelete}
                     title={`Delete ${name}?`}
-                    description="They'll be removed from the guest list and every event. The audit log keeps a copy of their details."
+                    description="They'll disappear from the guest list, counts, exports and the RSVP form. You can restore them from Settings → Privacy, where an owner can also erase them permanently."
                     confirmLabel="Delete guest"
                     destructive
                     onConfirm={async () => {

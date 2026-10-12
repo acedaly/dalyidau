@@ -15,8 +15,9 @@ import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity,
 import { EXPORTS } from "./exports";
 import { loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
-import { HttpError, checkMutation, errorResponse, json, readJson } from "./http";
+import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
 import { importGuests } from "./import";
+import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
@@ -55,9 +56,11 @@ const add = (method: string, path: string, permission: Route["permission"], hand
 };
 
 const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
+    privacy: "portal.data.erase",
     wedding: "portal.settings.manage",
     website: "wedding.website.edit",
-    rsvp: "wedding.rsvp.edit",
+    // The RSVP link decides where guests are sent, so only owners and admins may change it.
+    rsvp: "portal.settings.manage",
     budget: "wedding.budget.edit",
 };
 const isSettingsKey = (key: string): key is SettingsKey => key in SETTINGS_PERMISSIONS;
@@ -200,6 +203,29 @@ add("POST", "/api/portal/wedding/households/:id/code", "wedding.guests.edit", as
     return json({ household: await getEntity(env.DB, householdDef, params.id) });
 });
 
+add("DELETE", "/api/portal/wedding/households/:id", "wedding.guests.edit", async ({ env, user, params }) => {
+    await deleteHousehold(env.DB, params.id, user.email);
+    return json({ ok: true });
+});
+
+// --- Privacy: deleted records, erasure, retention (docs/PRIVACY.md) ------------------------------
+
+add("GET", "/api/portal/privacy/deleted", "wedding.guests.edit", async ({ env }) => json({ deleted: await listDeleted(env.DB) }));
+add("POST", "/api/portal/privacy/restore", "wedding.guests.edit", async ({ env, request, user }) => {
+    const { type, id } = z.object({ type: z.enum(["guest", "household"]), id: z.string().max(40) }).parse(await readJson(request));
+    await restore(env.DB, type, id, user.email);
+    return json({ deleted: await listDeleted(env.DB) });
+});
+add("POST", "/api/portal/privacy/erase", "portal.data.erase", async ({ env, request, user }) => {
+    await erase(env.DB, await readJson(request), user.email);
+    return json({ deleted: await listDeleted(env.DB) });
+});
+add("GET", "/api/portal/privacy/retention", "portal.data.erase", async ({ env }) => json({ preview: await retentionPreview(env.DB) }));
+add("POST", "/api/portal/privacy/retention", "portal.data.erase", async ({ env, request, user }) => {
+    const result = await applyRetention(env.DB, await readJson(request), user.email);
+    return json({ ...result, preview: await retentionPreview(env.DB), deleted: await listDeleted(env.DB) });
+});
+
 // --- Communications -------------------------------------------------------------------------------
 
 add("GET", "/api/portal/wedding/messages", "wedding.view", async ({ env }) => json({ messages: await listMessages(env.DB) }), "module.communications");
@@ -320,6 +346,8 @@ add(
     "/api/portal/wedding/:collection/:id",
     collectionPermission("write"),
     async (ctx) => {
+        // Records holding personal data have their own soft-delete route registered above.
+        if (collection(ctx).softDelete) throw new HttpError(405, "method_not_allowed", "Use the dedicated delete route");
         await deleteEntity(ctx.env.DB, collection(ctx), ctx.params.id, ctx.user.email);
         return json({ ok: true });
     },
@@ -331,6 +359,7 @@ add(
 export async function handlePortalApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
     const url = new URL(request.url);
     try {
+        checkCrossSite(request);
         checkMutation(request, env);
         const method = request.method === "HEAD" ? "GET" : request.method;
         let pathMatched = false;

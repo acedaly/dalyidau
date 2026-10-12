@@ -43,7 +43,7 @@ async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
         getSettings(db, "wedding"),
         getSettings(db, "rsvp"),
         isEnabled(db, "rsvp.native"),
-        db.prepare("SELECT id, name, rsvp_code FROM households").all<{ id: string; name: string; rsvp_code: string }>(),
+        db.prepare("SELECT id, name, rsvp_code FROM households WHERE deleted_at IS NULL").all<{ id: string; name: string; rsvp_code: string }>(),
     ]);
     const site = env.SITE_URL.replace(/\/+$/, "");
     return {

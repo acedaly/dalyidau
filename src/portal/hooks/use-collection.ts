@@ -19,8 +19,10 @@ export function useCollection<T extends { id: string }>(collection: string, init
     );
 
     const update = useCallback(
-        async (id: string, input: unknown) => {
-            const { item } = await api<{ item: T }>("PATCH", `${base}/${id}`, input);
+        async (id: string, input: unknown, options: { expectedUpdatedAt?: string } = {}) => {
+            // Sending the version the form was opened with lets the server refuse a stale save.
+            const body = options.expectedUpdatedAt && input && typeof input === "object" ? { ...input, expectedUpdatedAt: options.expectedUpdatedAt } : input;
+            const { item } = await api<{ item: T }>("PATCH", `${base}/${id}`, body);
             setItems((list) => list.map((existing) => (existing.id === id ? item : existing)));
             return item;
         },
@@ -35,8 +37,15 @@ export function useCollection<T extends { id: string }>(collection: string, init
         [base],
     );
 
-    /** Create or update depending on whether an id is given. */
-    const save = useCallback((id: string | null, input: unknown) => (id ? update(id, input) : create(input)), [create, update]);
+    /** Create or update depending on whether an id is given. Updates are checked against the version in the list. */
+    const save = useCallback(
+        (id: string | null, input: unknown) => {
+            if (!id) return create(input);
+            const current = items.find((item) => item.id === id) as { updatedAt?: string } | undefined;
+            return update(id, input, { expectedUpdatedAt: current?.updatedAt });
+        },
+        [create, update, items],
+    );
 
     return { items, setItems, create, update, remove, save };
 }

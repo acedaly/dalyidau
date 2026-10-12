@@ -87,6 +87,6 @@ Check it works at `https://dalyidau.<account>.workers.dev`, then run a manual sy
 | Bad code deploy | `npx wrangler deployments list --env=""`, then `npx wrangler rollback <version-id> --env=""`. Or Dashboard → Workers & Pages → dalyidau → Deployments → Rollback. Or revert the commit on `main`. |
 | Bad content | Fix it in Capacities and run a manual sync, or set the post to Draft. |
 | Damaged database | D1 Time Travel keeps 30 days: `npx wrangler d1 time-travel info dalyidau-production`, then `npx wrangler d1 time-travel restore dalyidau-production --timestamp=<ISO time>` |
-| Rebuild from scratch | Content lives in Capacities, so an empty D1 refills itself: run a forced manual sync. |
+| Rebuild from scratch | Blog content lives in Capacities, so the blog refills itself after a forced manual sync. **Wedding portal data exists only in D1**: restore it from Time Travel or a backup ([DATABASE.md](DATABASE.md#restoring)). |
 
-Migrations are forward-only. Add new files to `migrations/` and they apply before each deploy.
+Migrations are forward-only. Add new files to `migrations/` and they apply before each deploy, after a restore point is logged and before the code goes out; see [DATABASE.md](DATABASE.md). Staging setup is in [STAGING.md](STAGING.md).

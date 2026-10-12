@@ -19,12 +19,14 @@ export const PERMISSIONS = [
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",
+    /** Permanent erasure of personal records and applying retention. Owners only. */
+    "portal.data.erase",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     owner: PERMISSIONS,
-    admin: PERMISSIONS.filter((p) => p !== "portal.users.manage"),
+    admin: PERMISSIONS.filter((p) => p !== "portal.users.manage" && p !== "portal.data.erase"),
     editor: [
         "wedding.view",
         "wedding.guests.edit",
@@ -38,8 +40,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 };
 
 export const ROLE_LABELS: Record<Role, { label: string; description: string }> = {
-    owner: { label: "Owner", description: "Everything, including managing people and roles." },
-    admin: { label: "Admin", description: "Everything except managing people and roles." },
+    owner: { label: "Owner", description: "Everything, including managing people and roles, and permanently erasing personal data." },
+    admin: { label: "Admin", description: "Everything except managing people and roles, and permanent erasure." },
     editor: { label: "Editor", description: "Guests, RSVPs, planning and the website. No budget, sending or settings." },
     viewer: { label: "Viewer", description: "Read-only access to guests, RSVPs and planning." },
 };

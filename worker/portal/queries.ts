@@ -51,7 +51,7 @@ export async function listAudit(db: D1Database, url: URL) {
 export async function listSubmissions(db: D1Database, limit = 100): Promise<RsvpSubmission[]> {
     const rows = await db
         .prepare(
-            `SELECT s.*, h.name AS household_name FROM rsvp_submissions s JOIN households h ON h.id = s.household_id
+            `SELECT s.*, h.name AS household_name FROM rsvp_submissions s JOIN households h ON h.id = s.household_id AND h.deleted_at IS NULL
              ORDER BY s.submitted_at DESC LIMIT ?`,
         )
         .bind(limit)
@@ -75,7 +75,8 @@ export async function householdResponseCounts(db: D1Database) {
                     COUNT(DISTINCT CASE WHEN NOT EXISTS (
                         SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id AND ge.status = 'pending'
                     ) AND EXISTS (SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id) THEN g.id END) AS responded
-             FROM households h LEFT JOIN guests g ON g.household_id = h.id
+             FROM households h LEFT JOIN guests g ON g.household_id = h.id AND g.deleted_at IS NULL
+             WHERE h.deleted_at IS NULL
              GROUP BY h.id ORDER BY h.name COLLATE NOCASE`,
         )
         .all<{ id: string; name: string; rsvp_code: string; guests: number; responded: number }>();
@@ -84,8 +85,10 @@ export async function householdResponseCounts(db: D1Database) {
 
 export async function distinctGuestValues(db: D1Database) {
     const [groups, tags] = await db.batch([
-        db.prepare("SELECT DISTINCT group_name AS v FROM guests WHERE group_name IS NOT NULL AND group_name != '' ORDER BY v COLLATE NOCASE"),
-        db.prepare("SELECT DISTINCT j.value AS v FROM guests, json_each(guests.tags) j ORDER BY v COLLATE NOCASE"),
+        db.prepare(
+            "SELECT DISTINCT group_name AS v FROM guests WHERE deleted_at IS NULL AND group_name IS NOT NULL AND group_name != '' ORDER BY v COLLATE NOCASE",
+        ),
+        db.prepare("SELECT DISTINCT j.value AS v FROM guests, json_each(guests.tags) j WHERE guests.deleted_at IS NULL ORDER BY v COLLATE NOCASE"),
     ]);
     return { groups: (groups.results as { v: string }[]).map((r) => r.v), tags: (tags.results as { v: string }[]).map((r) => r.v) };
 }

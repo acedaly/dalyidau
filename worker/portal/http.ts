@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 import type { Env } from "../env";
 import { RsvpError } from "../wedding/rsvp";
-import { NotFoundError, ValidationError } from "./entities";
+import { ConflictError, NotFoundError, ValidationError } from "./entities";
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), {
@@ -34,6 +34,16 @@ export const checkMutation = (request: Request, env: Env) => {
     }
 };
 
+/**
+ * The portal API is only ever called by the portal's own pages. Browsers label every request with
+ * Sec-Fetch-Site; anything a different site triggers (a link, an <img>, a form) is refused, even a
+ * GET, so exports and other side-effecting reads can't be triggered from elsewhere.
+ */
+export const checkCrossSite = (request: Request) => {
+    const site = request.headers.get("Sec-Fetch-Site");
+    if (site === "cross-site" || site === "same-site") throw new HttpError(403, "cross_site", "Cross-site request refused");
+};
+
 export const readJson = async (request: Request, maxBytes = 1_500_000): Promise<unknown> => {
     const length = Number(request.headers.get("Content-Length") ?? "0");
     if (length > maxBytes) throw new HttpError(413, "too_large", "Request is too large");
@@ -63,6 +73,7 @@ export const errorResponse = (error: unknown, path: string) => {
     if (error instanceof ValidationError)
         return json({ error: "validation", message: error.message, issues: [{ path: error.path, message: error.message }] }, 422);
     if (error instanceof NotFoundError) return json({ error: "not_found", message: error.message }, 404);
+    if (error instanceof ConflictError) return json({ error: "conflict", message: error.message }, 409);
     if (error instanceof RsvpError) return json({ error: error.code, message: error.message }, error.status);
     // A reference to a record that was deleted in the meantime (e.g. a budget item's supplier).
     if (/FOREIGN KEY constraint failed/.test((error as Error)?.message ?? "")) {

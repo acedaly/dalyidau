@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyAccessJwt } from "../worker/portal/access";
-import { AUD, ORIGIN, OWNER, SECOND_OWNER, TEAM, accessToken, apiCall, call, db, portalEnv, resetPortal, testKeys } from "./portal-helpers";
+import { AUD, ORIGIN, OWNER, SECOND_OWNER, TEAM, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal, testKeys } from "./portal-helpers";
 
 const config = { teamDomain: TEAM, audiences: [AUD] };
 const keyFor = async (kid: string) => {
@@ -65,7 +65,8 @@ describe("portal access control", () => {
 
         const api = await SELF.fetch("https://daly.id.au/api/portal/me", { headers: { "Cf-Access-Jwt-Assertion": await accessToken() } });
         expect(api.status).toBe(403);
-        expect(await api.json()).toMatchObject({ reason: "not_configured" });
+        // Which check failed is logged, never returned.
+        expect(await api.json()).toEqual({ error: "forbidden" });
     });
 
     it("ignores the test key set in production, so a self-signed token never works there", async () => {
@@ -169,6 +170,100 @@ describe("portal access control", () => {
     it("never lets people change their own role or configured owners", async () => {
         expect((await apiCall("POST", "/api/portal/users", { email: SECOND_OWNER, role: "viewer" })).status).toBe(422);
         expect((await apiCall("POST", "/api/portal/users", { email: OWNER, role: "viewer" })).status).toBe(422);
+    });
+
+    it("requires a valid token on workers.dev and preview hostnames too", async () => {
+        for (const host of ["dalyidau.example.workers.dev", "abc123-dalyidau.example.workers.dev"]) {
+            expect((await call("/portal/wedding", { host })).status).toBe(401);
+            expect((await call("/api/portal/wedding/guests", { host })).status).toBe(401);
+            expect((await call("/portal/wedding", { host, token: await accessToken() })).status).toBe(200);
+        }
+    });
+
+    it("refuses API requests started by another site, even reads", async () => {
+        const token = await accessToken();
+        for (const site of ["cross-site", "same-site"]) {
+            const response = await call("/api/portal/export/guests.csv", { token, headers: { "Sec-Fetch-Site": site } });
+            expect(response.status).toBe(403);
+        }
+        expect((await call("/api/portal/me", { token, headers: { "Sec-Fetch-Site": "same-origin" } })).status).toBe(200);
+        expect(await auditActions()).not.toContain("export.guests");
+    });
+
+    it("never lets portal responses be cached, including errors", async () => {
+        const token = await accessToken();
+        const responses = [
+            await call("/portal/wedding", { token }),
+            await call("/portal/wedding/nope", { token }),
+            await call("/portal/wedding"),
+            await call("/api/portal/me", { token }),
+            await call("/api/portal/me"),
+            await call("/api/portal/nope", { token }),
+            await call("/api/portal/export/guests.csv", { token }),
+        ];
+        for (const response of responses) expect(response.headers.get("Cache-Control")).toBe("no-store");
+    });
+
+    it("keeps owner emails and Access settings out of the page for other users", async () => {
+        await apiCall("POST", "/api/portal/users", { email: "viewer@example.com", role: "viewer" });
+        const html = await (await call("/portal/settings", { token: await accessToken({ email: "viewer@example.com" }) })).text();
+        expect(html).not.toContain(OWNER);
+        expect(html).not.toContain(SECOND_OWNER);
+        expect(html).not.toContain(AUD);
+        expect(html).not.toContain(TEAM);
+    });
+
+    it("lets only owners and admins change where the RSVP button sends guests", async () => {
+        await apiCall("POST", "/api/portal/users", { email: "editor@example.com", role: "editor" });
+        const body = { externalUrl: "https://evil.example/rsvp", deadline: "", collectDietary: true, collectMessage: true };
+        expect((await apiCall("PUT", "/api/portal/settings/rsvp", body, { email: "editor@example.com" })).status).toBe(403);
+    });
+
+    it("protects every portal endpoint: no token → 401, viewer writing → 403", async () => {
+        await apiCall("POST", "/api/portal/users", { email: "viewer@example.com", role: "viewer" });
+        const writes: [string, string][] = [
+            ["POST", "/api/portal/wedding/guests"],
+            ["PATCH", "/api/portal/wedding/guests/gst_x"],
+            ["DELETE", "/api/portal/wedding/guests/gst_x"],
+            ["PUT", "/api/portal/wedding/guests/gst_x/rsvp"],
+            ["POST", "/api/portal/wedding/guests/bulk"],
+            ["POST", "/api/portal/wedding/guests/import"],
+            ["DELETE", "/api/portal/wedding/households/hh_x"],
+            ["POST", "/api/portal/wedding/households/hh_x/code"],
+            ["POST", "/api/portal/wedding/events"],
+            ["POST", "/api/portal/wedding/tasks"],
+            ["POST", "/api/portal/wedding/timeline"],
+            ["POST", "/api/portal/wedding/templates"],
+            ["POST", "/api/portal/wedding/custom-fields"],
+            ["POST", "/api/portal/wedding/messages"],
+            ["POST", "/api/portal/wedding/messages/msg_x/send"],
+            ["PUT", "/api/portal/settings/wedding"],
+            ["PUT", "/api/portal/settings/website"],
+            ["PUT", "/api/portal/settings/rsvp"],
+            ["PUT", "/api/portal/settings/privacy"],
+            ["PUT", "/api/portal/flags/rsvp.native"],
+            ["POST", "/api/portal/users"],
+            ["POST", "/api/portal/privacy/restore"],
+            ["POST", "/api/portal/privacy/erase"],
+            ["POST", "/api/portal/privacy/retention"],
+            ["POST", "/api/portal/wedding/rsvp-test/lookup"],
+        ];
+        for (const [method, path] of writes) {
+            const anonymous = await call(path, { method, headers: { Origin: ORIGIN, "Content-Type": "application/json" }, body: "{}" });
+            expect(anonymous.status, `${method} ${path} without a token`).toBe(401);
+            const viewer = await apiCall(method, path, {}, { email: "viewer@example.com" });
+            expect(viewer.status, `${method} ${path} as viewer`).toBe(403);
+        }
+        for (const path of [
+            "/api/portal/export/guests.csv",
+            "/api/portal/audit",
+            "/api/portal/users",
+            "/api/portal/privacy/deleted",
+            "/api/portal/wedding/budget-items",
+        ]) {
+            expect((await call(path)).status, path).toBe(401);
+            expect((await apiCall("GET", path, undefined, { email: "viewer@example.com" })).status, `${path} as viewer`).toBe(403);
+        }
     });
 
     it("keeps /portal out of robots.txt", async () => {

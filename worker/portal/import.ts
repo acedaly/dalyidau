@@ -89,7 +89,7 @@ export async function importGuests(
         listEntities(db, customFieldDef),
         listEntities(db, eventDef),
         listGuests(db),
-        db.prepare("SELECT id, name FROM households").all<{ id: string; name: string }>(),
+        db.prepare("SELECT id, name FROM households WHERE deleted_at IS NULL").all<{ id: string; name: string }>(),
     ]);
     const activeCustom = customFields.filter((f) => !f.archived);
 

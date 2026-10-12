@@ -140,7 +140,7 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                 canEdit={canEdit}
                 onSave={() => households.save(editing?.id ?? null, draft)}
                 onDelete={editing ? () => households.remove(editing.id) : undefined}
-                deleteWarning="Guests in this household stay on the guest list without a household, and its RSVP code stops working."
+                deleteWarning="Its RSVP code stops working straight away. Its guests stay on the guest list. You can restore the household from Settings → Privacy."
             >
                 {(fieldError) => (
                     <>

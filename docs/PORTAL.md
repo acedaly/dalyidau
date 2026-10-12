@@ -24,7 +24,9 @@ These are yours to do; the code is ready for them.
 5. **When to switch on the native RSVP form** (Settings → Features → Native RSVP). Off by default. Say I Do stays the live RSVP until you turn this on.
 6. **When to publish the website** (Website → Publish). Off by default. It's `noindex` by default too.
 7. **Email delivery provider**, if you ever want the portal to send email itself. Not configured, by design. See [Email](#email).
-8. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies migration `0002_portal_wedding.sql` to the production D1 database. The migration only adds new tables.
+8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
+9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies migration `0002_portal_wedding.sql` to the production D1 database. The migration only adds new tables.
 
 ---
 
@@ -44,7 +46,7 @@ Access decides who can reach the portal at all. The Worker then verifies Access'
 4. Save, then copy from the application's **Overview** tab:
     - the **Application Audience (AUD) tag**
     - your **team domain** (`<team>.cloudflareaccess.com`, shown under Settings → Custom Pages or in the login URL)
-5. Set the Worker secrets (they survive deploys; `keep_vars: false` in `wrangler.jsonc` would wipe plain vars set in the dashboard):
+5. Set the Worker secrets (they survive deploys; `keep_vars: false` in `wrangler.jsonc` would wipe plain vars set in the dashboard). Both owners' emails go in one comma-separated secret; each of you then signs in with your own Access identity:
 
 ```bash
 npx wrangler secret put ACCESS_TEAM_DOMAIN   --env=""   # e.g. daly.cloudflareaccess.com
@@ -52,7 +54,26 @@ npx wrangler secret put ACCESS_AUD           --env=""   # the AUD tag
 npx wrangler secret put PORTAL_OWNER_EMAILS  --env=""   # you@example.com,partner@example.com
 ```
 
-Repeat with `--env staging` if you want the portal on staging; staging's Worker runs on `workers.dev`, so it needs its own Access application covering that hostname.
+6. Check everything without revealing any value:
+
+```bash
+npm run check:config -- --url https://daly.id.au --team <team>.cloudflareaccess.com
+```
+
+It confirms the three secrets exist (names only), that no development-only setting is present, that `/portal` redirects to the Access login, and that `/api/portal` refuses unauthenticated requests.
+
+For staging, see [STAGING.md](STAGING.md): it has its own Access application and secrets.
+
+### How paths, domains and Access fit together
+
+| Request | Access in front? | What the Worker does |
+| --- | --- | --- |
+| `daly.id.au/portal…`, `daly.id.au/api/portal…` | Yes (the application's two paths) | Verifies the Access JWT and the role on every request |
+| `daly.id.au/wedding…`, `/api/wedding/rsvp…` | No (public) | Serves only if published / switched on |
+| `dalyidau.<sub>.workers.dev/portal…` and preview URLs | No (unless you enable Access on workers.dev) | Still requires a valid Access JWT for *your* application, so it refuses everyone who isn't already signed in to daly.id.au |
+| Anything else | No | The blog |
+
+Because the Worker checks the token itself, a missing or wrong Access application can only lock people out, never let them in.
 
 No DNS or `routes` change is needed: the portal is a path on the existing custom domain.
 
@@ -73,14 +94,34 @@ Defined in `src/shared/portal/permissions.ts` and enforced on every API route an
 
 | Role | Can |
 | --- | --- |
-| Owner | Everything, including managing people and roles. Owners come from `PORTAL_OWNER_EMAILS` and can't be changed in the portal. |
-| Admin | Everything except managing people. |
-| Editor | Guests, households, events, RSVPs, communications (prepare, not send), planning, website content, audit log. No budget, sending, exports or settings. |
+| Owner | Everything, including managing people and roles, permanent erasure and retention. Owners come from `PORTAL_OWNER_EMAILS` and can't be changed in the portal. |
+| Admin | Everything except managing people, erasure and retention. |
+| Editor | Guests, households, events, RSVP entry, communications (prepare, not send), planning, website content, audit log. No budget, sending, exports, settings or the RSVP link. |
 | Viewer | Read-only guests, RSVPs and planning. |
 
 Add people in **Settings → People and roles** *and* in the Access policy. Removing someone from either removes their access. Removing an email from `PORTAL_OWNER_EMAILS` also removes their owner rights immediately.
 
 ---
+
+## Security review (October 2026)
+
+What was checked, and how it's covered by tests (`test/access.test.ts`, `test/privacy.test.ts`):
+
+| Area | Result |
+| --- | --- |
+| Access JWT | RS256 only; signature, issuer, audience, expiry, not-before and issued-at checked; `alg: none`, HMAC, unknown keys, forged signatures, tampered claims and malformed tokens refused. Service tokens (no email) refused. |
+| Authorisation | Every page and API route needs a verified identity *and* a role; each route checks its own permission server-side. A sweep test calls every write endpoint without a token (401) and as a viewer (403). |
+| Role changes | People can't change their own role; owners from `PORTAL_OWNER_EMAILS` can't be changed in the portal; removing an email from that secret removes owner rights immediately. Every change is audited. |
+| Development bypass | `ACCESS_DEV_EMAIL` works only with `ENVIRONMENT=development` **and** a localhost `SITE_URL`; `ACCESS_TEST_JWKS` is ignored in production. `check:config` fails if either is configured on a deployed environment. |
+| workers.dev / previews | Same token checks on every hostname; tested. |
+| Missing configuration | Every portal request refused; the response doesn't say which check failed (it's logged instead). |
+| CSRF / cross-origin | Writes need a same-origin `Origin` and a JSON body; any API request a browser marks as cross-site or same-site (another subdomain) is refused, including GETs such as exports. |
+| Caching | Every portal page, API and CSV response, including errors and access-denied pages, is `Cache-Control: no-store` and `noindex`; portal pages are never edge-cached. |
+| Client bundle | `npm run check:bundle` (in CI) fails if any client file contains a configured owner email, team domain, token or key. Pages only ever include the signed-in user's own email; the People list is owner-only. |
+| RSVP link | Changing where the website's RSVP button sends guests is limited to owners and admins. |
+| Concurrency | Two people editing the same record can't silently overwrite each other (409 with an explanation). |
+
+Remaining risks: household RSVP codes are 8 characters (about 37 bits) and rely on rate limiting; longer, revocable invitation links are next on the list. See also [Outstanding](#outstanding).
 
 ## Feature switches
 
@@ -167,6 +208,14 @@ Adding a module usually means: a table in a new migration, an `EntityDef` in `wo
 
 ---
 
+## Personal data, deletion and retention
+
+Deleting a guest or household is reversible; erasing (owners only) is permanent and scrubs copies in message history, RSVP submissions and the audit log. The audit log never stores the values of sensitive fields. Retention is configurable and only ever applied by an owner. Full details: [PRIVACY.md](PRIVACY.md).
+
+## Database operations
+
+Migrations, `npm run db:verify`, verified backups (`npm run db:backup`), Time Travel restores and rollback: [DATABASE.md](DATABASE.md).
+
 ## Local development
 
 ```bash
@@ -193,3 +242,8 @@ When you're ready (none of this has been done):
 3. Sign in at `https://daly.id.au/portal`, fill in Settings → General, events, guests.
 4. Preview the website, then publish it when you're happy.
 5. Keep Say I Do live until you've tested the native form, then switch over.
+
+## Outstanding
+
+- Part B–F of the phase 2 brief (accommodation, seating, transport, catering, RSVP question builder and longer invitation tokens, email provider, website content, dashboard additions, exports) are in progress on this branch.
+- Erasure can't reach downloaded CSV files, backup files or D1's 30-day Time Travel history ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).

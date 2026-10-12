@@ -29,3 +29,6 @@ dist-ssr
 .wrangler
 test-results
 playwright-report
+
+# Database backups contain personal data (scripts/db-backup.mjs)
+backups/

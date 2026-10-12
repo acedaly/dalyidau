@@ -25,6 +25,10 @@ const timeZone = z.string().refine((tz) => {
 }, "Unknown time zone");
 
 export const SETTINGS_SCHEMAS = {
+    privacy: z.object({
+        auditRetentionDays: z.number().int().min(0).max(3650),
+        deletedRetentionDays: z.number().int().min(7).max(3650),
+    }),
     wedding: z.object({
         partnerOne: text(60),
         partnerTwo: text(60),
@@ -55,6 +59,7 @@ export const SETTINGS_SCHEMAS = {
 
 /** Placeholders only. Real names, dates and places are the couple's to enter in the portal. */
 export const SETTINGS_DEFAULTS: SettingsDocuments = {
+    privacy: { auditRetentionDays: 730, deletedRetentionDays: 90 },
     wedding: { partnerOne: "Partner One", partnerTwo: "Partner Two", date: "", location: "", timeZone: "Australia/Sydney" },
     website: {
         heroEyebrow: "Together with their families",
@@ -74,6 +79,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
 };
 
 const SETTINGS_LABELS: Record<SettingsKey, string> = {
+    privacy: "privacy and retention settings",
     wedding: "wedding details",
     website: "website content",
     rsvp: "RSVP settings",

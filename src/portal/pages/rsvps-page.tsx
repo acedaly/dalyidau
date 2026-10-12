@@ -236,7 +236,7 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                             void save.submit();
                         }}
                     >
-                        <fieldset disabled={!can("wedding.rsvp.edit")} className="flex flex-col gap-8">
+                        <fieldset disabled={!can("portal.settings.manage")} className="flex flex-col gap-8">
                             <FormSection title="Say I Do" description="Where the website sends guests while the native form is off.">
                                 <Input
                                     label="RSVP link"
@@ -269,7 +269,7 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                                 />
                             </FormSection>
                         </fieldset>
-                        {can("wedding.rsvp.edit") && (
+                        {can("portal.settings.manage") && (
                             <div className="flex justify-end gap-3">
                                 <Button color="secondary" onClick={() => setDraft(settings)} isDisabled={save.busy}>
                                     Reset

@@ -33,6 +33,8 @@
         "SYNC_MAX_REQUESTS": "40",
         "SYNC_REQUEST_SPACING_MS": "2100",
         "IMAGE_TRANSFORMS": "off",
+        // The portal's email provider. "off" means nothing is ever sent (docs/PORTAL.md#email).
+        "EMAIL_DELIVERY": "off",
     },
     // daly.id.au and www.daly.id.au are Custom Domains on this Worker (cut over 11 October 2026,
     // see docs/DEPLOYMENT.md). The Worker 301s www to the apex. workers.dev stays on as a
@@ -47,6 +49,10 @@
         "staging": {
             "name": "dalyidau-staging",
             "workers_dev": true,
+            // Named environments inherit top-level routes. Without this, deploying staging would move
+            // the production custom domains (daly.id.au, www.daly.id.au) to the staging Worker.
+            "routes": [],
+            "define": { "process.env.NODE_ENV": "\"production\"" },
             "d1_databases": [
                 {
                     "binding": "DB",
@@ -60,12 +66,15 @@
             "triggers": { "crons": [] },
             "vars": {
                 "ENVIRONMENT": "staging",
+                // Replace with the staging workers.dev URL once it exists (docs/STAGING.md), so links
+                // in staging point at staging, not at the live site.
                 "SITE_URL": "https://daly.id.au",
                 "CAPACITIES_API_BASE": "https://api.capacities.io",
                 "CAPACITIES_STRUCTURE_NAME": "Blog Post",
                 "SYNC_MAX_REQUESTS": "40",
                 "SYNC_REQUEST_SPACING_MS": "2100",
                 "IMAGE_TRANSFORMS": "off",
+                "EMAIL_DELIVERY": "off",
             },
             "observability": { "enabled": true },
         },

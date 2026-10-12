@@ -5,11 +5,9 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { FlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
-// ---------------------------------------------------------------------------------------------
-// Definitions
-
 import type { BudgetItem, CustomField, Household, MessageTemplate, Supplier, Task, TimelineItem, WeddingEvent } from "../../src/shared/portal/types";
-import { auditStatement, diff, newId, newRsvpCode, nowIso, parseJson } from "./db";
+import { auditIfChanged, auditStatement, diff, newId, newRsvpCode, nowIso, parseJson } from "./db";
+import { redactChanges, redactSnapshot } from "./redact";
 
 type ColumnKind = "text" | "int" | "bool" | "json";
 
@@ -39,7 +37,24 @@ export interface EntityDef<T> {
     validate?: (merged: Record<string, unknown>) => { path: string; message: string } | null;
     /** Fields that can be set on create but never changed. */
     immutable?: string[];
+    /** SQL condition (on alias "t") that hides rows from lists, e.g. soft-deleted ones. */
+    listWhere?: string;
+    /** Delete through a dedicated soft-delete route instead of the generic one. */
+    softDelete?: boolean;
 }
+
+/** Another person saved the record after this one was opened. */
+export class ConflictError extends Error {}
+
+/** Reads and removes the optimistic-concurrency token a client may send with an update. */
+export const takeExpectedVersion = (input: unknown): string | null => {
+    if (!input || typeof input !== "object") return null;
+    const value = (input as Record<string, unknown>).expectedUpdatedAt;
+    delete (input as Record<string, unknown>).expectedUpdatedAt;
+    return typeof value === "string" ? value : null;
+};
+
+export const CONFLICT_MESSAGE = "Someone else changed this after you opened it. Close it and open it again to see their changes.";
 
 export class ValidationError extends Error {
     constructor(
@@ -111,7 +126,8 @@ const toColumnValue = (kind: ColumnKind | undefined, value: unknown) => {
 const selectSql = (def: EntityDef<unknown>) => def.select ?? `SELECT t.* FROM ${def.table} t`;
 
 export async function listEntities<T>(db: D1Database, def: EntityDef<T>): Promise<T[]> {
-    const rows = await db.prepare(`${selectSql(def as EntityDef<unknown>)} ORDER BY ${def.orderBy}`).all<Record<string, unknown>>();
+    const where = def.listWhere ? ` WHERE ${def.listWhere}` : "";
+    const rows = await db.prepare(`${selectSql(def as EntityDef<unknown>)}${where} ORDER BY ${def.orderBy}`).all<Record<string, unknown>>();
     return rows.results.map((row) => toEntity(def, row));
 }
 
@@ -155,8 +171,10 @@ export async function createEntity<T extends { id: string }>(db: D1Database, def
 }
 
 export async function updateEntity<T extends { id: string }>(db: D1Database, def: EntityDef<T>, id: string, input: unknown, actor: string): Promise<T> {
+    const expected = takeExpectedVersion(input);
     const before = await getEntity(db, def, id);
     if (!before) throw new NotFoundError(`${def.noun} not found`);
+    if (expected && expected !== (before as { updatedAt?: string }).updatedAt) throw new ConflictError(CONFLICT_MESSAGE);
     // zod 4 applies defaults inside .partial(), so keep only the keys the client actually sent.
     const sent = new Set(input && typeof input === "object" ? Object.keys(input) : []);
     for (const field of def.immutable ?? []) sent.delete(field);
@@ -185,17 +203,22 @@ export async function updateEntity<T extends { id: string }>(db: D1Database, def
     if (sets.length === 0 || Object.keys(changes).length === 0) return before;
     sets.push("updated_at = ?");
     values.push(nowIso());
-    await db.batch([
-        db.prepare(`UPDATE ${def.table} SET ${sets.join(", ")} WHERE id = ?`).bind(...values, id),
-        auditStatement(db, {
+    // The update only applies if nobody saved in between (compare-and-set on updated_at); the audit
+    // entry is only written if it did.
+    const [result] = await db.batch([
+        db
+            .prepare(`UPDATE ${def.table} SET ${sets.join(", ")} WHERE id = ? AND updated_at = ?`)
+            .bind(...values, id, (before as unknown as { updatedAt: string }).updatedAt),
+        auditIfChanged(db, {
             actor,
             action: `${def.type}.update`,
             entityType: def.type,
             entityId: id,
             summary: `Updated ${def.noun} “${def.title({ ...before, ...patch } as T)}”`,
-            changes,
+            changes: redactChanges(changes),
         }),
     ]);
+    if (!result.meta.changes) throw new ConflictError(CONFLICT_MESSAGE);
     return (await getEntity(db, def, id))!;
 }
 
@@ -210,8 +233,8 @@ export async function deleteEntity<T extends { id: string }>(db: D1Database, def
             entityType: def.type,
             entityId: id,
             summary: `Deleted ${def.noun} “${def.title(before)}”`,
-            // A full snapshot, so a mistaken delete can be re-entered from the audit log.
-            changes: { deleted: before },
+            // A snapshot (without personal values) so a mistaken delete can be re-entered by hand.
+            changes: { deleted: redactSnapshot(before as Record<string, unknown>) },
         }),
     ]);
 }
@@ -246,7 +269,9 @@ export const householdDef: EntityDef<Household> = {
         country: optStr(100),
         notes: optStr(4000),
     }),
-    select: "SELECT t.*, (SELECT COUNT(*) FROM guests g WHERE g.household_id = t.id) AS guest_count FROM households t",
+    select: "SELECT t.*, (SELECT COUNT(*) FROM guests g WHERE g.household_id = t.id AND g.deleted_at IS NULL) AS guest_count FROM households t",
+    listWhere: "t.deleted_at IS NULL",
+    softDelete: true,
     extra: (row) => ({ guestCount: Number(row.guest_count ?? 0) }),
     orderBy: "t.name COLLATE NOCASE",
     title: (h) => h.name,
