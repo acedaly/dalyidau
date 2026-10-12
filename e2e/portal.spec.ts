@@ -22,6 +22,7 @@ const watchErrors = (page: Page) => {
 test("every portal page loads, hydrates and fits the screen", async ({ page }) => {
     const errors = watchErrors(page);
     for (const path of [
+        "/portal",
         "/portal/wedding",
         "/portal/wedding/guests",
         "/portal/wedding/households",
@@ -30,6 +31,8 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/wedding/communications",
         "/portal/wedding/tasks",
         "/portal/wedding/timeline",
+        "/portal/wedding/seating",
+        "/portal/wedding/catering",
         "/portal/wedding/budget",
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
@@ -45,6 +48,87 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
     expect(errors).toEqual([]);
 });
 
+test("core portal workflows expose labelled controls and keyboard focus", async ({ page }) => {
+    for (const path of ["/portal", "/portal/wedding/rsvps", "/portal/wedding/seating", "/portal/wedding/catering", "/portal/wedding/communications"]) {
+        await page.goto(path);
+        await expect(page.getByRole("main")).toBeVisible();
+        await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+        const unlabelled = await page.locator("button, input:not([type=hidden]), select, textarea").evaluateAll((elements) =>
+            elements
+                .filter((element) => {
+                    const labelled = element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title");
+                    const nativeLabel =
+                        element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
+                            ? element.labels?.length
+                            : false;
+                    return !labelled && !nativeLabel && !element.textContent?.trim();
+                })
+                .map((element) => element.outerHTML.slice(0, 160)),
+        );
+        expect(unlabelled, path).toEqual([]);
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+    }
+});
+
+test("builds an RSVP question with Untitled UI controls", async ({ page }, info) => {
+    const question = `Which song will get you dancing? ${info.project.name}`;
+    await page.goto("/portal/wedding/rsvps");
+    await page.getByRole("tab", { name: /Questions/ }).click();
+    await page.getByRole("button", { name: "Add question" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add RSVP question" });
+    await dialog.getByLabel("Question").fill(question);
+    await dialog.getByLabel("Help text").fill("One song is plenty.");
+    // Enter is the accessible form-submit path and avoids viewport-dependent pointer coordinates.
+    await dialog.getByLabel("Question").press("Enter");
+    await expect(page.getByText("Question created")).toBeVisible();
+    await expect(page.getByRole("heading", { name: question })).toBeVisible();
+    await expect(page.getByText("v1").last()).toBeVisible();
+});
+
+test("connects RSVP attendance to seating and catering", async ({ page, request }, info) => {
+    const suffix = `Flow ${info.project.name}`;
+    const event = (await api(request, "post", "/api/portal/wedding/events", { name: `Reception ${suffix}` })).item;
+    const household = (await api(request, "post", "/api/portal/wedding/households", { name: `Household ${suffix}` })).item;
+    const guest = (
+        await api(request, "post", "/api/portal/wedding/guests", {
+            firstName: "Seat",
+            lastName: suffix,
+            householdId: household.id,
+            events: [event.id],
+        })
+    ).guest;
+    await api(request, "put", `/api/portal/wedding/guests/${guest.id}/rsvp`, { eventId: event.id, status: "attending" });
+    await api(request, "put", "/api/portal/settings/catering", {
+        eventId: event.id,
+        categories: [
+            { id: "adult_buffet", label: "Adult buffet", description: "", appliesTo: "any" },
+            { id: "kids_meal", label: "Children's meal", description: "", appliesTo: "child" },
+            { id: "no_meal", label: "No meal", description: "", appliesTo: "any" },
+        ],
+        adultDefault: "adult_buffet",
+        notes: "",
+    });
+
+    await page.goto("/portal/wedding/seating");
+    await page.getByRole("button", { name: "Add table" }).first().click();
+    const panel = page.getByRole("dialog");
+    await panel.getByLabel("Name").fill(`Table ${suffix}`);
+    await panel.getByLabel("Seats").fill("8");
+    await panel.getByRole("button", { name: "Add table" }).click();
+    await expect(page.getByText("Table added")).toBeVisible();
+    await page.getByRole("button", { name: `Move Seat ${suffix}` }).click();
+    await page.getByRole("menuitem", { name: `Move to Table ${suffix}` }).click();
+    await expect(page.getByRole("region", { name: `Table ${suffix}` }).getByText(`Seat ${suffix}`, { exact: true })).toBeVisible();
+    await expect(page.getByText("1 / 1")).toBeVisible();
+
+    await page.goto("/portal/wedding/catering");
+    await expect(page.getByRole("row", { name: new RegExp(`Seat ${suffix}`) })).toBeVisible();
+    await page.getByRole("button", { name: new RegExp(`Meal for Seat ${suffix}$`) }).click();
+    await page.getByRole("option", { name: "No meal" }).click();
+    await expect(page.getByText("Meal updated")).toBeVisible();
+});
+
 test("adds a guest through the slide-over and finds them in the list", async ({ page }, info) => {
     const name = `Morgan ${info.project.name}`;
     await page.goto("/portal/wedding/guests");
@@ -52,7 +136,7 @@ test("adds a guest through the slide-over and finds them in the list", async ({ 
     const panel = page.getByRole("dialog");
     await panel.getByLabel("First name").fill("Morgan");
     await panel.getByLabel("Last name").fill(info.project.name);
-    await panel.getByLabel("Email").fill(`morgan-${info.project.name}@example.com`);
+    await panel.getByRole("textbox", { name: "Email", exact: true }).fill(`morgan-${info.project.name}@example.com`);
     await panel.getByRole("button", { name: "Add guest" }).click();
     await expect(page.getByText("Guest added")).toBeVisible();
     await expect(panel).toBeHidden();
@@ -71,7 +155,7 @@ test("shows field errors from the server next to the field", async ({ page }) =>
     await page.getByRole("button", { name: "Add guest" }).first().click();
     const panel = page.getByRole("dialog");
     await panel.getByLabel("First name").fill("Casey");
-    await panel.getByLabel("Email").fill("not-an-email");
+    await panel.getByRole("textbox", { name: "Email", exact: true }).fill("not-an-email");
     await panel.getByRole("button", { name: "Add guest" }).click();
     await expect(
         panel

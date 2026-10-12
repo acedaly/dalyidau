@@ -20,6 +20,7 @@
         "seed:portal": "node scripts/seed-portal.mjs",
         "check:config": "node scripts/check-config.mjs",
         "check:bundle": "node scripts/check-bundle.mjs",
+        "check:styles": "node scripts/check-style-tokens.mjs",
         "db:verify": "node scripts/db-verify.mjs",
         "db:backup": "node scripts/db-backup.mjs",
         "seed:staging": "node scripts/seed-staging.mjs"

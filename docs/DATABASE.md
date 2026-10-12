@@ -4,11 +4,12 @@ The Worker uses one D1 database per environment: `dalyidau-production` and `daly
 
 ## Migrations
 
-| File | What it does |
-| --- | --- |
-| `0001_init.sql` | Blog tables |
-| `0002_portal_wedding.sql` | Portal and wedding tables (new tables only) |
-| `0003_privacy_and_integrity.sql` | Soft deletion columns, integrity triggers (JSON shape, no negative money, append-only audit), `batch_guard` for safe concurrent edits. Additive only. |
+| File                                   | What it does                                                                                                                                                                                   |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0001_init.sql`                        | Blog tables                                                                                                                                                                                    |
+| `0002_portal_wedding.sql`              | Portal and wedding tables (new tables only)                                                                                                                                                    |
+| `0003_privacy_and_integrity.sql`       | Soft deletion columns, integrity triggers (JSON shape, no negative money, append-only audit), `batch_guard` for safe concurrent edits. Additive only.                                          |
+| `0004_seating_catering_rsvp_comms.sql` | Seating, catering, website media, RSVP question/answer versioning, revocable invitation metadata, submission idempotency, and communication categories/scheduling/provider ids. Additive only. |
 
 Rules:
 
@@ -89,6 +90,7 @@ Deleted guests and households can be restored from Settings → Privacy until th
 - Every query binds its values; table and column names come only from fixed definitions in code.
 - Every write and its audit entry go in one D1 batch (a transaction).
 - Concurrent edits: saves carry the version (`updated_at`) the form was opened with; if someone else saved in between, the save is refused with "Someone else changed this", and nothing is written. `updated_at` is strictly increasing so two saves can't share a version.
-- Sending a message claims it first (`draft → sending`), so a double click can't send twice.
+- Sending a message claims it first (`draft/queued → sending`), so a double click or overlapping cron can't send twice.
 - The RSVP rate limiter is a single atomic upsert.
+- Native RSVP retries carry a browser-generated id; a partial unique index permits only one submission per household/id, including concurrent requests.
 - Large CSV imports are written in chunks of 400 statements; each chunk is atomic. The import is previewed first, so a failure midway is rare; if it happens, re-running the same file updates the rows already imported rather than duplicating them.

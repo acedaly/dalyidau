@@ -79,6 +79,7 @@ export async function portalEnv(overrides: Partial<Env> = {}): Promise<Env> {
         ACCESS_TEST_JWKS: await jwks(),
         PORTAL_OWNER_EMAILS: `${OWNER}, ${SECOND_OWNER}`,
         EMAIL_DELIVERY: "off",
+        RSVP_LINK_SECRET: "test-rsvp-link-secret-that-is-at-least-32-bytes",
         ...overrides,
     };
 }

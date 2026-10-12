@@ -230,6 +230,7 @@ describe("portal access control", () => {
             ["POST", "/api/portal/wedding/guests/import"],
             ["DELETE", "/api/portal/wedding/households/hh_x"],
             ["POST", "/api/portal/wedding/households/hh_x/code"],
+            ["POST", "/api/portal/wedding/households/hh_x/invitation"],
             ["POST", "/api/portal/wedding/events"],
             ["POST", "/api/portal/wedding/tasks"],
             ["POST", "/api/portal/wedding/timeline"],
@@ -237,6 +238,10 @@ describe("portal access control", () => {
             ["POST", "/api/portal/wedding/custom-fields"],
             ["POST", "/api/portal/wedding/messages"],
             ["POST", "/api/portal/wedding/messages/msg_x/send"],
+            ["POST", "/api/portal/wedding/messages/msg_x/unschedule"],
+            ["POST", "/api/portal/wedding/rsvp-questions"],
+            ["PATCH", "/api/portal/wedding/rsvp-questions/rq_x"],
+            ["DELETE", "/api/portal/wedding/rsvp-questions/rq_x"],
             ["PUT", "/api/portal/settings/wedding"],
             ["PUT", "/api/portal/settings/website"],
             ["PUT", "/api/portal/settings/rsvp"],
@@ -256,6 +261,7 @@ describe("portal access control", () => {
         }
         for (const path of [
             "/api/portal/export/guests.csv",
+            "/api/portal/export/all.json",
             "/api/portal/audit",
             "/api/portal/users",
             "/api/portal/privacy/deleted",

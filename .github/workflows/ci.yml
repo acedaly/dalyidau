@@ -27,6 +27,8 @@ jobs:
               run: npx wrangler deploy --dry-run --outdir dist/worker --env=""
             - name: Client bundle guard (no portal code in the blog, no secrets anywhere)
               run: npm run check:bundle
+            - name: Untitled UI semantic token guard
+              run: npm run check:styles
             - name: Configuration safety (production and staging, config file only)
               run: node scripts/check-config.mjs --offline && node scripts/check-config.mjs --env staging --offline
             - name: Install Chromium

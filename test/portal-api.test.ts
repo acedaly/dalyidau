@@ -300,6 +300,7 @@ describe("communications", () => {
 
 describe("portal pages", () => {
     it.each([
+        "/portal",
         "/portal/wedding",
         "/portal/wedding/guests",
         "/portal/wedding/households",
@@ -308,6 +309,8 @@ describe("portal pages", () => {
         "/portal/wedding/communications",
         "/portal/wedding/tasks",
         "/portal/wedding/timeline",
+        "/portal/wedding/seating",
+        "/portal/wedding/catering",
         "/portal/wedding/budget",
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
@@ -332,11 +335,11 @@ describe("portal pages", () => {
         expect(html).toMatch(/<h1[^>]*>/);
     });
 
-    it("redirects /portal to the wedding dashboard and 404s unknown pages", async () => {
+    it("serves the portal overview and 404s unknown pages", async () => {
         const token = await accessToken();
         const root = await call("/portal", { token });
-        expect(root.status).toBe(302);
-        expect(root.headers.get("Location")).toBe("https://daly.id.au/portal/wedding");
+        expect(root.status).toBe(200);
+        expect(await root.text()).toContain("Welcome, owner");
         expect((await call("/portal/wedding/nope", { token })).status).toBe(404);
     });
 });

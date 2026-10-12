@@ -2,16 +2,16 @@
 
 Staging is a separate copy of the site for trying changes, migrations and the portal with fictional data before production.
 
-| | Production | Staging |
-| --- | --- | --- |
-| Worker | `dalyidau` | `dalyidau-staging` (not deployed yet) |
-| URL | `https://daly.id.au` | `https://dalyidau-staging.<account-subdomain>.workers.dev` |
-| D1 database | `dalyidau-production` | `dalyidau-staging` (exists, empty) |
-| R2 bucket | `dalyidau-media` | `dalyidau-media-staging` |
-| Secrets | its own | its own (set separately) |
-| Access application | covers `daly.id.au/portal` | covers the whole staging hostname |
-| Email delivery | `EMAIL_DELIVERY: "off"` | `EMAIL_DELIVERY: "off"` |
-| Cron sync | every 15 minutes | none (sync by hand) |
+|                    | Production                 | Staging                                                    |
+| ------------------ | -------------------------- | ---------------------------------------------------------- |
+| Worker             | `dalyidau`                 | `dalyidau-staging` (not deployed yet)                      |
+| URL                | `https://daly.id.au`       | `https://dalyidau-staging.<account-subdomain>.workers.dev` |
+| D1 database        | `dalyidau-production`      | `dalyidau-staging` (exists, empty)                         |
+| R2 bucket          | `dalyidau-media`           | `dalyidau-media-staging`                                   |
+| Secrets            | its own                    | its own (set separately)                                   |
+| Access application | covers `daly.id.au/portal` | covers the whole staging hostname                          |
+| Email delivery     | `EMAIL_DELIVERY: "off"`    | `EMAIL_DELIVERY: "off"`                                    |
+| Cron sync          | every 15 minutes           | none (sync by hand)                                        |
 
 ## Why staging can't touch production
 
@@ -32,6 +32,7 @@ All free on the current plan; nothing here is paid.
     npx wrangler secret put ACCESS_TEAM_DOMAIN  --env staging
     npx wrangler secret put ACCESS_AUD          --env staging   # the staging application's AUD
     npx wrangler secret put PORTAL_OWNER_EMAILS --env staging
+    npx wrangler secret put RSVP_LINK_SECRET     --env staging # use a different high-entropy value from production
     # optional, for the blog sync on staging:
     npx wrangler secret put CAPACITIES_API_TOKEN --env staging
     npx wrangler secret put ADMIN_TOKEN          --env staging
@@ -42,6 +43,6 @@ All free on the current plan; nothing here is paid.
 ## Using it
 
 - Sign in at `/portal` on the staging URL. The portal shows a "staging environment" banner.
-- Everything works as in production, with fictional guests. Turn on the website and native RSVP there freely to test them; the demo households' RSVP codes are `DEM3AAQX`, `DEM4BBRX`, `DEM6CCTX`, `DEM7DDWX`, `DEM8EEYX`.
+- Everything works as in production, with fictional guests. Turn on the website and native RSVP there freely to test them. Use the signed links shown in Households; legacy demo codes are available only while **Allow short household codes** is enabled.
 - To rehearse a release: deploy the branch to staging, run `npm run db:verify -- --env staging`, click through, then deploy production.
 - Reset the demo data at any time by re-running `npm run seed:staging -- --yes`.

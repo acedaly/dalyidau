@@ -21,7 +21,7 @@ console.log(`Checking ${env} (Worker "${target.name}")\n`);
 // --- wrangler.jsonc ---------------------------------------------------------------------------------
 
 report.check(target.vars.ENVIRONMENT === env, `ENVIRONMENT is "${env}"`, `ENVIRONMENT is "${target.vars.ENVIRONMENT}", expected "${env}"`);
-for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS"]) {
+for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET"]) {
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
 const delivery = target.vars.EMAIL_DELIVERY ?? "off";
@@ -62,7 +62,7 @@ if (!listed) {
     } catch {
         report.warn("Couldn't read the secret list");
     }
-    for (const name of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "PORTAL_OWNER_EMAILS"]) {
+    for (const name of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "PORTAL_OWNER_EMAILS", "RSVP_LINK_SECRET"]) {
         report.check(names.includes(name), `Secret ${name} is set`, `Secret ${name} is missing: npx wrangler secret put ${name} ${envFlag(env)}`);
     }
     for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS"]) {
