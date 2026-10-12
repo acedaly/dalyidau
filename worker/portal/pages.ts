@@ -6,7 +6,7 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
-import { invitationUrl } from "../wedding/invitations";
+import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
 import { cateringSummary } from "./catering";
@@ -14,6 +14,8 @@ import { deliveryAvailable, getMessage, listMessages, listSmsThreads } from "./c
 import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
+import { listHouseholdRows } from "./households";
+import { listImports } from "./import";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
 import { listQuestions, questionSummaries } from "./rsvp-questions";
@@ -79,22 +81,31 @@ const PAGES: PageDef[] = [
         },
     },
     {
+        pattern: /^\/portal\/wedding\/guests\/import$/,
+        title: "Import guests",
+        permission: "wedding.guests.edit",
+        application: "wedding",
+        load: async ({ env }) => {
+            const [guests, households, imports] = await Promise.all([listGuests(env.DB), listEntities(env.DB, householdDef), listImports(env.DB)]);
+            return {
+                route: "guest-import",
+                households: households.map((h) => ({ id: h.id, name: h.name })),
+                guests: guests.map((g) => ({ id: g.id, name: `${g.firstName} ${g.lastName}`.trim(), householdName: g.householdName })),
+                imports,
+            };
+        },
+    },
+    {
         pattern: /^\/portal\/wedding\/households$/,
         title: "Households",
         permission: "wedding.view",
         application: "wedding",
-        load: async ({ env }) => {
-            const households = await listEntities(env.DB, householdDef);
-            return {
-                route: "households",
-                households: await Promise.all(
-                    households.map(async (household) => ({
-                        ...household,
-                        invitationUrl: household.inviteRevokedAt ? null : await invitationUrl(env, household.id, household.inviteVersion),
-                    })),
-                ),
-            };
-        },
+        load: async ({ env }) => ({
+            route: "households",
+            households: await listHouseholdRows(env),
+            emailDelivery: await deliveryAvailable(env, env.DB),
+            canGenerateLinks: invitationLinksConfigured(env),
+        }),
     },
     {
         pattern: /^\/portal\/wedding\/events$/,

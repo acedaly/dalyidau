@@ -129,6 +129,8 @@ const PORTAL_TABLES = [
     "message_templates",
     "rsvp_submissions",
     "guest_events",
+    "guest_import_rows",
+    "guest_imports",
     "guests",
     "households",
     "events",

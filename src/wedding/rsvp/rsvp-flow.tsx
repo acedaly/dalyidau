@@ -1,5 +1,6 @@
 // The native RSVP, step by step: find the invitation (signed link or code), say who's coming,
 // add details (dietary needs, configured questions, a note), review, send, and see a confirmation.
+// Each person can be accepted, declined or left unanswered to finish later with the same link.
 // The server re-validates everything; the checks here only make the form friendlier.
 // In the portal preview it talks to the owners-only test endpoints, so it can be tried before the
 // "rsvp.native" flag is turned on.
@@ -203,7 +204,11 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     const attendingAny = (guest: Guest) => Object.values(answers[guest.id]?.events ?? {}).some((s) => s === "attending");
     const setEvent = (guestId: string, eventId: string, status: Status) =>
         setAnswers((current) => ({ ...current, [guestId]: { ...current[guestId], events: { ...current[guestId].events, [eventId]: status } } }));
+    const clearGuest = (guestId: string) => setAnswers((current) => ({ ...current, [guestId]: { ...current[guestId], events: {} } }));
+    const answeredAny = (guest: Guest) => invitedEvents(guest).some((event) => !!answers[guest.id]?.events[event.id]);
     const unanswered = household.guests.filter((g) => invitedEvents(g).some((event) => !answers[g.id]?.events[event.id]));
+    const someoneAnswered = household.guests.some(answeredAny);
+    const declinedAll = (guest: Guest) => invitedEvents(guest).every((event) => answers[guest.id]?.events[event.id] === "declined");
 
     const appliesToGuest = (question: RsvpQuestion, guest: Guest) =>
         questionApplies(question, {
@@ -240,7 +245,8 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                 clientId,
                 guests: household.guests.map((g) => ({
                     guestId: g.id,
-                    events: answers[g.id].events,
+                    // Anyone left unanswered is sent as "pending": answered later with the same link.
+                    events: Object.fromEntries(invitedEvents(g).map((event) => [event.id, answers[g.id].events[event.id] ?? "pending"])),
                     ...(household.collectDietary ? { dietary: attendingAny(g) ? answers[g.id].dietary : (g.dietary ?? "") } : {}),
                 })),
                 message: household.collectMessage ? message : null,
@@ -286,7 +292,9 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                     )}
                     {returning && (
                         <p className="bg-eucalypt-light text-forest rounded-xl px-4 py-3 text-center text-[0.9375rem]">
-                            You've already replied. Your answers are filled in below, and you can change anything
+                            {household.guests.some((g) => Object.values(household.responses[g.id] ?? {}).includes("pending"))
+                                ? "Welcome back. Your answers so far are filled in below; finish the rest whenever you're ready"
+                                : "You've already replied. Your answers are filled in below, and you can change anything"}
                             {deadline ? ` until ${longDate(deadline)}` : ""}.
                         </p>
                     )}
@@ -327,12 +335,34 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                                         />
                                     ))}
                                     {missing && <p className="text-sm text-error-primary">Please choose an answer for {guest.firstName}.</p>}
+                                    {answeredAny(guest) && household.guests.length > 1 && (
+                                        <Button
+                                            color="link-gray"
+                                            size="sm"
+                                            className="self-start"
+                                            aria-label={`Answer for ${fullName(guest)} later`}
+                                            onClick={() => clearGuest(guest.id)}
+                                        >
+                                            Not sure yet? Answer later
+                                        </Button>
+                                    )}
                                 </li>
                             );
                         })}
                     </ul>
                     {showErrors && unanswered.length > 0 && (
-                        <ErrorNote message={`We still need an answer for ${listNames(unanswered.map((g) => g.firstName))}.`} />
+                        <div className="flex flex-col gap-3">
+                            <ErrorNote message={`We still need an answer for ${listNames(unanswered.map((g) => g.firstName))}.`} />
+                            {someoneAnswered && (
+                                <Button
+                                    size="md"
+                                    className={cx(weddingButton.outline, "min-h-11 justify-center py-2.5 text-[0.75rem]")}
+                                    onClick={() => go("details")}
+                                >
+                                    Reply now and answer for {listNames(unanswered.map((g) => g.firstName))} later
+                                </Button>
+                            )}
+                        </div>
                     )}
                     <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <Button
@@ -479,8 +509,32 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     // -----------------------------------------------------------------------------------------
     // Step 3: review (also the read-only view after the deadline)
 
+    const coming = household.guests.filter((g) => invitedEvents(g).some((event) => answers[g.id]?.events[event.id] === "attending"));
+    const notComing = household.guests.filter((g) => !coming.includes(g) && !unanswered.includes(g) && declinedAll(g));
     const summary = (editable: boolean) => (
         <div className="flex flex-col gap-6">
+            {household.guests.length > 1 && (
+                <section aria-label="Household summary" className="flex flex-col gap-2">
+                    <ul className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                            { label: "Coming", count: coming.length, tone: "text-forest" },
+                            { label: "Can't make it", count: notComing.length, tone: "text-clay-700" },
+                            { label: "Not answered", count: unanswered.length, tone: "text-tertiary" },
+                        ].map((item) => (
+                            <li key={item.label} className="bg-paper ring-sandstone/70 flex flex-col rounded-[2px] px-2 py-3 ring-1 ring-inset">
+                                <span className={cx("wedding-display text-[2rem] leading-none", item.tone)}>{item.count}</span>
+                                <span className="mt-1 text-xs text-tertiary">{item.label}</span>
+                            </li>
+                        ))}
+                    </ul>
+                    {unanswered.length > 0 && !household.deadlinePassed && (
+                        <p className="text-[0.9375rem] text-tertiary">
+                            {listNames(unanswered.map((g) => g.firstName))} {unanswered.length === 1 ? "hasn't" : "haven't"} been answered yet. You can send
+                            this now and use the same link to finish{deadline ? ` by ${longDate(deadline)}` : " later"}.
+                        </p>
+                    )}
+                </section>
+            )}
             <section aria-labelledby="summary-attendance" className="flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-3">
                     <h3 id="summary-attendance" className="wedding-eyebrow text-olive-600">
@@ -589,8 +643,9 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     // -----------------------------------------------------------------------------------------
     // Done
 
-    const coming = household.guests.filter((g) => Object.values(household.responses[g.id] ?? {}).some((s) => s === "attending"));
-    const firstEvent = household.events.find((e) => coming.some((g) => household.responses[g.id]?.[e.id] === "attending"));
+    const saved = household.guests.filter((g) => Object.values(household.responses[g.id] ?? {}).some((s) => s === "attending"));
+    const stillToAnswer = household.guests.filter((g) => Object.values(household.responses[g.id] ?? {}).some((s) => s === "pending"));
+    const firstEvent = household.events.find((e) => saved.some((g) => household.responses[g.id]?.[e.id] === "attending"));
     return (
         <div ref={top} className="scroll-mt-24">
             <Card>
@@ -600,19 +655,27 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                         Thank you
                     </h2>
                     <p className="wedding-display text-charcoal max-w-md text-[1.5rem] leading-snug">
-                        {coming.length > 0
-                            ? `We can't wait to celebrate with ${listNames(coming.map((g) => g.firstName))}.`
-                            : "We'll miss you, and we're so grateful you let us know."}
+                        {saved.length > 0
+                            ? `We can't wait to celebrate with ${listNames(saved.map((g) => g.firstName))}.`
+                            : stillToAnswer.length > 0
+                              ? "Thank you for letting us know so far."
+                              : "We'll miss you, and we're so grateful you let us know."}
                     </p>
                     <p className="text-[0.9375rem] text-tertiary">
                         Your RSVP has been saved
                         {confirmationSent && email ? `, and we've emailed a confirmation to ${email}` : ""}.
                         {!household.deadlinePassed && " You can come back and change it any time before the deadline using the same link or code."}
                     </p>
+                    {stillToAnswer.length > 0 && !household.deadlinePassed && (
+                        <p className="bg-eucalypt-light text-forest rounded-xl px-4 py-3 text-[0.9375rem]">
+                            We still need an answer for {listNames(stillToAnswer.map((g) => g.firstName))}. Open your invitation again to finish
+                            {deadline ? ` by ${longDate(deadline)}` : ""}.
+                        </p>
+                    )}
                 </div>
                 {summary(false)}
                 <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-                    {coming.length > 0 && wedding.date && (
+                    {saved.length > 0 && wedding.date && (
                         <Button
                             size="xl"
                             iconLeading={CalendarPlus01}
@@ -641,7 +704,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                 {!household.deadlinePassed && (
                     <div className="flex justify-center">
                         <Button color="link-gray" onClick={() => go("attendance")}>
-                            Change our RSVP
+                            {stillToAnswer.length > 0 ? "Finish our RSVP" : "Change our RSVP"}
                         </Button>
                     </div>
                 )}

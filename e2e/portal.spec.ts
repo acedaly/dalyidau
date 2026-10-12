@@ -36,6 +36,7 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal",
         "/portal/wedding",
         "/portal/wedding/guests",
+        "/portal/wedding/guests/import",
         "/portal/wedding/households",
         "/portal/wedding/rsvps",
         "/portal/wedding/events",
@@ -61,7 +62,15 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
 });
 
 test("core portal workflows expose labelled controls and keyboard focus", async ({ page }) => {
-    for (const path of ["/portal", "/portal/wedding/rsvps", "/portal/wedding/seating", "/portal/wedding/catering", "/portal/wedding/communications"]) {
+    for (const path of [
+        "/portal",
+        "/portal/wedding/rsvps",
+        "/portal/wedding/seating",
+        "/portal/wedding/catering",
+        "/portal/wedding/communications",
+        "/portal/wedding/households",
+        "/portal/wedding/guests/import",
+    ]) {
         await page.goto(path);
         await expect(page.getByRole("main")).toBeVisible();
         await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);

@@ -6,6 +6,7 @@ import { CateringPage } from "@/portal/pages/catering-page";
 import { CommunicationsPage } from "@/portal/pages/communications-page";
 import { DashboardPage } from "@/portal/pages/dashboard-page";
 import { EventsPage } from "@/portal/pages/events-page";
+import { GuestImportPage } from "@/portal/pages/guest-import-page";
 import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
 import { MessagePage } from "@/portal/pages/message-page";
@@ -32,6 +33,8 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <DashboardPage data={data} />;
         case "guests":
             return <GuestsPage data={data} />;
+        case "guest-import":
+            return <GuestImportPage data={data} />;
         case "households":
             return <HouseholdsPage data={data} />;
         case "events":

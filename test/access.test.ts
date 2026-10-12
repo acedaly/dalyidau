@@ -241,6 +241,8 @@ describe("portal access control", () => {
             ["PUT", "/api/portal/wedding/guests/gst_x/rsvp"],
             ["POST", "/api/portal/wedding/guests/bulk"],
             ["POST", "/api/portal/wedding/guests/import"],
+            ["POST", "/api/portal/wedding/guests/import/preview"],
+            ["POST", "/api/portal/wedding/households/invitations"],
             ["DELETE", "/api/portal/wedding/households/hh_x"],
             ["POST", "/api/portal/wedding/households/hh_x/code"],
             ["POST", "/api/portal/wedding/households/hh_x/invitation"],
@@ -274,7 +276,10 @@ describe("portal access control", () => {
         }
         for (const path of [
             "/api/portal/export/guests.csv",
+            "/api/portal/export/invitations.csv",
             "/api/portal/export/all.json",
+            "/api/portal/wedding/guests/imports",
+            "/api/portal/wedding/guests/imports/imp_x/report.csv",
             "/api/portal/audit",
             "/api/portal/users",
             "/api/portal/privacy/deleted",

@@ -275,7 +275,12 @@ export const householdDef: EntityDef<Household> = {
     select: "SELECT t.*, (SELECT COUNT(*) FROM guests g WHERE g.household_id = t.id AND g.deleted_at IS NULL) AS guest_count FROM households t",
     listWhere: "t.deleted_at IS NULL",
     softDelete: true,
-    extra: (row) => ({ guestCount: Number(row.guest_count ?? 0) }),
+    extra: (row) => ({
+        guestCount: Number(row.guest_count ?? 0),
+        // Set by the importer and bulk invitation generation, never by the household form.
+        externalId: (row.external_id as string | null) ?? null,
+        invitationGeneratedAt: (row.invitation_generated_at as string | null) ?? null,
+    }),
     orderBy: "t.name COLLATE NOCASE",
     title: (h) => h.name,
     read: "wedding.view",

@@ -10,7 +10,6 @@ import { PageHeader } from "@/portal/components/page-header";
 import { RSVP_LABELS, RsvpBadge } from "@/portal/components/status";
 import { BulkActions } from "@/portal/guests/bulk-actions";
 import { GuestPanel } from "@/portal/guests/guest-panel";
-import { ImportDialog } from "@/portal/guests/import-dialog";
 import { initials, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
@@ -33,7 +32,6 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [selected, setSelected] = useState<Guest | null>(null);
     const [panelOpen, setPanelOpen] = useState(false);
-    const [importOpen, setImportOpen] = useState(false);
 
     const groups = useMemo(() => [...new Set(guests.map((g) => g.groupName).filter(Boolean) as string[])].sort(), [guests]);
     const tags = useMemo(() => [...new Set(guests.flatMap((g) => g.tags))].sort(), [guests]);
@@ -179,7 +177,7 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                         )}
                         {can("wedding.guests.edit") && (
                             <>
-                                <Button color="secondary" iconLeading={Upload01} onClick={() => setImportOpen(true)}>
+                                <Button color="secondary" iconLeading={Upload01} href="/portal/wedding/guests/import">
                                     Import
                                 </Button>
                                 <Button iconLeading={Plus} onClick={() => openGuest(null)}>
@@ -250,7 +248,7 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                         actions={
                             can("wedding.guests.edit") && (
                                 <>
-                                    <Button color="secondary" iconLeading={Upload01} onClick={() => setImportOpen(true)}>
+                                    <Button color="secondary" iconLeading={Upload01} href="/portal/wedding/guests/import">
                                         Import CSV
                                     </Button>
                                     <Button iconLeading={Plus} onClick={() => openGuest(null)}>
@@ -279,7 +277,6 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                 }}
                 onDeleted={(id) => setGuests((list) => list.filter((g) => g.id !== id))}
             />
-            <ImportDialog isOpen={importOpen} onOpenChange={setImportOpen} onImported={(list) => list.length && setGuests(list)} />
         </>
     );
 };

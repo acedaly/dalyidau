@@ -1,5 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import type { AuditEntry, RsvpSubmission, RsvpSubmissionPayload } from "../../src/shared/portal/types";
+import type { AuditEntry, HouseholdResponse, RsvpStatus, RsvpSubmission, RsvpSubmissionPayload } from "../../src/shared/portal/types";
 import { likePattern, parseJson } from "./db";
 
 const AUDIT_PAGE_SIZE = 50;
@@ -66,21 +66,82 @@ export async function listSubmissions(db: D1Database, limit = 100): Promise<Rsvp
     }));
 }
 
+/** Every live household's RSVP progress, counted per invited guest and per guest × event. */
+export async function householdResponses(db: D1Database): Promise<Map<string, HouseholdResponse>> {
+    const [households, guests, invitations] = await db.batch([
+        db.prepare("SELECT id FROM households WHERE deleted_at IS NULL"),
+        db.prepare(
+            `SELECT id, household_id, first_name, last_name FROM guests WHERE deleted_at IS NULL AND household_id IS NOT NULL
+             ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, first_name COLLATE NOCASE`,
+        ),
+        db.prepare(
+            `SELECT ge.guest_id, ge.status, ge.responded_at FROM guest_events ge
+             JOIN guests g ON g.id = ge.guest_id AND g.deleted_at IS NULL AND g.household_id IS NOT NULL`,
+        ),
+    ]);
+    const byGuest = new Map<string, { status: RsvpStatus; respondedAt: string | null }[]>();
+    for (const row of invitations.results as { guest_id: string; status: RsvpStatus; responded_at: string | null }[]) {
+        byGuest.set(row.guest_id, [...(byGuest.get(row.guest_id) ?? []), { status: row.status, respondedAt: row.responded_at }]);
+    }
+    const out = new Map<string, HouseholdResponse>();
+    for (const { id } of households.results as { id: string }[]) {
+        out.set(id, {
+            status: "not_invited",
+            invited: 0,
+            answered: 0,
+            partial: 0,
+            attending: 0,
+            declined: 0,
+            waiting: 0,
+            invitations: 0,
+            answeredInvitations: 0,
+            lastResponseAt: null,
+            guestNames: [],
+        });
+    }
+    for (const guest of guests.results as { id: string; household_id: string; first_name: string; last_name: string }[]) {
+        const summary = out.get(guest.household_id);
+        if (!summary) continue;
+        summary.guestNames.push(`${guest.first_name} ${guest.last_name ?? ""}`.trim());
+        const events = byGuest.get(guest.id) ?? [];
+        if (events.length === 0) continue;
+        const answered = events.filter((e) => e.status !== "pending");
+        summary.invited++;
+        summary.invitations += events.length;
+        summary.answeredInvitations += answered.length;
+        if (answered.length === events.length) summary.answered++;
+        else if (answered.length > 0) summary.partial++;
+        else summary.waiting++;
+        if (events.some((e) => e.status === "attending")) summary.attending++;
+        else if (events.every((e) => e.status === "declined")) summary.declined++;
+        for (const e of answered)
+            if (e.respondedAt && (!summary.lastResponseAt || e.respondedAt > summary.lastResponseAt)) summary.lastResponseAt = e.respondedAt;
+    }
+    for (const summary of out.values()) {
+        summary.status =
+            summary.invitations === 0
+                ? "not_invited"
+                : summary.answeredInvitations === 0
+                  ? "not_started"
+                  : summary.answeredInvitations === summary.invitations
+                    ? "complete"
+                    : "partial";
+    }
+    return out;
+}
+
 /** Households with how many of their invited guests have answered everything. */
 export async function householdResponseCounts(db: D1Database) {
-    const rows = await db
-        .prepare(
-            `SELECT h.id, h.name, h.rsvp_code,
-                    COUNT(DISTINCT g.id) AS guests,
-                    COUNT(DISTINCT CASE WHEN NOT EXISTS (
-                        SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id AND ge.status = 'pending'
-                    ) AND EXISTS (SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id) THEN g.id END) AS responded
-             FROM households h LEFT JOIN guests g ON g.household_id = h.id AND g.deleted_at IS NULL
-             WHERE h.deleted_at IS NULL
-             GROUP BY h.id ORDER BY h.name COLLATE NOCASE`,
-        )
-        .all<{ id: string; name: string; rsvp_code: string; guests: number; responded: number }>();
-    return rows.results.map((r) => ({ id: r.id, name: r.name, rsvpCode: r.rsvp_code, guests: r.guests, responded: r.responded }));
+    const [rows, responses] = await Promise.all([
+        db
+            .prepare("SELECT id, name, rsvp_code FROM households WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE")
+            .all<{ id: string; name: string; rsvp_code: string }>(),
+        householdResponses(db),
+    ]);
+    return rows.results.map((r) => {
+        const response = responses.get(r.id)!;
+        return { id: r.id, name: r.name, rsvpCode: r.rsvp_code, guests: response.invited, responded: response.answered, status: response.status };
+    });
 }
 
 export async function distinctGuestValues(db: D1Database) {
