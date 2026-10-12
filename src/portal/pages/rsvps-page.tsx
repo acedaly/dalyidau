@@ -54,14 +54,14 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
             sortValue: (h) => (h.guests ? h.responded / h.guests : -1),
             render: (h) =>
                 h.guests === 0 ? (
-                    <span className="text-quaternary">No guests</span>
-                ) : h.responded === h.guests ? (
+                    <span className="text-quaternary">No invited guests</span>
+                ) : h.status === "complete" ? (
                     <BadgeWithDot size="sm" color="success">
                         All {h.guests} replied
                     </BadgeWithDot>
                 ) : (
-                    <BadgeWithDot size="sm" color={h.responded ? "warning" : "gray"}>
-                        {h.responded} of {h.guests}
+                    <BadgeWithDot size="sm" color={h.status === "partial" ? "warning" : "gray"}>
+                        {h.status === "partial" ? `Partly answered: ${h.responded} of ${h.guests}` : `${h.responded} of ${h.guests}`}
                     </BadgeWithDot>
                 ),
         },
@@ -86,7 +86,10 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                         <li key={g.guestId} className="text-sm">
                             <span className="font-medium text-secondary">{g.name}: </span>
                             {Object.entries(g.events)
-                                .map(([eventId, status]) => `${eventNames.get(eventId) ?? "Event"} ${status === "attending" ? "✓" : "✗"}`)
+                                .map(
+                                    ([eventId, status]) =>
+                                        `${eventNames.get(eventId) ?? "Event"} ${status === "attending" ? "✓" : status === "declined" ? "✗" : "(not answered yet)"}`,
+                                )
                                 .join(", ")}
                             {g.dietary && <span className="text-tertiary"> · {g.dietary}</span>}
                         </li>

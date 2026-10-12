@@ -34,8 +34,9 @@ import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity,
 import { EXPORTS, fullJsonExport } from "./exports";
 import { loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
+import { generateInvitations, listHouseholdRows } from "./households";
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
-import { importGuests } from "./import";
+import { MAX_IMPORT_BYTES, commitImport, getImportReport, importReportCsv, listImports, planImport } from "./import";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
 import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
@@ -172,7 +173,7 @@ add(
         const name = params.name.replace(/\.csv$/, "");
         const def = EXPORTS[name];
         if (!def) throw new HttpError(404, "not_found", "Unknown export");
-        const body = await def.build(env.DB);
+        const body = await def.build(env.DB, env);
         // Exports contain personal details, so who took one is recorded.
         await audit(env.DB, {
             actor: user.email,
@@ -198,18 +199,45 @@ add("POST", "/api/portal/wedding/guests/bulk", "wedding.guests.edit", async ({ e
     if ((body as { action?: string }).action === "set-rsvp" && !can(user, "wedding.rsvp.edit")) throw new HttpError(403, "forbidden", "You can't change RSVPs");
     return json({ ...(await bulkUpdateGuests(env.DB, body, user.email)), guests: await listGuests(env.DB) });
 });
-add("POST", "/api/portal/wedding/guests/import", "wedding.guests.edit", async ({ env, request, user }) => {
-    const body = z
-        .object({ csv: z.string().max(1_000_000), dryRun: z.boolean().default(true), rsvpSource: z.enum(["import", "sayido"]).default("import") })
-        .parse(await readJson(request));
+// Import: preview (nothing written), then apply the reviewed plan. See worker/portal/import.ts.
+// JSON escaping roughly doubles a quote-heavy CSV.
+const IMPORT_REQUEST_BYTES = MAX_IMPORT_BYTES * 2 + 500_000;
+const importPreviewSchema = z.object({ csv: z.string().max(MAX_IMPORT_BYTES), decisions: z.unknown().optional() });
+const partnerNames = async (env: Env): Promise<[string, string]> => {
     const wedding = await getSettings(env.DB, "wedding");
-    const result = await importGuests(env.DB, body.csv, {
-        dryRun: body.dryRun,
+    return [wedding.partnerOne, wedding.partnerTwo];
+};
+add("POST", "/api/portal/wedding/guests/import/preview", "wedding.guests.edit", async ({ env, request }) => {
+    const body = importPreviewSchema.parse(await readJson(request, IMPORT_REQUEST_BYTES));
+    const { plan } = await planImport(env.DB, body.csv, body.decisions, { partnerNames: await partnerNames(env) });
+    return json({ plan });
+});
+add("POST", "/api/portal/wedding/guests/import", "wedding.guests.edit", async ({ env, request, user }) => {
+    const report = await commitImport(env.DB, await readJson(request, IMPORT_REQUEST_BYTES), {
         actor: user.email,
-        partnerNames: [wedding.partnerOne, wedding.partnerTwo],
-        rsvpSource: body.rsvpSource,
+        partnerNames: await partnerNames(env),
+        canEditRsvps: can(user, "wedding.rsvp.edit"),
     });
-    return json({ result, guests: body.dryRun ? undefined : await listGuests(env.DB) });
+    return json({ report, guests: await listGuests(env.DB) });
+});
+add("GET", "/api/portal/wedding/guests/imports", "wedding.guests.edit", async ({ env }) => json({ imports: await listImports(env.DB) }));
+add("GET", "/api/portal/wedding/guests/imports/:id", "wedding.guests.edit", async ({ env, params }) => {
+    const report = await getImportReport(env.DB, params.id);
+    if (!report) throw new NotFoundError("Import not found");
+    return json({ report });
+});
+// The report lists names and addresses, so downloading it is an export like any other.
+add("GET", "/api/portal/wedding/guests/imports/:id/report.csv", "wedding.export", async ({ env, user, params }) => {
+    const report = await getImportReport(env.DB, params.id);
+    if (!report) throw new NotFoundError("Import not found");
+    await audit(env.DB, {
+        actor: user.email,
+        action: "export.import_report",
+        entityType: "export",
+        entityId: report.id,
+        summary: `Exported the report for the import of ${report.createdAt.slice(0, 10)} (CSV)`,
+    });
+    return csvResponse(`guest-import-${report.createdAt.slice(0, 10)}-${report.id}.csv`, importReportCsv(report));
 });
 add("GET", "/api/portal/wedding/guests/:id", "wedding.view", async ({ env, params }) => {
     const guest = await getGuest(env.DB, params.id);
@@ -276,6 +304,15 @@ add("POST", "/api/portal/wedding/households/:id/invitation", "wedding.guests.edi
             ? { ...household, invitationUrl: household.inviteRevokedAt ? null : await invitationUrl(env, household.id, household.inviteVersion) }
             : null,
     });
+});
+
+add("GET", "/api/portal/wedding/households/overview", "wedding.view", async ({ env }) => json({ households: await listHouseholdRows(env) }));
+
+// Bulk "generate invitations": marks the households' signed links ready. Sending is a separate,
+// approved step in Communications; nothing here contacts a guest.
+add("POST", "/api/portal/wedding/households/invitations", "wedding.guests.edit", async ({ env, request, user }) => {
+    const result = await generateInvitations(env, await readJson(request), user.email);
+    return json({ ...result, households: await listHouseholdRows(env) });
 });
 
 add("DELETE", "/api/portal/wedding/households/:id", "wedding.guests.edit", async ({ env, user, params }) => {

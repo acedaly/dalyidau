@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { ImportPlan } from "../src/shared/portal/guest-import";
 import type { Guest, Household, Message, Task, WeddingEvent } from "../src/shared/portal/types";
 import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
@@ -153,17 +154,19 @@ describe("CSV", () => {
             "Wrong,Event,,,,Brunch,,",
         ].join("\n");
 
-        const dry = await apiCall<{ result: { summary: Record<string, number>; rows: { action: string; message: string | null }[] } }>(
-            "POST",
-            "/api/portal/wedding/guests/import",
-            { csv, dryRun: true, rsvpSource: "sayido" },
-        );
+        const dry = await apiCall<{ plan: ImportPlan }>("POST", "/api/portal/wedding/guests/import/preview", { csv, decisions: { rsvpSource: "sayido" } });
         expect(dry.status, dry.text).toBe(200);
-        expect(dry.json.result.summary).toEqual({ create: 1, update: 1, skip: 0, error: 3, newHouseholds: 1 });
+        expect(dry.json.plan.summary).toMatchObject({ guests: { create: 1, update: 1 }, errors: 3, households: { create: 1 } });
+        expect(dry.json.plan.errors.map((e) => e.message)).toEqual(["No name", "“not-an-email” isn't a valid email address", "No event called “Brunch”"]);
         expect((await db().prepare("SELECT COUNT(*) AS n FROM guests").first<{ n: number }>())?.n).toBe(1);
 
-        const real = await apiCall<{ guests: Guest[] }>("POST", "/api/portal/wedding/guests/import", { csv, dryRun: false, rsvpSource: "sayido" });
-        expect(real.status).toBe(200);
+        const real = await apiCall<{ guests: Guest[] }>("POST", "/api/portal/wedding/guests/import", {
+            csv,
+            clientId: crypto.randomUUID(),
+            decisions: { rsvpSource: "sayido" },
+            basis: dry.json.plan.basis,
+        });
+        expect(real.status, real.text).toBe(200);
         const existing = real.json.guests.find((g) => g.email === "existing@example.com")!;
         expect(existing).toMatchObject({ householdName: "The Persons", rsvp: "attending" });
         expect(existing.events[0]).toMatchObject({ eventId: ceremony.id, source: "sayido" });

@@ -3,11 +3,13 @@ import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { needsSeat } from "../../src/shared/portal/seating";
 import type { AuditEntry, BudgetItem, Guest, Household, Supplier, Task } from "../../src/shared/portal/types";
+import type { Env } from "../env";
 import { cateringSummary } from "./catering";
 import { type CsvColumn, toCsv } from "./csv";
 import { parseJson } from "./db";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef } from "./entities";
 import { listGuests } from "./guests";
+import { invitationsCsv } from "./households";
 import { seatingState } from "./seating";
 import { getSettings } from "./settings";
 
@@ -23,6 +25,8 @@ const PORTAL_EXPORT_TABLES = [
     "guests",
     "events",
     "guest_events",
+    "guest_imports",
+    "guest_import_rows",
     "custom_fields",
     "rsvp_submissions",
     "rsvp_questions",
@@ -55,10 +59,15 @@ export interface ExportDef {
     label: string;
     permission: Permission;
     flag?: keyof Flags;
-    build: (db: D1Database) => Promise<string>;
+    build: (db: D1Database, env: Env) => Promise<string>;
 }
 
 export const EXPORTS: Record<string, ExportDef> = {
+    invitations: {
+        label: "Household invitations",
+        permission: "wedding.export",
+        build: (_db, env) => invitationsCsv(env),
+    },
     guests: {
         label: "Guests",
         permission: "wedding.export",

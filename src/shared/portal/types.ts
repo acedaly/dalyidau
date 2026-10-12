@@ -1,6 +1,7 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
 import type { ApplicationId } from "./applications";
 import type { Flags } from "./flags";
+import type { ImportHistoryEntry } from "./guest-import";
 import type { Permission, Role } from "./permissions";
 
 export interface PortalUser {
@@ -202,9 +203,40 @@ export interface Household {
     inviteVersion: number;
     inviteRevokedAt: string | null;
     invitationUrl?: string | null;
+    /** Say I Do party id the household was imported from, if any. */
+    externalId: string | null;
+    /** Last time invitations were generated in bulk for this household. Generating never sends. */
+    invitationGeneratedAt: string | null;
     createdAt: string;
     updatedAt: string;
 }
+
+/** How far a household has got with its RSVP, counted per invited guest and event. */
+export type HouseholdResponseStatus = "not_invited" | "not_started" | "partial" | "complete";
+
+export interface HouseholdResponse {
+    status: HouseholdResponseStatus;
+    /** Guests invited to at least one event. */
+    invited: number;
+    /** Guests who have answered every event they're invited to. */
+    answered: number;
+    /** Guests with some events answered and some not. */
+    partial: number;
+    /** Guests attending at least one event. */
+    attending: number;
+    /** Guests who declined everything. */
+    declined: number;
+    /** Guests with no answer at all. */
+    waiting: number;
+    /** Guest × event invitations, and how many are answered. */
+    invitations: number;
+    answeredInvitations: number;
+    lastResponseAt: string | null;
+    /** Names in invitation order, for the list. */
+    guestNames: string[];
+}
+
+export type HouseholdRow = Household & { response: HouseholdResponse };
 
 export interface WeddingEvent {
     id: string;
@@ -248,7 +280,8 @@ export interface RsvpSubmission {
 }
 
 export interface RsvpSubmissionPayload {
-    guests: { guestId: string; name: string; events: Record<string, "attending" | "declined">; dietary?: string | null }[];
+    /** "pending" means the household chose to answer for this person later. */
+    guests: { guestId: string; name: string; events: Record<string, RsvpStatus>; dietary?: string | null }[];
     email?: string | null;
     answers?: {
         household: Record<string, AnswerValue>;
@@ -542,7 +575,13 @@ export type PortalRoute =
           mealCategories: MealCategory[];
           tables: Pick<SeatingTable, "id" | "name" | "capacity">[];
       }
-    | { route: "households"; households: Household[] }
+    | { route: "households"; households: HouseholdRow[]; emailDelivery: boolean; canGenerateLinks: boolean }
+    | {
+          route: "guest-import";
+          households: Pick<Household, "id" | "name" | "externalId">[];
+          guests: { id: string; name: string; householdName: string | null }[];
+          imports: ImportHistoryEntry[];
+      }
     | { route: "events"; events: WeddingEvent[] }
     | {
           route: "rsvps";
@@ -550,7 +589,7 @@ export type PortalRoute =
           stats: DashboardStats;
           submissions: RsvpSubmission[];
           settings: RsvpSettings;
-          households: (Pick<Household, "id" | "name" | "rsvpCode"> & { guests: number; responded: number })[];
+          households: (Pick<Household, "id" | "name" | "rsvpCode"> & { guests: number; responded: number; status: HouseholdResponseStatus })[];
           questions: RsvpQuestion[];
           summaries: QuestionSummary[];
       }

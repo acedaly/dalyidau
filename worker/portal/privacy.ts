@@ -135,6 +135,8 @@ async function eraseGuestStatements(db: D1Database, id: string): Promise<{ state
         ...(normaliseMobile(guest.phone) ? [db.prepare("DELETE FROM sms_messages WHERE phone = ?").bind(normaliseMobile(guest.phone))] : []),
         // Raw provider webhooks carry addresses and numbers.
         ...webhookScrub(db, [guest.email, normaliseMobile(guest.phone)]),
+        // Import reports keep that a row was imported, not who it was.
+        db.prepare("UPDATE guest_import_rows SET name = ?, address = NULL, notes = '[]' WHERE guest_id = ?").bind(ERASED, id),
     ];
 
     // Stored RSVP submissions copy names and dietary notes; drop this guest's part of each.
@@ -169,6 +171,7 @@ async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ s
             // RSVP confirmation emails are addressed to the household.
             db.prepare("UPDATE message_recipients SET name = ?, email = NULL, phone = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
             db.prepare("DELETE FROM sms_messages WHERE household_id = ?").bind(id),
+            db.prepare("UPDATE guest_import_rows SET household_name = ?, address = NULL, notes = '[]' WHERE household_id = ?").bind(ERASED, id),
             ...webhookScrub(db, [household.email]),
             ...scrubAudit(db, id, [household.name, household.email ?? "", household.phone ?? "", household.address_line1 ?? "", household.rsvp_code]),
         ],

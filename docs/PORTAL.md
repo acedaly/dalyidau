@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (SMTP2Go and ClickSend), if you want the portal to send email and texts itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0006_say_i_do_ceremony.sql` to production. `0006` adds the ceremony from the Say I Do site (2:00pm, smart casual, Rhino Lodge) only if Wedding Planner has no events yet.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0007_guest_import.sql` to production. `0006` adds the ceremony from the Say I Do site (2:00pm, smart casual, Rhino Lodge) only if Wedding Planner has no events yet; `0007` only adds columns and tables (no data changes). Importing guests is a manual step in the portal afterwards; nothing imports itself.
 
 ---
 
@@ -142,14 +142,31 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 
 ## RSVPs: Say I Do now, native later
 
-- **While Say I Do is live**: set its link under RSVPs → Settings. The website's RSVP buttons go there. Record replies in the portal by hand (guest panel → RSVP tab, or select guests → Actions → Set RSVP → "Say I Do"), or import a Say I Do guest export (Guests → Import, tick "These RSVPs came from Say I Do"). Recognised columns are listed in the import dialog.
-- **The guest experience**: the invitation link (or code) opens the household's invitation. Guests answer for each person and event, add dietary needs and any configured questions on a details step, check everything on a review step, then send. The confirmation page offers an "Add to calendar" file and a way back to change their reply until the deadline. Children are listed individually with a "Child" or "Baby" label; ask age-specific questions (for example a children's meal) with a guest question limited to children.
+- **While Say I Do is live**: set its link under RSVPs → Settings. The website's RSVP buttons go there. Record replies in the portal by hand (guest panel → RSVP tab, or select guests → Actions → Set RSVP → "Say I Do"), or import a Say I Do guest list export (see [Importing guests](#importing-guests)).
+- **The guest experience**: the invitation link (or code) opens the household's invitation, listing every invited guest by full name in the order of the import file. Guests accept or decline for each person and event, or leave someone unanswered to finish later with the same link (a reply must answer at least one person), add dietary needs and any configured questions on a details step, check everything on a review step, then send. The confirmation page offers an "Add to calendar" file and a way back to change their reply until the deadline. Children are listed individually with a "Child" or "Baby" label; ask age-specific questions (for example a children's meal) with a guest question limited to children.
 - **Confirmation email** (RSVPs → Settings): optional, off by default, and only sent when email delivery is on and the guest gives an address.
 - **Testing the native form**: Website → Preview → RSVP (or RSVPs → "Test the native form"). The preview uses owner-only endpoints, so it works while the switch is off. Responses there are real writes, so use a test household.
 - **Questions**: build household- or guest-level questions under RSVPs → Questions. Types are short text, long text, yes/no, single choice, multiple choice, number and date. Questions can depend on age, attendance at an event, or another answer. Publishing controls whether guests see a question. Meaningful edits create a new version; answers retain the question version and snapshot used when they were submitted.
 - **Switching over**: set `RSVP_LINK_SECRET`, copy each household's signed link or use the `{{rsvp_link}}` merge field, test rotation and revocation, then turn on Native RSVP. Consider disabling short codes. Turning Native RSVP off reverts every public button to the configured Say I Do URL immediately.
 - **How the native form is protected**: links carry a signed household id and invitation version; the secret never leaves the Worker. Rotation invalidates every older link and revocation disables the current one. Lookups are limited to 20 per 10 minutes per client and submissions to 10; clients are identified by a hash, not their IP. All invalid invitation states look identical. Only guests in that household and events they're invited to can be answered, and the whole household must be answered. Conditional answers are checked on the Worker. Each submission is stored verbatim and audited; retrying the same submission is idempotent.
 - **Courtesy bus**: create a published yes/no question and mark it as the courtesy bus interest question. The Questions report shows the live interested count; this is intentionally information gathering, not a transport booking system.
+
+## Importing guests
+
+Guests → Import (`/portal/wedding/guests/import`). Nothing is written until you press Import; the preview is the plan that gets applied.
+
+- **Say I Do exports** are recognised by their Guest Name, Party Name and Unique link columns. Guests sharing a Unique link become one household; a party name used with two different links becomes two households, and one link used with two party names stays one household. Both are flagged. Each household keeps its Say I Do party id (`households.external_id`), so a re-import finds it again.
+- **Names**: Guest Name is split into first and last names. One-word names, more than two names, odd characters and lower-case or all-caps names are flagged, with a suggested fix ("Fix capitalisation" applies all of them). Every name is editable in the preview.
+- **Addresses**: "-" means no address. The guests' addresses are compared per party: variants of one address (spacing, case, a missing state or postcode) are merged, keeping the most complete; genuinely different ones are a conflict you choose between. Addresses without a number ("Good question") are flagged. Australian addresses are split into street, suburb, state and postcode, and anything that can't be placed stays on the first line.
+- **RSVPs**: only an explicit Yes/No counts. An empty Attending cell is no response. "Plus One Allowed: No" never removes a named guest.
+- **Matching** (no duplicates): households by Say I Do link, then by name, then by their guests; guests by email, then by name within the household, then by a unique exact name anywhere. Close names are offered as suggestions, never applied automatically. Deleted guests and households are not silently recreated. You can match any row to any existing guest or household, or skip it.
+- **Overwrites need confirmation**: filling an empty field or linking a guest with no household is applied; replacing a recorded name, address, household or RSVP only happens when you tick "Replace" (or "Replace all recorded values").
+- **Applying** is one D1 batch (one transaction) with compare-and-set checks: if anything changed since the preview, nothing is applied and you're asked to review again. Each import has a client id, so a double click or retry applies once. Importing the same file again shows everything as up to date.
+- **Audit and report**: every import is in the audit log (`guest.import`) and keeps a per-row report (Guests → Import → Previous imports). Downloading the report CSV needs the export permission and is audited. Erasing a guest or household scrubs it from import reports.
+
+## Households dashboard
+
+Households shows each household's RSVP progress (complete, partly answered, no reply yet, not invited) next to its guests' attendance, a one-click copy of its signed invitation link, and filters by progress. Select households → **Generate invitations** marks their links ready (skipping revoked links and households nobody in which is invited) and is audited; **Download invitation list** exports links and addresses for mail-merge. Nothing is sent from here: sending stays in Communications, behind the email delivery switch.
 
 ---
 
@@ -200,7 +217,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0006`)
+## Data model (D1, migrations `0002`–`0007`)
 
 | Table                                                               | Contents                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -209,6 +226,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 | `feature_flags`, `settings`, `dashboard_layouts`                    | Switches, settings documents (JSON), personal layouts                                                   |
 | `households`, `guests`, `events`, `guest_events`                    | The guest list; a `guest_events` row means "invited", its status is the RSVP                            |
 | `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                                                     |
+| `guest_imports`, `guest_import_rows`                                | Applied guest imports and their per-row reports                                                         |
 | `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows                             |
 | `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled email/SMS communications with per-recipient delivery state, attempts and cost |
 | `sms_messages`, `comm_webhook_events`                               | Text conversations (outbound and inbound) and deduplicated provider webhooks                            |

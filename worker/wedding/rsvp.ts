@@ -84,7 +84,7 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
     const [guests, invitations, settings, passed, questions, storedAnswers] = await Promise.all([
         db
             .prepare(
-                "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, age_group, first_name",
+                "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, first_name",
             )
             .bind(household.id)
             .all<{ id: string; first_name: string; last_name: string; age_group: "adult" | "child" | "infant"; dietary: string | null }>(),
@@ -161,7 +161,8 @@ const submitSchema = z
             .array(
                 z.object({
                     guestId: z.string().max(40),
-                    events: z.record(z.string().max(40), z.enum(["attending", "declined"])),
+                    // "pending" is an explicit "we'll answer for this person later".
+                    events: z.record(z.string().max(40), z.enum(["attending", "declined", "pending"])),
                     dietary: z.string().trim().max(500).nullable().optional(),
                 }),
             )
@@ -212,7 +213,7 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
 
     const now = nowIso();
     const statements = [];
-    const summary: { guestId: string; name: string; events: Record<string, "attending" | "declined">; dietary?: string | null }[] = [];
+    const summary: { guestId: string; name: string; events: Record<string, RsvpStatus>; dietary?: string | null }[] = [];
     for (const answer of data.guests) {
         const guest = current.guests.find((g) => g.id === answer.guestId);
         const invited = current.responses[answer.guestId];
@@ -221,9 +222,13 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
         for (const [eventId, status] of Object.entries(answer.events)) {
             if (!(eventId in invited)) throw new RsvpError("invalid", "This response doesn't match the invitation.", 400);
             statements.push(
-                db
-                    .prepare("UPDATE guest_events SET status = ?, source = 'native', responded_at = ? WHERE guest_id = ? AND event_id = ?")
-                    .bind(status, now, answer.guestId, eventId),
+                status === "pending"
+                    ? db
+                          .prepare("UPDATE guest_events SET status = 'pending', source = NULL, responded_at = NULL WHERE guest_id = ? AND event_id = ?")
+                          .bind(answer.guestId, eventId)
+                    : db
+                          .prepare("UPDATE guest_events SET status = ?, source = 'native', responded_at = ? WHERE guest_id = ? AND event_id = ?")
+                          .bind(status, now, answer.guestId, eventId),
             );
         }
         if (current.collectDietary && answer.dietary !== undefined) {
@@ -231,12 +236,16 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
         }
         summary.push({ guestId: guest.id, name: `${guest.firstName} ${guest.lastName}`.trim(), events: answer.events, dietary: answer.dietary ?? null });
     }
-    // Everyone invited must be answered for every event, so a half-filled form can't slip through.
+    // Everyone invited must appear with every event, so nothing is dropped by accident. A person can
+    // be explicitly left unanswered ("pending") to finish later, but a reply must answer someone.
     for (const guest of current.guests) {
         const answer = data.guests.find((a) => a.guestId === guest.id);
         if (!answer || Object.keys(current.responses[guest.id]).some((eventId) => !(eventId in answer.events))) {
             throw new RsvpError("invalid", "Please answer for everyone before sending.", 400);
         }
+    }
+    if (!data.guests.some((guest) => Object.values(guest.events).some((status) => status !== "pending"))) {
+        throw new RsvpError("invalid", "Please answer for at least one person before sending.", 400);
     }
 
     const answerStatements: D1PreparedStatement[] = [];
@@ -296,6 +305,7 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
         statements.push(db.prepare("UPDATE households SET email = COALESCE(email, ?), updated_at = ? WHERE id = ?").bind(data.email, now, household.id));
     }
     const attendingCount = summary.reduce((n, g) => n + Object.values(g.events).filter((s) => s === "attending").length, 0);
+    const unanswered = summary.filter((g) => Object.values(g.events).some((s) => s === "pending")).length;
     statements.push(
         db
             .prepare("INSERT INTO rsvp_submissions (id, household_id, submitted_at, payload, message, client_id) VALUES (?, ?, ?, ?, ?, ?)")
@@ -313,7 +323,7 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
             action: "rsvp.submit",
             entityType: "household",
             entityId: household.id,
-            summary: `${household.name} responded online (${attendingCount} attending)`,
+            summary: `${household.name} responded online (${attendingCount} attending${unanswered ? `, ${unanswered} not answered yet` : ""})`,
             // Who answered what is kept; dietary notes stay in the submission and the guest record only.
             changes: { guests: summary.map(({ dietary, ...g }) => ({ ...g, dietary: dietary ? REDACTED : null })) },
         }),

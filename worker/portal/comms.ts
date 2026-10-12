@@ -549,7 +549,10 @@ export async function sendRsvpConfirmation(env: Env, db: D1Database, household: 
         const lines = result.guests.map((guest) => {
             const events = result.events
                 .filter((event) => result.responses[guest.id]?.[event.id])
-                .map((event) => `${event.name}: ${result.responses[guest.id][event.id] === "attending" ? "attending" : "not attending"}`);
+                .map(
+                    (event) =>
+                        `${event.name}: ${{ attending: "attending", declined: "not attending", pending: "not answered yet" }[result.responses[guest.id][event.id]]}`,
+                );
             return `${guest.firstName} ${guest.lastName}`.trim() + (events.length ? ` (${events.join(", ")})` : "");
         });
         const coming = result.guests.some((guest) => Object.values(result.responses[guest.id] ?? {}).includes("attending"));
