@@ -30,12 +30,18 @@ export async function loadWeddingPage(db: D1Database, route: WeddingPageData["ro
             dressCode,
         }));
 
+    const sections = content.sections.filter((s) => s.visible);
+    const byId = new Map(media.map((m) => [m.id, m]));
+    // Only photos the published content actually uses are sent to the page.
+    const used = sections.flatMap((s) => [s.imageId, ...s.items.map((i) => i.imageId)]);
+    const sectionImages = Object.fromEntries(used.flatMap((id) => (id && byId.has(id) ? [[id, byId.get(id)!] as const] : [])));
     const mode: WeddingPageData["rsvp"]["mode"] = flags["rsvp.native"] ? "native" : rsvp.externalUrl ? "external" : "closed";
     return {
         route,
         details,
-        content: { ...content, sections: content.sections.filter((s) => s.visible) },
-        heroImage: (content.heroImageId && media.find((m) => m.id === content.heroImageId)) || null,
+        content: { ...content, sections },
+        heroImage: (content.heroImageId && byId.get(content.heroImageId)) || null,
+        sectionImages,
         gallery: content.showGallery ? media.filter((m) => m.inGallery) : [],
         events: publicEvents,
         rsvp: { mode, externalUrl: mode === "external" ? rsvp.externalUrl : null, deadline: rsvp.deadline || null },

@@ -13,12 +13,15 @@ The wedding portal holds personal details about our guests. This page says what 
 | Dietary and accessibility needs, notes, custom fields                        | `guests`               | Catering and making the day work for everyone                       |
 | Online RSVP submissions (answers, optional message, optional email)          | `rsvp_submissions`     | A record of exactly what each household told us                     |
 | Configurable RSVP answers and the question wording/version used              | `rsvp_answers`         | Preserve and report answers even when a question is edited later    |
-| Who was sent which message                                                   | `message_recipients`   | Delivery history and to avoid double-sending                        |
+| Who was sent which message, delivery reports, SMS cost                       | `message_recipients`   | Delivery history and to avoid double-sending                        |
+| Text messages sent to and received from guests                               | `sms_messages`         | Text conversations and replies                                      |
+| Raw delivery reports and inbound texts from providers                        | `comm_webhook_events`  | Applying delivery status once, even when providers retry            |
+| Email and SMS opt-outs                                                       | `guests`               | Never contacting someone on a channel they opted out of             |
 | Portal users' emails, roles, last-seen time                                  | `portal_users`         | Access control                                                      |
 | Change history (who did what, when)                                          | `audit_log`            | Accountability between the two of us and anyone we add              |
 | Hashed client identifiers with counters                                      | `rate_limits`          | Stopping RSVP-code guessing. No IP addresses are stored.            |
 
-Cloudflare hosts the application data in D1 and photos in R2. If Cloudflare Email Service is approved and switched on later, it receives each recipient's name, address and rendered message. Email delivery is currently disabled and no provider binding is configured.
+Cloudflare hosts the application data in D1 and photos in R2. If email or SMS delivery is approved and switched on later, the provider (SMTP2Go for email, ClickSend for SMS; see [COMMUNICATIONS.md](COMMUNICATIONS.md)) receives each recipient's name, email address or mobile number and the rendered message. Both are currently disabled and no provider credentials are configured.
 
 ## Who can see it
 
@@ -40,7 +43,8 @@ There are two steps, on purpose.
 
 1. **Delete** (anyone who can edit guests). The guest or household disappears from lists, counts, exports, messages and the RSVP form; a deleted household's RSVP code stops working. It's kept in **Portal settings → Privacy → Deleted records** and can be restored.
 2. **Erase** (owners only, from the same list). Removes the record for good, and scrubs it from:
-    - **message history**: the recipient row stays (so counts still add up) but becomes "[erased]" with no email;
+    - **message history**: the recipient row stays (so counts still add up) but becomes "[erased]" with no email or number;
+    - **text conversations**: every text to or from the guest (matched by guest or by their number) is deleted, as are stored provider webhooks that mention their email or number;
     - **stored RSVP submissions and custom answers**: the guest's part of each submission and their answer rows are removed (a household's submissions and answer rows are removed with the household);
     - **the audit log**: entries about the record lose their details, and its name, email, phone and RSVP code are replaced with "[erased]" wherever they appear.
 

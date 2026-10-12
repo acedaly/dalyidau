@@ -23,6 +23,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Communications",
     },
+    "communications.sms": {
+        label: "SMS delivery",
+        description:
+            "Allow text messages to be sent and replied to. Also needs an SMS provider configured on the Worker (SMS_DELIVERY). While off, SMS campaigns can be prepared and previewed but never sent.",
+        default: false,
+        group: "Communications",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

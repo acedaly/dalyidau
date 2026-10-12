@@ -37,6 +37,8 @@ const item = z.object({
                 .refine((u) => /^https?:\/\//.test(u), "Use an http(s) link"),
         ])
         .default(""),
+    detail: text(80).default(""),
+    imageId: z.string().max(40).nullable().default(null),
 });
 
 const section = z.object({
@@ -46,6 +48,7 @@ const section = z.object({
     title: text(80).min(1, "Every section needs a heading"),
     body: text(6000),
     items: z.array(item).max(30).default([]),
+    imageId: z.string().max(40).nullable().default(null),
     visible: z.boolean().default(true),
 });
 
@@ -56,6 +59,8 @@ const website = z.object({
     heroImageId: z.string().max(40).nullable().default(null),
     welcome: text(4000),
     sections: z.array(section).max(20),
+    rsvpHeading: text(120).default("We hope you'll celebrate with us."),
+    rsvpText: text(600).default(""),
     showGallery: z.boolean().default(false),
     contactEmail: z.union([z.literal(""), z.string().trim().email()]),
     noindex: z.boolean(),
@@ -108,6 +113,8 @@ export const SETTINGS_SCHEMAS = {
         allowCodes: z.boolean().default(true),
         /** Invitation links stop working this many days after the deadline (0 = when the deadline passes is irrelevant; never expire). */
         linkExpiryDays: z.number().int().min(0).max(3650).default(60),
+        /** Email a confirmation after an online reply (also needs email delivery switched on). */
+        confirmationEmail: z.boolean().default(false),
     }),
     budget: z.object({
         totalCents: z.number().int().min(0).max(100_000_000_00),
@@ -115,48 +122,114 @@ export const SETTINGS_SCHEMAS = {
     }),
 } satisfies { [K in SettingsKey]: z.ZodType<SettingsDocuments[K], unknown> };
 
+/** A website item with the optional fields filled in. */
+const entry = (title: string, body: string, url = "", detail = ""): WebsiteContent["sections"][number]["items"][number] => ({
+    title,
+    body,
+    url,
+    detail,
+    imageId: null,
+});
+
 /**
- * Defaults. The couple's names, date, venue and RSVP link are known; everything not yet confirmed
- * (timings, the bus, travel) starts as a hidden draft so nothing is published by assumption.
+ * Defaults, taken from the couple's Say I Do website (October 2026): ceremony at 2:00pm, smart
+ * casual, RSVP by 25 September 2027, on-site glamping, The Westbury and the Dubbo RSL courtesy bus.
+ * Anything not on that site (a story, travel details, gifts) starts hidden, so nothing is
+ * published by assumption.
  */
 const DEFAULT_WEBSITE: WebsiteContent = {
-    heroEyebrow: "Together with their families",
+    heroEyebrow: "Together with our families",
     heroTitle: "",
-    heroSubtitle: "invite you to celebrate their wedding at Rhino Lodge.",
+    heroSubtitle: "We're getting married",
     heroImageId: null,
-    welcome: "",
+    welcome: "We are excited to be getting married and even more excited to share the day with you.",
     sections: [
-        { id: "story", kind: "story", title: "Our story", body: "", items: [], visible: false },
+        { id: "story", kind: "story", title: "Our story", body: "", items: [], imageId: null, visible: false },
         {
             id: "details",
             kind: "details",
-            title: "The day",
-            body: "Our ceremony and reception will both be held at Rhino Lodge on Saturday 23 October 2027. Timings will follow.",
+            title: "Schedule",
+            body: "Our ceremony and reception will both be held at Rhino Lodge, so once you've arrived there's nowhere else you need to be.",
             items: [],
+            imageId: null,
+            visible: true,
+        },
+        {
+            id: "venue",
+            kind: "venue",
+            title: "Rhino Lodge",
+            body: "We're celebrating at Rhino Lodge in Dubbo. Rhino Lodge offers beautiful on-site glamping accommodation, so you can stay right where the celebrations are happening!",
+            items: [
+                entry("Address", "14L Camp Rd, Dubbo NSW 2830", "https://maps.google.com/maps?q=14L%20Camp%20Rd%2C%20Dubbo%20NSW%202830%2C%20Australia"),
+                entry("Website", "rhinolodge.com.au", "https://www.rhinolodge.com.au/"),
+            ],
+            imageId: null,
             visible: true,
         },
         {
             id: "stay",
             kind: "accommodation",
-            title: "Where to stay",
-            body: "Accommodation at Rhino Lodge is first in, first served, so book early if you'd like to stay on site. Guests arrange their own accommodation; if Rhino Lodge is full, the places below are good alternatives.",
-            items: [{ title: "Rhino Lodge", body: "On-site accommodation, first in, first served. Contact Rhino Lodge directly to book.", url: "" }],
+            title: "Accommodation",
+            body: "For those travelling to celebrate with us, we've put together a list of recommended accommodation options nearby. You're also more than welcome to make your own arrangements.\n\nPlease note that accommodation at Rhino Lodge is limited and will be available on a **first come, first served basis**. We recommend getting in early if you'd like to stay on-site.\n\nIf Rhino Lodge is fully booked, there are plenty of other great accommodation options in and around Dubbo to choose from.",
+            items: [
+                entry(
+                    "Dubbo Rhino Lodge",
+                    "Beautiful on-site glamping, so you can stay right where the celebrations are happening. Spots are limited: contact Rhino Lodge directly to book.",
+                    "https://www.rhinolodge.com.au/accommodation/",
+                    "99 m from the ceremony",
+                ),
+                entry("The Westbury Dubbo", "A boutique hotel in the centre of Dubbo.", "https://westburydubbo.com.au/", "5.2 km from the ceremony"),
+            ],
+            imageId: null,
             visible: true,
         },
-        { id: "travel", kind: "travel", title: "Getting there", body: "", items: [], visible: false },
+        { id: "travel", kind: "travel", title: "Getting there", body: "", items: [], imageId: null, visible: false },
         {
             id: "bus",
             kind: "transport",
-            title: "Courtesy bus",
-            body: "We're hoping to arrange a courtesy bus. Details will be posted here once confirmed.",
+            title: "Getting home safely",
+            body: "For guests staying in Dubbo, the Dubbo RSL courtesy bus will be available to help you get home safely after the celebrations.\n\nWe'll share more information about transport arrangements closer to the big day.",
             items: [],
+            imageId: null,
+            visible: true,
+        },
+        {
+            id: "children",
+            kind: "children",
+            title: "Bring the kids",
+            body: "Children are very welcome at our wedding! We'd love for families to celebrate with us, so please feel free to bring your little ones along and include them in your RSVP.",
+            items: [],
+            imageId: null,
             visible: false,
         },
-        { id: "children", kind: "children", title: "Children and families", body: "Children are very welcome.", items: [], visible: true },
-        { id: "dress", kind: "dress", title: "Dress code", body: "Cocktail / smart casual.", items: [], visible: true },
-        { id: "gifts", kind: "registry", title: "Gifts", body: "", items: [], visible: false },
-        { id: "faq", kind: "faq", title: "Questions", body: "", items: [], visible: false },
+        { id: "dress", kind: "dress", title: "What to wear", body: "Smart casual.", items: [], imageId: null, visible: false },
+        { id: "gifts", kind: "registry", title: "Gifts", body: "", items: [], imageId: null, visible: false },
+        {
+            id: "faq",
+            kind: "faq",
+            title: "Frequently asked questions",
+            body: "We've pulled together a handy Q&A to help you get the info you need in no time, so you can focus on the fun stuff!",
+            items: [
+                entry(
+                    "Are children invited to the wedding?",
+                    "Children are very welcome at our wedding! We'd love for families to celebrate with us, so please feel free to bring your little ones along and include them in your RSVP.",
+                ),
+                entry(
+                    "When do we need to RSVP by?",
+                    "Please send through your RSVP by 25 September 2027 so we can finalise all the details for the day. We can't wait to celebrate with you!",
+                ),
+                entry("Are the wedding ceremony and the reception at the same venue?", "Yes, both the ceremony and reception will be held at the same venue."),
+                entry(
+                    "Is there accommodation onsite?",
+                    "Yes. Rhino Lodge has on-site glamping accommodation available. If you'd like to stay at the venue, please contact Rhino Lodge directly to arrange your booking.",
+                ),
+            ],
+            imageId: null,
+            visible: true,
+        },
     ],
+    rsvpHeading: "We hope you'll celebrate with us.",
+    rsvpText: "",
     showGallery: false,
     contactEmail: "",
     noindex: true,
@@ -174,17 +247,18 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         adultDefault: "adult_buffet",
         notes: "",
     },
-    wedding: { partnerOne: "Aidan", partnerTwo: "Amelia", date: "2027-10-23", location: "Rhino Lodge", timeZone: "Australia/Sydney" },
+    wedding: { partnerOne: "Aidan", partnerTwo: "Amelia", date: "2027-10-23", location: "Rhino Lodge · Dubbo, NSW", timeZone: "Australia/Sydney" },
     website: DEFAULT_WEBSITE,
     website_draft: DEFAULT_WEBSITE,
     rsvp: {
         externalUrl: "https://sayi.do/aidanandamelia2258/",
-        deadline: "",
+        deadline: "2027-09-25",
         collectDietary: true,
         collectMessage: true,
         allowChangesAfterDeadline: false,
         allowCodes: true,
         linkExpiryDays: 60,
+        confirmationEmail: false,
     },
     budget: { totalCents: 0, currency: "AUD" },
 };

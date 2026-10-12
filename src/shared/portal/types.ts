@@ -24,7 +24,7 @@ export interface WeddingDetails {
     timeZone: string;
 }
 
-export const SECTION_KINDS = ["story", "details", "accommodation", "travel", "transport", "children", "dress", "registry", "faq", "custom"] as const;
+export const SECTION_KINDS = ["story", "details", "venue", "accommodation", "travel", "transport", "children", "dress", "registry", "faq", "custom"] as const;
 export type SectionKind = (typeof SECTION_KINDS)[number];
 
 /** A titled entry inside a section: an accommodation option, an FAQ, a registry link. */
@@ -32,6 +32,10 @@ export interface WebsiteItem {
     title: string;
     body: string;
     url: string;
+    /** A short label shown above the title, e.g. "5.2 km from the ceremony". */
+    detail: string;
+    /** website_media id of a photo for this item (a place to stay), if any. */
+    imageId: string | null;
 }
 
 export interface WebsiteSection {
@@ -40,6 +44,8 @@ export interface WebsiteSection {
     title: string;
     body: string;
     items: WebsiteItem[];
+    /** website_media id of the section's photo (story, venue, accommodation…), if any. */
+    imageId: string | null;
     /** Hidden sections stay in the draft but never appear on the site. */
     visible: boolean;
 }
@@ -52,6 +58,9 @@ export interface WebsiteContent {
     heroImageId: string | null;
     welcome: string;
     sections: WebsiteSection[];
+    /** The closing RSVP invitation, e.g. "We hope you'll celebrate with us." */
+    rsvpHeading: string;
+    rsvpText: string;
     showGallery: boolean;
     contactEmail: string;
     /** Keep search engines away. On by default. */
@@ -100,6 +109,8 @@ export interface RsvpSettings {
     allowCodes: boolean;
     /** Invitation links stop working this many days after the deadline. 0 = never. */
     linkExpiryDays: number;
+    /** Email a confirmation after an online RSVP. Also needs email delivery switched on. */
+    confirmationEmail: boolean;
 }
 
 export interface BudgetSettings {
@@ -256,8 +267,21 @@ export interface MessageTemplate {
 }
 
 export type MessageStatus = "draft" | "queued" | "sending" | "sent" | "partial" | "failed";
+/** Categories the couple can choose when preparing a message. */
 export const MESSAGE_CATEGORIES = ["save_the_date", "invitation", "reminder", "update", "thank_you"] as const;
-export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number];
+/** Categories only the system uses, e.g. the automatic email after an online RSVP. */
+export const SYSTEM_MESSAGE_CATEGORIES = ["rsvp_confirmation"] as const;
+export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number] | (typeof SYSTEM_MESSAGE_CATEGORIES)[number];
+export const MESSAGE_CATEGORY_LABELS: Record<MessageCategory, string> = {
+    save_the_date: "Save the date",
+    invitation: "Invitation",
+    reminder: "Reminder",
+    update: "Update",
+    thank_you: "Thank you",
+    rsvp_confirmation: "RSVP confirmation",
+};
+export const MESSAGE_CHANNELS = ["email", "sms"] as const;
+export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
 export interface Audience {
     rsvp?: (RsvpStatus | "not_invited")[];
@@ -277,6 +301,7 @@ export interface Message {
     subject: string;
     body: string;
     audience: Audience;
+    channel: MessageChannel;
     category: MessageCategory;
     status: MessageStatus;
     recipientCount: number;
@@ -291,10 +316,51 @@ export interface MessageRecipient {
     guestId: string;
     name: string;
     email: string | null;
+    phone: string | null;
     status: "pending" | "sent" | "failed" | "skipped";
     error: string | null;
     sentAt: string | null;
     providerId: string | null;
+    attempts: number;
+    /** Reported later by the provider's webhook: delivered, bounced, complained, undelivered… */
+    deliveryStatus: string | null;
+    deliveredAt: string | null;
+    costCents: number | null;
+}
+
+export interface SmsMessage {
+    id: string;
+    direction: "outbound" | "inbound";
+    phone: string;
+    guestId: string | null;
+    householdId: string | null;
+    body: string;
+    status: "pending" | "sent" | "delivered" | "failed" | "received";
+    providerId: string | null;
+    costCents: number | null;
+    error: string | null;
+    messageId: string | null;
+    createdBy: string;
+    createdAt: string;
+    readAt: string | null;
+}
+
+/** One phone number's conversation, newest message first in the list view. */
+export interface SmsThread {
+    phone: string;
+    /** Guests with this number (a shared family phone can match several). */
+    guests: { id: string; name: string; householdName: string | null }[];
+    last: SmsMessage;
+    unread: number;
+    optedOut: boolean;
+}
+
+export interface CommsStatus {
+    email: string | null;
+    sms: string | null;
+    emailFrom: string | null;
+    smsFrom: string | null;
+    webhooks: boolean;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "done";
@@ -496,8 +562,11 @@ export type PortalRoute =
           groups: string[];
           tags: string[];
           deliveryAvailable: boolean;
+          comms: { status: CommsStatus; email: boolean; sms: boolean };
+          unreadTexts: number;
       }
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
+    | { route: "texts"; threads: SmsThread[]; status: CommsStatus; emailAvailable: boolean; smsAvailable: boolean }
     | { route: "tasks"; tasks: Task[]; assignees: { email: string; name: string | null }[] }
     | { route: "timeline"; items: TimelineItem[] }
     | { route: "seating"; state: SeatingState; canEdit: boolean }
@@ -560,6 +629,8 @@ export interface WeddingPageData {
     details: WeddingDetails;
     content: WebsiteContent;
     heroImage: WebsiteMedia | null;
+    /** Photos referenced by sections, keyed by media id. Only these (and the gallery) reach the page. */
+    sectionImages: Record<string, WebsiteMedia>;
     gallery: WebsiteMedia[];
     events: PublicEvent[];
     rsvp: { mode: "native" | "external" | "closed"; externalUrl: string | null; deadline: string | null };

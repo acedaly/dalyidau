@@ -93,7 +93,7 @@ describe("wedding website", () => {
         const preview = await call("/portal/wedding/website/preview", { token: await accessToken() });
         expect(preview.status).toBe(200);
         expect(preview.headers.get("Cache-Control")).toBe("no-store");
-        expect(await preview.text()).toContain("Preview from the portal");
+        expect(await preview.text()).toContain("Preview from Wedding Planner");
     });
 });
 

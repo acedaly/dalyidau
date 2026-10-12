@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { FileHeart02, Mail01, Plus, Send01 } from "@untitledui/icons";
+import { FileHeart02, Mail01, MessageChatSquare, Plus, Send01 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { ComposePanel } from "@/portal/communications/compose-panel";
+import { DeliveryStatus } from "@/portal/communications/delivery-status";
 import { TemplateDialog } from "@/portal/communications/template-dialog";
 import { type DataColumn, DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
@@ -14,15 +15,9 @@ import { useCollection } from "@/portal/hooks/use-collection";
 import { pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { Message, MessageCategory, MessageTemplate } from "@/shared/portal/types";
+import { MESSAGE_CATEGORY_LABELS, type Message, type MessageTemplate } from "@/shared/portal/types";
 
-const CATEGORY_LABELS: Record<MessageCategory, string> = {
-    save_the_date: "Save the date",
-    invitation: "Invitation",
-    reminder: "Reminder",
-    update: "Update",
-    thank_you: "Thank you",
-};
+const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
 export const CommunicationsPage = ({ data }: { data: PageData<"communications"> }) => {
     const { can } = usePortal();
@@ -50,6 +45,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             sortValue: (m) => m.subject,
             render: (m) => <span className="font-medium text-primary">{m.subject}</span>,
         },
+        { id: "channel", label: "Channel", sortValue: (m) => m.channel, render: (m) => (m.channel === "sms" ? "Text" : "Email"), className: "max-md:hidden" },
         { id: "status", label: "Status", sortValue: (m) => m.status, render: (m) => <MessageStatusBadge status={m.status} /> },
         { id: "category", label: "Category", sortValue: (m) => m.category, render: (m) => CATEGORY_LABELS[m.category], className: "max-md:hidden" },
         { id: "recipients", label: "Recipients", sortValue: (m) => m.recipientCount, render: (m) => pluralise(m.recipientCount, "guest") },
@@ -106,11 +102,28 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
                 }
             />
 
+            <DeliveryStatus status={data.comms.status} email={data.comms.email} sms={data.comms.sms} />
             {!data.deliveryAvailable && (
-                <Notice color="brand" title="Email delivery is off">
-                    You can write messages, choose recipients, preview them for each guest and export a mail-merge file to send with your own email. Nothing is
-                    sent from the portal until an email provider is set up and “Email delivery” is turned on in Wedding settings → Features.
+                <Notice color="brand" title="Nothing is sent from the portal yet">
+                    You can write messages, choose recipients, preview them for each guest and export a mail-merge file. Email and texts are only sent once a
+                    provider is set up and its switch is turned on in Wedding settings → Features.
                 </Notice>
+            )}
+            {canEdit && (
+                <div className="flex items-center justify-between gap-4 rounded-xl bg-primary px-5 py-4 shadow-xs ring-1 ring-secondary ring-inset">
+                    <div className="flex items-center gap-3">
+                        <MessageChatSquare className="size-5 text-fg-quaternary" aria-hidden="true" />
+                        <p className="text-sm text-secondary">
+                            <span className="font-semibold">Text conversations</span>
+                            {data.unreadTexts > 0
+                                ? ` · ${pluralise(data.unreadTexts, "unread reply", "unread replies")}`
+                                : " · replies from guests appear here"}
+                        </p>
+                    </div>
+                    <Button size="sm" color="secondary" href="/portal/wedding/communications/texts">
+                        Open
+                    </Button>
+                </div>
             )}
 
             <Tabs defaultSelectedKey="messages">

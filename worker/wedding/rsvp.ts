@@ -8,6 +8,7 @@ import { z } from "zod";
 import { questionApplies, validateAnswer } from "../../src/shared/portal/rsvp-questions";
 import type { AnswerValue, RsvpHousehold, RsvpQuestion, RsvpStatus } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { sendRsvpConfirmation } from "../portal/comms";
 import { auditStatement, newId, normaliseRsvpCode, nowIso } from "../portal/db";
 import { REDACTED } from "../portal/redact";
 import { listQuestions } from "../portal/rsvp-questions";
@@ -184,7 +185,13 @@ const submitSchema = z
     })
     .refine((value) => !!value.code !== !!value.token);
 
-export async function submitRsvp(env: Env, request: Request, input: unknown): Promise<RsvpHousehold> {
+export interface SubmitResult {
+    household: RsvpHousehold;
+    /** Whether a confirmation email went out (only with the RSVP setting, the email switch and a provider). */
+    confirmationSent: boolean;
+}
+
+export async function submitRsvp(env: Env, request: Request, input: unknown): Promise<SubmitResult> {
     const db = env.DB;
     if (!(await allow(db, "rsvp-submit", clientKey(request), 10, 600))) {
         throw new RsvpError("rate_limited", "Too many attempts. Please wait ten minutes and try again.", 429);
@@ -199,7 +206,8 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
     const duplicate = data.clientId
         ? await db.prepare("SELECT id FROM rsvp_submissions WHERE household_id = ? AND client_id = ?").bind(household.id, data.clientId).first()
         : null;
-    if (duplicate) return current;
+    // A retried submission returns the saved result without sending anything again.
+    if (duplicate) return { household: current, confirmationSent: false };
     if (current.deadlinePassed) throw new RsvpError("deadline_passed", "RSVPs have closed. Please contact us directly if your plans have changed.", 409);
 
     const now = nowIso();
@@ -317,9 +325,11 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
         // D1 batches are transactional, so the losing request can safely return the winning result.
         if (data.clientId && /UNIQUE constraint failed.*rsvp_submissions/i.test(String((error as Error).message))) {
             const won = await db.prepare("SELECT id FROM rsvp_submissions WHERE household_id = ? AND client_id = ?").bind(household.id, data.clientId).first();
-            if (won) return loadHousehold(db, household);
+            if (won) return { household: await loadHousehold(db, household), confirmationSent: false };
         }
         throw error;
     }
-    return loadHousehold(db, household);
+    const saved = await loadHousehold(db, household);
+    const confirmationSent = data.email ? await sendRsvpConfirmation(env, db, household, saved, data.email) : false;
+    return { household: saved, confirmationSent };
 }

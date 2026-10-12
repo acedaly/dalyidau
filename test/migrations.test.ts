@@ -39,3 +39,24 @@ describe("migration 0004", () => {
         });
     });
 });
+
+describe("migration 0006", () => {
+    it("adds the Say I Do ceremony only to a planner with no events, and only once", async () => {
+        const { default: sql } = await import("../migrations/0006_say_i_do_ceremony.sql?raw");
+        const statement = sql
+            .split("\n")
+            .filter((line: string) => !line.trim().startsWith("--"))
+            .join("\n");
+        await db().prepare(statement).run();
+        await db().prepare(statement).run();
+        expect((await db().prepare("SELECT name, starts_at, venue_name, dress_code, is_public FROM events").all()).results).toEqual([
+            { name: "Ceremony", starts_at: "2027-10-23T14:00", venue_name: "Rhino Lodge", dress_code: "Smart casual", is_public: 1 },
+        ]);
+
+        // Events the couple already entered are never touched.
+        await db().prepare("DELETE FROM events").run();
+        await db().prepare("INSERT INTO events (id, name, created_at, updated_at) VALUES ('evt_mine', 'Our own ceremony', 'now', 'now')").run();
+        await db().prepare(statement).run();
+        expect((await db().prepare("SELECT id FROM events").all()).results).toEqual([{ id: "evt_mine" }]);
+    });
+});

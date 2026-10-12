@@ -22,8 +22,9 @@ import type { SectionKind, WebsiteContent, WebsiteItem, WebsiteMedia, WebsiteSec
 
 const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleLabel: string; bodyLabel: string; urlLabel?: string } }> = {
     story: { label: "Our story" },
-    details: { label: "Wedding details" },
-    accommodation: { label: "Accommodation", items: { noun: "place to stay", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Booking link" } },
+    details: { label: "The big day" },
+    venue: { label: "Venue", items: { noun: "detail", titleLabel: "Label (e.g. Address)", bodyLabel: "Details", urlLabel: "Map or directions link" } },
+    accommodation: { label: "Accommodation", items: { noun: "place to stay", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Booking or website link" } },
     travel: { label: "Getting there", items: { noun: "travel tip", titleLabel: "Heading", bodyLabel: "Details", urlLabel: "Map link" } },
     transport: { label: "Transport / courtesy bus" },
     children: { label: "Children and families" },
@@ -31,6 +32,14 @@ const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleL
     registry: { label: "Gifts / registry", items: { noun: "registry", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Link" } },
     faq: { label: "Questions", items: { noun: "question", titleLabel: "Question", bodyLabel: "Answer" } },
     custom: { label: "Other" },
+};
+
+/** Section kinds whose layout includes a photograph. */
+const PHOTO_KINDS: SectionKind[] = ["story", "venue", "accommodation", "travel", "transport", "children", "custom"];
+const PHOTO_HINTS: Partial<Record<SectionKind, string>> = {
+    venue: "A wide landscape photo of Rhino Lodge works best; it fills the width of the page.",
+    accommodation: "Shown with the first place to stay (Rhino Lodge).",
+    story: "A portrait-shaped photo of the two of you works best.",
 };
 
 const slug = (title: string, taken: string[]) => {
@@ -53,7 +62,17 @@ const readFile = (file: File) =>
         reader.readAsDataURL(file);
     });
 
-const ItemsEditor = ({ kind, items, onChange }: { kind: SectionKind; items: WebsiteItem[]; onChange: (items: WebsiteItem[]) => void }) => {
+const ItemsEditor = ({
+    kind,
+    items,
+    onChange,
+    photoOptions,
+}: {
+    kind: SectionKind;
+    items: WebsiteItem[];
+    onChange: (items: WebsiteItem[]) => void;
+    photoOptions: { id: string; label: string }[];
+}) => {
     const spec = KINDS[kind].items;
     if (!spec) return null;
     const set = (i: number, patch: Partial<WebsiteItem>) => onChange(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
@@ -73,10 +92,35 @@ const ItemsEditor = ({ kind, items, onChange }: { kind: SectionKind; items: Webs
                     </div>
                     <TextArea label={spec.bodyLabel} rows={3} value={item.body} onChange={(v) => set(i, { body: v })} />
                     {spec.urlLabel && <Input label={spec.urlLabel} type="url" placeholder="https://" value={item.url} onChange={(v) => set(i, { url: v })} />}
+                    {kind === "accommodation" && (
+                        <>
+                            <Input
+                                label="Small label"
+                                placeholder="5.2 km from the ceremony"
+                                value={item.detail}
+                                onChange={(v) => set(i, { detail: v })}
+                                hint="Shown above the name, e.g. the distance from the venue."
+                            />
+                            <Select
+                                label="Photo"
+                                items={photoOptions}
+                                value={item.imageId ?? "none"}
+                                onChange={(v) => set(i, { imageId: v === "none" ? null : String(v) })}
+                                hint="Use a photo you have permission to use."
+                            >
+                                {(option) => <Select.Item id={option.id}>{option.label}</Select.Item>}
+                            </Select>
+                        </>
+                    )}
                 </div>
             ))}
             <div>
-                <Button size="sm" color="secondary" iconLeading={Plus} onClick={() => onChange([...items, { title: "", body: "", url: "" }])}>
+                <Button
+                    size="sm"
+                    color="secondary"
+                    iconLeading={Plus}
+                    onClick={() => onChange([...items, { title: "", body: "", url: "", detail: "", imageId: null }])}
+                >
                     Add {spec.noun}
                 </Button>
             </div>
@@ -128,6 +172,7 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                     title,
                     body: "",
                     items: [],
+                    imageId: null,
                     visible: false,
                 },
             ],
@@ -180,6 +225,7 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
         }
     };
 
+    const photoOptions = [{ id: "none", label: "No photo" }, ...media.map((m, i) => ({ id: m.id, label: m.alt || m.caption || `Photo ${i + 1}` }))];
     const missingKinds = (Object.keys(KINDS) as SectionKind[]).filter((k) => k === "custom" || !content.sections.some((s) => s.kind === k));
 
     return (
@@ -259,7 +305,12 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
             >
                 <fieldset disabled={!canEdit} className="flex flex-col gap-8">
                     <FormSection title="Welcome" description="The first thing guests see. Names and the date come from Wedding settings → General.">
-                        <Input label="Small heading" value={content.heroEyebrow} onChange={(v) => setContent({ ...content, heroEyebrow: v })} />
+                        <Input
+                            label="Small heading"
+                            placeholder="Together with our families"
+                            value={content.heroEyebrow}
+                            onChange={(v) => setContent({ ...content, heroEyebrow: v })}
+                        />
                         <Input
                             label="Title"
                             placeholder="Aidan & Amelia"
@@ -267,13 +318,18 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                             onChange={(v) => setContent({ ...content, heroTitle: v })}
                             hint="Leave empty to use your names."
                         />
-                        <Input label="Subtitle" value={content.heroSubtitle} onChange={(v) => setContent({ ...content, heroSubtitle: v })} />
+                        <Input
+                            label="Subtitle"
+                            placeholder="We're getting married"
+                            value={content.heroSubtitle}
+                            onChange={(v) => setContent({ ...content, heroSubtitle: v })}
+                        />
                         <Select
                             label="Hero photo"
                             items={[{ id: "none", label: "No photo" }, ...media.map((m, i) => ({ id: m.id, label: m.alt || m.caption || `Photo ${i + 1}` }))]}
                             value={content.heroImageId ?? "none"}
                             onChange={(v) => setContent({ ...content, heroImageId: v === "none" ? null : String(v) })}
-                            hint="Upload photos in the Photos section below."
+                            hint="A portrait-shaped photo of the two of you works best. Upload photos in the Photos section below."
                         >
                             {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                         </Select>
@@ -282,7 +338,23 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                             rows={5}
                             value={content.welcome}
                             onChange={(v) => setContent({ ...content, welcome: v })}
-                            hint="Plain text. Blank lines start new paragraphs."
+                            hint="Plain text. Blank lines start new paragraphs. The first paragraph is set large, like the opening line of an invitation."
+                        />
+                    </FormSection>
+
+                    <FormSection title="RSVP invitation" description="The closing section that asks guests to reply. The deadline comes from RSVPs → Settings.">
+                        <Input
+                            label="Heading"
+                            placeholder="We hope you'll celebrate with us."
+                            value={content.rsvpHeading}
+                            onChange={(v) => setContent({ ...content, rsvpHeading: v })}
+                        />
+                        <TextArea
+                            label="Extra text (optional)"
+                            rows={3}
+                            value={content.rsvpText}
+                            onChange={(v) => setContent({ ...content, rsvpText: v })}
+                            hint="For example, how to reply if you'd rather not do it online."
                         />
                     </FormSection>
 
@@ -336,8 +408,30 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                                     </div>
                                 </div>
                                 <Input label="Heading" isRequired value={section.title} onChange={(v) => setSection(i, { title: v })} />
-                                <TextArea label="Text" rows={4} value={section.body} onChange={(v) => setSection(i, { body: v })} />
-                                <ItemsEditor kind={section.kind} items={section.items} onChange={(items) => setSection(i, { items })} />
+                                <TextArea
+                                    label="Text"
+                                    rows={4}
+                                    value={section.body}
+                                    onChange={(v) => setSection(i, { body: v })}
+                                    hint="Plain text. Blank lines start new paragraphs."
+                                />
+                                {PHOTO_KINDS.includes(section.kind) && (
+                                    <Select
+                                        label="Photo"
+                                        items={photoOptions}
+                                        value={section.imageId ?? "none"}
+                                        onChange={(v) => setSection(i, { imageId: v === "none" ? null : String(v) })}
+                                        hint={PHOTO_HINTS[section.kind] ?? "Optional. Without a photo the section uses an illustration or text-only layout."}
+                                    >
+                                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                    </Select>
+                                )}
+                                <ItemsEditor
+                                    kind={section.kind}
+                                    items={section.items}
+                                    onChange={(items) => setSection(i, { items })}
+                                    photoOptions={photoOptions}
+                                />
                             </div>
                         ))}
                         {canEdit && (
@@ -418,7 +512,14 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                                                     try {
                                                         await api("DELETE", `/api/portal/wedding/media/${photo.id}`);
                                                         setMedia((list) => list.filter((m) => m.id !== photo.id));
-                                                        if (content.heroImageId === photo.id) setContent({ ...content, heroImageId: null });
+                                                        // Anything that used the photo falls back to no photo.
+                                                        setContent((current) => ({
+                                                            ...current,
+                                                            heroImageId: current.heroImageId === photo.id ? null : current.heroImageId,
+                                                            sections: current.sections.map((sec) =>
+                                                                sec.imageId === photo.id ? { ...sec, imageId: null } : sec,
+                                                            ),
+                                                        }));
                                                     } catch (error) {
                                                         toast.error("Couldn't delete", errorMessage(error));
                                                     }

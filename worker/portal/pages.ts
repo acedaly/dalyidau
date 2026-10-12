@@ -4,12 +4,13 @@ import { type ApplicationId, applicationById, availableApplications, canAccessAp
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
+import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { invitationUrl } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
 import { cateringSummary } from "./catering";
-import { deliveryAvailable, getMessage, listMessages } from "./comms";
+import { deliveryAvailable, getMessage, listMessages, listSmsThreads } from "./comms";
 import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
@@ -127,14 +128,38 @@ const PAGES: PageDef[] = [
         application: "wedding",
         flag: "module.communications",
         load: async ({ env }) => {
-            const [templates, messages, events, values, available] = await Promise.all([
+            const [templates, messages, events, values, available, sms, unread] = await Promise.all([
                 listEntities(env.DB, templateDef),
                 listMessages(env.DB),
                 listEntities(env.DB, eventDef),
                 distinctGuestValues(env.DB),
                 deliveryAvailable(env, env.DB),
+                deliveryAvailable(env, env.DB, "sms"),
+                env.DB.prepare("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'inbound' AND read_at IS NULL").first<{ n: number }>(),
             ]);
-            return { route: "communications", templates, messages, events, groups: values.groups, tags: values.tags, deliveryAvailable: available };
+            return {
+                route: "communications",
+                templates,
+                messages,
+                events,
+                groups: values.groups,
+                tags: values.tags,
+                deliveryAvailable: available,
+                comms: { status: providerStatus(env), email: available, sms },
+                unreadTexts: Number(unread?.n ?? 0),
+            };
+        },
+    },
+    {
+        pattern: /^\/portal\/wedding\/communications\/texts$/,
+        title: "Text messages",
+        // Conversations hold guests' own words: the communications permission, not just viewing.
+        permission: "wedding.comms.edit",
+        application: "wedding",
+        flag: "module.communications",
+        load: async ({ env }) => {
+            const [threads, email, sms] = await Promise.all([listSmsThreads(env.DB), deliveryAvailable(env, env.DB), deliveryAvailable(env, env.DB, "sms")]);
+            return { route: "texts", threads, status: providerStatus(env), emailAvailable: email, smsAvailable: sms };
         },
     },
     {
@@ -146,7 +171,7 @@ const PAGES: PageDef[] = [
         load: async ({ env, match }) => {
             const found = await getMessage(env.DB, match[1]);
             if (!found) return null;
-            return { route: "message", ...found, deliveryAvailable: await deliveryAvailable(env, env.DB) };
+            return { route: "message", ...found, deliveryAvailable: await deliveryAvailable(env, env.DB, found.message.channel) };
         },
     },
     {

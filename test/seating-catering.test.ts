@@ -212,9 +212,32 @@ describe("website draft and publishing", () => {
         expect(live).toContain("Aidan &amp; Amelia");
         expect(live).toContain("Saturday 23 October 2027");
         expect(live).toContain("Rhino Lodge");
-        expect(live).toContain("first in, first served");
-        expect(live).not.toContain("courtesy bus"); // drafted but hidden until confirmed
+        // Content from the couple's Say I Do site.
+        expect(live).toContain("first come, first served basis");
+        expect(live).toContain("The Westbury Dubbo");
+        expect(live).toContain("Dubbo RSL courtesy bus");
+        expect(live).toContain("Saturday 25 September 2027"); // the RSVP deadline
+        expect(live).not.toContain("Our story"); // drafted but hidden
         expect(live).toContain("https://sayi.do/aidanandamelia2258/");
+    });
+
+    it("renders the redesigned sections and sends only the photos the content uses", async () => {
+        const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        const used = (await apiCall<{ media: { id: string } }>("POST", "/api/portal/wedding/media", { data: png, alt: "The lodge at dusk" })).json.media;
+        const unused = (await apiCall<{ media: { id: string } }>("POST", "/api/portal/wedding/media", { data: png, alt: "UNUSED PHOTO" })).json.media;
+        const page = await html("/portal/wedding/website/preview", await accessToken());
+        const draft = JSON.parse(/<script[^>]*id="page-data"[^>]*>([\s\S]*?)<\/script>/.exec(page)![1]).data.content;
+        const sections = draft.sections.map((s: { kind: string }) => (s.kind === "venue" ? { ...s, imageId: used.id } : s));
+        expect((await apiCall("PUT", "/api/portal/settings/website_draft", { ...draft, sections })).status).toBe(200);
+        const preview = await html("/portal/wedding/website/preview", await accessToken());
+        expect(preview).toContain("The lodge at dusk");
+        expect(preview).not.toContain("UNUSED PHOTO");
+        expect(preview).not.toContain(unused.id);
+        // Venue, accommodation, transport and FAQ sections ship visible.
+        for (const text of ["14L Camp Rd, Dubbo NSW 2830", "Get directions", "Frequently asked questions", "We hope you&#x27;ll celebrate with us."])
+            expect(preview).toContain(text);
+        // **bold** in plain text becomes emphasis, never raw HTML.
+        expect(preview).toMatch(/<strong[^>]*>first come, first served basis<\/strong>/);
     });
 
     it("only accepts real photos and keeps them private until the site is visible", async () => {

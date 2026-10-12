@@ -33,8 +33,9 @@
         "SYNC_MAX_REQUESTS": "40",
         "SYNC_REQUEST_SPACING_MS": "2100",
         "IMAGE_TRANSFORMS": "off",
-        // The portal's email provider. "off" means nothing is ever sent (docs/PORTAL.md#email).
+        // The portal's email and SMS providers. "off" means nothing is ever sent (docs/COMMUNICATIONS.md).
         "EMAIL_DELIVERY": "off",
+        "SMS_DELIVERY": "off",
     },
     // daly.id.au and www.daly.id.au are Custom Domains on this Worker (cut over 11 October 2026,
     // see docs/DEPLOYMENT.md). The Worker 301s www to the apex. workers.dev stays on as a
@@ -81,6 +82,7 @@
                 "SYNC_REQUEST_SPACING_MS": "2100",
                 "IMAGE_TRANSFORMS": "off",
                 "EMAIL_DELIVERY": "off",
+                "SMS_DELIVERY": "off",
             },
             "observability": {
                 "enabled": true,

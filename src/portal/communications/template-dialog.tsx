@@ -8,15 +8,9 @@ import { ConfirmDialog, PortalDialog } from "@/portal/components/dialog";
 import { FormError, useSubmit } from "@/portal/components/form";
 import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
-import { MESSAGE_CATEGORIES, type MessageCategory, type MessageTemplate } from "@/shared/portal/types";
+import { MESSAGE_CATEGORIES, MESSAGE_CATEGORY_LABELS, type MessageCategory, type MessageTemplate } from "@/shared/portal/types";
 
-const CATEGORY_LABELS: Record<MessageCategory, string> = {
-    save_the_date: "Save the date",
-    invitation: "Invitation",
-    reminder: "Reminder",
-    update: "Update",
-    thank_you: "Thank you",
-};
+const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
 interface TemplateDialogProps {
     template: MessageTemplate | null;

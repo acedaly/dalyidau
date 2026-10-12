@@ -6,15 +6,19 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { MERGE_FIELDS } from "@/shared/portal/merge-fields";
+import { smsSegments } from "@/shared/portal/sms";
 
 interface MessageEditorProps {
     subject: string;
     body: string;
     onChange: (next: { subject: string; body: string }) => void;
     fieldError: (field: string) => string | undefined;
+    /** Text messages: the subject is only a title for the portal, and the body shows its SMS length. */
+    channel?: "email" | "sms";
 }
 
-export const MessageEditor = ({ subject, body, onChange, fieldError }: MessageEditorProps) => {
+export const MessageEditor = ({ subject, body, onChange, fieldError, channel = "email" }: MessageEditorProps) => {
+    const sms = channel === "sms" ? smsSegments(body) : null;
     const bodyRef = useRef<HTMLTextAreaElement>(null);
     // The menu takes focus, so remember where the cursor was when the body lost it.
     const selection = useRef<[number, number] | null>(null);
@@ -32,18 +36,18 @@ export const MessageEditor = ({ subject, body, onChange, fieldError }: MessageEd
     return (
         <div className="flex flex-col gap-4">
             <Input
-                label="Subject"
+                label={sms ? "Title" : "Subject"}
                 isRequired
                 value={subject}
                 onChange={(v) => onChange({ subject: v, body })}
                 isInvalid={!!fieldError("subject")}
-                hint={fieldError("subject")}
+                hint={fieldError("subject") ?? (sms ? "Only you see this; it names the text in your history." : undefined)}
             />
             <div className="flex flex-col gap-1.5">
                 <TextArea
                     label="Message"
                     isRequired
-                    rows={12}
+                    rows={sms ? 6 : 12}
                     textAreaRef={bodyRef}
                     onBlur={() => {
                         const el = bodyRef.current;
@@ -52,7 +56,12 @@ export const MessageEditor = ({ subject, body, onChange, fieldError }: MessageEd
                     value={body}
                     onChange={(v) => onChange({ subject, body: v })}
                     isInvalid={!!fieldError("body")}
-                    hint={fieldError("body") ?? "Plain text. Merge fields like {{first_name}} are filled in for each guest."}
+                    hint={
+                        fieldError("body") ??
+                        (sms
+                            ? `${sms.length} characters · ${sms.segments} SMS part${sms.segments === 1 ? "" : "s"} per guest before merge fields${sms.encoding === "unicode" ? " · emoji or curly quotes make each part shorter" : ""}. Say who it's from, e.g. “Aidan & Amelia here”.`
+                            : "Plain text. Merge fields like {{first_name}} are filled in for each guest.")
+                    }
                 />
                 <div className="flex justify-end">
                     <Dropdown.Root>
