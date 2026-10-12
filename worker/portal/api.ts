@@ -5,6 +5,7 @@ import { z } from "zod";
 import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
+import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
@@ -17,10 +18,14 @@ import {
     deliveryAvailable,
     getMessage,
     listMessages,
+    listSmsThreads,
     mergeRows,
     prepareMessage,
     previewMessage,
+    retryFailed,
     sendMessage,
+    sendSmsReply,
+    smsConversation,
 } from "./comms";
 import { csvResponse, toCsv } from "./csv";
 import { getLayout, resetLayout, saveLayout } from "./dashboard";
@@ -417,8 +422,43 @@ add(
     async ({ env, params }) => {
         const found = await getMessage(env.DB, params.id);
         if (!found) throw new NotFoundError("Message not found");
-        return json({ ...found, deliveryAvailable: await deliveryAvailable(env, env.DB) });
+        return json({ ...found, deliveryAvailable: await deliveryAvailable(env, env.DB, found.message.channel) });
     },
+    "module.communications",
+);
+add(
+    "POST",
+    "/api/portal/wedding/messages/:id/retry",
+    "wedding.comms.send",
+    async ({ env, user, params }) => json({ message: await retryFailed(env, env.DB, params.id, user.email) }),
+    "module.communications",
+);
+add(
+    "GET",
+    "/api/portal/wedding/comms/status",
+    "wedding.comms.edit",
+    async ({ env }) =>
+        json({
+            providers: providerStatus(env),
+            email: await deliveryAvailable(env, env.DB, "email"),
+            sms: await deliveryAvailable(env, env.DB, "sms"),
+        }),
+    "module.communications",
+);
+// Text conversations hold guests' own words, so reading them needs the communications permission.
+add("GET", "/api/portal/wedding/sms", "wedding.comms.edit", async ({ env }) => json({ threads: await listSmsThreads(env.DB) }), "module.communications");
+add(
+    "GET",
+    "/api/portal/wedding/sms/:phone",
+    "wedding.comms.edit",
+    async ({ env, user, params }) => json(await smsConversation(env.DB, params.phone, user.email)),
+    "module.communications",
+);
+add(
+    "POST",
+    "/api/portal/wedding/sms",
+    "wedding.comms.send",
+    async ({ env, request, user }) => json({ sms: await sendSmsReply(env, env.DB, await readJson(request), user.email) }, 201),
     "module.communications",
 );
 add(
@@ -463,6 +503,7 @@ add(
             toCsv(rows, [
                 { header: "Name", value: (r) => r.name },
                 { header: "Email", value: (r) => r.email },
+                { header: "Mobile", value: (r) => r.phone },
                 { header: "Subject", value: (r) => r.subject },
                 { header: "Body", value: (r) => r.body },
                 { header: "RSVP code", value: (r) => r.rsvpCode },

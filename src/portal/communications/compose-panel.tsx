@@ -22,8 +22,10 @@ import {
     type Audience,
     type ContactPreference,
     MESSAGE_CATEGORIES,
+    MESSAGE_CATEGORY_LABELS,
     type Message,
     type MessageCategory,
+    type MessageChannel,
     type MessageTemplate,
     type RsvpStatus,
     type Side,
@@ -40,22 +42,17 @@ interface ComposePanelProps {
     initialTemplate: MessageTemplate | null;
 }
 
-type AudiencePreview = { total: number; withEmail: number; sample: { id: string; name: string; email: string | null }[] };
+type AudiencePreview = { total: number; withEmail: number; withMobile: number; sample: { id: string; name: string; email: string | null }[] };
 
 const ANY = "any";
-const CATEGORY_LABELS: Record<MessageCategory, string> = {
-    save_the_date: "Save the date",
-    invitation: "Invitation",
-    reminder: "Reminder",
-    update: "Update",
-    thank_you: "Thank you",
-};
+const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
 export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, tags, initialTemplate }: ComposePanelProps) => {
     const { sideLabel } = usePortal();
     const [templateId, setTemplateId] = useState<string | null>(null);
     const [content, setContent] = useState({ subject: "", body: "" });
     const [category, setCategory] = useState<MessageCategory>("update");
+    const [channel, setChannel] = useState<MessageChannel>("email");
     const [schedule, setSchedule] = useState(false);
     const [scheduledAt, setScheduledAt] = useState("");
     const [audience, setAudience] = useState<Audience>({ rsvp: [] });
@@ -67,6 +64,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
         setTemplateId(initialTemplate?.id ?? null);
         setContent({ subject: initialTemplate?.subject ?? "", body: initialTemplate?.body ?? "" });
         setCategory(initialTemplate?.category ?? "update");
+        setChannel("email");
         setSchedule(false);
         setScheduledAt("");
         setAudience({ rsvp: [] });
@@ -89,6 +87,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                 templateId,
                 ...content,
                 audience,
+                channel,
                 category,
                 scheduledAt: schedule && scheduledAt ? new Date(scheduledAt).toISOString() : null,
             }),
@@ -152,6 +151,19 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                     )}
 
                     <Select
+                        label="Send as"
+                        items={[
+                            { id: "email", label: "Email" },
+                            { id: "sms", label: "Text message (SMS)" },
+                        ]}
+                        value={channel}
+                        onChange={(value) => setChannel(value as MessageChannel)}
+                        hint={channel === "sms" ? "Texts go to each guest's mobile number. Guests who replied STOP are skipped automatically." : undefined}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
+
+                    <Select
                         label="Category"
                         items={MESSAGE_CATEGORIES.map((item) => ({ id: item, label: CATEGORY_LABELS[item] }))}
                         value={category}
@@ -161,7 +173,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                     </Select>
 
-                    <MessageEditor subject={content.subject} body={content.body} onChange={setContent} fieldError={prepare.fieldError} />
+                    <MessageEditor subject={content.subject} body={content.body} onChange={setContent} fieldError={prepare.fieldError} channel={channel} />
 
                     <section aria-labelledby="audience-heading" className="flex flex-col gap-4 rounded-xl bg-secondary p-4">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -170,7 +182,11 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                             </h3>
                             <p className="text-sm text-tertiary" aria-live="polite">
                                 {preview
-                                    ? `${pluralise(preview.total, "guest")} match · ${pluralise(preview.withEmail, "has", "have")} an email address`
+                                    ? `${pluralise(preview.total, "guest")} match · ${
+                                          channel === "sms"
+                                              ? `${pluralise(preview.withMobile, "has", "have")} a mobile number`
+                                              : `${pluralise(preview.withEmail, "has", "have")} an email address`
+                                      }`
                                     : "Counting…"}
                             </p>
                         </div>

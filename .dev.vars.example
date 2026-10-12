@@ -13,3 +13,8 @@ ACCESS_DEV_EMAIL=you@example.com
 PORTAL_OWNER_EMAILS=you@example.com
 # Local-only HMAC key for native RSVP invitation links. Use a different Wrangler secret per deployed environment.
 RSVP_LINK_SECRET=local-rsvp-link-secret-change-me-32-bytes-minimum
+
+# Communications (docs/COMMUNICATIONS.md). "log" prints instead of sending and only works locally.
+# Real providers ("smtp2go", "clicksend") also need their secrets and the switches in Wedding settings → Features.
+EMAIL_DELIVERY=off
+SMS_DELIVERY=off

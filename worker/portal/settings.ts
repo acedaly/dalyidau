@@ -46,6 +46,7 @@ const section = z.object({
     title: text(80).min(1, "Every section needs a heading"),
     body: text(6000),
     items: z.array(item).max(30).default([]),
+    imageId: z.string().max(40).nullable().default(null),
     visible: z.boolean().default(true),
 });
 
@@ -56,6 +57,8 @@ const website = z.object({
     heroImageId: z.string().max(40).nullable().default(null),
     welcome: text(4000),
     sections: z.array(section).max(20),
+    rsvpHeading: text(120).default("We hope you'll celebrate with us."),
+    rsvpText: text(600).default(""),
     showGallery: z.boolean().default(false),
     contactEmail: z.union([z.literal(""), z.string().trim().email()]),
     noindex: z.boolean(),
@@ -108,6 +111,8 @@ export const SETTINGS_SCHEMAS = {
         allowCodes: z.boolean().default(true),
         /** Invitation links stop working this many days after the deadline (0 = when the deadline passes is irrelevant; never expire). */
         linkExpiryDays: z.number().int().min(0).max(3650).default(60),
+        /** Email a confirmation after an online reply (also needs email delivery switched on). */
+        confirmationEmail: z.boolean().default(false),
     }),
     budget: z.object({
         totalCents: z.number().int().min(0).max(100_000_000_00),
@@ -117,46 +122,132 @@ export const SETTINGS_SCHEMAS = {
 
 /**
  * Defaults. The couple's names, date, venue and RSVP link are known; everything not yet confirmed
- * (timings, the bus, travel) starts as a hidden draft so nothing is published by assumption.
+ * (timings, the bus, parking, other accommodation) starts hidden or says it will follow, so nothing
+ * is published by assumption. The venue address comes from public listings: confirm it before publishing.
  */
 const DEFAULT_WEBSITE: WebsiteContent = {
-    heroEyebrow: "Together with their families",
+    heroEyebrow: "Together with our families",
     heroTitle: "",
-    heroSubtitle: "invite you to celebrate their wedding at Rhino Lodge.",
+    heroSubtitle: "We're getting married",
     heroImageId: null,
-    welcome: "",
+    welcome:
+        "We're getting married, and we'd love for you to celebrate with us.\n\nWe're looking forward to a relaxed country celebration at Rhino Lodge with our favourite people, good food, a few drinks and plenty of memories. Everything you need to know is on this page, and if anything's unclear, just ask.",
     sections: [
-        { id: "story", kind: "story", title: "Our story", body: "", items: [], visible: false },
+        { id: "story", kind: "story", title: "Our story", body: "", items: [], imageId: null, visible: false },
         {
             id: "details",
             kind: "details",
-            title: "The day",
-            body: "Our ceremony and reception will both be held at Rhino Lodge on Saturday 23 October 2027. Timings will follow.",
+            title: "The big day",
+            body: "Our ceremony and reception will both be at Rhino Lodge, so once you've arrived there's nowhere else you need to be. We'll share timings here as soon as they're confirmed.",
             items: [],
+            imageId: null,
+            visible: true,
+        },
+        {
+            id: "venue",
+            kind: "venue",
+            title: "Rhino Lodge",
+            body: "We chose Rhino Lodge for its big country skies, its relaxed feel and the chance to have everyone together in one place, from the ceremony to the last dance.",
+            items: [
+                {
+                    title: "Address",
+                    body: "14L Camp Road, Dubbo NSW 2830",
+                    url: "https://www.google.com/maps/search/?api=1&query=Rhino+Lodge%2C+14L+Camp+Road%2C+Dubbo+NSW+2830",
+                },
+            ],
+            imageId: null,
             visible: true,
         },
         {
             id: "stay",
             kind: "accommodation",
             title: "Where to stay",
-            body: "Accommodation at Rhino Lodge is first in, first served, so book early if you'd like to stay on site. Guests arrange their own accommodation; if Rhino Lodge is full, the places below are good alternatives.",
-            items: [{ title: "Rhino Lodge", body: "On-site accommodation, first in, first served. Contact Rhino Lodge directly to book.", url: "" }],
+            body: "Rhino Lodge has limited on-site accommodation, available on a first-in, first-served basis, so if you'd like to stay on site we'd suggest booking early. You're also welcome to make your own arrangements. We'll add a few nearby options here soon.",
+            items: [
+                {
+                    title: "Rhino Lodge",
+                    body: "On-site accommodation is limited and available first in, first served. Contact Rhino Lodge directly to book.",
+                    url: "",
+                },
+            ],
+            imageId: null,
             visible: true,
         },
-        { id: "travel", kind: "travel", title: "Getting there", body: "", items: [], visible: false },
+        {
+            id: "travel",
+            kind: "travel",
+            title: "Getting there",
+            body: "Directions and parking details will be posted here closer to the day.",
+            items: [],
+            imageId: null,
+            visible: false,
+        },
         {
             id: "bus",
             kind: "transport",
             title: "Courtesy bus",
-            body: "We're hoping to arrange a courtesy bus. Details will be posted here once confirmed.",
+            body: "We're looking into a courtesy bus between Dubbo and Rhino Lodge. Nothing is confirmed yet, so please don't rely on it when planning. We'll update this page as soon as we know more.",
             items: [],
+            imageId: null,
             visible: false,
         },
-        { id: "children", kind: "children", title: "Children and families", body: "Children are very welcome.", items: [], visible: true },
-        { id: "dress", kind: "dress", title: "Dress code", body: "Cocktail / smart casual.", items: [], visible: true },
-        { id: "gifts", kind: "registry", title: "Gifts", body: "", items: [], visible: false },
-        { id: "faq", kind: "faq", title: "Questions", body: "", items: [], visible: false },
+        {
+            id: "children",
+            kind: "children",
+            title: "Bring the kids",
+            body: "Children are very welcome. We'd love to celebrate with the whole family.\n\nWhen you RSVP you can reply for each child in your household and let us know about any dietary needs.",
+            items: [],
+            imageId: null,
+            visible: true,
+        },
+        {
+            id: "dress",
+            kind: "dress",
+            title: "What to wear",
+            body: "Cocktail / smart casual. It's a country venue, so choose shoes you'll be comfortable in on grass, and bring a layer for when the sun goes down.",
+            items: [],
+            imageId: null,
+            visible: true,
+        },
+        { id: "gifts", kind: "registry", title: "Gifts", body: "", items: [], imageId: null, visible: false },
+        {
+            id: "faq",
+            kind: "faq",
+            title: "Good to know",
+            body: "",
+            items: [
+                {
+                    title: "What should I wear?",
+                    body: "Cocktail / smart casual. Comfortable shoes for grass are a good idea, plus a layer for the evening.",
+                    url: "",
+                },
+                {
+                    title: "Can we bring the kids?",
+                    body: "Yes, please do. Children are very welcome, and you can RSVP for each of them individually.",
+                    url: "",
+                },
+                {
+                    title: "Is there accommodation at the venue?",
+                    body: "Rhino Lodge has limited on-site accommodation, available first in, first served. Contact the lodge directly to book. You're also welcome to stay elsewhere.",
+                    url: "",
+                },
+                {
+                    title: "When do I need to RSVP by?",
+                    body: "Please reply by the date on your invitation. You can update your RSVP online until then if your plans change.",
+                    url: "",
+                },
+                {
+                    title: "What if my dietary requirements change?",
+                    body: "Just open your invitation link again and update your RSVP, or let us know directly.",
+                    url: "",
+                },
+            ],
+            imageId: null,
+            visible: true,
+        },
     ],
+    rsvpHeading: "We hope you'll celebrate with us.",
+    rsvpText: "",
     showGallery: false,
     contactEmail: "",
     noindex: true,
@@ -174,7 +265,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         adultDefault: "adult_buffet",
         notes: "",
     },
-    wedding: { partnerOne: "Aidan", partnerTwo: "Amelia", date: "2027-10-23", location: "Rhino Lodge", timeZone: "Australia/Sydney" },
+    wedding: { partnerOne: "Aidan", partnerTwo: "Amelia", date: "2027-10-23", location: "Rhino Lodge · Dubbo, NSW", timeZone: "Australia/Sydney" },
     website: DEFAULT_WEBSITE,
     website_draft: DEFAULT_WEBSITE,
     rsvp: {
@@ -185,6 +276,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         allowChangesAfterDeadline: false,
         allowCodes: true,
         linkExpiryDays: 60,
+        confirmationEmail: false,
     },
     budget: { totalCents: 0, currency: "AUD" },
 };

@@ -17,6 +17,7 @@ import { WeddingSettingsPage } from "@/portal/pages/settings-page";
 import { ForbiddenPage, NotFoundPage } from "@/portal/pages/status-pages";
 import { SuppliersPage } from "@/portal/pages/suppliers-page";
 import { TasksPage } from "@/portal/pages/tasks-page";
+import { TextsPage } from "@/portal/pages/texts-page";
 import { TimelinePage } from "@/portal/pages/timeline-page";
 import { WebsitePage } from "@/portal/pages/website-page";
 import { PortalProvider } from "@/portal/portal-context";
@@ -41,6 +42,8 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <CommunicationsPage data={data} />;
         case "message":
             return <MessagePage data={data} />;
+        case "texts":
+            return <TextsPage data={data} />;
         case "tasks":
             return <TasksPage data={data} />;
         case "timeline":

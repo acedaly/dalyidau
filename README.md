@@ -20,19 +20,19 @@ npm run sync:local             # runs a real sync against the mock API
 scripts/local-down.sh
 ```
 
-| Command | What it does |
-| --- | --- |
-| `npm run typecheck` | TypeScript for the app, worker, tests and config |
-| `npm test` | Builds the client, then runs the Vitest suite inside workerd with local D1 and R2 |
-| `npm run test:e2e` | Playwright against `wrangler dev` and the mock API (desktop and mobile) |
-| `npm run build` | Typecheck, client builds (blog, then portal and wedding site) and a Worker bundle dry run |
-| `npm run seed:portal` | Fill a local portal with invented demo data (localhost only) |
-| `npm run check:config` | Check an environment's configuration and secret names (never values); `-- --env staging`, `-- --url …` |
-| `npm run check:bundle` | After a build: no portal code in the blog bundle, no secrets in any client file |
-| `npm run db:verify` / `db:backup` | Read-only database health check / verified backup ([docs/DATABASE.md](docs/DATABASE.md)) |
-| `npm run seed:staging` | Fictional demo data for staging (`-- --yes`) or a local database (`-- --local`) |
-| `npm run deploy` | Manual production deploy (normally GitHub Actions does this) |
-| `npm run deploy:staging` | Deploy the staging Worker |
+| Command                           | What it does                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `npm run typecheck`               | TypeScript for the app, worker, tests and config                                                       |
+| `npm test`                        | Builds the client, then runs the Vitest suite inside workerd with local D1 and R2                      |
+| `npm run test:e2e`                | Playwright against `wrangler dev` and the mock API (desktop and mobile)                                |
+| `npm run build`                   | Typecheck, client builds (blog, then portal and wedding site) and a Worker bundle dry run              |
+| `npm run seed:portal`             | Fill a local portal with invented demo data (localhost only)                                           |
+| `npm run check:config`            | Check an environment's configuration and secret names (never values); `-- --env staging`, `-- --url …` |
+| `npm run check:bundle`            | After a build: no portal code in the blog bundle, no secrets in any client file                        |
+| `npm run db:verify` / `db:backup` | Read-only database health check / verified backup ([docs/DATABASE.md](docs/DATABASE.md))               |
+| `npm run seed:staging`            | Fictional demo data for staging (`-- --yes`) or a local database (`-- --local`)                        |
+| `npm run deploy`                  | Manual production deploy (normally GitHub Actions does this)                                           |
+| `npm run deploy:staging`          | Deploy the staging Worker                                                                              |
 
 ## Repository layout
 
@@ -69,6 +69,7 @@ docs/                Setup, deployment and operations
 - [Deployment](docs/DEPLOYMENT.md): Cloudflare resources, secrets, CI, DNS cut-over and rollback
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
 - [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model
+- [Communications](docs/COMMUNICATIONS.md): SMTP2Go email, ClickSend SMS, webhooks, consent and the activation checklist
 - [Privacy and personal data](docs/PRIVACY.md): what's collected, retention, deleting and erasing
 - [Database](docs/DATABASE.md): migrations, verification, backups, restore and rollback
 - [Staging](docs/STAGING.md): the separate staging environment and how to set it up

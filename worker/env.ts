@@ -30,10 +30,28 @@ export interface Env {
     ACCESS_DEV_EMAIL?: string;
     /** Tests only, ignored in production: a JWKS document to verify Access tokens against. */
     ACCESS_TEST_JWKS?: string;
-    /** Email delivery provider. Unset or "off" means nothing is ever sent. See docs/PORTAL.md. */
+    /** Email delivery provider: "smtp2go", "cloudflare", or "log" (development only). Unset or "off" means nothing is ever sent. See docs/COMMUNICATIONS.md. */
     EMAIL_DELIVERY?: string;
-    /** From address for wedding emails once delivery is configured. */
+    /** From address for wedding emails, e.g. "Aidan & Amelia" <wedding@daly.id.au>. */
     EMAIL_FROM?: string;
+    /** Optional Reply-To for wedding emails. */
+    EMAIL_REPLY_TO?: string;
+    /** Secret: SMTP2Go API key (send-only permissions). */
+    SMTP2GO_API_KEY?: string;
+    /** Optional, e.g. https://au-api.smtp2go.com/v3 for the Australian region. */
+    SMTP2GO_API_BASE?: string;
+    /** SMS delivery provider: "clicksend", or "log" (development only). Unset or "off" means nothing is ever sent. */
+    SMS_DELIVERY?: string;
+    /** Secret: ClickSend API username. */
+    CLICKSEND_USERNAME?: string;
+    /** Secret: ClickSend API key. */
+    CLICKSEND_API_KEY?: string;
+    /** Optional, for tests. */
+    CLICKSEND_API_BASE?: string;
+    /** Sender: a dedicated number in E.164 (needed for two-way replies) or a registered alphanumeric sender ID. */
+    SMS_FROM?: string;
+    /** Secret: the path segment that authenticates provider webhooks (/api/comms/webhooks/<provider>/<secret>). */
+    COMMS_WEBHOOK_SECRET?: string;
     /** Optional Cloudflare Email Service binding. Add it only after the sending domain is approved. */
     EMAIL?: SendEmail;
     /** HMAC key for long, revocable native RSVP invitation links. */

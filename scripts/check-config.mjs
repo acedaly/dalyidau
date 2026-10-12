@@ -24,6 +24,14 @@ report.check(target.vars.ENVIRONMENT === env, `ENVIRONMENT is "${env}"`, `ENVIRO
 for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET"]) {
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
+// Provider credentials are secrets; a plain var would be visible in the dashboard and in wrangler.jsonc.
+for (const name of ["SMTP2GO_API_KEY", "CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"]) {
+    report.check(
+        !(name in target.vars),
+        `${name} is not a plain var`,
+        `${name} is set in vars: make it a secret (npx wrangler secret put ${name} ${envFlag(env)})`,
+    );
+}
 const delivery = target.vars.EMAIL_DELIVERY ?? "off";
 report.check(
     delivery !== "log",
@@ -31,6 +39,9 @@ report.check(
     `EMAIL_DELIVERY is "log", which only works outside production`,
     env === "production" ? "fail" : "warn",
 );
+
+const sms = target.vars.SMS_DELIVERY ?? "off";
+report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", which only works outside production`, env === "production" ? "fail" : "warn");
 
 const db = target.d1.find((d) => d.binding === "DB");
 report.check(!!db, `D1 binding DB → ${db?.database_name}`, "No D1 binding called DB");
@@ -65,6 +76,17 @@ if (!listed) {
     for (const name of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "PORTAL_OWNER_EMAILS", "RSVP_LINK_SECRET"]) {
         report.check(names.includes(name), `Secret ${name} is set`, `Secret ${name} is missing: npx wrangler secret put ${name} ${envFlag(env)}`);
     }
+    // Chosen providers need their credentials (names only; values are never read).
+    const needed = [
+        ...(delivery === "smtp2go" ? ["SMTP2GO_API_KEY", "COMMS_WEBHOOK_SECRET"] : []),
+        ...(sms === "clicksend" ? ["CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"] : []),
+    ];
+    for (const name of [...new Set(needed)])
+        report.check(
+            names.includes(name),
+            `Secret ${name} is set`,
+            `Secret ${name} is missing for the chosen provider: npx wrangler secret put ${name} ${envFlag(env)}`,
+        );
     for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS"]) {
         report.check(!names.includes(name), `No ${name} secret`, `${name} is set as a secret: delete it (npx wrangler secret delete ${name} ${envFlag(env)})`);
     }

@@ -4,6 +4,7 @@ import { render, renderPortal, renderWedding } from "../src/entry-server";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import type { PortalPageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
+import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
@@ -57,6 +58,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     if (path.startsWith("/api/portal/")) return portalApi(request, env);
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
+    if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, path);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 
@@ -305,17 +307,37 @@ async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Resp
 
 function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, status: number, noindex: boolean, headers: Record<string, string>) {
     const title = weddingTitle(data);
-    const description = data.content.heroSubtitle || `${data.details.partnerOne} & ${data.details.partnerTwo} are getting married.`;
+    const site = env.SITE_URL.replace(/\/+$/, "");
+    const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
+    const when = data.details.date
+        ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(
+              new Date(`${data.details.date}T12:00:00Z`),
+          )
+        : "";
+    const description =
+        data.route === "rsvp"
+            ? `RSVP for ${couple}'s wedding.`
+            : `${couple} are getting married${when ? ` on ${when}` : ""}${data.details.location ? ` at ${data.details.location}` : ""}.`;
+    // Social previews use the hero photo, but only on the public site (the preview is private).
+    const image = !data.preview && data.heroImage ? `${site}${data.heroImage.url}` : null;
     return renderDocument(env, {
         area: "wedding",
         head: [
             `<title>${escapeHtml(title)}</title>`,
             `<meta name="description" content="${escapeHtml(description)}">`,
             `<meta name="robots" content="${noindex ? "noindex, nofollow" : "index, follow"}">`,
+            ...(data.preview ? [] : [`<link rel="canonical" href="${escapeHtml(`${site}${path}`)}">`]),
             `<meta property="og:title" content="${escapeHtml(title)}">`,
             `<meta property="og:description" content="${escapeHtml(description)}">`,
             `<meta property="og:type" content="website">`,
-            `<meta name="theme-color" content="#f7f3ea">`,
+            ...(image
+                ? [
+                      `<meta property="og:image" content="${escapeHtml(image)}">`,
+                      `<meta property="og:image:alt" content="${escapeHtml(data.heroImage!.alt || couple)}">`,
+                      `<meta name="twitter:card" content="summary_large_image">`,
+                  ]
+                : []),
+            `<meta name="theme-color" content="#f8f5ee">`,
         ].join("\n        "),
         body: renderWedding(data, path),
         data,
@@ -356,8 +378,8 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
         if (request.method !== "POST") return apiJson({ error: "method_not_allowed" }, 405, { Allow: "POST" });
         checkMutation(request, env);
         const body = await readJson(request, 50_000);
-        const household = action === "lookup" ? await lookupRsvp(env, request, body) : await submitRsvp(env, request, body);
-        return apiJson({ household });
+        if (action === "lookup") return apiJson({ household: await lookupRsvp(env, request, body) });
+        return apiJson(await submitRsvp(env, request, body));
     } catch (error) {
         if (error instanceof RsvpError) return apiJson({ error: error.code, message: error.message }, error.status);
         return errorResponse(error, new URL(request.url).pathname);

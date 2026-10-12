@@ -7,6 +7,7 @@
 // run automatically.
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
+import { normaliseMobile } from "../../src/shared/portal/sms";
 import type { DeletedRecord, RetentionPreview } from "../../src/shared/portal/types";
 import { auditStatement, nowIso, parseJson } from "./db";
 import { ConflictError, NotFoundError, ValidationError } from "./entities";
@@ -112,6 +113,10 @@ const scrubAudit = (db: D1Database, id: string, strings: string[]): D1PreparedSt
     return statements;
 };
 
+/** Deletes stored provider webhooks that mention any of these addresses or numbers. */
+const webhookScrub = (db: D1Database, values: (string | null | undefined)[]) =>
+    values.filter((v): v is string => !!v && v.length >= 6).map((v) => db.prepare("DELETE FROM comm_webhook_events WHERE instr(payload, ?) > 0").bind(v));
+
 async function eraseGuestStatements(db: D1Database, id: string): Promise<{ statements: D1PreparedStatement[]; name: string }> {
     const guest = await db
         .prepare("SELECT first_name, last_name, email, phone, household_id FROM guests WHERE id = ?")
@@ -124,7 +129,12 @@ async function eraseGuestStatements(db: D1Database, id: string): Promise<{ state
         // guest_events cascade with the row.
         db.prepare("DELETE FROM guests WHERE id = ?").bind(id),
         // Message history keeps that a message went to someone, not who.
-        db.prepare("UPDATE message_recipients SET name = ?, email = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
+        db.prepare("UPDATE message_recipients SET name = ?, email = NULL, phone = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
+        // Text conversations are personal content: remove them, including replies matched by number.
+        db.prepare("DELETE FROM sms_messages WHERE guest_id = ?").bind(id),
+        ...(normaliseMobile(guest.phone) ? [db.prepare("DELETE FROM sms_messages WHERE phone = ?").bind(normaliseMobile(guest.phone))] : []),
+        // Raw provider webhooks carry addresses and numbers.
+        ...webhookScrub(db, [guest.email, normaliseMobile(guest.phone)]),
     ];
 
     // Stored RSVP submissions copy names and dietary notes; drop this guest's part of each.
@@ -156,6 +166,10 @@ async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ s
         statements: [
             // Submissions cascade; linked guests are kept but unlinked (ON DELETE SET NULL).
             db.prepare("DELETE FROM households WHERE id = ?").bind(id),
+            // RSVP confirmation emails are addressed to the household.
+            db.prepare("UPDATE message_recipients SET name = ?, email = NULL, phone = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
+            db.prepare("DELETE FROM sms_messages WHERE household_id = ?").bind(id),
+            ...webhookScrub(db, [household.email]),
             ...scrubAudit(db, id, [household.name, household.email ?? "", household.phone ?? "", household.address_line1 ?? "", household.rsvp_code]),
         ],
     };

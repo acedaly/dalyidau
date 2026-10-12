@@ -217,6 +217,30 @@ describe("website draft and publishing", () => {
         expect(live).toContain("https://sayi.do/aidanandamelia2258/");
     });
 
+    it("renders the redesigned sections and sends only the photos the content uses", async () => {
+        const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        const used = (await apiCall<{ media: { id: string } }>("POST", "/api/portal/wedding/media", { data: png, alt: "The lodge at dusk" })).json.media;
+        const unused = (await apiCall<{ media: { id: string } }>("POST", "/api/portal/wedding/media", { data: png, alt: "UNUSED PHOTO" })).json.media;
+        const page = await html("/portal/wedding/website/preview", await accessToken());
+        const draft = JSON.parse(/<script[^>]*id="page-data"[^>]*>([\s\S]*?)<\/script>/.exec(page)![1]).data.content;
+        const sections = draft.sections.map((s: { kind: string }) => (s.kind === "venue" ? { ...s, imageId: used.id } : s));
+        expect((await apiCall("PUT", "/api/portal/settings/website_draft", { ...draft, sections })).status).toBe(200);
+        const preview = await html("/portal/wedding/website/preview", await accessToken());
+        expect(preview).toContain("The lodge at dusk");
+        expect(preview).not.toContain("UNUSED PHOTO");
+        expect(preview).not.toContain(unused.id);
+        // Venue, accommodation, families and FAQ sections ship visible; the bus stays hidden.
+        for (const text of [
+            "14L Camp Road, Dubbo NSW 2830",
+            "Directions &amp; map",
+            "Bring the kids",
+            "Good to know",
+            "We hope you&#x27;ll celebrate with us.",
+        ])
+            expect(preview).toContain(text);
+        expect(preview).not.toContain("courtesy bus between Dubbo");
+    });
+
     it("only accepts real photos and keeps them private until the site is visible", async () => {
         const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');

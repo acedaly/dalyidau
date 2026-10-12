@@ -23,10 +23,10 @@ These are yours to do; the code is ready for them.
 4. **Say I Do link** (RSVPs → Settings), so the website sends guests to it while the native form is off.
 5. **When to switch on the native RSVP form** (Wedding settings → Features → Native RSVP). Off by default. Say I Do stays the live RSVP until you turn this on.
 6. **When to publish the website** (Website → Publish). Off by default. It's `noindex` by default too.
-7. **Email delivery provider**, if you ever want the portal to send email itself. Not configured, by design. See [Email](#email).
+7. **Email and SMS providers** (SMTP2Go and ClickSend), if you want the portal to send email and texts itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0004_seating_catering_rsvp_comms.sql` to production.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0005_comms_channels.sql` to production.
 
 ---
 
@@ -134,7 +134,8 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 | ------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public wedding website                     | Off     | `/wedding` serves the site; otherwise it's a normal 404.                                                                                                                                       |
 | Native RSVP                                | Off     | The website's RSVP button opens our own form, and `/api/wedding/rsvp/*` accepts responses. While off, the button links to Say I Do and the API returns 404. Needs the website switched on too. |
-| Email delivery                             | Off     | Allows sending from the portal. Also needs `EMAIL_DELIVERY` configured on the Worker.                                                                                                          |
+| Email delivery                             | Off     | Allows sending email from the portal (campaigns and RSVP confirmations). Also needs `EMAIL_DELIVERY` and its provider secrets on the Worker.                                                   |
+| SMS delivery                               | Off     | Allows sending texts and replies. Also needs `SMS_DELIVERY` and its provider secrets on the Worker.                                                                                            |
 | Communications / Planning / Budget modules | On      | Hide a module's pages and API when you don't need it.                                                                                                                                          |
 
 ---
@@ -142,6 +143,8 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 ## RSVPs: Say I Do now, native later
 
 - **While Say I Do is live**: set its link under RSVPs → Settings. The website's RSVP buttons go there. Record replies in the portal by hand (guest panel → RSVP tab, or select guests → Actions → Set RSVP → "Say I Do"), or import a Say I Do guest export (Guests → Import, tick "These RSVPs came from Say I Do"). Recognised columns are listed in the import dialog.
+- **The guest experience**: the invitation link (or code) opens the household's invitation. Guests answer for each person and event, add dietary needs and any configured questions on a details step, check everything on a review step, then send. The confirmation page offers an "Add to calendar" file and a way back to change their reply until the deadline. Children are listed individually with a "Child" or "Baby" label; ask age-specific questions (for example a children's meal) with a guest question limited to children.
+- **Confirmation email** (RSVPs → Settings): optional, off by default, and only sent when email delivery is on and the guest gives an address.
 - **Testing the native form**: Website → Preview → RSVP (or RSVPs → "Test the native form"). The preview uses owner-only endpoints, so it works while the switch is off. Responses there are real writes, so use a test household.
 - **Questions**: build household- or guest-level questions under RSVPs → Questions. Types are short text, long text, yes/no, single choice, multiple choice, number and date. Questions can depend on age, attendance at an event, or another answer. Publishing controls whether guests see a question. Meaningful edits create a new version; answers retain the question version and snapshot used when they were submitted.
 - **Switching over**: set `RSVP_LINK_SECRET`, copy each household's signed link or use the `{{rsvp_link}}` merge field, test rotation and revocation, then turn on Native RSVP. Consider disabling short codes. Turning Native RSVP off reverts every public button to the configured Say I Do URL immediately.
@@ -150,16 +153,11 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 
 ---
 
-## Email
+## Email and SMS
 
-Nothing is sent from production today. You can categorise and schedule a message, filter by RSVP, event, side, group, tag, age and contact preference, preview it for any guest, and download a **mail-merge CSV**. Invitation recipients are deduplicated against earlier prepared or sent invitations.
+Nothing is sent from production today. You can choose email or SMS, categorise and schedule a message, filter by RSVP, event, side, group, tag, age and contact preference, preview it for any guest, and download a **mail-merge CSV**. Invitation recipients are deduplicated against earlier prepared or sent invitations.
 
-Sending from the portal needs both:
-
-1. A provider on the Worker. `EMAIL_DELIVERY=log` exists for tests and local development only and is ignored in production. Cloudflare Email Service is implemented as the preferred provider, but its sending-domain onboarding, DNS records and `EMAIL` binding are deliberately absent pending approval. No Resend fallback is needed at present.
-2. The **Email delivery** switch.
-
-The scheduled D1 queue is checked by the existing cron. It remains inert unless both safeguards are enabled. Sending atomically claims the message, and records per-recipient success, failure and provider id.
+Providers (SMTP2Go for email, ClickSend for SMS), delivery reports, retries, text conversations, opt-outs and the activation checklist are in [COMMUNICATIONS.md](COMMUNICATIONS.md). Each channel needs its provider configured on the Worker **and** its switch on; the scheduled D1 queue stays inert until both are.
 
 ---
 
@@ -174,14 +172,14 @@ The scheduled D1 queue is checked by the existing cron. It remains inert unless 
 | Households           | Invitation units with signed links, copy, rotation, revocation, optional legacy codes, contact and postal details.                                                                                                                                                                                                |
 | Events               | Ceremony, reception and anything else, with public/private and RSVP on/off per event.                                                                                                                                                                                                                             |
 | RSVPs                | Response metrics, attendance by event, replies per household, configurable conditional question builder, versioned answer reports, courtesy-bus count, online response log and settings.                                                                                                                          |
-| Communications       | Categories, templates, recipient filters, invitation deduplication, scheduling, per-guest preview, frozen recipient lists, delivery/provider history and mail-merge export.                                                                                                                                       |
+| Communications       | Email and SMS, categories, templates, recipient filters, invitation deduplication, scheduling, per-guest preview, frozen recipient lists, delivery reports, retries, SMS cost, text conversations with replies, opt-outs and mail-merge export.                                                                   |
 | Seating              | Interactive table plan with capacities, unseated guests, drag/move workflow, warnings and print view.                                                                                                                                                                                                             |
 | Catering             | Event meal assignments, age-aware meal categories, dietary/accessibility roll-up and CSV export.                                                                                                                                                                                                                  |
 | Tasks                | List and month-calendar views, status, priority, owner, due dates, progress and overdue tracking.                                                                                                                                                                                                                 |
 | Timeline             | Day-of run sheet grouped by day.                                                                                                                                                                                                                                                                                  |
 | Budget               | Total budget, committed, paid, overdue; per-category progress; payment status per item; linked suppliers.                                                                                                                                                                                                         |
 | Suppliers            | Directory with status, contacts and links.                                                                                                                                                                                                                                                                        |
-| Website              | Content editor (hero, welcome, sections), publish switch, preview.                                                                                                                                                                                                                                                |
+| Website              | Content editor (hero, welcome, sections with their own photos, RSVP invitation), photo library, draft/publish, visibility switch, preview.                                                                                                                                                                        |
 | Wedding settings     | Wedding details, feature switches and custom guest fields.                                                                                                                                                                                                                                                        |
 | Portal settings      | Signed-in identity, application permissions, appearance, people and roles, and privacy controls.                                                                                                                                                                                                                  |
 | Audit log            | Every change, who made it and when, with field-level before/after values; searchable, exportable. Deletes keep a full snapshot.                                                                                                                                                                                   |
@@ -193,7 +191,7 @@ Every list has a meaningful empty state, every save shows field-level validation
 ## Design system
 
 - **Portal**: Untitled UI PRO application components, pulled into the repo with `npx untitledui@latest add` (see the list in `src/components/application` and `src/components/base`): sidebar navigation, breadcrumbs, table, pagination, modals, slideout menus, tabs, select, checkbox, toggle, radio, textarea, dropdown, date picker, file upload, metrics, charts base, notifications, progress indicators, badges, avatars, empty states. Portal-specific compositions live in `src/portal/components` (data table, record panel, metric card, toasts, month calendar) and are built only from those components and the theme tokens. Light and dark mode use the site's existing theme system.
-- **Wedding website**: the same components, wrapped in `.wedding-theme`, which re-roots every Untitled UI token on the wedding palette (warm ivory, eucalyptus green, olive, clay) with Cormorant Garamond and Lora. Because Untitled UI's semantic tokens are chained CSS variables, the wrapper re-declares them all; that file is generated by `node scripts/build-wedding-theme.mjs` from `theme.css`. The site is always light.
+- **Wedding website**: the same components, wrapped in `.wedding-theme`, which re-roots every Untitled UI token on the wedding palette (warm ivory, deep forest, eucalyptus, dusty olive, sandstone, terracotta clay) with Cormorant Garamond for display type and Jost for reading text and labels. Each section kind has its own layout (`src/wedding/home-page.tsx`); botanicals and the photo fallback landscape are inline SVG (`src/wedding/components/ornament.tsx`), so the site makes no third-party image requests. Small text uses the deeper olive-600 and clay-600 shades so it meets WCAG AA contrast; the lighter palette colours are kept for illustration and large display type. Because Untitled UI's semantic tokens are chained CSS variables, the wrapper re-declares them all; that file is generated by `node scripts/build-wedding-theme.mjs` from `theme.css`. The site is always light.
 - Chart colours (`src/styles/portal.css`) were checked with a colour-blindness validator; every chart also has direct labels, a legend and an accessible table.
 
 ### Builds
@@ -202,20 +200,21 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0004`)
+## Data model (D1, migrations `0002`–`0005`)
 
-| Table                                                               | Contents                                                                     |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `portal_users`                                                      | Email, name, role, active, last seen                                         |
-| `audit_log`                                                         | Append-only change history                                                   |
-| `feature_flags`, `settings`, `dashboard_layouts`                    | Switches, settings documents (JSON), personal layouts                        |
-| `households`, `guests`, `events`, `guest_events`                    | The guest list; a `guest_events` row means "invited", its status is the RSVP |
-| `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                          |
-| `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows  |
-| `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled communications with per-recipient delivery state   |
-| `seating_tables`, `seat_assignments`, `catering_assignments`        | Table plan and catering choices                                              |
-| `website_media`                                                     | R2 gallery/photo metadata                                                    |
-| `tasks`, `timeline_items`, `suppliers`, `budget_items`              | Planning and budget (money in cents)                                         |
+| Table                                                               | Contents                                                                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `portal_users`                                                      | Email, name, role, active, last seen                                                                    |
+| `audit_log`                                                         | Append-only change history                                                                              |
+| `feature_flags`, `settings`, `dashboard_layouts`                    | Switches, settings documents (JSON), personal layouts                                                   |
+| `households`, `guests`, `events`, `guest_events`                    | The guest list; a `guest_events` row means "invited", its status is the RSVP                            |
+| `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                                                     |
+| `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows                             |
+| `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled email/SMS communications with per-recipient delivery state, attempts and cost |
+| `sms_messages`, `comm_webhook_events`                               | Text conversations (outbound and inbound) and deduplicated provider webhooks                            |
+| `seating_tables`, `seat_assignments`, `catering_assignments`        | Table plan and catering choices                                                                         |
+| `website_media`                                                     | R2 gallery/photo metadata                                                                               |
+| `tasks`, `timeline_items`, `suppliers`, `budget_items`              | Planning and budget (money in cents)                                                                    |
 
 Applications are registered in `src/shared/portal/applications.ts`; the registry drives the launcher, application permission gate and application sidebar. Adding a wedding module usually means: a table in a new migration, an `EntityDef` in `worker/portal/entities.ts` (that alone gives validated, audited CRUD at `/api/portal/wedding/<name>`), a loader in `worker/portal/pages.ts`, a page in `src/portal/pages`, and a registry navigation entry. Adding a dashboard widget: its type in `WIDGET_TYPES`, its data in `computeStats`, and its renderer in `src/portal/dashboard/widgets.tsx`.
 
@@ -260,6 +259,6 @@ When you're ready (none of this has been done):
 ## Outstanding
 
 - Native RSVP, public website publishing and production email delivery remain disabled until separately approved. Say I Do remains the live RSVP destination: <https://sayi.do/aidanandamelia2258/>.
-- Cloudflare Email Service still needs approved domain onboarding, DNS records and a Worker binding; no email is sent without those plus both software safeguards.
+- SMTP2Go and ClickSend are implemented but not configured: accounts, DNS records for the sending domain, a dedicated SMS number, secrets and controlled tests are still to do ([COMMUNICATIONS.md](COMMUNICATIONS.md#activation-checklist-needs-your-approval)). Confirm with ClickSend that RSVP links on daly.id.au are allowed before any SMS invitations.
 - Staging has not been deployed and its URL remains a placeholder.
 - Erasure can't reach downloaded exports, backup files or D1's 30-day Time Travel history ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).

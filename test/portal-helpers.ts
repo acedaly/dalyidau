@@ -117,6 +117,8 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "comm_webhook_events",
+    "sms_messages",
     "seat_assignments",
     "seating_tables",
     "seating_snapshots",

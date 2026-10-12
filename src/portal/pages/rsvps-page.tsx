@@ -280,6 +280,14 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                                     onChange={(v) => setDraft({ ...draft, collectMessage: v })}
                                 />
                             </FormSection>
+                            <FormSection title="Confirmation email" description="Sent after a guest replies online and gives an email address.">
+                                <Toggle
+                                    label="Email a confirmation after each online RSVP"
+                                    hint="Only sends once email delivery is set up and switched on (Communications). Each confirmation is kept in message history."
+                                    isSelected={draft.confirmationEmail}
+                                    onChange={(confirmationEmail) => setDraft({ ...draft, confirmationEmail })}
+                                />
+                            </FormSection>
                             <FormSection title="Invitation links" description="Long signed links are recommended. Short codes can be retained as a fallback.">
                                 <Toggle
                                     label="Allow guests to enter short RSVP codes"

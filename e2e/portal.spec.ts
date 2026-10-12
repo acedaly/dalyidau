@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 
 // The e2e Worker runs with ENVIRONMENT=development and ACCESS_DEV_EMAIL, so localhost requests act
@@ -223,14 +224,25 @@ test("a guest RSVPs on the public website with their household code", async ({ p
 
     await page.getByRole("link", { name: "RSVP" }).first().click();
     await expect(page).toHaveURL(/\/wedding\/rsvp$/);
-    await page.getByLabel("RSVP code").fill(household.rsvpCode);
+    await page.getByLabel("Invitation code").fill(household.rsvpCode);
     await page.getByRole("button", { name: "Find my invitation" }).click();
-    await expect(page.getByRole("heading", { name: `The Testers ${suffix}` })).toBeVisible();
-    await page.getByText("Joyfully accepts").click();
-    await expect(page.getByRole("radio", { name: "Joyfully accepts" })).toBeChecked();
-    await page.getByLabel("Dietary requirements").fill("Vegetarian");
-    await page.getByRole("button", { name: "Send our reply" }).click();
+    await expect(page.getByRole("heading", { name: "Who's coming?" })).toBeVisible();
+    await expect(page.getByText(`The Testers ${suffix}`)).toBeVisible();
+    // Continuing without an answer explains what's missing.
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByText("We still need an answer for Taylor.")).toBeVisible();
+    // Phones show the short label so both choices fit side by side.
+    const accept = page.getByRole("radio", { name: isMobile ? "Accepts" : "Joyfully accepts" });
+    await accept.click({ force: true });
+    await expect(accept).toBeChecked();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("Dietary requirements or allergies").fill("Vegetarian");
+    await page.getByRole("button", { name: "Review my RSVP" }).click();
+    await expect(page.getByRole("heading", { name: "Does this look right?" })).toBeVisible();
+    await expect(page.getByText("Dietary: Vegetarian")).toBeVisible();
+    await page.getByRole("button", { name: "Send our RSVP" }).click();
     await expect(page.getByRole("heading", { name: "Thank you" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add to calendar" })).toBeVisible();
     await expect(page.getByText("celebrate with Taylor")).toBeVisible();
     expect(errors).toEqual([]);
 
@@ -242,6 +254,45 @@ test("a guest RSVPs on the public website with their household code", async ({ p
 
     await api(request, "put", "/api/portal/flags/rsvp.native", { enabled: false });
     await api(request, "put", "/api/portal/flags/wedding.site.public", { enabled: false });
+});
+
+test("the wedding website is accessible and fits every screen", async ({ page, request, isMobile }) => {
+    await api(request, "put", "/api/portal/settings/wedding", {
+        partnerOne: "Aidan",
+        partnerTwo: "Amelia",
+        date: "2027-10-23",
+        location: "Rhino Lodge · Dubbo, NSW",
+        timeZone: "Australia/Sydney",
+    });
+    const errors = watchErrors(page);
+    // Entrance animations fade text in; check contrast on the settled page.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const path of ["/portal/wedding/website/preview", "/portal/wedding/website/preview/rsvp"]) {
+        await page.goto(path);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(overflow, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
+        // The preview banner belongs to the portal, so only the wedding site itself is checked.
+        const results = await new AxeBuilder({ page }).include(".wedding-theme").exclude(".wedding-theme > p:first-of-type").analyze();
+        expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+    }
+
+    await page.goto("/portal/wedding/website/preview");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Aidan & Amelia");
+    if (isMobile) {
+        // The sticky RSVP bar appears once the hero has scrolled away, and the menu works without a page load.
+        const bar = page.getByText("Will you join us?");
+        await expect(bar).toBeHidden();
+        await page.mouse.wheel(0, 1400);
+        await expect(bar).toBeVisible();
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.getByLabel("Menu").click();
+        await page.getByRole("link", { name: "Venue" }).click();
+        await expect(page.getByRole("heading", { name: "Rhino Lodge", level: 2 })).toBeInViewport();
+    } else {
+        await page.getByRole("link", { name: "Explore our wedding" }).click();
+        await expect(page.getByText("We're getting married, and we'd love for you to celebrate with us.")).toBeInViewport();
+    }
+    expect(errors).toEqual([]);
 });
 
 test("the mobile navigation drawer opens and navigates", async ({ page, isMobile }) => {
