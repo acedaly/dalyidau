@@ -7,16 +7,17 @@ import type { WebsiteMedia } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 import { Landscape } from "@/wedding/components/ornament";
 
-const buttonBase = "rounded-full px-7 py-3.5 text-[0.8125rem] font-medium tracking-[0.18em] uppercase shadow-none before:hidden min-h-12";
+const buttonBase =
+    "rounded-[2px] px-7 py-3.5 text-[0.75rem] font-medium tracking-[0.2em] uppercase shadow-none before:hidden min-h-12 transition duration-200 ease-out";
 
 /** Class names for Untitled UI Buttons on the wedding site. */
 export const weddingButton = {
     /** Solid deep forest: RSVP and other primary actions. */
-    primary: cx(buttonBase, "bg-forest hover:bg-forest-deep"),
+    primary: cx(buttonBase, "bg-forest text-ivory hover:bg-forest-deep hover:-translate-y-px"),
     /** Hairline outline on ivory. */
-    outline: cx(buttonBase, "text-forest ring-forest/40 hover:bg-forest/5 hover:text-forest bg-transparent ring-1"),
+    outline: cx(buttonBase, "text-forest ring-forest/40 hover:bg-forest hover:text-ivory bg-transparent ring-1"),
     /** Ivory on the forest band. */
-    light: cx(buttonBase, "bg-ivory text-forest hover:bg-paper hover:text-forest-deep ring-0"),
+    light: cx(buttonBase, "bg-ivory text-forest hover:bg-paper hover:text-forest-deep ring-0 hover:-translate-y-px"),
     /** Understated text link with an underline that grows on hover. */
     link: "rounded-sm p-0 text-[0.8125rem] font-medium tracking-[0.18em] uppercase text-forest underline decoration-forest/30 underline-offset-[6px] transition duration-100 ease-linear hover:decoration-forest",
 };
@@ -59,7 +60,7 @@ export const Eyebrow = ({ children, className }: { children: ReactNode; classNam
     <p className={cx("wedding-eyebrow text-olive-600", className)}>{children}</p>
 );
 
-/** Eyebrow + brush-lettered heading. Sizes step down on small screens without becoming cramped. */
+/** Eyebrow + editorial serif heading. Sizes step down on small screens without becoming cramped. */
 export const SectionHeading = ({
     id,
     eyebrow,
@@ -86,8 +87,8 @@ export const SectionHeading = ({
         <h2
             id={id}
             className={cx(
-                "wedding-script text-leaf text-balance",
-                size === "lg" ? "text-[3rem] sm:text-[3.75rem] lg:text-[4.25rem]" : "text-[2.5rem] sm:text-[3rem]",
+                "wedding-script text-forest text-balance",
+                size === "lg" ? "text-[3.5rem] sm:text-[4.5rem] lg:text-[5.25rem]" : "text-[3rem] sm:text-[3.75rem]",
             )}
         >
             {title}

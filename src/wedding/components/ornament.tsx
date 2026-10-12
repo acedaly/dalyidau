@@ -138,6 +138,133 @@ export const Sprig = ({ className }: { className?: string }) => {
     );
 };
 
+/**
+ * An abstracted arrangement of wine dahlias, copper banksia, cream blossom and eucalyptus.
+ * It is deliberately illustrative rather than a substitute photograph: a graceful, on-brand
+ * placeholder until the couple selects portal media, and a recurring motif for invitation panels.
+ */
+export const NativeArrangement = ({ className, quiet = false }: { className?: string; quiet?: boolean }) => (
+    <svg viewBox="0 0 620 760" fill="none" aria-hidden="true" className={cx("overflow-visible", className)}>
+        <g opacity={quiet ? 0.34 : 1}>
+            {/* loose stems preserve the natural movement of the reference arrangement */}
+            <path d="M307 721 C298 570 239 422 117 252" className="stroke-eucalypt" strokeWidth="3" strokeLinecap="round" />
+            <path d="M318 721 C330 551 390 383 526 202" className="stroke-olive" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M311 721 C320 565 304 394 278 175" className="stroke-eucalypt" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M330 721 C378 565 450 498 568 435" className="stroke-eucalypt" strokeWidth="2" strokeLinecap="round" />
+            <path d="M292 721 C260 585 197 520 69 482" className="stroke-olive" strokeWidth="2" strokeLinecap="round" />
+
+            {/* long eucalyptus leaves */}
+            {[
+                [102, 236, -42, 76, 22],
+                [141, 291, 24, 82, 23],
+                [181, 351, -30, 94, 25],
+                [451, 306, 34, 88, 24],
+                [492, 249, -28, 82, 22],
+                [525, 202, 32, 70, 20],
+                [94, 474, 20, 86, 23],
+                [152, 505, -32, 78, 21],
+                [503, 471, 32, 86, 23],
+                [552, 437, -22, 74, 20],
+                [270, 235, -16, 80, 21],
+                [288, 191, 24, 72, 19],
+            ].map(([x, y, angle, length, width], i) => (
+                <path
+                    key={i}
+                    d={leafPath(length, width)}
+                    transform={`translate(${x} ${y}) rotate(${angle})`}
+                    className={i % 3 === 0 ? "fill-olive stroke-olive" : "fill-eucalypt stroke-eucalypt"}
+                    fillOpacity={0.42 + (i % 3) * 0.1}
+                    strokeWidth="1.2"
+                />
+            ))}
+
+            {/* wine and terracotta flowers: layered organic discs instead of repeated icons */}
+            <g transform="translate(205 350)">
+                <circle r="88" className="fill-forest" opacity="0.18" />
+                {Array.from({ length: 14 }, (_, i) => (
+                    <ellipse
+                        key={i}
+                        cx="0"
+                        cy="-46"
+                        rx="19"
+                        ry="48"
+                        transform={`rotate(${i * 25.714})`}
+                        className="fill-forest"
+                        opacity={0.78 + (i % 3) * 0.08}
+                    />
+                ))}
+                {Array.from({ length: 10 }, (_, i) => (
+                    <ellipse key={i} cx="0" cy="-25" rx="13" ry="29" transform={`rotate(${i * 36 + 10})`} className="fill-terracotta" opacity="0.76" />
+                ))}
+                <circle r="17" className="fill-clay" opacity="0.9" />
+            </g>
+            <g transform="translate(423 421) scale(.82)">
+                {Array.from({ length: 12 }, (_, i) => (
+                    <ellipse key={i} cx="0" cy="-45" rx="20" ry="45" transform={`rotate(${i * 30})`} className="fill-forest" opacity={0.72 + (i % 2) * 0.16} />
+                ))}
+                <circle r="25" className="fill-terracotta" />
+                <circle r="11" className="fill-sandstone" />
+            </g>
+            <g transform="translate(328 535) scale(.62)">
+                {Array.from({ length: 11 }, (_, i) => (
+                    <ellipse key={i} cx="0" cy="-43" rx="21" ry="43" transform={`rotate(${i * 32.7})`} className="fill-terracotta" opacity="0.88" />
+                ))}
+                <circle r="23" className="fill-clay" />
+            </g>
+
+            {/* banksia-inspired copper forms */}
+            <g transform="translate(372 254) rotate(17)">
+                <ellipse cy="0" rx="38" ry="75" className="fill-clay" opacity="0.94" />
+                {Array.from({ length: 9 }, (_, i) => (
+                    <path key={i} d={`M-31 ${-48 + i * 12} Q0 ${-58 + i * 12} 31 ${-48 + i * 12}`} className="stroke-sandstone" strokeWidth="3" opacity="0.8" />
+                ))}
+                <path d="M0 73 C-2 105 -8 132 -17 158" className="stroke-olive" strokeWidth="3" />
+            </g>
+            <g transform="translate(125 423) rotate(-23) scale(.68)">
+                <ellipse rx="38" ry="75" className="fill-terracotta" />
+                {Array.from({ length: 8 }, (_, i) => (
+                    <path
+                        key={i}
+                        d={`M-31 ${-43 + i * 13} Q0 ${-54 + i * 13} 31 ${-43 + i * 13}`}
+                        className="stroke-sandstone"
+                        strokeWidth="3"
+                        opacity="0.75"
+                    />
+                ))}
+            </g>
+
+            {/* airy cream gum blossom */}
+            <g transform="translate(480 345)">
+                {Array.from({ length: 18 }, (_, i) => (
+                    <path key={i} d="M0 0 Q34 -18 54 1" transform={`rotate(${i * 20})`} className="stroke-paper" strokeWidth="3" strokeLinecap="round" />
+                ))}
+                <circle r="17" className="fill-sandstone" />
+            </g>
+            <g transform="translate(274 278) scale(.7)">
+                {Array.from({ length: 16 }, (_, i) => (
+                    <path key={i} d="M0 0 Q30 -16 48 0" transform={`rotate(${i * 22.5})`} className="stroke-paper" strokeWidth="3" strokeLinecap="round" />
+                ))}
+                <circle r="14" className="fill-sandstone" />
+            </g>
+
+            {/* scattered gumnuts add native texture without turning into a repeating border */}
+            {[
+                [80, 374],
+                [103, 354],
+                [518, 540],
+                [543, 524],
+                [410, 158],
+            ].map(([x, y], i) => (
+                <g key={i} transform={`translate(${x} ${y}) rotate(${i % 2 ? 18 : -14})`}>
+                    <path d="M0 0 C10 13 13 27 12 43" className="stroke-eucalypt" strokeWidth="2" />
+                    <path d="M2 38 C2 58 23 58 23 38 Z" className="fill-terracotta stroke-terracotta" strokeWidth="1" />
+                    <path d="M2 38 H23" className="stroke-sandstone" strokeWidth="3" strokeLinecap="round" />
+                </g>
+            ))}
+        </g>
+    </svg>
+);
+
 /** Clumps of foliage for the gum tree: [x, y, width, height] in the tree's 200×260 box. */
 const CLUMPS: [number, number, number, number][] = [
     [30, 104, 46, 20],

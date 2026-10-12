@@ -7,7 +7,7 @@ import { Button } from "@/components/base/buttons/button";
 import { formatDate, formatTime } from "@/portal/lib/format";
 import type { PublicEvent, WebsiteItem, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
-import { EucalyptusBranch, Landscape, Sprig, Stamp } from "@/wedding/components/ornament";
+import { EucalyptusBranch, NativeArrangement, Sprig, Stamp } from "@/wedding/components/ornament";
 import { Eyebrow, Photo, Prose, SectionHeading, longDate, paragraphs, weddingButton } from "@/wedding/components/ui";
 import { type SiteLinks, rsvpLinkProps } from "@/wedding/site-chrome";
 
@@ -61,108 +61,119 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
     const names = coupleNames(data);
     const photo = data.heroImage;
     const [place, ...rest] = details.location.split(/\s*[·,]\s*/);
-    // Over a photograph everything is ivory; on the illustrated fallback it uses the leaf green.
-    const onPhoto = !!photo;
-    return (
-        <section id="hero" aria-labelledby="names" className="relative isolate overflow-hidden">
-            <div className="relative flex min-h-[min(88svh,52rem)] flex-col items-center justify-center">
-                {photo ? (
-                    <>
-                        <img
-                            src={photo.url}
-                            alt={photo.alt}
-                            width={photo.width ?? undefined}
-                            height={photo.height ?? undefined}
-                            fetchPriority="high"
-                            decoding="async"
-                            className="wedding-fade absolute inset-0 -z-20 size-full object-cover"
-                        />
-                        {/* A soft vignette keeps the lettering legible over any photo. */}
-                        <div
-                            aria-hidden="true"
-                            className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_45%,rgb(24_32_22/0.42),rgb(24_32_22/0.18)_55%,rgb(24_32_22/0.45))]"
-                        />
-                    </>
-                ) : (
-                    <>
-                        <div aria-hidden="true" className="absolute inset-x-0 bottom-0 -z-10 h-[24%] sm:h-[36%]">
-                            <Landscape variant="wide" sky={false} className="absolute inset-0" />
-                        </div>
-                        <EucalyptusBranch draw className="text-eucalypt absolute -top-4 -left-16 w-72 rotate-[14deg] sm:w-96" />
-                        <EucalyptusBranch draw flip className="text-eucalypt absolute -top-6 -right-16 w-72 rotate-[-12deg] max-sm:hidden sm:w-96" />
-                    </>
+    const title = names ? (
+        <>
+            <span className="block">{names[0]}</span> <span className="text-clay block pl-[0.72em] text-[0.45em] leading-[0.75] italic">&amp;</span>{" "}
+            <span className="block pl-[0.18em]">{names[1]}</span>
+        </>
+    ) : (
+        content.heroTitle
+    );
+    const detailsBlock = (
+        <>
+            {details.date && (
+                <p className="wedding-display text-[1.45rem] leading-tight italic sm:text-[1.75rem]">
+                    <time dateTime={details.date}>{longDate(details.date)}</time>
+                </p>
+            )}
+            {details.location && (
+                <p className="wedding-eyebrow mt-3">
+                    {place}
+                    {rest.length > 0 && (
+                        <>
+                            <span aria-hidden="true"> · </span>
+                            {rest.join(", ")}
+                        </>
+                    )}
+                </p>
+            )}
+        </>
+    );
+    const actions = (onPhoto: boolean) => (
+        <div className="mt-9 flex w-full flex-col items-stretch gap-5 sm:w-auto sm:flex-row sm:items-center sm:gap-8">
+            {links.rsvp && (
+                <Button
+                    {...rsvpLinkProps(links)}
+                    size="xl"
+                    className={cx(onPhoto ? weddingButton.light : weddingButton.primary, "w-full sm:w-auto sm:px-11")}
+                    iconTrailing={links.rsvpExternal ? ArrowUpRight : undefined}
+                >
+                    RSVP
+                </Button>
+            )}
+            <a
+                href="#welcome"
+                aria-label="Explore our wedding"
+                className={cx(
+                    weddingButton.link,
+                    "inline-flex items-center justify-center gap-2 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4 sm:justify-start",
+                    onPhoto && "text-ivory decoration-ivory/45 hover:decoration-ivory",
                 )}
+            >
+                Discover the day
+                <ArrowDown className="size-4" aria-hidden="true" />
+            </a>
+        </div>
+    );
 
-                <div className="wedding-rise relative flex flex-col items-center px-5 pt-20 pb-28 text-center sm:pb-32">
-                    {content.heroEyebrow && <Eyebrow className={onPhoto ? "text-ivory/90" : undefined}>{content.heroEyebrow}</Eyebrow>}
-                    <h1
-                        id="names"
-                        className={cx(
-                            "wedding-script mt-6 text-[clamp(4.5rem,15vw,10rem)] leading-[0.95]",
-                            onPhoto ? "text-ivory [text-shadow:0_2px_24px_rgb(0_0_0/0.35)]" : "text-leaf",
-                        )}
-                    >
-                        {names ? (
-                            <>
-                                <span className="inline-block">{names[0]}</span> <span className="inline-block">&amp;</span>{" "}
-                                <span className="inline-block">{names[1]}</span>
-                            </>
-                        ) : (
-                            content.heroTitle
-                        )}
-                    </h1>
-                    {content.heroSubtitle && (
-                        <p className={cx("wedding-display mt-5 text-[1.75rem] sm:text-[2.125rem]", onPhoto ? "text-ivory" : "text-forest")}>
-                            {content.heroSubtitle}
-                        </p>
-                    )}
-                    {details.date && (
-                        <p
-                            className={cx(
-                                "wedding-display mt-4 text-[1.375rem] italic sm:text-[1.625rem]",
-                                onPhoto ? "text-ivory/95 [text-shadow:0_1px_12px_rgb(0_0_0/0.35)]" : "text-charcoal",
-                            )}
-                        >
-                            <time dateTime={details.date}>{longDate(details.date)}</time>
-                        </p>
-                    )}
-                    {details.location && (
-                        <p className={cx("wedding-eyebrow mt-3", onPhoto ? "text-ivory/90" : "text-olive-600")}>
-                            {place}
-                            {rest.length > 0 && (
-                                <>
-                                    <span aria-hidden="true"> · </span>
-                                    {rest.join(", ")}
-                                </>
-                            )}
-                        </p>
-                    )}
-
-                    <div className="mt-10 flex w-full flex-col items-center gap-6 sm:w-auto sm:flex-row sm:gap-8">
-                        {links.rsvp && (
-                            <Button
-                                {...rsvpLinkProps(links)}
-                                size="xl"
-                                className={cx(onPhoto ? weddingButton.light : weddingButton.primary, "w-full sm:w-auto sm:px-12")}
-                                iconTrailing={links.rsvpExternal ? ArrowUpRight : undefined}
-                            >
-                                RSVP
-                            </Button>
-                        )}
-                        <a
-                            href="#welcome"
-                            className={cx(
-                                weddingButton.link,
-                                "inline-flex items-center gap-2 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
-                                onPhoto && "text-ivory decoration-ivory/50 hover:decoration-ivory",
-                            )}
-                        >
-                            Explore our wedding
-                            <ArrowDown className="size-4" aria-hidden="true" />
-                        </a>
+    return (
+        <section id="hero" aria-labelledby="names" className="bg-ivory relative isolate overflow-hidden">
+            {photo ? (
+                <div className="relative flex min-h-[calc(100svh-4rem)] items-end sm:min-h-[min(88svh,56rem)]">
+                    <img
+                        src={photo.url}
+                        alt={photo.alt}
+                        width={photo.width ?? undefined}
+                        height={photo.height ?? undefined}
+                        fetchPriority="high"
+                        decoding="async"
+                        className="wedding-fade absolute inset-0 -z-20 size-full object-cover"
+                    />
+                    <div
+                        aria-hidden="true"
+                        className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgb(35_16_18/0.72),rgb(35_16_18/0.2)_64%),linear-gradient(0deg,rgb(35_16_18/0.55),transparent_55%)]"
+                    />
+                    <div className={cx(container, "wedding-rise pb-14 sm:pb-20 lg:pb-24")}>
+                        <div className="text-ivory max-w-3xl">
+                            {content.heroEyebrow && <Eyebrow className="text-ivory/80">{content.heroEyebrow}</Eyebrow>}
+                            <h1 id="names" className="wedding-names mt-7 text-[clamp(5.2rem,13vw,10.5rem)] [text-shadow:0_3px_24px_rgb(0_0_0/0.28)]">
+                                {title}
+                            </h1>
+                            <div className="border-ivory/55 text-ivory mt-9 border-l pl-5 sm:pl-7">{detailsBlock}</div>
+                            {actions(true)}
+                        </div>
                     </div>
                 </div>
-            </div>
+            ) : (
+                <div className="grid min-h-[calc(100svh-4rem)] grid-cols-1 lg:min-h-[min(88svh,56rem)] lg:grid-cols-[1.08fr_.92fr]">
+                    <div className="relative flex items-center overflow-hidden px-5 py-14 sm:px-10 sm:py-20 lg:px-[max(3rem,7vw)] lg:py-24">
+                        <span aria-hidden="true" className="border-sandstone absolute inset-5 border sm:inset-8" />
+                        <EucalyptusBranch className="text-eucalypt/35 absolute -right-24 -bottom-8 w-80 rotate-[-20deg] sm:w-[28rem] lg:hidden" />
+                        <div className="wedding-rise relative z-10 mx-auto flex w-full max-w-2xl flex-col items-start py-8 sm:py-10 lg:mx-0">
+                            {content.heroEyebrow && <Eyebrow>{content.heroEyebrow}</Eyebrow>}
+                            <h1
+                                id="names"
+                                className="wedding-names text-forest mt-9 text-[clamp(5rem,18vw,9.7rem)] sm:mt-12 lg:text-[clamp(7rem,10.5vw,10.5rem)]"
+                            >
+                                {title}
+                            </h1>
+                            {content.heroSubtitle && (
+                                <p className="wedding-display text-clay-700 mt-9 text-[1.3rem] italic sm:text-[1.55rem]">{content.heroSubtitle}</p>
+                            )}
+                            <div className="border-sandstone text-charcoal mt-6 border-l pl-5 sm:pl-7">{detailsBlock}</div>
+                            {actions(false)}
+                        </div>
+                    </div>
+                    <div className="bg-forest relative min-h-[21rem] overflow-hidden sm:min-h-[28rem] lg:min-h-0">
+                        <div aria-hidden="true" className="border-sandstone/35 absolute inset-5 border sm:inset-8" />
+                        <NativeArrangement className="absolute -right-[8%] -bottom-[12%] h-[120%] w-[115%] sm:-right-[2%] lg:-right-[10%] lg:h-[108%] lg:w-[122%]" />
+                        <p className="wedding-eyebrow text-sandstone/85 absolute top-10 left-10 sm:top-14 sm:left-14">23 · 10 · 27</p>
+                        <p className="wedding-display text-ivory/80 absolute right-9 bottom-8 max-w-[9rem] text-right text-[1.1rem] italic sm:right-12 sm:bottom-11">
+                            An Australian country celebration
+                        </p>
+                    </div>
+                </div>
+            )}
             {photo?.caption && <p className="sr-only">{photo.caption}</p>}
         </section>
     );
@@ -191,26 +202,19 @@ const zonedTime = (local: string, timeZone: string) => {
     return guess - offset(guess - offset(guess));
 };
 
-/** Years, months, days, hours, minutes and seconds until `to`, counting whole calendar months first. */
+/** Days, hours, minutes and seconds until `to`. A single day count is easier for guests to parse. */
 const breakdown = (from: number, to: number) => {
     if (to <= from) return null;
-    const addMonths = (n: number) => {
-        const d = new Date(from);
-        d.setUTCMonth(d.getUTCMonth() + n);
-        return d.getTime();
-    };
-    let months = 0;
-    while (addMonths(months + 1) <= to) months++;
-    let rest = Math.floor((to - addMonths(months)) / 1000);
+    let rest = Math.floor((to - from) / 1000);
     const days = Math.floor(rest / 86_400);
     rest -= days * 86_400;
     const hours = Math.floor(rest / 3600);
     rest -= hours * 3600;
     const minutes = Math.floor(rest / 60);
-    return { years: Math.floor(months / 12), months: months % 12, days, hours, minutes, seconds: rest - minutes * 60 };
+    return { days, hours, minutes, seconds: rest - minutes * 60 };
 };
 
-const COUNTDOWN_UNITS = ["years", "months", "days", "hours", "minutes", "seconds"] as const;
+const COUNTDOWN_UNITS = ["days", "hours", "minutes", "seconds"] as const;
 
 const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     const { date, timeZone } = data.details;
@@ -228,16 +232,27 @@ const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     if (!date || left === null) return null;
     const totalDays = left ? Math.ceil((zonedTime(start.slice(0, 16), timeZone) - Date.now()) / 86_400_000) : null;
     return (
-        <section aria-label="Countdown to the wedding" className="border-sandstone/50 bg-paper border-b px-5 py-10 sm:py-12">
+        <section aria-label="Countdown to the wedding" className="bg-forest text-ivory relative overflow-hidden px-5 py-9 sm:py-11">
+            <span aria-hidden="true" className="bg-clay/70 absolute inset-y-0 left-[8%] w-px" />
+            <span aria-hidden="true" className="bg-eucalypt/45 absolute inset-y-0 right-[8%] w-px" />
             {totalDays !== null && <p className="sr-only">{totalDays.toLocaleString("en-AU")} days to go</p>}
-            <ol aria-hidden="true" className="mx-auto grid max-w-3xl grid-cols-3 gap-x-4 gap-y-7 sm:grid-cols-6">
-                {COUNTDOWN_UNITS.map((unit) => (
-                    <li key={unit} className="flex flex-col items-center gap-1">
-                        <span className="wedding-script text-leaf text-[2.75rem] tabular-nums sm:text-[3.25rem]">{left ? left[unit] : "–"}</span>
-                        <span className="wedding-eyebrow text-[0.6875rem] text-olive-600">{left && left[unit] === 1 ? unit.slice(0, -1) : unit}</span>
-                    </li>
-                ))}
-            </ol>
+            <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10">
+                <p aria-hidden="true" className="wedding-display text-sandstone text-[1.4rem] italic sm:max-w-[8rem] sm:text-[1.6rem]">
+                    Counting down to our day
+                </p>
+                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-3 sm:gap-8">
+                    {COUNTDOWN_UNITS.map((unit) => (
+                        <li key={unit} className="flex flex-col items-center gap-1.5 sm:items-start">
+                            <span className="wedding-display text-ivory text-[2.8rem] leading-none tabular-nums sm:text-[3.5rem]">
+                                {left ? left[unit] : "–"}
+                            </span>
+                            <span className="wedding-eyebrow text-sandstone text-[0.58rem] sm:text-[0.66rem]">
+                                {left && left[unit] === 1 ? unit.slice(0, -1) : unit}
+                            </span>
+                        </li>
+                    ))}
+                </ol>
+            </div>
         </section>
     );
 };
@@ -249,14 +264,27 @@ const Welcome = ({ data }: { data: WeddingPageData }) => {
     const [lead, ...rest] = paragraphs(data.content.welcome);
     if (!lead) return <div id="welcome" />;
     return (
-        <section id="welcome" aria-label="Welcome" className="wedding-reveal scroll-mt-20 px-5 pt-8 pb-20 sm:px-8 sm:pt-16 lg:py-28">
-            <div className="mx-auto flex max-w-3xl flex-col items-center gap-8 text-center">
-                <Sprig />
-                <p className="wedding-display text-forest text-[1.875rem] leading-[1.25] text-balance sm:text-[2.5rem]">{lead}</p>
-                {rest.length > 0 && <Prose text={rest.join("\n\n")} className="text-charcoal max-w-xl" />}
-                <p className="wedding-display text-clay text-[1.5rem] italic">
-                    {data.details.partnerOne} &amp; {data.details.partnerTwo}
-                </p>
+        <section id="welcome" aria-label="Welcome" className="wedding-reveal relative scroll-mt-20 overflow-hidden px-5 py-24 sm:px-8 sm:py-32 lg:py-40">
+            <NativeArrangement quiet className="absolute -top-28 -right-36 h-[38rem] w-[31rem] rotate-12 max-md:hidden" />
+            <p
+                aria-hidden="true"
+                className="wedding-display text-sandstone/55 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[21rem] leading-none font-[350] sm:text-[29rem]"
+            >
+                23
+            </p>
+            <div className="relative mx-auto grid max-w-5xl grid-cols-1 items-center gap-10 lg:grid-cols-[.7fr_1.3fr] lg:gap-20">
+                <div className="flex items-center gap-4 lg:flex-col lg:items-start lg:gap-6">
+                    <span className="wedding-eyebrow text-clay-600">A note from us</span>
+                    <span aria-hidden="true" className="bg-eucalypt h-px w-16 lg:h-20 lg:w-px" />
+                </div>
+                <div className="flex flex-col items-start gap-8">
+                    <p className="wedding-display text-forest text-[2.35rem] leading-[1.12] text-balance sm:text-[3.15rem]">{lead}</p>
+                    {rest.length > 0 && <Prose text={rest.join("\n\n")} className="text-charcoal max-w-xl" />}
+                    <Sprig className="self-start" />
+                    <p className="wedding-display text-clay-700 text-[1.55rem] italic">
+                        {data.details.partnerOne} &amp; {data.details.partnerTwo}
+                    </p>
+                </div>
             </div>
         </section>
     );
@@ -436,12 +464,16 @@ const Accommodation = ({ data, section }: { data: WeddingPageData; section: Webs
     const sectionImage = section.imageId ? data.sectionImages[section.imageId] : null;
     const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
     return (
-        <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal bg-sandstone-light/80 scroll-mt-20 py-20 lg:py-28">
-            <div className={cx(container, "grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10")}>
-                <div className="flex flex-col gap-8 lg:col-span-5">
-                    <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.accommodation} title={section.title} />
+        <section
+            id={section.id}
+            aria-labelledby={`${section.id}-heading`}
+            className="wedding-reveal bg-sandstone-light scroll-mt-20 overflow-hidden py-24 lg:py-36"
+        >
+            <div className={cx(container, "grid grid-cols-1 gap-16 lg:grid-cols-12 lg:gap-16")}>
+                <div className="relative flex flex-col gap-8 lg:col-span-4">
+                    <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.accommodation} title={section.title} size="md" />
                     {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                    <Stamp text="Limited · first come, first served · " className="size-32 rotate-[-8deg] max-lg:hidden">
+                    <Stamp text="Limited · first come, first served · " className="mt-4 size-32 rotate-[-8deg] max-lg:hidden">
                         <text
                             x="60"
                             y="66"
@@ -456,25 +488,33 @@ const Accommodation = ({ data, section }: { data: WeddingPageData; section: Webs
                 </div>
 
                 {section.items.length > 0 && (
-                    <ul className="flex flex-col gap-6 lg:col-span-7">
+                    <ul className="border-forest/25 flex flex-col border-t lg:col-span-8 lg:mt-4">
                         {section.items.map((item, i) => {
                             // The section photo belongs to the first place (Rhino Lodge) unless it has its own.
                             const image = (item.imageId && data.sectionImages[item.imageId]) || (i === 0 ? sectionImage : null);
                             return (
-                                <li key={i} className="bg-paper p-2 shadow-[0_24px_50px_-30px_rgb(36_54_43/0.35)]">
-                                    <article className={cx("border-sandstone/60 grid h-full border", image && "sm:grid-cols-[2fr_3fr]")}>
+                                <li key={i} className="border-forest/25 border-b py-8 sm:py-10">
+                                    <article
+                                        className={cx(
+                                            "grid h-full grid-cols-[2.5rem_1fr] gap-x-4 sm:grid-cols-[3.5rem_1fr] sm:gap-x-6",
+                                            image && "md:grid-cols-[3.5rem_12rem_1fr]",
+                                        )}
+                                    >
+                                        <span aria-hidden="true" className="wedding-display text-clay-700 pt-1 text-[1.1rem] italic">
+                                            0{i + 1}
+                                        </span>
                                         {image && (
                                             <Photo
                                                 image={image}
                                                 shape="none"
-                                                className="aspect-[16/10] rounded-none sm:aspect-auto sm:h-full"
-                                                sizes="(min-width: 640px) 300px, 100vw"
+                                                className="col-start-2 mb-6 aspect-[4/3] rounded-none md:col-start-2 md:mb-0 md:h-full md:min-h-44"
+                                                sizes="(min-width: 768px) 200px, 100vw"
                                             />
                                         )}
-                                        <div className="flex flex-col gap-3 px-6 py-7 sm:px-8 sm:py-8">
+                                        <div className={cx("col-start-2 flex flex-col gap-3", image && "md:col-start-3 md:pl-4")}>
                                             {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
-                                            <h3 className="wedding-display text-forest text-[1.875rem] leading-tight sm:text-[2.125rem]">{item.title}</h3>
-                                            <p className="flex items-center gap-1.5 text-sm text-olive-600">
+                                            <h3 className="wedding-display text-forest text-[2.15rem] leading-tight sm:text-[2.75rem]">{item.title}</h3>
+                                            <p className="flex items-center gap-1.5 text-[0.82rem] text-olive-600">
                                                 <Heart className="size-4" aria-hidden="true" />
                                                 Recommended by {couple}
                                             </p>
@@ -540,6 +580,46 @@ const Travel = ({ data, section, transport }: { data: WeddingPageData; section: 
     );
 };
 
+const TransportFeature = ({ section }: { section: WebsiteSection }) => (
+    <section
+        id={section.id}
+        aria-labelledby={`${section.id}-heading`}
+        className="wedding-reveal relative isolate scroll-mt-20 overflow-hidden bg-olive-700 px-5 py-24 sm:px-8 lg:py-32"
+    >
+        <NativeArrangement quiet className="absolute -right-40 -bottom-72 -z-10 h-[50rem] w-[42rem] rotate-[-12deg] opacity-70 max-md:hidden" />
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-[.78fr_1.22fr] lg:gap-24">
+            <div className="flex flex-col items-start gap-6">
+                <Eyebrow className="text-sandstone">Getting home safely</Eyebrow>
+                <h2 id={`${section.id}-heading`} className="wedding-script text-ivory text-[3.7rem] sm:text-[5rem] lg:text-[5.75rem]">
+                    {section.title}
+                </h2>
+                <span aria-hidden="true" className="bg-clay h-px w-20" />
+            </div>
+            <div className="flex flex-col gap-8 lg:pt-16">
+                {section.body && <Prose text={section.body} className="text-ivory/85 max-w-2xl" />}
+                {section.items.length > 0 && (
+                    <ul className="border-ivory/25 flex flex-col border-t">
+                        {section.items.map((item, i) => (
+                            <li key={i} className="border-ivory/25 flex flex-col gap-3 border-b py-6">
+                                <h3 className="wedding-display text-sandstone text-[1.65rem]">{item.title}</h3>
+                                {item.body && <Prose text={item.body} className="text-ivory/75 text-[1rem]" />}
+                                {item.url && (
+                                    <a href={item.url} {...external} className="wedding-eyebrow text-sandstone mt-2 self-start underline underline-offset-4">
+                                        More information <span className="sr-only">(opens in a new tab)</span>
+                                    </a>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <p className="wedding-display text-sandstone max-w-lg text-[1.35rem] italic">
+                    Please check back closer to the wedding for confirmed arrangements.
+                </p>
+            </div>
+        </div>
+    </section>
+);
+
 // ---------------------------------------------------------------------------------------------
 // Story, children and other text-led sections
 
@@ -591,7 +671,7 @@ const SectionItems = ({ items }: { items: WebsiteItem[] }) =>
 // FAQ
 
 const Faq = ({ data, section }: { data: WeddingPageData; section: WebsiteSection }) => (
-    <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal border-sandstone/40 scroll-mt-20 border-t py-20 lg:py-28">
+    <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal bg-paper scroll-mt-20 py-24 lg:py-36">
         <div className={cx(container, "grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10")}>
             <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:col-span-5 lg:self-start">
                 <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.faq} title={section.title} />
@@ -609,17 +689,22 @@ const Faq = ({ data, section }: { data: WeddingPageData; section: WebsiteSection
                     </p>
                 )}
             </div>
-            <div className="wedding-faq border-sandstone border-t lg:col-span-7 lg:col-start-6 lg:mt-3">
+            <div className="wedding-faq border-forest/25 border-t lg:col-span-7 lg:col-start-6 lg:mt-3">
                 {section.items.map((item, i) => (
-                    <details key={i} className="group border-sandstone border-b">
-                        <summary className="flex min-h-16 cursor-pointer items-center justify-between gap-6 py-5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2">
-                            <h3 className="wedding-display text-forest text-[1.375rem] leading-snug sm:text-[1.625rem]">{item.title}</h3>
-                            <span aria-hidden="true" className="text-clay relative size-4 shrink-0">
+                    <details key={i} className="group border-forest/25 border-b">
+                        <summary className="flex min-h-20 cursor-pointer items-center justify-between gap-6 py-6 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2">
+                            <div className="flex items-baseline gap-5">
+                                <span aria-hidden="true" className="wedding-display text-clay-700 text-sm italic">
+                                    0{i + 1}
+                                </span>
+                                <h3 className="wedding-display text-charcoal text-[1.5rem] leading-snug sm:text-[1.85rem]">{item.title}</h3>
+                            </div>
+                            <span aria-hidden="true" className="text-forest relative size-5 shrink-0">
                                 <span className="absolute top-1/2 left-0 h-px w-4 -translate-y-1/2 bg-current" />
                                 <span data-plus-vertical className="absolute top-0 left-1/2 h-4 w-px -translate-x-1/2 bg-current" />
                             </span>
                         </summary>
-                        <div className="max-w-2xl pb-7">
+                        <div className="max-w-2xl pb-8 pl-10 sm:pl-12">
                             {item.body && <Prose text={item.body} className="text-charcoal" />}
                             {item.url && (
                                 <div className="mt-4">
@@ -664,12 +749,13 @@ const Gallery = ({ data }: { data: WeddingPageData }) => (
 // RSVP invitation
 
 const RsvpBand = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => (
-    <section id="rsvp" aria-labelledby="rsvp-heading" className="bg-forest relative isolate scroll-mt-16 overflow-hidden px-5 py-24 sm:px-8 lg:py-32">
-        <EucalyptusBranch className="text-eucalypt/35 absolute -top-6 -left-28 -z-10 w-72 rotate-[24deg] sm:top-10 sm:-left-16 sm:w-[28rem]" />
-        <EucalyptusBranch flip className="text-eucalypt/30 absolute -right-24 bottom-6 -z-10 w-[30rem] rotate-[-14deg] max-sm:hidden sm:-right-16" />
-        <div className="mx-auto flex max-w-2xl flex-col items-center gap-7 text-center">
+    <section id="rsvp" aria-labelledby="rsvp-heading" className="bg-forest relative isolate scroll-mt-16 overflow-hidden px-5 py-28 sm:px-8 lg:py-40">
+        <NativeArrangement quiet className="absolute -top-44 -left-64 -z-10 h-[52rem] w-[46rem] rotate-[20deg] opacity-75 max-sm:hidden" />
+        <NativeArrangement quiet className="absolute -right-72 -bottom-60 -z-10 h-[54rem] w-[48rem] rotate-[-18deg] opacity-70" />
+        <span aria-hidden="true" className="border-sandstone/25 absolute inset-5 border sm:inset-9" />
+        <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-7 text-center">
             <Eyebrow className="text-sandstone">RSVP</Eyebrow>
-            <h2 id="rsvp-heading" className="wedding-display text-ivory text-[2.75rem] leading-[1.05] text-balance sm:text-[3.75rem] lg:text-[4.25rem]">
+            <h2 id="rsvp-heading" className="wedding-script text-ivory text-[3.8rem] leading-[0.98] text-balance sm:text-[5rem] lg:text-[6rem]">
                 {data.content.rsvpHeading || "We hope you'll celebrate with us."}
             </h2>
             {data.rsvp.deadline && links.rsvp && (
@@ -720,7 +806,7 @@ export const HomePage = ({ data, links }: { data: WeddingPageData; links: SiteLi
             case "travel":
                 return <Travel key={section.id} data={data} section={section} transport={transport} />;
             case "transport":
-                return <Travel key={section.id} data={data} section={section} transport={null} />;
+                return <TransportFeature key={section.id} section={section} />;
             case "faq":
                 return section.items.length > 0 ? (
                     <Faq key={section.id} data={data} section={section} />
