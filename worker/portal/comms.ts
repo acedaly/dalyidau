@@ -319,6 +319,35 @@ export const deliveryProvider = (env: Env): DeliveryProvider | null => {
             },
         };
     }
+    if (mode === "smtp2go" && env.SMTP2GO_API_KEY && env.EMAIL_FROM) {
+        return {
+            name: "smtp2go",
+            async send(message) {
+                const response = await fetch("https://au-api.smtp2go.com/v3/email/send", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Smtp2go-Api-Key": env.SMTP2GO_API_KEY!,
+                    },
+                    body: JSON.stringify({
+                        sender: `Aidan & Amelia <${env.EMAIL_FROM}>`,
+                        to: [message.toName ? `${message.toName} <${message.to}>` : message.to],
+                        subject: message.subject,
+                        text_body: message.text,
+                        html_body: htmlForText(message.text),
+                    }),
+                });
+                if (!response.ok) throw new Error(`SMTP2GO request failed (${response.status})`);
+                const result = (await response.json()) as {
+                    data?: { succeeded?: number; failed?: number; failures?: unknown[]; email_id?: string };
+                    request_id?: string;
+                };
+                if (result.data?.failed || result.data?.failures?.length || !result.data?.succeeded)
+                    throw new Error("SMTP2GO did not accept the email; inspect provider logs");
+                return { providerId: result.data.email_id ?? result.request_id ?? crypto.randomUUID() };
+            },
+        };
+    }
     if (mode === "cloudflare" && env.EMAIL && env.EMAIL_FROM) {
         return {
             name: "cloudflare-email-service",
