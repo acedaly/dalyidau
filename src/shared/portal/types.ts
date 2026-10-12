@@ -578,7 +578,7 @@ export type PortalRoute =
     | { route: "households"; households: HouseholdRow[]; emailDelivery: boolean; canGenerateLinks: boolean }
     | {
           route: "guest-import";
-          households: Pick<Household, "id" | "name">[];
+          households: Pick<Household, "id" | "name" | "externalId">[];
           guests: { id: string; name: string; householdName: string | null }[];
           imports: ImportHistoryEntry[];
       }

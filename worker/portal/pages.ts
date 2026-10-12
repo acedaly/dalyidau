@@ -89,7 +89,7 @@ const PAGES: PageDef[] = [
             const [guests, households, imports] = await Promise.all([listGuests(env.DB), listEntities(env.DB, householdDef), listImports(env.DB)]);
             return {
                 route: "guest-import",
-                households: households.map((h) => ({ id: h.id, name: h.name })),
+                households: households.map((h) => ({ id: h.id, name: h.name, externalId: h.externalId })),
                 guests: guests.map((g) => ({ id: g.id, name: `${g.firstName} ${g.lastName}`.trim(), householdName: g.householdName })),
                 imports,
             };

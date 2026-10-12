@@ -547,3 +547,36 @@ describe("bulk invitation generation", () => {
         expect((await apiCall("POST", "/api/portal/wedding/households/invitations", { ids: [a.id] }, { email: "viewer@example.com" })).status).toBe(403);
     });
 });
+
+describe("review follow-ups", () => {
+    it("applies a re-import that only changes the order guests are listed in", async () => {
+        await commit(await preview());
+        // Swap Sage (line 8) and Wren (line 9) within their party.
+        const lines = sample.split("\n");
+        const sage = lines.findIndex((l) => l.includes('"Sage Sample"'));
+        [lines[sage], lines[sage + 1]] = [lines[sage + 1], lines[sage]];
+        const reordered = lines.join("\n");
+        const plan = await preview({}, reordered);
+        expect(plan.summary.guests.update).toBe(2);
+        expect(plan.guests.find((g) => g.firstName === "Wren")!.changes).toEqual([
+            { field: "order", label: "Position on invitation", from: "4", to: "3", needsConfirmation: false, applied: true },
+        ]);
+        expect((await commit(plan, {}, { csv: reordered })).status).toBe(200);
+        expect((await preview({}, reordered)).summary.guests.unchanged).toBe(25);
+    });
+
+    it("won't map a Say I Do party onto a household that already stands for another party", async () => {
+        await commit(await preview());
+        const households = (await apiCall<{ items: Household[] }>("GET", "/api/portal/wedding/households")).json.items;
+        const other = households.find((h) => h.externalId === "TEST02")!;
+        const plan = await preview();
+        const couple = plan.households.find((h) => h.externalId === "TEST01")!;
+        expect(couple.suggestions.some((s) => s.id === other.id)).toBe(false);
+        const response = await apiCall("POST", "/api/portal/wedding/guests/import/preview", {
+            csv: sample,
+            decisions: { households: { [couple.key]: { target: other.id } } },
+        });
+        expect(response.status).toBe(422);
+        expect(response.text).toContain("already another Say I Do party");
+    });
+});

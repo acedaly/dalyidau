@@ -88,6 +88,8 @@ export const GuestImportPage = ({ data }: { data: PageData<"guest-import"> }) =>
     };
 
     const update = (change: (current: Decisions) => Decisions, delay = 150) => {
+        // The shown plan is stale from this moment: Import stays disabled until the new one arrives.
+        setPlanning(true);
         setDecisions((current) => {
             const next = change(current);
             if (timer.current) clearTimeout(timer.current);

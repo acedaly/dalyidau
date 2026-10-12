@@ -88,6 +88,7 @@ export const FIELD_LABELS: Record<string, string> = {
     name: "Household name",
     address: "Address",
     link: "Say I Do party",
+    order: "Position on invitation",
 };
 
 const norm = (value: string) =>
@@ -576,6 +577,9 @@ export async function planImport(db: D1Database, csv: string, decisionsInput: un
         else if (edit?.target && edit.target !== "new") {
             const chosen = existingHouseholds.get(edit.target);
             if (!chosen || chosen.deleted) throw new ValidationError("That household no longer exists", `households.${group.key}`);
+            // Its Say I Do link is how a re-import finds it; one household can't stand for two parties.
+            if (group.externalId && chosen.externalId && chosen.externalId !== group.externalId)
+                throw new ValidationError(`“${chosen.name}” is already another Say I Do party. Choose a different household.`, `households.${group.key}`);
             target = { kind: "existing", id: chosen.id, name: chosen.name, matchedBy: "chosen" };
         } else if (edit?.target === "new") {
             if (byLink) throw new ValidationError(`“${byLink.name}” already has this Say I Do link, so it can't be added again`, `households.${group.key}`);
@@ -624,6 +628,7 @@ export async function planImport(db: D1Database, csv: string, decisionsInput: un
         );
         for (const h of liveHouseholds) {
             if (target.kind === "existing" && target.id === h.id) continue;
+            if (group.externalId && h.externalId && h.externalId !== group.externalId) continue;
             const members = groupDrafts.filter((d) => uniqueByName(d)?.householdId === h.id).length;
             const theirs = matchKey(h.name)
                 .split(/[\s,&]+/)
@@ -884,9 +889,13 @@ export async function planImport(db: D1Database, csv: string, decisionsInput: un
                     custom[k] = v;
             }
             if (JSON.stringify(custom) !== JSON.stringify(current.custom)) columns.custom = JSON.stringify(custom);
-            // Keep the order guests appear on their invitation in step with the file; not reported as a change.
-            if (draft.order !== null && householdId === (columns.household_id ?? current.householdId) && storedOrder.get(current.id) !== draft.order)
+            // Keep the order guests appear on their invitation in step with the file. Reported (so a
+            // reorder-only re-import can be applied), but never needs confirmation.
+            const storedPosition = storedOrder.get(current.id) ?? null;
+            if (draft.order !== null && householdId === (columns.household_id ?? current.householdId) && storedPosition !== draft.order) {
+                if (storedPosition !== null) add("order", String(storedPosition), String(draft.order), false);
                 columns.household_order = draft.order;
+            }
             // Invitations: guests who aren't invited to anything yet get the chosen events.
             const invited = current.events.map((e) => e.eventId);
             addEvents = (row.eventIds ?? (invited.length ? [] : inviteEventIds)).filter((id) => !invited.includes(id));

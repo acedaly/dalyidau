@@ -24,7 +24,7 @@ export type GuestDecision = { firstName?: string; lastName?: string; target?: st
 export type HouseholdDecision = { name?: string; address?: PostalAddress | null; target?: string; confirm?: string[] };
 
 export interface Directory {
-    households: { id: string; name: string }[];
+    households: { id: string; name: string; externalId: string | null }[];
     guests: { id: string; name: string; householdName: string | null }[];
 }
 
@@ -269,6 +269,8 @@ export const HouseholdReview = ({
         ...(matched ? [{ id: matched.id, label: `Existing: ${matched.name}` }] : []),
         ...household.suggestions.filter((s) => s.id !== matched?.id).map((s) => ({ id: s.id, label: `${s.name}: ${s.reason.toLowerCase()}` })),
         ...directory.households
+            // A household already standing for another Say I Do party can't take this one too.
+            .filter((h) => !household.externalId || !h.externalId || h.externalId === household.externalId)
             .filter((h) => h.id !== matched?.id && !household.suggestions.some((s) => s.id === h.id))
             .map((h) => ({ id: h.id, label: h.name })),
         { id: "skip", label: "Skip this party" },
