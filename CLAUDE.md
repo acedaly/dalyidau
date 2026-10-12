@@ -8,6 +8,8 @@ Personal site and Capacities-powered blog on a single Cloudflare Worker. Read `R
 - Article HTML is built by escaping every string in `capacities/render.ts`. Never pass raw HTML from Capacities through.
 - Tests: `npm test` (Vitest in workerd with local D1/R2) and `npm run test:e2e` (Playwright). Both use the mock API in `fixtures/capacities/`.
 - Don't change DNS or the `routes` block in `wrangler.jsonc` without the owner's approval. Don't touch DalyHub resources.
+- Portal (`/portal`, `src/portal`, `worker/portal`) and wedding site (`/wedding`, `src/wedding`, `worker/wedding`): see `docs/PORTAL.md`. Every portal route verifies the Cloudflare Access JWT and the user's role server-side and fails closed; every write is audited. Use Untitled UI PRO components (`npx untitledui@latest add …`) before writing custom UI; the CLI can overwrite existing files, so check `git diff` afterwards (the site's `empty-state.tsx` is adapted).
+- Native RSVP, the public wedding site and email delivery are behind feature switches that default off. Never send real email or switch them on without the owner's approval.
 
 ---
 

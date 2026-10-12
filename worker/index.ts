@@ -1,13 +1,22 @@
 import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
-import { render } from "../src/entry-server";
+import { render, renderPortal, renderWedding } from "../src/entry-server";
+import type { PortalPageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData } from "../src/shared/types";
 import type { Env } from "./env";
 import { withSecurityHeaders } from "./lib/headers";
-import { jsonForScript } from "./lib/html";
+import { escapeHtml, jsonForScript } from "./lib/html";
+import { handlePortalApi } from "./portal/api";
+import { type AuthResult, authenticate } from "./portal/auth";
+import { loadFlags } from "./portal/flags";
+import { checkMutation, errorResponse, json as apiJson, readJson } from "./portal/http";
+import { loadPortalPage } from "./portal/pages";
+import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { type SyncSummary, runSync } from "./sync";
+import { RsvpError, lookupRsvp, submitRsvp } from "./wedding/rsvp";
+import { loadWeddingPage, weddingTitle } from "./wedding/site";
 
 const HTML_EDGE_TTL = 300;
 /** Edge-cached HTML is keyed on the content version, so it can live much longer than the browser cache. */
@@ -42,6 +51,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     const path = url.pathname;
 
+    if (path.startsWith("/api/portal/")) return portalApi(request, env);
+    if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 
@@ -56,6 +67,11 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     // Canonical paths: no trailing slash, lower-case slugs.
     if (path.length > 1 && path.endsWith("/")) return Response.redirect(`${url.origin}${path.replace(/\/+$/, "")}${url.search}`, 301);
+
+    // The portal and the wedding site are never edge-cached: one is private, the other changes as
+    // the couple edits it.
+    if (path === "/portal" || path.startsWith("/portal/")) return portalPage(request, env, url);
+    if (path === "/wedding" || path.startsWith("/wedding/")) return weddingPage(env, url, indexable);
 
     return cachedPage(request, env, ctx, indexable, async () => {
         const result = await route(path, url, store);
@@ -127,43 +143,193 @@ const readFilters = (url: URL): BlogFilters => {
     };
 };
 
-let shellCache: { html: string; version: string } | null = null;
+type Area = "site" | "portal" | "wedding";
 
-async function shell(env: Env) {
-    if (shellCache) return shellCache;
-    const response = await env.ASSETS.fetch("https://assets.local/shell.html");
-    if (!response.ok) throw new Error(`App shell missing (${response.status}); run vite build`);
+const SHELL_FILES: Record<Area, string> = { site: "shell.html", portal: "shell-portal.html", wedding: "shell-wedding.html" };
+const shellCache = new Map<Area, { html: string; version: string }>();
+
+async function shell(env: Env, area: Area = "site") {
+    const cached = shellCache.get(area);
+    if (cached) return cached;
+    const response = await env.ASSETS.fetch(`https://assets.local/${SHELL_FILES[area]}`);
+    if (!response.ok) throw new Error(`App shell ${SHELL_FILES[area]} missing (${response.status}); run vite build`);
     const html = await response.text();
     const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(html));
-    shellCache = {
+    const entry = {
         html,
         version: [...new Uint8Array(digest)]
             .slice(0, 6)
             .map((b) => b.toString(16).padStart(2, "0"))
             .join(""),
     };
-    return shellCache;
+    shellCache.set(area, entry);
+    return entry;
+}
+
+interface DocumentInput {
+    area: Area;
+    head: string;
+    body: string;
+    data: unknown;
+    path: string;
+    status: number;
+    headers: Record<string, string>;
+    /** Extra attributes for the <html> element. */
+    htmlAttributes?: string;
+}
+
+async function renderDocument(env: Env, input: DocumentInput): Promise<Response> {
+    const { html: template } = await shell(env, input.area);
+    let html = template
+        .replace("<!--app-head-->", input.head)
+        .replace("<!--app-html-->", input.body)
+        .replace(
+            "<!--app-data-->",
+            `<script type="application/json" id="page-data">${jsonForScript({ area: input.area, data: input.data, path: input.path })}</script>`,
+        );
+    if (input.htmlAttributes) html = html.replace('<html lang="en-AU">', `<html lang="en-AU" ${input.htmlAttributes}>`);
+    return new Response(html, { status: input.status, headers: { "Content-Type": "text/html; charset=utf-8", ...input.headers } });
 }
 
 async function renderPage(env: Env, data: PageData, path: string, status: number, noindex: boolean): Promise<Response> {
-    const { html: template } = await shell(env);
     const body = render(data, path);
     const head = buildHead({ data, siteUrl: env.SITE_URL, path, noindex });
     // The article body is already in the markup; the client reads it back from the DOM instead of duplicating it here.
     const payload = data.route === "post" ? { ...data, post: { ...data.post, bodyHtml: "" } } : data;
-    const html = template
-        .replace("<!--app-head-->", head)
-        .replace("<!--app-html-->", body)
-        .replace("<!--app-data-->", `<script type="application/json" id="page-data">${jsonForScript({ data: payload, path })}</script>`);
-    return new Response(html, {
+    return renderDocument(env, {
+        area: "site",
+        head,
+        body,
+        data: payload,
+        path,
         status,
         headers: {
-            "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": status === 200 ? "public, max-age=0, must-revalidate" : "no-store",
             ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
         },
     });
 }
+
+const PRIVATE_HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
+
+// --- Portal ---------------------------------------------------------------------------------------
+
+async function portalPage(request: Request, env: Env, url: URL): Promise<Response> {
+    const auth = await authenticate(request, env);
+    if (!auth.ok) return accessDenied(auth);
+    const path = url.pathname;
+    if (path === "/portal") return redirect(url, "/portal/wedding");
+
+    const preview = /^\/portal\/wedding\/website\/preview(\/rsvp)?$/.exec(path);
+    if (preview) {
+        const data = await loadWeddingPage(env.DB, preview[1] ? "rsvp" : "home", true);
+        return renderWeddingDocument(env, data, path, 200, true, PRIVATE_HEADERS);
+    }
+
+    const [flags, wedding] = await Promise.all([loadFlags(env.DB), getSettings(env.DB, "wedding")]);
+    const result = await loadPortalPage(path, url, env, auth.user, flags);
+    const data: PortalPageData = { ...result.data, context: { user: auth.user, flags, wedding, environment: env.ENVIRONMENT } };
+    return renderDocument(env, {
+        area: "portal",
+        head: [`<title>${escapeHtml(result.title)} · Portal · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join("\n        "),
+        body: renderPortal(data, path),
+        data,
+        path,
+        status: result.status,
+        headers: PRIVATE_HEADERS,
+    });
+}
+
+async function portalApi(request: Request, env: Env): Promise<Response> {
+    const auth = await authenticate(request, env);
+    if (!auth.ok) return apiJson({ error: auth.status === 401 ? "unauthenticated" : "forbidden", reason: auth.reason }, auth.status);
+    // Owners can try the native RSVP form from the website preview before it goes live.
+    const url = new URL(request.url);
+    const test = /^\/api\/portal\/wedding\/rsvp-test\/(lookup|submit)$/.exec(url.pathname);
+    if (test) {
+        if (!auth.user.permissions.includes("wedding.rsvp.edit")) return apiJson({ error: "forbidden", message: "You can't test RSVPs" }, 403);
+        return rsvpEndpoint(request, env, test[1] as "lookup" | "submit");
+    }
+    return handlePortalApi(request, env, auth.user);
+}
+
+/** Plain HTML, no app bundle: nothing about the portal is revealed to someone who isn't signed in. */
+function accessDenied(auth: Extract<AuthResult, { ok: false }>): Response {
+    const misconfigured = auth.reason === "not_configured" || auth.reason === "keys_unavailable";
+    const message = misconfigured
+        ? "The portal isn't available right now."
+        : auth.reason === "no_role" || auth.reason === "inactive"
+          ? "You're signed in, but this account hasn't been given access to the portal."
+          : "Please sign in to continue.";
+    const html = `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Portal — ${escapeHtml(site.name)}</title>
+<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#181d27}a{color:#6941c6}@media(prefers-color-scheme:dark){body{background:#0c0e12;color:#f7f7f7}a{color:#b692f6}}</style></head>
+<body><h1>Portal</h1><p>${escapeHtml(message)}</p><p><a href="/cdn-cgi/access/logout">Sign out</a> · <a href="/">Go to the homepage</a></p></body></html>`;
+    return new Response(html, { status: auth.status, headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
+}
+
+// --- Wedding website ------------------------------------------------------------------------------
+
+async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Response> {
+    const route = url.pathname === "/wedding" ? "home" : url.pathname === "/wedding/rsvp" ? "rsvp" : null;
+    const flags = await loadFlags(env.DB);
+    // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
+    if (!route || !flags["wedding.site.public"]) return renderPage(env, { route: "not-found", path: url.pathname }, url.pathname, 404, true);
+    const data = await loadWeddingPage(env.DB, route, false);
+    const noindex = data.content.noindex || !indexable;
+    return renderWeddingDocument(env, data, url.pathname, 200, noindex, {
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
+    });
+}
+
+function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, status: number, noindex: boolean, headers: Record<string, string>) {
+    const title = weddingTitle(data);
+    const description = data.content.heroSubtitle || `${data.details.partnerOne} & ${data.details.partnerTwo} are getting married.`;
+    return renderDocument(env, {
+        area: "wedding",
+        head: [
+            `<title>${escapeHtml(title)}</title>`,
+            `<meta name="description" content="${escapeHtml(description)}">`,
+            `<meta name="robots" content="${noindex ? "noindex, nofollow" : "index, follow"}">`,
+            `<meta property="og:title" content="${escapeHtml(title)}">`,
+            `<meta property="og:description" content="${escapeHtml(description)}">`,
+            `<meta property="og:type" content="website">`,
+            `<meta name="theme-color" content="#f7f3ea">`,
+        ].join("\n        "),
+        body: renderWedding(data, path),
+        data,
+        path,
+        status,
+        headers,
+        // The wedding site has its own light palette; the stored dark-mode preference doesn't apply.
+        htmlAttributes: 'data-theme-lock="light"',
+    });
+}
+
+async function weddingApi(request: Request, env: Env, url: URL): Promise<Response> {
+    const match = /^\/api\/wedding\/rsvp\/(lookup|submit)$/.exec(url.pathname);
+    if (!match) return apiJson({ error: "not_found" }, 404);
+    const flags = await loadFlags(env.DB);
+    if (!flags["rsvp.native"] || !flags["wedding.site.public"]) {
+        return apiJson({ error: "closed", message: "Online RSVPs aren't open here. Please use the link on your invitation." }, 404);
+    }
+    return rsvpEndpoint(request, env, match[1] as "lookup" | "submit");
+}
+
+async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "submit"): Promise<Response> {
+    try {
+        if (request.method !== "POST") return apiJson({ error: "method_not_allowed" }, 405, { Allow: "POST" });
+        checkMutation(request, env);
+        const body = await readJson(request, 50_000);
+        const household = action === "lookup" ? await lookupRsvp(env.DB, request, body) : await submitRsvp(env.DB, request, body);
+        return apiJson({ household });
+    } catch (error) {
+        if (error instanceof RsvpError) return apiJson({ error: error.code, message: error.message }, error.status);
+        return errorResponse(error, new URL(request.url).pathname);
+    }
+}
+
+const redirect = (url: URL, to: string) => new Response(null, { status: 302, headers: { Location: `${url.origin}${to}`, "Cache-Control": "no-store" } });
 
 /**
  * Edge-caches successful HTML. The key includes the app build and the content version, which

@@ -19,7 +19,7 @@ export default defineConfig({
     webServer: [
         { command: "node scripts/mock-capacities.mjs", url: "http://localhost:8790/__files/cover-tools.jpg", reuseExistingServer: false },
         {
-            command: `rm -rf ${persist} && npx wrangler d1 migrations apply DB --local --env="" --persist-to ${persist} && npx wrangler dev --env="" --port 8787 --persist-to ${persist} --var CAPACITIES_API_BASE:http://localhost:8790 --var CAPACITIES_API_TOKEN:cap-api-local-mock --var ADMIN_TOKEN:e2e-admin-token-0123456789abcdef --var SYNC_REQUEST_SPACING_MS:0 --var SITE_URL:http://localhost:8787 --var ENVIRONMENT:development`,
+            command: `rm -rf ${persist} && npx wrangler d1 migrations apply DB --local --env="" --persist-to ${persist} && npx wrangler dev --env="" --port 8787 --persist-to ${persist} --env-file e2e/e2e.vars`,
             url: "http://localhost:8787/api/health",
             timeout: 120_000,
             reuseExistingServer: false,

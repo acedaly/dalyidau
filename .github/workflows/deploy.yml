@@ -56,7 +56,7 @@ jobs:
                     echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/DEPLOYMENT.md)."
                     exit 1
                   fi
-            - run: npx vite build
+            - run: npm run build:client
             - name: Apply D1 migrations
               run: npx wrangler d1 migrations apply DB --remote --env="$WRANGLER_ENV"
             - name: Deploy Worker

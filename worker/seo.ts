@@ -215,4 +215,4 @@ ${items}
 };
 
 export const robotsTxt = (siteUrl: string, allowIndexing: boolean) =>
-    allowIndexing ? `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${absolute(siteUrl, "/sitemap.xml")}\n` : "User-agent: *\nDisallow: /\n";
+    allowIndexing ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /portal\n\nSitemap: ${absolute(siteUrl, "/sitemap.xml")}\n` : "User-agent: *\nDisallow: /\n";

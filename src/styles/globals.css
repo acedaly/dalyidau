@@ -1,84 +1,44 @@
+/*
+ * Stylesheet for the personal site and blog. Tailwind only generates classes it finds in the
+ * sources it scans, so the portal, the wedding site and the Untitled UI components only they use
+ * are excluded here to keep the blog's CSS small. If the blog starts using one of the excluded
+ * component folders, remove it from this list. The portal and wedding site use apps.css.
+ */
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
-@import "./theme.css";
-@import "./typography.css";
+@source not "../portal";
+@source not "../wedding";
+@source not "../entry-portal.tsx";
+@source not "../entry-wedding.tsx";
+@source not "../components/application/alerts";
+@source not "../components/application/app-navigation";
+@source not "../components/application/breadcrumbs";
+@source not "../components/application/charts";
+@source not "../components/application/date-picker";
+@source not "../components/application/file-upload";
+@source not "../components/application/filter-bar";
+@source not "../components/application/loading-indicator";
+@source not "../components/application/metrics";
+@source not "../components/application/modals";
+@source not "../components/application/notifications";
+@source not "../components/application/pagination";
+@source not "../components/application/progress-steps";
+@source not "../components/application/section-headers";
+@source not "../components/application/slideout-menus";
+@source not "../components/application/table";
+@source not "../components/application/tabs";
+@source not "../components/base/avatar";
+@source not "../components/base/button-group";
+@source not "../components/base/checkbox";
+@source not "../components/base/dropdown";
+@source not "../components/base/file-upload-trigger";
+@source not "../components/base/form";
+@source not "../components/base/progress-indicators";
+@source not "../components/base/radio-buttons";
+@source not "../components/base/radio-groups";
+@source not "../components/base/select";
+@source not "../components/base/textarea";
+@source not "../components/base/toggle";
+@source not "../components/foundations/logo";
+@source not "../components/shared-assets/illustrations";
+@import "./base.css";
 @import "./article.css";
-
-@plugin "@tailwindcss/typography";
-@plugin "tailwindcss-react-aria-components";
-@plugin "tailwindcss-animate";
-
-@custom-variant dark (&:where(.dark-mode, .dark-mode *));
-@custom-variant label (& [data-label]);
-@custom-variant focus-input-within (&:has(input:focus));
-
-@utility scrollbar-hide {
-    /* For Webkit-based browsers (Chrome, Safari and Opera) */
-    &::-webkit-scrollbar {
-        display: none;
-        -webkit-appearance: none;
-    }
-
-    /* For IE, Edge and Firefox */
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
-}
-
-@utility transition-inherit-all {
-    transition-property: inherit;
-    transition-duration: inherit;
-    transition-timing-function: inherit;
-}
-
-html,
-body {
-    font-family: var(--font-body);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-font-variant-ligatures: contextual;
-    font-variant-ligatures: contextual;
-    -webkit-font-kerning: normal;
-    font-kerning: normal;
-}
-
-/* Hide the default expand arrow on Safari.  */
-details summary::-webkit-details-marker {
-    display: none;
-}
-
-/* Hide default arrows from number inputs. */
-/* Chrome, Safari, Edge, Opera */
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-/* Firefox */
-input[type="number"] {
-    -moz-appearance: textfield;
-}
-
-/* Hide the default clear button (X) from search inputs. */
-input[type="search"]::-webkit-search-cancel-button {
-    -webkit-appearance: none;
-}
-
-html {
-    scroll-behavior: smooth;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    html {
-        scroll-behavior: auto;
-    }
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        transition-duration: 0.01ms !important;
-    }
-}
-
-:root {
-    --font-inter: "Inter Variable";
-}

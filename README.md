@@ -2,6 +2,8 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
 
+The same Worker hosts a private portal at `/portal` (wedding management, behind Cloudflare Access) and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
+
 ```
 Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
                                                                    │
@@ -23,7 +25,8 @@ scripts/local-down.sh
 | `npm run typecheck` | TypeScript for the app, worker, tests and config |
 | `npm test` | Builds the client, then runs the Vitest suite inside workerd with local D1 and R2 |
 | `npm run test:e2e` | Playwright against `wrangler dev` and the mock API (desktop and mobile) |
-| `npm run build` | Typecheck, client build and a Worker bundle dry run |
+| `npm run build` | Typecheck, client builds (blog, then portal and wedding site) and a Worker bundle dry run |
+| `npm run seed:portal` | Fill a local portal with invented demo data (localhost only) |
 | `npm run deploy` | Manual production deploy (normally GitHub Actions does this) |
 | `npm run deploy:staging` | Deploy the staging Worker |
 
@@ -35,14 +38,19 @@ src/                 React app (Untitled UI components), shared by server render
   components/site/   Site components: header, footer, post cards, pagination, TOC, share links
   content/           Editable site settings and About copy
   pages/             Home, Blog, Article, About, Contact, 404
-  entry-server.tsx   renderToString for the Worker
-  entry-client.tsx   Hydration in the browser
+  portal/            The private portal and wedding management app (pages, components, dashboard widgets)
+  wedding/           The public wedding website and RSVP form
+  shared/portal/     Roles, feature flags and data types shared by the worker and the browser
+  entry-server.tsx   renderToString for the Worker (blog, portal, wedding)
+  entry-client.tsx   Blog hydration; entry-portal.tsx and entry-wedding.tsx for the other areas
 worker/              Cloudflare Worker
   index.ts           Routing, SSR assembly, caching, media, admin API, cron handler
   sync.ts            Capacities → D1/R2 synchronisation
   capacities/        API client, schema mapping and block-to-HTML renderer
   posts.ts           D1 queries for public pages
   seo.ts             Meta tags, JSON-LD, sitemap, RSS, robots.txt
+  portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API
+  wedding/           Public wedding pages and the RSVP engine
 migrations/          D1 schema
 fixtures/capacities/ Sample Capacities space and mock API (development and tests only)
 test/                Vitest (workerd) tests
@@ -56,3 +64,4 @@ docs/                Setup, deployment and operations
 - [Capacities setup and publishing](docs/CAPACITIES.md): the Blog Post type, publishing and unpublishing
 - [Deployment](docs/DEPLOYMENT.md): Cloudflare resources, secrets, CI, DNS cut-over and rollback
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
+- [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model

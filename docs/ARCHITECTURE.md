@@ -54,6 +54,8 @@ The canonical identity of an article is its Capacities object id. Slugs can chan
 | `sync_runs` | One row per run with counts and log lines (last 500 kept) |
 | `meta` | `content_version` for cache invalidation |
 
+The portal and wedding website add their own tables (migration `0002`); see [PORTAL.md](PORTAL.md#data-model-d1-migrations0002_portal_weddingsql). None of them are read by the blog.
+
 ## Security model
 
 - The Capacities token and admin token are Worker secrets. They are never sent to the browser or logged. The token is only sent to `api.capacities.io`; signed file downloads go out without it.
@@ -62,6 +64,10 @@ The canonical identity of an article is its Capacities object id. Slugs can chan
 - All article text is escaped; links are limited to `http`, `https` and `mailto`; SVG uploads are not served (script risk).
 - Strict CSP (`script-src 'self'`, no inline scripts), HSTS, `nosniff`, `frame-ancestors 'none'` and a restrictive Permissions-Policy on every response.
 - No public endpoint returns unpublished data. `/api/health` reports only the time and status of the last sync.
+
+## Portal and wedding website
+
+`/portal` (private, behind Cloudflare Access with server-side JWT verification and roles) and `/wedding` (public, off until published) are served by the same Worker but never edge-cached, and each has its own HTML shell and browser bundle so the blog's bundle is unaffected. Details in [PORTAL.md](PORTAL.md).
 
 ## Design system
 
