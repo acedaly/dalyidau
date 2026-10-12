@@ -19,6 +19,16 @@ const watchErrors = (page: Page) => {
     return errors;
 };
 
+test("launches Wedding Planner directly into its dashboard", async ({ page }) => {
+    await page.goto("/portal");
+    await expect(page.getByRole("heading", { level: 1, name: "Applications" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Wedding Planner" })).toBeVisible();
+    await page.getByRole("link", { name: "Open application" }).click();
+    await expect(page).toHaveURL(/\/portal\/wedding$/);
+    await expect(page.getByText("Everything for", { exact: false })).toBeVisible();
+    await expect(page.getByRole("link", { name: "All Applications" }).first()).toBeVisible();
+});
+
 test("every portal page loads, hydrates and fits the screen", async ({ page }) => {
     const errors = watchErrors(page);
     for (const path of [
@@ -36,6 +46,7 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/wedding/budget",
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
+        "/portal/wedding/settings",
         "/portal/settings",
         "/portal/settings/privacy",
         "/portal/audit",
@@ -182,8 +193,10 @@ test("customises the dashboard and keeps the layout", async ({ page }) => {
     await expect(page.getByText("Dashboard reset")).toBeVisible();
 });
 
-test("a guest RSVPs on the public website with their household code", async ({ page, request }, info) => {
+test("a guest RSVPs on the public website with their household code", async ({ page, request, isMobile }, info) => {
     const suffix = info.project.name;
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Wedding" })).toHaveCount(0);
     await api(request, "put", "/api/portal/settings/wedding", {
         partnerOne: "Robin",
         partnerTwo: "Jules",
@@ -198,6 +211,9 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await api(request, "put", "/api/portal/flags/rsvp.native", { enabled: true });
 
     const errors = watchErrors(page);
+    await page.goto("/");
+    if (isMobile) await page.getByRole("button", { name: "Open navigation menu" }).click();
+    await expect(page.getByRole("link", { name: "Wedding" })).toBeVisible();
     await page.goto("/wedding");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Robin & Jules");
     // The wedding site has its own palette even when the visitor prefers dark mode.

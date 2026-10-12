@@ -1,8 +1,9 @@
 import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
 import { render, renderPortal, renderWedding } from "../src/entry-server";
+import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import type { PortalPageData, WeddingPageData } from "../src/shared/portal/types";
-import type { BlogFilters, PageData } from "../src/shared/types";
+import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import type { Env } from "./env";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
@@ -78,14 +79,16 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (photo) return weddingPhoto(request, env, photo[1]);
     if (path === "/wedding" || path.startsWith("/wedding/")) return weddingPage(env, url, indexable);
 
-    return cachedPage(request, env, ctx, indexable, async () => {
+    const publicFlags = await loadFlags(env.DB);
+    const weddingPublished = publicFlags["wedding.site.public"];
+    return cachedPage(request, env, ctx, indexable, weddingPublished ? "wedding-public" : "wedding-private", async () => {
         const result = await route(path, url, store);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
-        return renderPage(env, result.data, path, result.status, !indexable);
+        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable);
     });
 }
 
-type RouteResult = { data: PageData; status: number } | { redirect: string };
+type RouteResult = { data: PageRoute; status: number } | { redirect: string };
 
 async function route(path: string, url: URL, store: PostStore): Promise<RouteResult> {
     if (path === "/") return { data: { route: "home", latest: await store.latest(3) }, status: 200 };
@@ -223,8 +226,19 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     const auth = await authenticate(request, env);
     if (!auth.ok) return accessDenied(auth);
     const path = url.pathname;
+    const legacyWeddingSettings = /^\/portal\/settings\/(features|fields)$/.exec(path);
+    if (legacyWeddingSettings) {
+        const response = Response.redirect(`${url.origin}/portal/wedding/settings/${legacyWeddingSettings[1]}`, 302);
+        const redirected = new Response(response.body, response);
+        for (const [key, value] of Object.entries(PRIVATE_HEADERS)) redirected.headers.set(key, value);
+        return redirected;
+    }
     const preview = /^\/portal\/wedding\/website\/preview(\/rsvp)?$/.exec(path);
     if (preview) {
+        const application = applicationById("wedding");
+        if (!application || !canAccessApplication(auth.user, application)) {
+            return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+        }
         const data = await loadWeddingPage(env.DB, preview[1] ? "rsvp" : "home", true);
         return renderWeddingDocument(env, data, path, 200, true, PRIVATE_HEADERS);
     }
@@ -279,7 +293,8 @@ async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Resp
     const route = url.pathname === "/wedding" ? "home" : url.pathname === "/wedding/rsvp" ? "rsvp" : null;
     const flags = await loadFlags(env.DB);
     // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
-    if (!route || !flags["wedding.site.public"]) return renderPage(env, { route: "not-found", path: url.pathname }, url.pathname, 404, true);
+    if (!route || !flags["wedding.site.public"])
+        return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false } }, url.pathname, 404, true);
     const data = await loadWeddingPage(env.DB, route, false);
     const noindex = data.content.noindex || !indexable;
     return renderWeddingDocument(env, data, url.pathname, 200, noindex, {
@@ -353,7 +368,14 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
  * Edge-caches successful HTML. The key includes the app build and the content version, which
  * every sync that changes public content bumps, so new and edited posts show up immediately.
  */
-async function cachedPage(request: Request, env: Env, ctx: ExecutionContext, indexable: boolean, produce: () => Promise<Response>): Promise<Response> {
+async function cachedPage(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    indexable: boolean,
+    variant: string,
+    produce: () => Promise<Response>,
+): Promise<Response> {
     const url = new URL(request.url);
     // Cache API types differ slightly between DOM and Workers; this is the Workers default cache.
     const cache = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default;
@@ -367,6 +389,7 @@ async function cachedPage(request: Request, env: Env, ctx: ExecutionContext, ind
     const params = new URLSearchParams(url.search);
     params.set("__b", build);
     params.set("__c", content?.value ?? "0");
+    params.set("__v", variant);
     const key = new Request(`${url.origin}${url.pathname}?${params}`);
 
     const hit = await cache.match(key);

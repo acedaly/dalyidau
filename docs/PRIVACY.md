@@ -38,7 +38,7 @@ Who-did-what-when can't be rewritten: a database trigger refuses any change to a
 
 There are two steps, on purpose.
 
-1. **Delete** (anyone who can edit guests). The guest or household disappears from lists, counts, exports, messages and the RSVP form; a deleted household's RSVP code stops working. It's kept in **Settings → Privacy → Deleted records** and can be restored.
+1. **Delete** (anyone who can edit guests). The guest or household disappears from lists, counts, exports, messages and the RSVP form; a deleted household's RSVP code stops working. It's kept in **Portal settings → Privacy → Deleted records** and can be restored.
 2. **Erase** (owners only, from the same list). Removes the record for good, and scrubs it from:
     - **message history**: the recipient row stays (so counts still add up) but becomes "[erased]" with no email;
     - **stored RSVP submissions and custom answers**: the guest's part of each submission and their answer rows are removed (a household's submissions and answer rows are removed with the household);
@@ -50,7 +50,7 @@ Erasing a household keeps its guests (unlinked from the household). Erase the gu
 
 ## Retention
 
-Settings → Privacy → Retention (owners):
+Portal settings → Privacy → Retention (owners):
 
 | Setting                     | Default  | Effect when retention is applied                                                                         |
 | --------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
@@ -74,4 +74,4 @@ Erasing in the portal can't remove copies that already exist elsewhere:
 
 1. Find them in Guests (search by name or email).
 2. **To see** what we hold: open their record (all tabs), or export guests and send them their row.
-3. **To remove**: delete them, then erase them from Settings → Privacy. Delete any exported files or backups that contain them, or note that backups expire.
+3. **To remove**: delete them, then erase them from Portal settings → Privacy. Delete any exported files or backups that contain them, or note that backups expire.

@@ -258,7 +258,7 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                 }}
             >
                 <fieldset disabled={!canEdit} className="flex flex-col gap-8">
-                    <FormSection title="Welcome" description="The first thing guests see. Names and the date come from Settings → General.">
+                    <FormSection title="Welcome" description="The first thing guests see. Names and the date come from Wedding settings → General.">
                         <Input label="Small heading" value={content.heroEyebrow} onChange={(v) => setContent({ ...content, heroEyebrow: v })} />
                         <Input
                             label="Title"

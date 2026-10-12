@@ -1,6 +1,8 @@
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { defaultFlags } from "../src/shared/portal/flags";
 import { verifyAccessJwt } from "../worker/portal/access";
+import { loadPortalPage } from "../worker/portal/pages";
 import { AUD, ORIGIN, OWNER, SECOND_OWNER, TEAM, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal, testKeys } from "./portal-helpers";
 
 const config = { teamDomain: TEAM, audiences: [AUD] };
@@ -119,6 +121,17 @@ describe("portal access control", () => {
         expect(budget.status).toBe(403);
         const page = await call("/portal/wedding/budget", { token: await accessToken({ email: "viewer@example.com" }) });
         expect(page.status).toBe(403);
+    });
+
+    it("does not list or open an application without its registered permission", async () => {
+        const env = await portalEnv();
+        const user = { email: "portal-only@example.com", name: null, role: "viewer" as const, permissions: [] };
+        const launcher = await loadPortalPage("/portal", new URL(`${ORIGIN}/portal`), env, user, defaultFlags());
+        expect(launcher.data).toEqual({ route: "portal-home", applications: [] });
+
+        const wedding = await loadPortalPage("/portal/wedding", new URL(`${ORIGIN}/portal/wedding`), env, user, defaultFlags());
+        expect(wedding.status).toBe(403);
+        expect(wedding.data).toMatchObject({ route: "forbidden" });
     });
 
     it("suspends inactive people", async () => {

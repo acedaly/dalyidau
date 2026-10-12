@@ -77,7 +77,7 @@ Creating a database is free on the current plan but is a change to the account; 
 
 ### Just one record
 
-Deleted guests and households can be restored from Settings → Privacy until they're erased. Other deleted items (tasks, suppliers, budget items, events) are recorded in the audit log with their non-personal fields, so they can be re-entered by hand.
+Deleted guests and households can be restored from Portal settings → Privacy until they're erased. Other deleted items (tasks, suppliers, budget items, events) are recorded in the audit log with their non-personal fields, so they can be re-entered by hand.
 
 ## Rolling back a release
 

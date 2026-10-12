@@ -10,9 +10,10 @@ import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
 import { MessagePage } from "@/portal/pages/message-page";
 import { PortalHomePage } from "@/portal/pages/portal-home-page";
+import { PortalSettingsPage } from "@/portal/pages/portal-settings-page";
 import { RsvpsPage } from "@/portal/pages/rsvps-page";
 import { SeatingPage } from "@/portal/pages/seating-page";
-import { SettingsPage } from "@/portal/pages/settings-page";
+import { WeddingSettingsPage } from "@/portal/pages/settings-page";
 import { ForbiddenPage, NotFoundPage } from "@/portal/pages/status-pages";
 import { SuppliersPage } from "@/portal/pages/suppliers-page";
 import { TasksPage } from "@/portal/pages/tasks-page";
@@ -54,8 +55,10 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <SuppliersPage data={data} />;
         case "website":
             return <WebsitePage data={data} />;
-        case "settings":
-            return <SettingsPage data={data} />;
+        case "wedding-settings":
+            return <WeddingSettingsPage data={data} />;
+        case "portal-settings":
+            return <PortalSettingsPage data={data} />;
         case "audit":
             return <AuditPage data={data} />;
         case "forbidden":

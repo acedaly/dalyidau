@@ -59,6 +59,7 @@ beforeEach(resetPortal);
 describe("wedding website", () => {
     it("is indistinguishable from a missing page until published", async () => {
         await setup();
+        expect(await (await call("/")).text()).not.toContain('href="/wedding"');
         const response = await call("/wedding");
         expect(response.status).toBe(404);
         expect(await response.text()).toContain("Page not found");
@@ -68,6 +69,9 @@ describe("wedding website", () => {
     it("shows public details only, in its own theme, once published", async () => {
         await setup();
         await enable("wedding.site.public");
+        const personalSite = await (await call("/")).text();
+        expect(personalSite).toContain('href="/wedding"');
+        expect(personalSite).not.toContain("/portal/wedding");
         const response = await call("/wedding");
         expect(response.status).toBe(200);
         const html = await response.text();

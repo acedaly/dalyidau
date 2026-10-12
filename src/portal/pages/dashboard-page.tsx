@@ -70,6 +70,7 @@ export const DashboardPage = ({ data }: { data: PageData<"dashboard"> }) => {
             <PageHeader
                 title={`Welcome back${portal.user.name ? `, ${portal.user.name.split(" ")[0]}` : ""}`}
                 description={`Everything for ${couple}'s wedding at a glance.`}
+                breadcrumbs={[{ label: "Wedding Planner" }]}
                 actions={
                     editing ? (
                         <>

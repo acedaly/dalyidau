@@ -13,6 +13,7 @@ import {
     Clock,
     X as CloseIcon,
     Globe02,
+    HeartRounded,
     LayoutGrid01,
     LogOut01,
     Mail01,
@@ -37,6 +38,7 @@ import { ThemeToggle } from "@/components/site/theme-toggle";
 import { site } from "@/content/site";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
+import { type NavigationIcon, applicationForPath } from "@/shared/portal/applications";
 import type { FlagKey } from "@/shared/portal/flags";
 import { ROLE_LABELS } from "@/shared/portal/permissions";
 import type { Permission } from "@/shared/portal/permissions";
@@ -48,73 +50,78 @@ interface NavEntry {
     icon: FC<HTMLAttributes<HTMLOrSVGElement>>;
     permission?: Permission;
     flag?: FlagKey;
-    /** Extra paths that should highlight this item. */
-    match?: RegExp;
+    active?: "exact" | "prefix";
 }
 
-const SECTIONS: { label: string; items: NavEntry[] }[] = [
-    {
-        label: "Overview",
-        items: [{ label: "Portal home", href: "/portal", icon: BarChartSquare02 }],
-    },
-    {
-        label: "Wedding",
-        items: [
-            { label: "Dashboard", href: "/portal/wedding", icon: BarChartSquare02 },
-            { label: "Guests", href: "/portal/wedding/guests", icon: Users01 },
-            { label: "Households", href: "/portal/wedding/households", icon: Building07 },
-            { label: "RSVPs", href: "/portal/wedding/rsvps", icon: CalendarCheck01 },
-            { label: "Events", href: "/portal/wedding/events", icon: Calendar },
-            {
-                label: "Communications",
-                href: "/portal/wedding/communications",
-                icon: Mail01,
-                flag: "module.communications",
-                match: /^\/portal\/wedding\/communications/,
-            },
-            { label: "Website", href: "/portal/wedding/website", icon: Globe02 },
-        ],
-    },
-    {
-        label: "Planning",
-        items: [
-            { label: "Seating", href: "/portal/wedding/seating", icon: LayoutGrid01, flag: "module.planning" },
-            { label: "Catering", href: "/portal/wedding/catering", icon: Receipt, flag: "module.planning" },
-            { label: "Tasks", href: "/portal/wedding/tasks", icon: CheckDone01, flag: "module.planning" },
-            { label: "Timeline", href: "/portal/wedding/timeline", icon: Clock, flag: "module.planning" },
-            { label: "Budget", href: "/portal/wedding/budget", icon: Wallet02, flag: "module.budget", permission: "wedding.budget.view" },
-            { label: "Suppliers", href: "/portal/wedding/suppliers", icon: ClipboardCheck, flag: "module.budget", permission: "wedding.budget.view" },
-        ],
-    },
-    {
-        label: "Portal",
-        items: [
-            { label: "Settings", href: "/portal/settings", icon: Settings01, match: /^\/portal\/settings/ },
-            { label: "Audit log", href: "/portal/audit", icon: ShieldTick, permission: "portal.audit.view" },
-        ],
-    },
-];
+const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
+    dashboard: BarChartSquare02,
+    guests: Users01,
+    households: Building07,
+    rsvps: CalendarCheck01,
+    events: Calendar,
+    communications: Mail01,
+    website: Globe02,
+    seating: LayoutGrid01,
+    catering: Receipt,
+    tasks: CheckDone01,
+    timeline: Clock,
+    budget: Wallet02,
+    suppliers: ClipboardCheck,
+    settings: Settings01,
+};
+
+const portalSections = (path: string): { label: string; items: NavEntry[] }[] => {
+    const application = applicationForPath(path);
+    return [
+        {
+            label: "Applications",
+            items: [{ label: "All Applications", href: "/portal", icon: LayoutGrid01 }],
+        },
+        ...(application
+            ? application.navigation.map((section) => ({
+                  label: section.label,
+                  items: section.items.map((item) => ({ ...item, icon: ICONS[item.icon] })),
+              }))
+            : []),
+        {
+            label: "Portal",
+            items: [
+                { label: "Portal settings", href: "/portal/settings", icon: Settings01, active: "prefix" },
+                { label: "Audit log", href: "/portal/audit", icon: ShieldTick, permission: "portal.audit.view" },
+            ],
+        },
+    ];
+};
 
 const SIDEBAR_WIDTH = 280;
 
-const Logo = () => (
-    <a href="/portal" className="group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4">
-        <span
-            aria-hidden="true"
-            className="flex size-8 items-center justify-center rounded-lg bg-brand-solid text-xs font-bold tracking-wide text-white shadow-xs-skeuomorphic"
+const Logo = ({ path }: { path: string }) => {
+    const application = applicationForPath(path);
+    return (
+        <a
+            href="/portal"
+            aria-label="All Applications"
+            className="group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4"
         >
-            {site.shortName}
-        </span>
-        <span className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-primary">Wedding portal</span>
-            <span className="text-xs text-tertiary">{site.name}</span>
-        </span>
-    </a>
-);
+            <span
+                aria-hidden="true"
+                className="flex size-8 items-center justify-center rounded-lg bg-brand-solid text-xs font-bold tracking-wide text-white shadow-xs-skeuomorphic"
+            >
+                {site.shortName}
+            </span>
+            <span className="flex flex-col leading-tight">
+                <span className="text-sm font-semibold text-primary">Daly Portal</span>
+                <span className="text-xs text-tertiary">{application?.name ?? site.name}</span>
+            </span>
+        </a>
+    );
+};
 
 const SidebarContent = ({ path }: { path: string }) => {
     const { user, can, isOn } = usePortal();
     const displayName = user.name ?? user.email.split("@")[0];
+    const application = applicationForPath(path);
+    const sections = portalSections(path);
 
     return (
         <aside
@@ -122,12 +129,22 @@ const SidebarContent = ({ path }: { path: string }) => {
             className="flex h-full w-full max-w-full flex-col justify-between overflow-auto bg-primary pt-4 shadow-xs ring-secondary ring-inset lg:w-(--width) lg:rounded-xl lg:ring-1"
         >
             <div className="flex items-center justify-between gap-5 px-4 lg:pl-5">
-                <Logo />
+                <Logo path={path} />
             </div>
+
+            {application && (
+                <div className="mx-4 mt-5 flex items-center gap-3 rounded-lg bg-brand-primary px-3 py-2.5 ring-1 ring-brand_alt ring-inset">
+                    <HeartRounded aria-hidden="true" className="size-5 shrink-0 text-fg-brand-primary" />
+                    <span className="min-w-0">
+                        <span className="block text-xs font-medium text-brand-secondary">Active application</span>
+                        <span className="block truncate text-sm font-semibold text-primary">{application.name}</span>
+                    </span>
+                </div>
+            )}
 
             <nav aria-label="Portal" className="mt-6 md:mt-5">
                 <ul>
-                    {SECTIONS.map((section) => {
+                    {sections.map((section) => {
                         const items = section.items.filter((item) => (!item.permission || can(item.permission)) && (!item.flag || isOn(item.flag)));
                         if (items.length === 0) return null;
                         return (
@@ -138,7 +155,12 @@ const SidebarContent = ({ path }: { path: string }) => {
                                 <ul className="px-4 pb-5">
                                     {items.map((item) => (
                                         <li key={item.href} className="py-0.25">
-                                            <NavItemBase icon={item.icon} href={item.href} type="link" current={item.href === path || !!item.match?.test(path)}>
+                                            <NavItemBase
+                                                icon={item.icon}
+                                                href={item.href}
+                                                type="link"
+                                                current={item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`))}
+                                            >
                                                 {item.label}
                                             </NavItemBase>
                                         </li>
@@ -164,7 +186,7 @@ export const PortalSidebar = ({ path }: { path: string }) => (
         {/* Mobile header and drawer */}
         <AriaDialogTrigger>
             <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-secondary bg-primary p-3 pl-4 lg:hidden">
-                <Logo />
+                <Logo path={path} />
                 <AriaButton
                     aria-label="Open navigation"
                     className="group flex items-center justify-center rounded-lg bg-primary p-2 text-fg-secondary outline-focus-ring hover:bg-primary_hover hover:text-fg-secondary_hover focus-visible:outline-2 focus-visible:outline-offset-2"

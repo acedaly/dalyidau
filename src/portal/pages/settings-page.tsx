@@ -13,8 +13,6 @@ import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { CustomFieldsPanel } from "@/portal/settings/custom-fields-panel";
-import { PeoplePanel } from "@/portal/settings/people-panel";
-import { PrivacyPanel } from "@/portal/settings/privacy-panel";
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey, type Flags } from "@/shared/portal/flags";
 import type { WeddingDetails } from "@/shared/portal/types";
 
@@ -33,7 +31,7 @@ const TIME_ZONES = [
     "Asia/Singapore",
 ];
 
-type Tab = PageData<"settings">["tab"];
+type Tab = PageData<"wedding-settings">["tab"];
 
 const GeneralTab = () => {
     const { wedding, setWedding, can } = usePortal();
@@ -161,28 +159,26 @@ const FeaturesTab = () => {
     );
 };
 
-export const SettingsPage = ({ data }: { data: PageData<"settings"> }) => {
-    const [tab, setTab] = useState<Tab>((data.tab === "people" && !data.users) || (data.tab === "privacy" && !data.privacy) ? "general" : data.tab);
+export const WeddingSettingsPage = ({ data }: { data: PageData<"wedding-settings"> }) => {
+    const [tab, setTab] = useState<Tab>(data.tab);
     const select = (next: Tab) => {
         setTab(next);
         // Keep the URL shareable without a client router.
-        window.history.replaceState(null, "", next === "general" ? "/portal/settings" : `/portal/settings/${next}`);
+        window.history.replaceState(null, "", next === "general" ? "/portal/wedding/settings" : `/portal/wedding/settings/${next}`);
     };
 
     return (
         <>
             <PageHeader
-                title="Settings"
-                description="Wedding details, features, custom fields and who can use the portal."
-                breadcrumbs={[{ label: "Settings" }]}
+                title="Wedding settings"
+                description="Wedding details, guest fields and features specific to Wedding Planner."
+                breadcrumbs={[{ label: "Wedding Planner", href: "/portal/wedding" }, { label: "Settings" }]}
             />
             <Tabs selectedKey={tab} onSelectionChange={(k) => select(k as Tab)}>
                 <Tabs.List type="underline" size="sm" className="overflow-x-auto">
                     <Tabs.Item id="general">General</Tabs.Item>
                     <Tabs.Item id="features">Features</Tabs.Item>
                     <Tabs.Item id="fields">Custom fields</Tabs.Item>
-                    {data.users && <Tabs.Item id="people">People and roles</Tabs.Item>}
-                    {data.privacy && <Tabs.Item id="privacy">Privacy</Tabs.Item>}
                 </Tabs.List>
                 <Tabs.Panel id="general" className="pt-8">
                     <GeneralTab />
@@ -193,16 +189,6 @@ export const SettingsPage = ({ data }: { data: PageData<"settings"> }) => {
                 <Tabs.Panel id="fields" className="pt-8">
                     <CustomFieldsPanel initial={data.customFields} />
                 </Tabs.Panel>
-                {data.users && (
-                    <Tabs.Panel id="people" className="pt-8">
-                        <PeoplePanel initial={data.users} />
-                    </Tabs.Panel>
-                )}
-                {data.privacy && (
-                    <Tabs.Panel id="privacy" className="pt-8">
-                        <PrivacyPanel initial={data.privacy} />
-                    </Tabs.Panel>
-                )}
             </Tabs>
         </>
     );

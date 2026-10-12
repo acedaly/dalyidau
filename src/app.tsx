@@ -35,7 +35,7 @@ export const App = ({ data, path }: PageProps) => (
             Skip to content
         </a>
         <div className="flex min-h-dvh flex-col">
-            <SiteHeader path={path} />
+            <SiteHeader path={path} weddingPublished={data.context.weddingPublished} />
             <main id="main" className="flex-1">
                 <Page data={data} path={path} />
             </main>

@@ -18,13 +18,24 @@ interface PageHeaderProps {
     /** Content under the title row, e.g. tabs. */
     children?: ReactNode;
     className?: string;
+    homeHref?: string;
+    homeLabel?: string;
 }
 
-export const PageHeader = ({ title, description, breadcrumbs = [], actions, children, className }: PageHeaderProps) => (
+export const PageHeader = ({
+    title,
+    description,
+    breadcrumbs = [],
+    actions,
+    children,
+    className,
+    homeHref = "/portal",
+    homeLabel = "All applications",
+}: PageHeaderProps) => (
     <header className={cx("flex flex-col gap-5", className)}>
         {breadcrumbs.length > 0 && (
             <Breadcrumbs type="button" className="max-lg:hidden">
-                <Breadcrumbs.Item href="/portal/wedding" icon={HomeLine} aria-label="Wedding dashboard" />
+                <Breadcrumbs.Item href={homeHref} icon={HomeLine} aria-label={homeLabel} />
                 {breadcrumbs.map((crumb) => (
                     <Breadcrumbs.Item key={crumb.label} href={crumb.href}>
                         {crumb.label}

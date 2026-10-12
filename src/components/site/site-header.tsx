@@ -9,8 +9,9 @@ import { cx } from "@/utils/cx";
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
 // Adapted from the Untitled UI marketing header navigation.
-export const SiteHeader = ({ path }: { path: string }) => {
+export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPublished: boolean }) => {
     const headerRef = useRef<HTMLElement>(null);
+    const navigation = weddingPublished ? [...site.nav, { label: "Wedding", href: "/wedding" }] : site.nav;
 
     return (
         <header
@@ -22,7 +23,7 @@ export const SiteHeader = ({ path }: { path: string }) => {
 
                 <nav aria-label="Main" className="max-md:hidden">
                     <ul className="flex items-center gap-1">
-                        {site.nav.map((item) => {
+                        {navigation.map((item) => {
                             const active = isActive(item.href, path);
                             return (
                                 <li key={item.href}>
@@ -86,7 +87,7 @@ export const SiteHeader = ({ path }: { path: string }) => {
                             <AriaDialog aria-label="Navigation" className="outline-hidden">
                                 <nav aria-label="Mobile" className="w-full border-b border-secondary bg-primary">
                                     <ul className="flex flex-col gap-0.5 py-3">
-                                        {site.nav.map((item) => (
+                                        {navigation.map((item) => (
                                             <li key={item.href}>
                                                 <a
                                                     href={item.href}

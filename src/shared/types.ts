@@ -41,7 +41,7 @@ export interface BlogFilters {
     page: number;
 }
 
-export type PageData =
+export type PageRoute =
     | { route: "home"; latest: PostSummary[] }
     | {
           route: "blog";
@@ -56,6 +56,13 @@ export type PageData =
     | { route: "about" }
     | { route: "contact" }
     | { route: "not-found"; path: string };
+
+export interface PublicSiteContext {
+    /** The Wedding navigation item is public only while the wedding website is published. */
+    weddingPublished: boolean;
+}
+
+export type PageData = PageRoute & { context: PublicSiteContext };
 
 export interface PageProps {
     data: PageData;

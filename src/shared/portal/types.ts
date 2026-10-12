@@ -1,4 +1,5 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
+import type { ApplicationId } from "./applications";
 import type { Flags } from "./flags";
 import type { Permission, Role } from "./permissions";
 
@@ -464,7 +465,7 @@ export interface PortalContext {
 }
 
 export type PortalRoute =
-    | { route: "portal-home"; overview: PortalOverview }
+    | { route: "portal-home"; applications: ApplicationId[] }
     | { route: "dashboard"; stats: DashboardStats; widgets: DashboardWidget[] }
     | {
           route: "guests";
@@ -513,10 +514,10 @@ export type PortalRoute =
           events: WeddingEvent[];
           rsvp: RsvpSettings;
       }
+    | { route: "wedding-settings"; tab: "general" | "features" | "fields"; customFields: CustomField[] }
     | {
-          route: "settings";
-          tab: "general" | "features" | "fields" | "people" | "privacy";
-          customFields: CustomField[];
+          route: "portal-settings";
+          tab: "general" | "people" | "privacy";
           users: PortalUserRecord[] | null;
           privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
       }

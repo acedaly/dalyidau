@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Guest, Household, Message, Task, WeddingEvent } from "../src/shared/portal/types";
-import { OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
+import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 const makeEvent = async (name: string) =>
     (await apiCall<{ item: WeddingEvent }>("POST", "/api/portal/wedding/events", { name, startsAt: "2027-03-20T15:00" })).json.item;
@@ -314,6 +314,9 @@ describe("portal pages", () => {
         "/portal/wedding/budget",
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
+        "/portal/wedding/settings",
+        "/portal/wedding/settings/features",
+        "/portal/wedding/settings/fields",
         "/portal/settings",
         "/portal/settings/people",
         "/portal/settings/privacy",
@@ -335,11 +338,24 @@ describe("portal pages", () => {
         expect(html).toMatch(/<h1[^>]*>/);
     });
 
-    it("serves the portal overview and 404s unknown pages", async () => {
+    it("serves the application launcher and 404s unknown pages", async () => {
         const token = await accessToken();
         const root = await call("/portal", { token });
         expect(root.status).toBe(200);
-        expect(await root.text()).toContain("Welcome, owner");
+        const html = await root.text();
+        expect(html).toContain("Applications");
+        expect(html).toContain("Wedding Planner");
+        expect(html).toContain('href="/portal/wedding"');
         expect((await call("/portal/wedding/nope", { token })).status).toBe(404);
+    });
+
+    it("keeps old wedding settings links working through the new application route", async () => {
+        const token = await accessToken();
+        for (const tab of ["features", "fields"]) {
+            const response = await call(`/portal/settings/${tab}`, { token });
+            expect(response.status).toBe(302);
+            expect(response.headers.get("Location")).toBe(`${ORIGIN}/portal/wedding/settings/${tab}`);
+            expect(response.headers.get("Cache-Control")).toBe("no-store");
+        }
     });
 });

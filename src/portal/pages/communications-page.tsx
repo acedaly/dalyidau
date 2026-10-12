@@ -109,7 +109,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             {!data.deliveryAvailable && (
                 <Notice color="brand" title="Email delivery is off">
                     You can write messages, choose recipients, preview them for each guest and export a mail-merge file to send with your own email. Nothing is
-                    sent from the portal until an email provider is set up and “Email delivery” is turned on in Settings → Features.
+                    sent from the portal until an email provider is set up and “Email delivery” is turned on in Wedding settings → Features.
                 </Notice>
             )}
 

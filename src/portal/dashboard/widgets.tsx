@@ -52,7 +52,7 @@ export const WIDGETS: Record<WidgetType, WidgetDefinition> = {
                 return (
                     <div className="flex flex-col gap-3">
                         <Quiet>Set the wedding date to start the countdown.</Quiet>
-                        <Button href="/portal/settings" size="sm" color="secondary">
+                        <Button href="/portal/wedding/settings" size="sm" color="secondary">
                             Add the date
                         </Button>
                     </div>
