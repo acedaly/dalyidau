@@ -126,3 +126,55 @@
         animation: none;
     }
 }
+
+
+/* Rhino Lodge-inspired details: warm sandstone, weathered timber and quiet bushland.
+   No remote textures or third-party tracking assets. */
+.wedding-theme {
+    --wedding-bark: #594b3b;
+    --wedding-sand: #e8d9bf;
+    --wedding-eucalyptus: #58735d;
+    background-image:
+        radial-gradient(ellipse at 8% 8%, rgb(171 151 116 / 9%), transparent 39%),
+        radial-gradient(ellipse at 91% 42%, rgb(90 119 92 / 7%), transparent 43%);
+}
+.wedding-theme #main > section:first-child {
+    background-image:
+        linear-gradient(180deg, rgb(251 248 241 / 50%), rgb(251 248 241 / 0%)),
+        radial-gradient(ellipse at 50% 0%, rgb(198 176 139 / 22%), transparent 70%);
+}
+.wedding-theme #main > section:first-child h1 {
+    text-wrap: balance;
+    font-size: clamp(4rem, 10vw, 7.6rem);
+    line-height: .98;
+    text-shadow: 0 1px 0 rgb(255 255 255 / 35%);
+}
+.wedding-theme #main > section:first-child figure img {
+    border: 8px solid rgb(255 252 246 / 92%);
+    outline: 1px solid rgb(91 78 59 / 15%);
+    box-shadow: 0 24px 70px rgb(47 46 33 / 17%);
+}
+.wedding-theme #main > section:not(:first-child) h2 {
+    text-wrap: balance;
+    letter-spacing: -.025em;
+}
+.wedding-theme #main > section:not(:first-child) h2::after {
+    content: "";
+    display: block;
+    width: 54px;
+    height: 1px;
+    margin: 1.25rem auto 0;
+    background: linear-gradient(90deg, transparent, var(--wedding-eucalyptus), transparent);
+}
+.wedding-theme #rsvp {
+    background: linear-gradient(145deg, #e9e9d9 0%, #f6efdf 55%, #e8d9bf 100%);
+    border-block: 1px solid rgb(96 98 67 / 18%);
+}
+.wedding-theme #rsvp a {
+    transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+.wedding-theme #rsvp a:hover { transform: translateY(-2px); box-shadow: 0 9px 22px rgb(46 73 61 / 17%); }
+@media (prefers-reduced-motion: reduce) {
+    .wedding-theme #rsvp a { transition: none; }
+    .wedding-theme #rsvp a:hover { transform: none; }
+}
