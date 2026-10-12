@@ -1,9 +1,9 @@
 /*
  * The public wedding website (/wedding). It uses the same Untitled UI components as the rest of the
- * site, re-rooted on its own palette: warm ivory paper, deep forest, eucalyptus, dusty olive,
- * sandstone and a little terracotta clay, with the leaf green of the couple's Say I Do site. Caveat
- * Brush letters the names and section headings, Cormorant Garamond sets serif display and italic
- * lines, and Jost the reading text and tracked labels.
+ * site, re-rooted on its own palette: warm ivory paper, chocolate ink, camel, waratah burgundy,
+ * banksia orange, wattle and eucalyptus. Cormorant Garamond gives the invitation its editorial
+ * character; Alex Brush is reserved for the couple's names; Jost handles practical copy and small
+ * tracked labels. The palette is drawn from Amelia's Australian-native wedding references.
  *
  * wedding-theme.generated.css re-declares every semantic token on .wedding-theme; the rules below
  * then swap the palette those tokens resolve to. Regenerate with `node scripts/build-wedding-theme.mjs`.
@@ -11,64 +11,68 @@
 @import "@fontsource-variable/cormorant-garamond";
 @import "@fontsource-variable/cormorant-garamond/wght-italic.css";
 @import "@fontsource-variable/jost";
-@import "@fontsource/caveat-brush";
+@import "@fontsource/alex-brush";
 @import "./wedding-theme.generated.css";
 
 @theme {
     --font-wedding-display: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
-    /* Brush lettering for the names and section headings, as on the couple's Say I Do site. */
-    --font-wedding-script: "Caveat Brush", "Brush Script MT", cursive;
+    --font-wedding-script: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
+    --font-wedding-calligraphy: "Alex Brush", "Segoe Script", "Snell Roundhand", cursive;
     --font-wedding-body: "Jost Variable", Jost, "Futura", "Avenir Next", "Segoe UI", sans-serif;
 
     /* The wedding palette, used sparingly and only inside .wedding-theme. */
-    --color-ivory: rgb(248 245 238); /* #F8F5EE main background */
-    --color-paper: rgb(252 250 245); /* lighter stock for raised panels */
-    --color-sandstone: rgb(220 201 171); /* #DCC9AB */
-    --color-sandstone-light: rgb(240 232 218);
-    --color-eucalypt: rgb(130 150 133); /* #829685 */
-    --color-eucalypt-light: rgb(236 240 234);
-    --color-forest: rgb(53 76 62); /* #354C3E primary text and buttons */
-    --color-forest-deep: rgb(36 54 43);
-    --color-olive: rgb(119 125 89); /* #777D59 */
-    --color-leaf: rgb(96 121 64); /* #607940, the green from the Say I Do site: script headings */
-    --color-clay: rgb(183 124 98); /* #B77C62 restrained accent */
-    --color-charcoal: rgb(53 51 46); /* #35332E reading text */
+    --color-ivory: rgb(247 242 234); /* #F7F2EA warm paper */
+    --color-paper: rgb(252 249 243); /* a lighter uncoated paper */
+    --color-sandstone: rgb(234 225 211); /* #EAE1D3 parchment */
+    --color-sandstone-light: rgb(245 239 230);
+    --color-tan: rgb(181 150 114); /* #B59672 camel */
+    --color-eucalypt: rgb(123 141 120); /* #7B8D78 */
+    --color-eucalypt-light: rgb(232 236 229);
+    --color-gumnut: rgb(162 166 146); /* #A2A692 */
+    --color-forest: rgb(75 52 43); /* #4B342B chocolate: primary ink */
+    --color-forest-deep: rgb(60 42 35); /* #3C2A23 espresso */
+    --color-olive: rgb(93 106 86); /* #5D6A56 deep botanical */
+    --color-leaf: rgb(139 47 61); /* #8B2F3D waratah */
+    --color-clay: rgb(196 107 60); /* #C46B3C banksia */
+    --color-terracotta: rgb(167 97 73); /* #A76149 */
+    --color-gold: rgb(200 154 52); /* #C89A34 wattle */
+    --color-charcoal: rgb(46 41 37); /* #2E2925 */
 
     /* Accent scales kept for the portal preview banner and RSVP alerts. */
-    --color-clay-50: rgb(251 244 240);
-    --color-clay-100: rgb(246 230 221);
-    --color-clay-200: rgb(236 204 188);
-    --color-clay-300: rgb(220 168 145);
-    --color-clay-400: rgb(201 132 105);
-    --color-clay-500: rgb(183 124 98);
-    --color-clay-600: rgb(156 85 62);
-    --color-clay-700: rgb(126 68 51);
+    --color-clay-50: rgb(253 246 239);
+    --color-clay-100: rgb(249 231 214);
+    --color-clay-200: rgb(241 204 168);
+    --color-clay-300: rgb(226 165 111);
+    --color-clay-400: rgb(210 132 72);
+    --color-clay-500: rgb(197 109 54);
+    --color-clay-600: rgb(164 82 40);
+    --color-clay-700: rgb(126 61 35);
 
-    --color-olive-50: rgb(246 246 238);
-    --color-olive-100: rgb(234 235 218);
-    --color-olive-200: rgb(214 216 184);
-    --color-olive-300: rgb(184 188 141);
-    --color-olive-400: rgb(152 158 104);
-    --color-olive-500: rgb(119 125 89);
-    --color-olive-600: rgb(97 102 61);
-    --color-olive-700: rgb(76 80 49);
-    --color-olive-800: rgb(60 63 40);
+    --color-olive-50: rgb(242 245 241);
+    --color-olive-100: rgb(225 232 223);
+    --color-olive-200: rgb(197 210 195);
+    --color-olive-300: rgb(159 181 157);
+    --color-olive-400: rgb(118 148 117);
+    --color-olive-500: rgb(82 112 84);
+    --color-olive-600: rgb(69 87 69);
+    --color-olive-700: rgb(55 70 56);
+    --color-olive-800: rgb(42 54 43);
 }
 
 .wedding-theme {
-    /* Eucalyptus to deep forest replaces the brand scale; 600 is the forest used for buttons. */
+    /* Chocolate replaces the brand scale so Untitled UI controls feel printed, not app-like. */
     --color-brand-25: rgb(247 249 247);
     --color-brand-50: rgb(239 243 240);
-    --color-brand-100: rgb(223 231 225);
-    --color-brand-200: rgb(197 211 200);
-    --color-brand-300: rgb(166 184 170);
-    --color-brand-400: rgb(130 150 133);
-    --color-brand-500: rgb(94 117 101);
-    --color-brand-600: rgb(53 76 62);
-    --color-brand-700: rgb(43 63 51);
-    --color-brand-800: rgb(34 51 41);
-    --color-brand-900: rgb(27 41 32);
-    --color-brand-950: rgb(17 26 20);
+    --color-brand-100: rgb(237 229 222);
+    --color-brand-200: rgb(217 201 189);
+    --color-brand-300: rgb(186 158 140);
+    --color-brand-400: rgb(145 108 88);
+    --color-brand-500: rgb(101 70 57);
+    --color-brand-600: rgb(75 52 43);
+    --color-brand-700: rgb(60 42 35);
+    --color-brand-800: rgb(48 33 28);
+    --color-brand-900: rgb(37 26 22);
+    --color-brand-950: rgb(25 17 14);
 
     /* Warm, paper-like neutrals from ivory to charcoal replace the cool greys. */
     --color-neutral-25: rgb(252 250 246);
@@ -101,7 +105,7 @@
     --color-bg-primary_alt: var(--color-ivory);
     --color-bg-secondary: var(--color-sandstone-light);
     --color-bg-primary_hover: rgb(241 235 223);
-    --color-text-primary: var(--color-forest);
+    --color-text-primary: var(--color-charcoal);
     --color-text-secondary: var(--color-charcoal);
     --color-text-tertiary: rgb(94 88 76);
     --color-border-primary: rgb(211 200 180);
@@ -122,12 +126,21 @@
     font-feature-settings: "liga", "dlig";
 }
 
-/* Hand-brushed lettering: the couple's names and section headings. */
+/* Expressive high-contrast serif, like the large type on bespoke stationery. */
 .wedding-script {
     font-family: var(--font-wedding-script);
+    font-weight: 520;
+    letter-spacing: -0.035em;
+    line-height: 0.94;
+    font-feature-settings: "liga", "dlig", "kern";
+}
+
+.wedding-names {
+    font-family: var(--font-wedding-calligraphy);
     font-weight: 400;
     letter-spacing: 0;
-    line-height: 1;
+    line-height: 0.76;
+    font-feature-settings: "liga", "dlig", "kern";
 }
 
 /* Delicate tracked capitals for labels: "TOGETHER WITH OUR FAMILIES". */
@@ -142,8 +155,8 @@
 
 /* Reading text: slightly larger than the app default, with an easy measure and leading. */
 .wedding-prose {
-    font-size: 1.0625rem;
-    line-height: 1.75;
+    font-size: 1.075rem;
+    line-height: 1.78;
 }
 .wedding-prose p {
     white-space: pre-line;
@@ -197,13 +210,9 @@
     animation-delay: 300ms;
 }
 
-/* Sections fade up as they scroll into view, where the browser supports scroll-driven animation. */
-@supports (animation-timeline: view()) {
-    .wedding-reveal {
-        animation: wedding-rise linear both;
-        animation-timeline: view();
-        animation-range: entry 0% entry 35%;
-    }
+/* Keep long-form content visible in every browser and in full-page captures. */
+.wedding-reveal {
+    opacity: 1;
 }
 
 /* FAQ accordions: the plus turns into a minus. */

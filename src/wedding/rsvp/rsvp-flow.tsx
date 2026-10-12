@@ -71,7 +71,7 @@ const eventWhen = (event: RsvpHousehold["events"][number]) =>
 
 const ErrorNote = ({ message }: { message: string | null }) =>
     message ? (
-        <p role="alert" className="bg-clay-50 text-clay-700 ring-clay-200 rounded-xl px-4 py-3 text-[0.9375rem] ring-1 ring-inset">
+        <p role="alert" className="bg-clay-50 text-clay-700 ring-clay-200 rounded-[2px] px-4 py-3 text-[0.9375rem] ring-1 ring-inset">
             {message}
         </p>
     ) : null;
@@ -437,7 +437,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                                 rows={4}
                                 value={message}
                                 onChange={setMessage}
-                                textAreaClassName="rounded-xl bg-paper text-[1.0625rem] ring-sandstone"
+                                textAreaClassName="rounded-[2px] bg-paper text-[1.0625rem] ring-sandstone"
                             />
                         )}
                         <Input

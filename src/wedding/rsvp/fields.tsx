@@ -13,7 +13,7 @@ import { cx } from "@/utils/cx";
 /** Shared styling for Untitled UI text fields inside the RSVP flow. */
 export const fieldProps = {
     size: "lg" as const,
-    wrapperClassName: "rounded-xl bg-paper shadow-none ring-sandstone",
+    wrapperClassName: "rounded-[2px] bg-paper shadow-none ring-sandstone",
     inputClassName: "text-[1.0625rem] text-charcoal placeholder:text-tertiary/70",
 };
 
@@ -25,7 +25,7 @@ export interface Choice {
     tone?: "accept" | "decline" | "neutral";
 }
 
-/** Big, pill-shaped single choice (e.g. "Joyfully accepts" / "Regretfully declines"). */
+/** Large stationery-style single choice (e.g. "Joyfully accepts" / "Regretfully declines"). */
 export const ChoiceGroup = ({
     label,
     description,
@@ -70,7 +70,7 @@ export const ChoiceGroup = ({
                     value={choice.value}
                     className={({ isSelected, isFocusVisible, isHovered, isDisabled: disabled }) =>
                         cx(
-                            "relative flex min-h-14 cursor-pointer items-center gap-2.5 rounded-full px-4 py-3 text-[1rem] ring-1 transition duration-100 ease-linear ring-inset sm:gap-3 sm:px-5",
+                            "relative flex min-h-14 cursor-pointer items-center gap-2.5 rounded-[2px] px-4 py-3 text-[1rem] ring-1 transition duration-100 ease-linear ring-inset sm:gap-3 sm:px-5",
                             isSelected
                                 ? choice.tone === "decline"
                                     ? "bg-sandstone-light text-forest ring-clay ring-2"
@@ -86,7 +86,7 @@ export const ChoiceGroup = ({
                             <span
                                 aria-hidden="true"
                                 className={cx(
-                                    "flex size-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset",
+                                    "flex size-6 shrink-0 items-center justify-center rounded-[2px] ring-1 ring-inset",
                                     isSelected
                                         ? choice.tone === "decline"
                                             ? "bg-clay text-ivory ring-clay"
@@ -138,7 +138,7 @@ export const QuestionField = ({
                 rows={4}
                 value={typeof value === "string" ? value : ""}
                 onChange={onChange}
-                textAreaClassName="rounded-xl bg-paper text-[1.0625rem] ring-sandstone"
+                textAreaClassName="rounded-[2px] bg-paper text-[1.0625rem] ring-sandstone"
             />
         );
     if (question.type === "short_text" || question.type === "number" || question.type === "date")
@@ -170,7 +170,7 @@ export const QuestionField = ({
                 )}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {question.options.map((option) => (
-                        <div key={option} className="bg-paper ring-sandstone rounded-xl px-4 py-3.5 ring-1 ring-inset">
+                        <div key={option} className="bg-paper ring-sandstone rounded-[2px] px-4 py-3.5 ring-1 ring-inset">
                             <Checkbox
                                 size="md"
                                 label={option}
@@ -212,7 +212,7 @@ export const StepIndicator = ({ steps, current }: { steps: string[]; current: nu
                     <span className="flex items-center gap-2">
                         <span
                             className={cx(
-                                "flex size-7 items-center justify-center rounded-full text-xs font-medium ring-1 ring-inset",
+                                "flex size-7 items-center justify-center rounded-[2px] text-xs font-medium ring-1 ring-inset",
                                 state === "current" && "bg-forest text-ivory ring-forest",
                                 state === "done" && "bg-eucalypt-light text-forest ring-eucalypt",
                                 state === "upcoming" && "ring-sandstone text-tertiary",
@@ -234,7 +234,7 @@ export const StepIndicator = ({ steps, current }: { steps: string[]; current: nu
 
 /** A paper card with a fine double rule, used for each step of the flow. */
 export const Card = ({ children, className }: { children: ReactNode; className?: string }) => (
-    <div className={cx("bg-paper p-1.5 shadow-[0_24px_60px_-34px_rgb(36_54_43/0.45)] sm:p-2", className)}>
-        <div className="border-sandstone/70 flex flex-col gap-8 border px-5 py-8 sm:px-10 sm:py-10">{children}</div>
+    <div className={cx("bg-paper border-forest/15 border shadow-[0_28px_70px_-42px_rgb(82_32_38/0.42)]", className)}>
+        <div className="border-sandstone/80 m-1.5 flex flex-col gap-8 border px-5 py-8 sm:m-2 sm:px-10 sm:py-11">{children}</div>
     </div>
 );

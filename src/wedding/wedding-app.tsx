@@ -1,6 +1,6 @@
 // The public wedding website. Built from the same Untitled UI components and React Aria patterns as
 // the rest of the site, wrapped in .wedding-theme, which re-roots every design token on the wedding
-// palette (ivory, deep forest, eucalyptus, olive, sandstone, clay). See src/styles/wedding.css.
+// palette (ivory, chocolate, eucalyptus, olive, parchment, banksia and waratah). See src/styles/wedding.css.
 import { ArrowUpRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import type { WeddingPageData } from "@/shared/portal/types";
@@ -15,48 +15,51 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
     // The preview always shows the native form, so owners can test it before switching it on.
     const native = data.rsvp.mode === "native" || data.preview;
     return (
-        <section aria-labelledby="rsvp-title" className="relative isolate overflow-hidden px-4 pt-12 pb-24 sm:px-6 sm:pt-16 lg:pt-20">
-            <EucalyptusBranch draw className="text-eucalypt/60 absolute top-6 -left-20 -z-10 w-80 rotate-[-10deg] max-sm:hidden" />
-            <EucalyptusBranch draw flip className="text-olive/40 absolute top-24 -right-20 -z-10 w-72 rotate-[8deg] max-md:hidden" />
-            <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 text-center">
-                <Eyebrow>
-                    {data.details.partnerOne} &amp; {data.details.partnerTwo}
-                    {data.details.date && <span aria-hidden="true"> · </span>}
-                    {data.details.date && longDate(data.details.date)}
-                </Eyebrow>
-                <h1 id="rsvp-title" className="wedding-display text-forest text-[3rem] leading-none sm:text-[4rem]">
-                    RSVP
-                </h1>
-            </div>
-            <div className="mx-auto mt-10 max-w-2xl">
-                {native ? (
-                    <RsvpFlow
-                        apiBase={data.preview ? "/api/portal/wedding/rsvp-test" : "/api/wedding/rsvp"}
-                        deadline={data.rsvp.deadline}
-                        wedding={data.details}
-                        homeHref={data.preview ? "/portal/wedding/website/preview" : "/wedding"}
-                    />
-                ) : data.rsvp.mode === "external" && data.rsvp.externalUrl ? (
-                    <div className="flex flex-col items-center gap-6 text-center">
-                        <p className="wedding-prose text-charcoal max-w-md">
-                            We're collecting replies through our RSVP partner for now. It only takes a minute.
-                        </p>
-                        <Button
-                            href={data.rsvp.externalUrl}
-                            size="xl"
-                            iconTrailing={ArrowUpRight}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                            className={weddingButton.primary}
-                        >
-                            Continue to RSVP
-                        </Button>
-                    </div>
-                ) : (
-                    <p className="wedding-prose text-charcoal mx-auto max-w-md text-center">
-                        Online replies aren't open yet. Please check back soon, or use the details on your invitation.
+        <section aria-labelledby="rsvp-title" className="bg-sandstone-light relative isolate overflow-hidden px-4 py-14 sm:px-6 sm:py-20 lg:py-24">
+            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
+                <aside className="relative flex flex-col items-start gap-5 lg:sticky lg:top-28 lg:self-start">
+                    <Eyebrow>
+                        {data.details.partnerOne} &amp; {data.details.partnerTwo}
+                    </Eyebrow>
+                    <h1 id="rsvp-title" className="wedding-script text-forest text-[4.75rem] leading-[0.9] sm:text-[6.5rem]">
+                        Your RSVP
+                    </h1>
+                    {data.details.date && <p className="wedding-display text-clay-700 text-[1.4rem] italic">{longDate(data.details.date)}</p>}
+                    <p className="wedding-prose text-charcoal max-w-sm">
+                        We’re so glad you’re here. Reply for everyone named on your invitation, and come back any time before the deadline if plans change.
                     </p>
-                )}
+                    <EucalyptusBranch className="text-eucalypt/65 mt-8 w-64 -rotate-6 max-lg:hidden" />
+                </aside>
+                <div className="w-full max-w-2xl lg:justify-self-end">
+                    {native ? (
+                        <RsvpFlow
+                            apiBase={data.preview ? "/api/portal/wedding/rsvp-test" : "/api/wedding/rsvp"}
+                            deadline={data.rsvp.deadline}
+                            wedding={data.details}
+                            homeHref={data.preview ? "/portal/wedding/website/preview" : "/wedding"}
+                        />
+                    ) : data.rsvp.mode === "external" && data.rsvp.externalUrl ? (
+                        <div className="bg-paper border-sandstone flex flex-col items-center gap-6 border px-6 py-12 text-center sm:px-12">
+                            <p className="wedding-prose text-charcoal max-w-md">
+                                We're collecting replies through our RSVP partner for now. It only takes a minute.
+                            </p>
+                            <Button
+                                href={data.rsvp.externalUrl}
+                                size="xl"
+                                iconTrailing={ArrowUpRight}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className={weddingButton.primary}
+                            >
+                                Continue to RSVP
+                            </Button>
+                        </div>
+                    ) : (
+                        <p className="wedding-prose text-charcoal mx-auto max-w-md text-center">
+                            Online replies aren't open yet. Please check back soon, or use the details on your invitation.
+                        </p>
+                    )}
+                </div>
             </div>
         </section>
     );

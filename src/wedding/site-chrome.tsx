@@ -53,9 +53,9 @@ export const navItems = (data: WeddingPageData) => {
 };
 
 export const Monogram = ({ data, className }: { data: WeddingPageData; className?: string }) => (
-    <span className={cx("wedding-display text-forest inline-flex items-baseline gap-1", className)}>
+    <span className={cx("wedding-display text-charcoal inline-flex items-baseline gap-1", className)}>
         {data.details.partnerOne.charAt(0)}
-        <span className="text-clay text-[0.8em] italic">&amp;</span>
+        <span className="text-clay-700 text-[0.8em] italic">&amp;</span>
         {data.details.partnerTwo.charAt(0)}
     </span>
 );
@@ -67,8 +67,8 @@ export const SiteHeader = ({ data, links }: { data: WeddingPageData; links: Site
     const anchor = (id: string) => (data.route === "home" ? `#${id}` : `${links.home}#${id}`);
 
     return (
-        <header className="border-sandstone/50 bg-ivory/90 supports-[backdrop-filter]:bg-ivory/80 sticky top-0 z-30 border-b backdrop-blur-md">
-            <nav aria-label="Wedding" className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:h-[4.5rem] lg:px-10">
+        <header className="border-sandstone/70 bg-ivory/95 supports-[backdrop-filter]:bg-ivory/88 sticky top-0 z-30 border-b backdrop-blur-md">
+            <nav aria-label="Wedding" className="mx-auto flex h-[4.5rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:h-20 lg:px-10">
                 <a
                     href={links.home}
                     className="rounded-sm text-[1.75rem] leading-none outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4"
@@ -111,7 +111,7 @@ export const SiteHeader = ({ data, links }: { data: WeddingPageData; links: Site
                                 <Menu02 className="size-6 group-open:hidden" aria-hidden="true" />
                                 <XClose className="hidden size-6 group-open:block" aria-hidden="true" />
                             </summary>
-                            <div className="border-sandstone/60 bg-ivory fixed inset-x-0 top-16 z-40 border-b px-6 pt-4 pb-8 shadow-lg">
+                            <div className="border-sandstone/60 bg-ivory fixed inset-x-0 top-[4.5rem] z-40 border-b px-6 pt-4 pb-8 shadow-lg">
                                 <ul className="flex flex-col">
                                     {items.map((item) => (
                                         <li key={item.id} className="border-sandstone/40 border-b last:border-0">
@@ -183,7 +183,7 @@ export const MobileRsvpBar = ({ data, links }: { data: WeddingPageData; links: S
 };
 
 export const SiteFooter = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => (
-    <footer className="border-sandstone/50 border-t px-4 pt-16 pb-28 sm:px-6 sm:pb-16 lg:px-10">
+    <footer className="border-sandstone/70 bg-paper border-t px-4 pt-20 pb-28 sm:px-6 sm:pb-20 lg:px-10">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
             <a href={links.home} className="rounded-sm text-[3.5rem] leading-none outline-focus-ring focus-visible:outline-2" aria-label="Back to the top">
                 <Monogram data={data} />
