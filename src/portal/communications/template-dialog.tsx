@@ -2,29 +2,44 @@ import { useEffect, useState } from "react";
 import { FileHeart02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { Select } from "@/components/base/select/select";
 import { MessageEditor } from "@/portal/communications/message-editor";
 import { ConfirmDialog, PortalDialog } from "@/portal/components/dialog";
 import { FormError, useSubmit } from "@/portal/components/form";
 import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
-import type { MessageTemplate } from "@/shared/portal/types";
+import { MESSAGE_CATEGORIES, type MessageCategory, type MessageTemplate } from "@/shared/portal/types";
+
+const CATEGORY_LABELS: Record<MessageCategory, string> = {
+    save_the_date: "Save the date",
+    invitation: "Invitation",
+    reminder: "Reminder",
+    update: "Update",
+    thank_you: "Thank you",
+};
 
 interface TemplateDialogProps {
     template: MessageTemplate | null;
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
-    onSave: (id: string | null, input: { name: string; subject: string; body: string }) => Promise<MessageTemplate>;
+    onSave: (id: string | null, input: { name: string; subject: string; body: string; category: MessageCategory }) => Promise<MessageTemplate>;
     onDelete: (id: string) => Promise<void>;
     canEdit: boolean;
 }
 
 export const TemplateDialog = ({ template, isOpen, onOpenChange, onSave, onDelete, canEdit }: TemplateDialogProps) => {
     const toast = useToast();
-    const [draft, setDraft] = useState({ name: "", subject: "", body: "" });
+    const [draft, setDraft] = useState<{ name: string; subject: string; body: string; category: MessageCategory }>({
+        name: "",
+        subject: "",
+        body: "",
+        category: "update",
+    });
     const [confirmDelete, setConfirmDelete] = useState(false);
 
     useEffect(() => {
-        if (isOpen) setDraft({ name: template?.name ?? "", subject: template?.subject ?? "", body: template?.body ?? "" });
+        if (isOpen)
+            setDraft({ name: template?.name ?? "", subject: template?.subject ?? "", body: template?.body ?? "", category: template?.category ?? "update" });
     }, [isOpen, template]);
 
     const save = useSubmit(() => onSave(template?.id ?? null, draft), {
@@ -70,6 +85,14 @@ export const TemplateDialog = ({ template, isOpen, onOpenChange, onSave, onDelet
                         isInvalid={!!save.fieldError("name")}
                         hint={save.fieldError("name")}
                     />
+                    <Select
+                        label="Category"
+                        items={MESSAGE_CATEGORIES.map((category) => ({ id: category, label: CATEGORY_LABELS[category] }))}
+                        value={draft.category}
+                        onChange={(category) => setDraft({ ...draft, category: category as MessageCategory })}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
                     <MessageEditor subject={draft.subject} body={draft.body} onChange={(c) => setDraft({ ...draft, ...c })} fieldError={save.fieldError} />
                 </fieldset>
             </PortalDialog>

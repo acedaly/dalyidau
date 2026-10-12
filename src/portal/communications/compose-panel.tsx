@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 import { Eye } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
 import { Label } from "@/components/base/input/label";
 import { Select } from "@/components/base/select/select";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { MessageEditor } from "@/portal/communications/message-editor";
 import { PreviewDialog } from "@/portal/communications/preview-dialog";
 import { FormError, FormGrid, useSubmit } from "@/portal/components/form";
@@ -15,7 +17,18 @@ import { RSVP_LABELS } from "@/portal/components/status";
 import { api } from "@/portal/lib/api";
 import { pluralise } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
-import type { Audience, Message, MessageTemplate, RsvpStatus, Side, WeddingEvent } from "@/shared/portal/types";
+import {
+    type AgeGroup,
+    type Audience,
+    type ContactPreference,
+    MESSAGE_CATEGORIES,
+    type Message,
+    type MessageCategory,
+    type MessageTemplate,
+    type RsvpStatus,
+    type Side,
+    type WeddingEvent,
+} from "@/shared/portal/types";
 
 interface ComposePanelProps {
     isOpen: boolean;
@@ -30,11 +43,21 @@ interface ComposePanelProps {
 type AudiencePreview = { total: number; withEmail: number; sample: { id: string; name: string; email: string | null }[] };
 
 const ANY = "any";
+const CATEGORY_LABELS: Record<MessageCategory, string> = {
+    save_the_date: "Save the date",
+    invitation: "Invitation",
+    reminder: "Reminder",
+    update: "Update",
+    thank_you: "Thank you",
+};
 
 export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, tags, initialTemplate }: ComposePanelProps) => {
     const { sideLabel } = usePortal();
     const [templateId, setTemplateId] = useState<string | null>(null);
     const [content, setContent] = useState({ subject: "", body: "" });
+    const [category, setCategory] = useState<MessageCategory>("update");
+    const [schedule, setSchedule] = useState(false);
+    const [scheduledAt, setScheduledAt] = useState("");
     const [audience, setAudience] = useState<Audience>({ rsvp: [] });
     const [preview, setPreview] = useState<AudiencePreview | null>(null);
     const [previewOpen, setPreviewOpen] = useState(false);
@@ -43,6 +66,9 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
         if (!isOpen) return;
         setTemplateId(initialTemplate?.id ?? null);
         setContent({ subject: initialTemplate?.subject ?? "", body: initialTemplate?.body ?? "" });
+        setCategory(initialTemplate?.category ?? "update");
+        setSchedule(false);
+        setScheduledAt("");
         setAudience({ rsvp: [] });
     }, [isOpen, initialTemplate]);
 
@@ -57,9 +83,17 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
         return () => window.clearTimeout(timer);
     }, [audience, isOpen]);
 
-    const prepare = useSubmit(() => api<{ message: Message }>("POST", "/api/portal/wedding/messages", { templateId, ...content, audience }), {
-        onSuccess: ({ message }) => window.location.assign(`/portal/wedding/communications/${message.id}`),
-    });
+    const prepare = useSubmit(
+        () =>
+            api<{ message: Message }>("POST", "/api/portal/wedding/messages", {
+                templateId,
+                ...content,
+                audience,
+                category,
+                scheduledAt: schedule && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+            }),
+        { onSuccess: ({ message }) => window.location.assign(`/portal/wedding/communications/${message.id}`) },
+    );
 
     const toggleRsvp = (status: RsvpStatus | "not_invited", on: boolean) =>
         setAudience({ ...audience, rsvp: on ? [...(audience.rsvp ?? []), status] : (audience.rsvp ?? []).filter((s) => s !== status) });
@@ -110,11 +144,22 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                                 const template = templates.find((t) => t.id === v) ?? null;
                                 setTemplateId(template?.id ?? null);
                                 if (template) setContent({ subject: template.subject, body: template.body });
+                                if (template) setCategory(template.category);
                             }}
                         >
                             {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                         </Select>
                     )}
+
+                    <Select
+                        label="Category"
+                        items={MESSAGE_CATEGORIES.map((item) => ({ id: item, label: CATEGORY_LABELS[item] }))}
+                        value={category}
+                        onChange={(value) => setCategory(value as MessageCategory)}
+                        hint={category === "invitation" ? "Guests already included in another invitation are automatically skipped." : undefined}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
 
                     <MessageEditor subject={content.subject} body={content.body} onChange={setContent} fieldError={prepare.fieldError} />
 
@@ -157,6 +202,27 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                                     tags.map((t) => ({ id: t, label: t })),
                                     (v) => setAudience({ ...audience, tag: v }),
                                 )}
+                            {select(
+                                "Age group",
+                                audience.ageGroup?.[0],
+                                [
+                                    { id: "adult", label: "Adults" },
+                                    { id: "child", label: "Children" },
+                                    { id: "infant", label: "Infants" },
+                                ],
+                                (value) => setAudience({ ...audience, ageGroup: value ? [value as AgeGroup] : [] }),
+                            )}
+                            {select(
+                                "Contact preference",
+                                audience.contactPreference?.[0],
+                                [
+                                    { id: "email", label: "Email" },
+                                    { id: "post", label: "Post" },
+                                    { id: "phone", label: "Phone" },
+                                    { id: "none", label: "No preference" },
+                                ],
+                                (value) => setAudience({ ...audience, contactPreference: value ? [value as ContactPreference] : [] }),
+                            )}
                         </FormGrid>
                         <div className="flex flex-col gap-2">
                             <Label>{audience.eventId ? "RSVP for that event" : "RSVP"}</Label>
@@ -183,6 +249,29 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                                     .join(", ")}
                                 {preview.total > 5 ? ` and ${pluralise(preview.total - 5, "other")}` : ""}.
                             </p>
+                        )}
+                    </section>
+
+                    <section aria-labelledby="delivery-heading" className="flex flex-col gap-4 rounded-xl bg-secondary p-4">
+                        <h3 id="delivery-heading" className="text-sm font-semibold text-secondary">
+                            Delivery
+                        </h3>
+                        <Toggle
+                            label="Schedule for later"
+                            hint="The Worker checks due messages on its existing 15-minute schedule. Delivery still requires both production safeguards to be enabled."
+                            isSelected={schedule}
+                            onChange={setSchedule}
+                        />
+                        {schedule && (
+                            <Input
+                                label="Send after"
+                                type="datetime-local"
+                                isRequired
+                                value={scheduledAt}
+                                onChange={setScheduledAt}
+                                isInvalid={!!prepare.fieldError("scheduledAt")}
+                                hint={prepare.fieldError("scheduledAt") ?? "Uses the time zone on this device."}
+                            />
                         )}
                     </section>
                 </div>

@@ -26,7 +26,7 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
     const today = todayIn(wedding.timeZone);
     const soon = addDays(today, 30);
 
-    const [guestTotals, rsvpTotals, sides, events, dietary, responses, trend] = await db.batch([
+    const [guestTotals, rsvpTotals, sides, events, dietary, responses, trend, invitations, seating, communications] = await db.batch([
         db.prepare(
             `SELECT COUNT(*) AS total,
                     SUM(age_group = 'adult') AS adults, SUM(age_group = 'child') AS children, SUM(age_group = 'infant') AS infants,
@@ -81,6 +81,24 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
                 GROUP BY guest_id
              ) GROUP BY day ORDER BY day`,
         ),
+        db.prepare(
+            `SELECT SUM(invite_revoked_at IS NULL) AS active, SUM(invite_revoked_at IS NOT NULL) AS revoked
+             FROM households WHERE deleted_at IS NULL`,
+        ),
+        db.prepare(
+            `SELECT COUNT(DISTINCT g.id) AS attending,
+                    COUNT(DISTINCT sa.guest_id) AS seated,
+                    COUNT(DISTINCT CASE WHEN sa.guest_id IS NULL THEN g.id END) AS unseated,
+                    COUNT(DISTINCT CASE WHEN g.meal_category IS NULL THEN g.id END) AS meals_undecided
+             FROM guests g
+             LEFT JOIN seat_assignments sa ON sa.guest_id = g.id
+             WHERE g.deleted_at IS NULL
+               AND EXISTS (SELECT 1 FROM guest_events ge WHERE ge.guest_id = g.id AND ge.status = 'attending')`,
+        ),
+        db.prepare(
+            `SELECT SUM(status = 'draft') AS drafts, SUM(status = 'queued') AS queued,
+                    SUM(status IN ('sent', 'partial')) AS sent, SUM(status = 'failed') AS failed FROM messages`,
+        ),
     ]);
 
     const g = (guestTotals.results[0] ?? {}) as Record<string, number | null>;
@@ -124,6 +142,26 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
                 declined: statuses.filter((s) => s === "declined").length,
             };
         }),
+        invitations: {
+            active: Number((invitations.results[0] as Record<string, number | null> | undefined)?.active ?? 0),
+            revoked: Number((invitations.results[0] as Record<string, number | null> | undefined)?.revoked ?? 0),
+        },
+        seating: flags["module.planning"]
+            ? {
+                  attending: Number((seating.results[0] as Record<string, number | null> | undefined)?.attending ?? 0),
+                  seated: Number((seating.results[0] as Record<string, number | null> | undefined)?.seated ?? 0),
+                  unseated: Number((seating.results[0] as Record<string, number | null> | undefined)?.unseated ?? 0),
+                  mealsUndecided: Number((seating.results[0] as Record<string, number | null> | undefined)?.meals_undecided ?? 0),
+              }
+            : null,
+        communications: flags["module.communications"]
+            ? {
+                  drafts: Number((communications.results[0] as Record<string, number | null> | undefined)?.drafts ?? 0),
+                  queued: Number((communications.results[0] as Record<string, number | null> | undefined)?.queued ?? 0),
+                  sent: Number((communications.results[0] as Record<string, number | null> | undefined)?.sent ?? 0),
+                  failed: Number((communications.results[0] as Record<string, number | null> | undefined)?.failed ?? 0),
+              }
+            : null,
     };
 
     if (flags["module.planning"]) {

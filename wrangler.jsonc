@@ -44,7 +44,13 @@
         { "pattern": "daly.id.au", "custom_domain": true },
         { "pattern": "www.daly.id.au", "custom_domain": true },
     ],
-    "observability": { "enabled": true },
+    "observability": {
+        "enabled": true,
+        // RSVP invitation credentials arrive in the URL. Never retain them in request telemetry.
+        "redact_query_string": true,
+        "logs": { "enabled": true },
+        "traces": { "enabled": true, "head_sampling_rate": 0.1 },
+    },
     "env": {
         "staging": {
             "name": "dalyidau-staging",
@@ -76,7 +82,12 @@
                 "IMAGE_TRANSFORMS": "off",
                 "EMAIL_DELIVERY": "off",
             },
-            "observability": { "enabled": true },
+            "observability": {
+                "enabled": true,
+                "redact_query_string": true,
+                "logs": { "enabled": true },
+                "traces": { "enabled": true, "head_sampling_rate": 0.1 },
+            },
         },
     },
 }

@@ -4,6 +4,7 @@ import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { invitationUrl } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
 import { cateringSummary } from "./catering";
@@ -11,8 +12,10 @@ import { deliveryAvailable, getMessage, listMessages } from "./comms";
 import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
+import { portalOverview } from "./overview";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
+import { listQuestions, questionSummaries } from "./rsvp-questions";
 import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
 import { computeStats } from "./stats";
@@ -33,6 +36,12 @@ interface PageDef {
 }
 
 const PAGES: PageDef[] = [
+    {
+        pattern: /^\/portal$/,
+        title: "Portal",
+        permission: "wedding.view",
+        load: async ({ env }) => ({ route: "portal-home", overview: await portalOverview(env.DB) }),
+    },
     {
         pattern: /^\/portal\/wedding$/,
         title: "Dashboard",
@@ -70,7 +79,18 @@ const PAGES: PageDef[] = [
         pattern: /^\/portal\/wedding\/households$/,
         title: "Households",
         permission: "wedding.view",
-        load: async ({ env }) => ({ route: "households", households: await listEntities(env.DB, householdDef) }),
+        load: async ({ env }) => {
+            const households = await listEntities(env.DB, householdDef);
+            return {
+                route: "households",
+                households: await Promise.all(
+                    households.map(async (household) => ({
+                        ...household,
+                        invitationUrl: household.inviteRevokedAt ? null : await invitationUrl(env, household.id, household.inviteVersion),
+                    })),
+                ),
+            };
+        },
     },
     {
         pattern: /^\/portal\/wedding\/events$/,
@@ -83,14 +103,16 @@ const PAGES: PageDef[] = [
         title: "RSVPs",
         permission: "wedding.view",
         load: async ({ env, user, flags }) => {
-            const [events, stats, submissions, settings, households] = await Promise.all([
+            const [events, stats, submissions, settings, households, questions, summaries] = await Promise.all([
                 listEntities(env.DB, eventDef),
                 computeStats(env.DB, user, flags),
                 listSubmissions(env.DB),
                 getSettings(env.DB, "rsvp"),
                 householdResponseCounts(env.DB),
+                listQuestions(env.DB),
+                questionSummaries(env.DB),
             ]);
-            return { route: "rsvps", events, stats, submissions, settings, households };
+            return { route: "rsvps", events, stats, submissions, settings, households, questions, summaries };
         },
     },
     {

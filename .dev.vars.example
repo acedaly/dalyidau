@@ -11,3 +11,5 @@ SITE_URL=http://localhost:8787
 # Works only with ENVIRONMENT=development and a localhost SITE_URL.
 ACCESS_DEV_EMAIL=you@example.com
 PORTAL_OWNER_EMAILS=you@example.com
+# Local-only HMAC key for native RSVP invitation links. Use a different Wrangler secret per deployed environment.
+RSVP_LINK_SECRET=local-rsvp-link-secret-change-me-32-bytes-minimum

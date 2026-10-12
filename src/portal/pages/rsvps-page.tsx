@@ -18,6 +18,7 @@ import { api } from "@/portal/lib/api";
 import { formatDate, formatNumber, percent } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
+import { QuestionBuilder } from "@/portal/rsvps/question-builder";
 import type { RsvpSettings, RsvpSubmission } from "@/shared/portal/types";
 
 type HouseholdRow = PageData<"rsvps">["households"][number];
@@ -187,6 +188,9 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                     <Tabs.Item id="responses" badge={data.submissions.length || undefined}>
                         Online responses
                     </Tabs.Item>
+                    <Tabs.Item id="questions" badge={data.questions.filter((question) => question.published && !question.archived).length || undefined}>
+                        Questions
+                    </Tabs.Item>
                     <Tabs.Item id="settings">Settings</Tabs.Item>
                 </Tabs.List>
                 <Tabs.Panel id="households" className="pt-6">
@@ -225,6 +229,14 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                                 }
                             />
                         }
+                    />
+                </Tabs.Panel>
+                <Tabs.Panel id="questions" className="pt-6">
+                    <QuestionBuilder
+                        initialQuestions={data.questions}
+                        initialSummaries={data.summaries}
+                        events={data.events}
+                        canEdit={can("wedding.rsvp.edit")}
                     />
                 </Tabs.Panel>
                 <Tabs.Panel id="settings" className="pt-6">
@@ -266,6 +278,20 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                                     label="Allow a message to the couple"
                                     isSelected={draft.collectMessage}
                                     onChange={(v) => setDraft({ ...draft, collectMessage: v })}
+                                />
+                            </FormSection>
+                            <FormSection title="Invitation links" description="Long signed links are recommended. Short codes can be retained as a fallback.">
+                                <Toggle
+                                    label="Allow guests to enter short RSVP codes"
+                                    isSelected={draft.allowCodes}
+                                    onChange={(allowCodes) => setDraft({ ...draft, allowCodes })}
+                                />
+                                <Input
+                                    label="Link expiry after the deadline (days)"
+                                    type="number"
+                                    value={String(draft.linkExpiryDays)}
+                                    onChange={(value) => setDraft({ ...draft, linkExpiryDays: Number(value) || 0 })}
+                                    hint="Use 0 to keep signed links valid until they are rotated or revoked."
                                 />
                             </FormSection>
                         </fieldset>

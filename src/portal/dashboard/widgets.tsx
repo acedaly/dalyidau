@@ -94,6 +94,19 @@ export const WIDGETS: Record<WidgetType, WidgetDefinition> = {
             );
         },
     },
+    "invitation-readiness": {
+        title: "Invitation links",
+        description: "Secure household RSVP links.",
+        defaultSize: "sm",
+        available: () => true,
+        link: { href: "/portal/wedding/households", label: "Manage links" },
+        render: ({ stats }) => (
+            <div className="flex flex-col gap-4">
+                <Stat label="Active links" value={formatNumber(stats.invitations.active)} sub={`${formatNumber(stats.invitations.revoked)} revoked`} />
+                {stats.invitations.revoked > 0 && <p className="text-xs text-warning-primary">Revoked households need a restored link before native RSVP.</p>}
+            </div>
+        ),
+    },
     "event-attendance": {
         title: "Attendance by event",
         description: "Replies for each event.",
@@ -292,6 +305,46 @@ export const WIDGETS: Record<WidgetType, WidgetDefinition> = {
                     ))}
                 </ul>
             ),
+    },
+    "seating-readiness": {
+        title: "Seating readiness",
+        description: "Attending guests flowing into the plan.",
+        defaultSize: "sm",
+        available: ({ flags }) => flags["module.planning"],
+        link: { href: "/portal/wedding/seating", label: "Open seating" },
+        render: ({ stats }) => {
+            const seating = stats.seating;
+            if (!seating || seating.attending === 0) return <Quiet>No attending guests need seats yet.</Quiet>;
+            return (
+                <div className="flex flex-col gap-4">
+                    <ProgressBar
+                        labelPosition="bottom"
+                        value={percent(seating.seated, seating.attending)}
+                        valueFormatter={() => `${seating.seated} of ${seating.attending} attending guests seated`}
+                    />
+                    <p className="text-xs text-tertiary">{seating.mealsUndecided} attending guests still need a meal decision.</p>
+                </div>
+            );
+        },
+    },
+    "communications-status": {
+        title: "Communications",
+        description: "Prepared, scheduled and delivered messages.",
+        defaultSize: "sm",
+        available: ({ flags }) => flags["module.communications"],
+        link: { href: "/portal/wedding/communications", label: "Open communications" },
+        render: ({ stats }) => {
+            const communications = stats.communications;
+            if (!communications) return null;
+            return (
+                <div className="grid grid-cols-2 gap-4">
+                    <Stat label="Drafts" value={communications.drafts} />
+                    <Stat label="Scheduled" value={communications.queued} />
+                    <Stat label="Sent" value={communications.sent} />
+                    <Stat label="Failed" value={communications.failed} />
+                </div>
+            );
+        },
     },
 };
 

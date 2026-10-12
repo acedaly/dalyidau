@@ -9,6 +9,7 @@ import { EventsPage } from "@/portal/pages/events-page";
 import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
 import { MessagePage } from "@/portal/pages/message-page";
+import { PortalHomePage } from "@/portal/pages/portal-home-page";
 import { RsvpsPage } from "@/portal/pages/rsvps-page";
 import { SeatingPage } from "@/portal/pages/seating-page";
 import { SettingsPage } from "@/portal/pages/settings-page";
@@ -23,6 +24,8 @@ import type { PortalPageData } from "@/shared/portal/types";
 
 const Page = ({ data }: { data: PortalPageData }) => {
     switch (data.route) {
+        case "portal-home":
+            return <PortalHomePage data={data} />;
         case "dashboard":
             return <DashboardPage data={data} />;
         case "guests":

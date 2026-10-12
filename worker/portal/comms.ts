@@ -6,8 +6,10 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { MERGE_FIELDS } from "../../src/shared/portal/merge-fields";
+import { MESSAGE_CATEGORIES } from "../../src/shared/portal/types";
 import type { Audience, Guest, Message, MessageRecipient, WeddingDetails } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { invitationUrl } from "../wedding/invitations";
 import { auditStatement, newId, nowIso, parseJson } from "./db";
 import { NotFoundError, ValidationError } from "./entities";
 import { isEnabled } from "./flags";
@@ -34,8 +36,8 @@ const formatDate = (iso: string) => {
 interface MergeContext {
     wedding: WeddingDetails;
     rsvpDeadline: string;
-    rsvpLink: (code: string | null) => string;
-    householdCodes: Map<string, { name: string; code: string }>;
+    fallbackRsvpLink: string;
+    householdCodes: Map<string, { name: string; code: string; link: string | null }>;
 }
 
 async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
@@ -43,14 +45,30 @@ async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
         getSettings(db, "wedding"),
         getSettings(db, "rsvp"),
         isEnabled(db, "rsvp.native"),
-        db.prepare("SELECT id, name, rsvp_code FROM households WHERE deleted_at IS NULL").all<{ id: string; name: string; rsvp_code: string }>(),
+        db
+            .prepare("SELECT id, name, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL")
+            .all<{ id: string; name: string; rsvp_code: string; invite_version: number; invite_revoked_at: string | null }>(),
     ]);
     const site = env.SITE_URL.replace(/\/+$/, "");
     return {
         wedding,
         rsvpDeadline: formatDate(rsvp.deadline),
-        rsvpLink: (code) => (native ? `${site}/wedding/rsvp${code ? `?code=${encodeURIComponent(code)}` : ""}` : rsvp.externalUrl || `${site}/wedding`),
-        householdCodes: new Map(households.results.map((h) => [h.id, { name: h.name, code: h.rsvp_code }])),
+        fallbackRsvpLink: native ? `${site}/wedding/rsvp` : rsvp.externalUrl || `${site}/wedding`,
+        householdCodes: new Map(
+            await Promise.all(
+                households.results.map(
+                    async (h) =>
+                        [
+                            h.id,
+                            {
+                                name: h.name,
+                                code: h.rsvp_code,
+                                link: h.invite_revoked_at ? null : await invitationUrl(env, h.id, h.invite_version),
+                            },
+                        ] as const,
+                ),
+            ),
+        ),
     };
 }
 
@@ -62,7 +80,7 @@ const valuesFor = (guest: Pick<Guest, "firstName" | "lastName" | "householdId">,
         full_name: `${guest.firstName} ${guest.lastName}`.trim(),
         household_name: household?.name ?? `${guest.firstName} ${guest.lastName}`.trim(),
         rsvp_code: household?.code ?? "",
-        rsvp_link: context.rsvpLink(household?.code ?? null),
+        rsvp_link: household?.link ?? context.fallbackRsvpLink,
         rsvp_deadline: context.rsvpDeadline,
         couple_names: `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`,
         wedding_date: formatDate(context.wedding.date),
@@ -82,6 +100,14 @@ export const audienceSchema = z.object({
     groupName: z.string().max(80).nullable().optional(),
     tag: z.string().max(40).nullable().optional(),
     guestIds: z.array(z.string().max(40)).max(2000).optional(),
+    ageGroup: z
+        .array(z.enum(["adult", "child", "infant"]))
+        .max(3)
+        .optional(),
+    contactPreference: z
+        .array(z.enum(["email", "post", "phone", "none"]))
+        .max(4)
+        .optional(),
 });
 
 export const matchesAudience = (guest: Guest, audience: Audience) => {
@@ -95,6 +121,8 @@ export const matchesAudience = (guest: Guest, audience: Audience) => {
     if (audience.side?.length && !audience.side.includes(guest.side)) return false;
     if (audience.groupName && guest.groupName !== audience.groupName) return false;
     if (audience.tag && !guest.tags.includes(audience.tag)) return false;
+    if (audience.ageGroup?.length && !audience.ageGroup.includes(guest.ageGroup)) return false;
+    if (audience.contactPreference?.length && !audience.contactPreference.includes(guest.contactPreference)) return false;
     return true;
 };
 
@@ -113,6 +141,12 @@ const messageSchema = z.object({
     subject: z.string().trim().min(1, "Subject is required").max(200),
     body: z.string().trim().min(1, "Body is required").max(20_000),
     audience: audienceSchema,
+    category: z.enum(MESSAGE_CATEGORIES).default("update"),
+    scheduledAt: z
+        .string()
+        .nullable()
+        .optional()
+        .refine((value) => !value || Number.isFinite(Date.parse(value)), "Choose a valid date and time"),
 });
 
 const toMessage = (row: Record<string, unknown>): Message => ({
@@ -121,11 +155,13 @@ const toMessage = (row: Record<string, unknown>): Message => ({
     subject: row.subject as string,
     body: row.body as string,
     audience: parseJson<Audience>(row.audience, {}),
+    category: (row.category as Message["category"]) ?? "update",
     status: row.status as Message["status"],
     recipientCount: Number(row.recipient_count ?? 0),
     deliveryNote: (row.delivery_note as string | null) ?? null,
     createdBy: row.created_by as string,
     createdAt: row.created_at as string,
+    scheduledAt: (row.scheduled_at as string | null) ?? null,
     sentAt: (row.sent_at as string | null) ?? null,
 });
 
@@ -138,7 +174,7 @@ export async function getMessage(db: D1Database, id: string): Promise<{ message:
     const row = await db.prepare("SELECT * FROM messages WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!row) return null;
     const recipients = await db
-        .prepare("SELECT guest_id, name, email, status, error, sent_at FROM message_recipients WHERE message_id = ? ORDER BY name COLLATE NOCASE")
+        .prepare("SELECT guest_id, name, email, status, error, sent_at, provider_id FROM message_recipients WHERE message_id = ? ORDER BY name COLLATE NOCASE")
         .bind(id)
         .all<Record<string, unknown>>();
     return {
@@ -150,6 +186,7 @@ export async function getMessage(db: D1Database, id: string): Promise<{ message:
             status: r.status as MessageRecipient["status"],
             error: (r.error as string | null) ?? null,
             sentAt: (r.sent_at as string | null) ?? null,
+            providerId: (r.provider_id as string | null) ?? null,
         })),
     };
 }
@@ -161,27 +198,55 @@ export async function prepareMessage(db: D1Database, input: unknown, actor: stri
     if (unknown.length) throw new ValidationError(`Unknown merge field${unknown.length > 1 ? "s" : ""}: ${unknown.map((k) => `{{${k}}}`).join(", ")}`, "body");
     const guests = (await listGuests(db)).filter((g) => matchesAudience(g, data.audience));
     if (guests.length === 0) throw new ValidationError("No guests match this audience", "audience");
+    if (data.scheduledAt && Date.parse(data.scheduledAt) <= Date.now()) throw new ValidationError("Choose a future sending time", "scheduledAt");
+
+    const duplicateInvitations = new Set<string>();
+    if (data.category === "invitation") {
+        const rows = await db
+            .prepare(
+                `SELECT DISTINCT mr.guest_id FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+                 WHERE m.category = 'invitation' AND m.status IN ('draft', 'queued', 'sending', 'sent', 'partial')
+                   AND mr.status IN ('pending', 'sent')`,
+            )
+            .all<{ guest_id: string }>();
+        for (const row of rows.results) duplicateInvitations.add(row.guest_id);
+    }
 
     const id = newId("msg");
     const now = nowIso();
     const statements = [
         db
             .prepare(
-                "INSERT INTO messages (id, template_id, subject, body, audience, status, recipient_count, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)",
+                "INSERT INTO messages (id, template_id, subject, body, audience, category, status, recipient_count, created_by, created_at, scheduled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .bind(id, data.templateId ?? null, data.subject, data.body, JSON.stringify(data.audience), guests.length, actor, now),
-        ...guests.map((g) =>
-            db
+            .bind(
+                id,
+                data.templateId ?? null,
+                data.subject,
+                data.body,
+                JSON.stringify(data.audience),
+                data.category,
+                data.scheduledAt ? "queued" : "draft",
+                guests.length,
+                actor,
+                now,
+                data.scheduledAt ?? null,
+            ),
+        ...guests.map((g) => {
+            const duplicate = duplicateInvitations.has(g.id);
+            const status = g.email && !duplicate ? "pending" : "skipped";
+            const error = duplicate ? "Invitation already prepared or sent" : g.email ? null : "No email address";
+            return db
                 .prepare("INSERT INTO message_recipients (message_id, guest_id, name, email, status, error) VALUES (?, ?, ?, ?, ?, ?)")
-                .bind(id, g.id, `${g.firstName} ${g.lastName}`.trim(), g.email, g.email ? "pending" : "skipped", g.email ? null : "No email address"),
-        ),
+                .bind(id, g.id, `${g.firstName} ${g.lastName}`.trim(), g.email, status, error);
+        }),
         auditStatement(db, {
             actor,
             action: "message.prepare",
             entityType: "message",
             entityId: id,
-            summary: `Prepared “${data.subject}” for ${guests.length} guests`,
-            changes: { audience: data.audience },
+            summary: `${data.scheduledAt ? "Scheduled" : "Prepared"} “${data.subject}” for ${guests.length} guests`,
+            changes: { audience: data.audience, category: data.category, scheduledAt: data.scheduledAt ?? null, duplicates: duplicateInvitations.size },
         }),
     ];
     for (let i = 0; i < statements.length; i += 400) await db.batch(statements.slice(i, i + 400));
@@ -231,15 +296,18 @@ export async function mergeRows(env: Env, db: D1Database, messageId: string) {
 
 export interface DeliveryProvider {
     name: string;
-    send(message: { to: string; toName: string; subject: string; text: string }): Promise<void>;
+    send(message: { to: string; toName: string; subject: string; text: string }): Promise<{ providerId: string | null }>;
 }
 
-/**
- * The configured provider, or null. Only "log" exists today, and only outside production: it writes
- * the message to the Worker log instead of sending it, which is how delivery is exercised in tests
- * and local development. A real provider (Cloudflare Email Service) is a documented next step and
- * needs the owner's approval before it is configured.
- */
+const htmlForText = (text: string) => {
+    const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return escaped
+        .split(/\n{2,}/)
+        .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`)
+        .join("");
+};
+
+/** The configured provider, or null. Production remains off until EMAIL_DELIVERY changes deliberately. */
 export const deliveryProvider = (env: Env): DeliveryProvider | null => {
     const mode = (env.EMAIL_DELIVERY ?? "off").trim().toLowerCase();
     if (mode === "log" && env.ENVIRONMENT !== "production") {
@@ -247,6 +315,22 @@ export const deliveryProvider = (env: Env): DeliveryProvider | null => {
             name: "log",
             async send(message) {
                 console.log(JSON.stringify({ event: "email_logged", to: message.to, subject: message.subject }));
+                return { providerId: `log_${crypto.randomUUID()}` };
+            },
+        };
+    }
+    if (mode === "cloudflare" && env.EMAIL && env.EMAIL_FROM) {
+        return {
+            name: "cloudflare-email-service",
+            async send(message) {
+                const result = await env.EMAIL!.send({
+                    to: { email: message.to, name: message.toName },
+                    from: env.EMAIL_FROM!,
+                    subject: message.subject,
+                    text: message.text,
+                    html: htmlForText(message.text),
+                });
+                return { providerId: result.messageId };
             },
         };
     }
@@ -257,7 +341,7 @@ export async function deliveryAvailable(env: Env, db: D1Database) {
     return !!deliveryProvider(env) && (await isEnabled(db, "communications.delivery"));
 }
 
-export async function sendMessage(env: Env, db: D1Database, id: string, actor: string): Promise<Message> {
+export async function sendMessage(env: Env, db: D1Database, id: string, actor: string, scheduledOnly = false): Promise<Message> {
     const provider = deliveryProvider(env);
     if (!provider || !(await isEnabled(db, "communications.delivery"))) {
         throw new ValidationError(
@@ -267,10 +351,16 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
     }
     const found = await getMessage(db, id);
     if (!found) throw new NotFoundError("Message not found");
-    if (found.message.status !== "draft") throw new ValidationError("This message has already been sent", "status");
+    const sendable = scheduledOnly ? found.message.status === "queued" : found.message.status === "draft" || found.message.status === "queued";
+    if (!sendable) throw new ValidationError("This message has already been sent", "status");
+    if (scheduledOnly && (!found.message.scheduledAt || Date.parse(found.message.scheduledAt) > Date.now()))
+        throw new ValidationError("This message is not due yet", "scheduledAt");
 
     // Claim the message so a double click cannot send twice.
-    const claimed = await db.prepare("UPDATE messages SET status = 'sending' WHERE id = ? AND status = 'draft' RETURNING id").bind(id).first();
+    const claimed = await db
+        .prepare(`UPDATE messages SET status = 'sending' WHERE id = ? AND status IN (${scheduledOnly ? "'queued'" : "'draft', 'queued'"}) RETURNING id`)
+        .bind(id)
+        .first();
     if (!claimed) throw new ValidationError("This message is already being sent", "status");
 
     const rows = await mergeRows(env, db, id);
@@ -280,11 +370,11 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
         if (row.status !== "pending") continue;
         const recipient = { guestId: row.guestId };
         try {
-            await provider.send({ to: row.email, toName: row.name, subject: row.subject, text: row.body });
+            const result = await provider.send({ to: row.email, toName: row.name, subject: row.subject, text: row.body });
             sent++;
             await db
-                .prepare("UPDATE message_recipients SET status = 'sent', sent_at = ?, error = NULL WHERE message_id = ? AND guest_id = ?")
-                .bind(nowIso(), id, recipient.guestId)
+                .prepare("UPDATE message_recipients SET status = 'sent', sent_at = ?, error = NULL, provider_id = ? WHERE message_id = ? AND guest_id = ?")
+                .bind(nowIso(), result.providerId, id, recipient.guestId)
                 .run();
         } catch (error) {
             failed++;
@@ -310,10 +400,46 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
     return (await getMessage(db, id))!.message;
 }
 
+/** Processes the D1-backed scheduled queue. Safe to call from every cron; each message is claimed atomically. */
+export async function processDueMessages(env: Env, limit = 10) {
+    if (!(await deliveryAvailable(env, env.DB))) return { processed: 0 };
+    const due = await env.DB.prepare("SELECT id FROM messages WHERE status = 'queued' AND scheduled_at <= ? ORDER BY scheduled_at LIMIT ?")
+        .bind(nowIso(), limit)
+        .all<{ id: string }>();
+    let processed = 0;
+    for (const row of due.results) {
+        try {
+            await sendMessage(env, env.DB, row.id, "system:scheduled", true);
+            processed++;
+        } catch (error) {
+            console.error(JSON.stringify({ event: "scheduled_email_failed", messageId: row.id, message: (error as Error).message }));
+        }
+    }
+    return { processed };
+}
+
+export async function cancelScheduledMessage(db: D1Database, id: string, actor: string) {
+    const found = await getMessage(db, id);
+    if (!found) throw new NotFoundError("Message not found");
+    if (found.message.status !== "queued") throw new ValidationError("Only scheduled messages can be cancelled", "status");
+    await db.batch([
+        db.prepare("UPDATE messages SET status = 'draft', scheduled_at = NULL WHERE id = ? AND status = 'queued'").bind(id),
+        auditStatement(db, {
+            actor,
+            action: "message.unschedule",
+            entityType: "message",
+            entityId: id,
+            summary: `Cancelled scheduled delivery of “${found.message.subject}”`,
+        }),
+    ]);
+    return (await getMessage(db, id))!.message;
+}
+
 export async function deleteDraft(db: D1Database, id: string, actor: string) {
     const found = await getMessage(db, id);
     if (!found) throw new NotFoundError("Message not found");
-    if (found.message.status !== "draft") throw new ValidationError("Only drafts can be deleted; sent messages are kept as history", "status");
+    if (!["draft", "queued"].includes(found.message.status))
+        throw new ValidationError("Only drafts can be deleted; sent messages are kept as history", "status");
     await db.batch([
         db.prepare("DELETE FROM messages WHERE id = ?").bind(id),
         auditStatement(db, { actor, action: "message.delete", entityType: "message", entityId: id, summary: `Deleted draft “${found.message.subject}”` }),

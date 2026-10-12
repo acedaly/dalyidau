@@ -13,6 +13,44 @@ import { getSettings } from "./settings";
 
 const money = (cents: number | null) => (cents === null ? "" : (cents / 100).toFixed(2));
 
+const PORTAL_EXPORT_TABLES = [
+    "portal_users",
+    "audit_log",
+    "feature_flags",
+    "settings",
+    "dashboard_layouts",
+    "households",
+    "guests",
+    "events",
+    "guest_events",
+    "custom_fields",
+    "rsvp_submissions",
+    "rsvp_questions",
+    "rsvp_answers",
+    "message_templates",
+    "messages",
+    "message_recipients",
+    "tasks",
+    "timeline_items",
+    "suppliers",
+    "budget_items",
+    "seating_tables",
+    "seat_assignments",
+    "seating_snapshots",
+    "website_media",
+] as const;
+
+/** Complete portable portal export. Rate-limit hashes and blog/sync data are intentionally excluded. */
+export async function fullJsonExport(db: D1Database) {
+    const results = await db.batch(PORTAL_EXPORT_TABLES.map((table) => db.prepare(`SELECT * FROM ${table}`)));
+    return {
+        format: "dalyidau-wedding-portal",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        tables: Object.fromEntries(PORTAL_EXPORT_TABLES.map((table, index) => [table, results[index].results])),
+    };
+}
+
 export interface ExportDef {
     label: string;
     permission: Permission;

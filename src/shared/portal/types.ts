@@ -187,6 +187,9 @@ export interface Household {
     country: string | null;
     notes: string | null;
     guestCount: number;
+    inviteVersion: number;
+    inviteRevokedAt: string | null;
+    invitationUrl?: string | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -235,6 +238,10 @@ export interface RsvpSubmission {
 export interface RsvpSubmissionPayload {
     guests: { guestId: string; name: string; events: Record<string, "attending" | "declined">; dietary?: string | null }[];
     email?: string | null;
+    answers?: {
+        household: Record<string, AnswerValue>;
+        guests: Record<string, Record<string, AnswerValue>>;
+    };
 }
 
 export interface MessageTemplate {
@@ -242,11 +249,14 @@ export interface MessageTemplate {
     name: string;
     subject: string;
     body: string;
+    category: MessageCategory;
     createdAt: string;
     updatedAt: string;
 }
 
 export type MessageStatus = "draft" | "queued" | "sending" | "sent" | "partial" | "failed";
+export const MESSAGE_CATEGORIES = ["save_the_date", "invitation", "reminder", "update", "thank_you"] as const;
+export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number];
 
 export interface Audience {
     rsvp?: (RsvpStatus | "not_invited")[];
@@ -256,6 +266,8 @@ export interface Audience {
     tag?: string | null;
     /** When set, only these guests (still filtered to guests with an email address). */
     guestIds?: string[];
+    ageGroup?: AgeGroup[];
+    contactPreference?: ContactPreference[];
 }
 
 export interface Message {
@@ -264,11 +276,13 @@ export interface Message {
     subject: string;
     body: string;
     audience: Audience;
+    category: MessageCategory;
     status: MessageStatus;
     recipientCount: number;
     deliveryNote: string | null;
     createdBy: string;
     createdAt: string;
+    scheduledAt: string | null;
     sentAt: string | null;
 }
 
@@ -279,6 +293,7 @@ export interface MessageRecipient {
     status: "pending" | "sent" | "failed" | "skipped";
     error: string | null;
     sentAt: string | null;
+    providerId: string | null;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "done";
@@ -396,6 +411,9 @@ export const WIDGET_TYPES = [
     "recent-activity",
     "rsvp-responses",
     "response-trend",
+    "invitation-readiness",
+    "seating-readiness",
+    "communications-status",
 ] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 export type WidgetSize = "sm" | "md" | "lg";
@@ -418,6 +436,21 @@ export interface DashboardStats {
     recentResponses: { householdName: string; submittedAt: string; attending: number; declined: number }[];
     /** Cumulative count of guests who have answered at least one invitation, by day (wedding time zone not applied; UTC days). */
     responseTrend: { date: string; responded: number }[];
+    invitations: { active: number; revoked: number };
+    seating: { attending: number; seated: number; unseated: number; mealsUndecided: number } | null;
+    communications: { drafts: number; queued: number; sent: number; failed: number } | null;
+}
+
+export interface PortalOverview {
+    guests: number;
+    pendingRsvps: number;
+    attending: number;
+    unseated: number;
+    cateringUndecided: number;
+    queuedMessages: number;
+    failedDeliveries: number;
+    activeInvitationLinks: number;
+    revokedInvitationLinks: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -431,6 +464,7 @@ export interface PortalContext {
 }
 
 export type PortalRoute =
+    | { route: "portal-home"; overview: PortalOverview }
     | { route: "dashboard"; stats: DashboardStats; widgets: DashboardWidget[] }
     | {
           route: "guests";
@@ -450,6 +484,8 @@ export type PortalRoute =
           submissions: RsvpSubmission[];
           settings: RsvpSettings;
           households: (Pick<Household, "id" | "name" | "rsvpCode"> & { guests: number; responded: number })[];
+          questions: RsvpQuestion[];
+          summaries: QuestionSummary[];
       }
     | {
           route: "communications";
@@ -500,6 +536,11 @@ export interface RsvpHousehold {
     responses: Record<string, Record<string, RsvpStatus>>;
     collectDietary: boolean;
     collectMessage: boolean;
+    questions: RsvpQuestion[];
+    answers: {
+        household: Record<string, AnswerValue>;
+        guests: Record<string, Record<string, AnswerValue>>;
+    };
 }
 
 export interface PublicEvent {

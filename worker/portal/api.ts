@@ -6,21 +6,34 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
 import { cateringSummary } from "./catering";
-import { audiencePreview, deleteDraft, deliveryAvailable, getMessage, listMessages, mergeRows, prepareMessage, previewMessage, sendMessage } from "./comms";
+import {
+    audiencePreview,
+    cancelScheduledMessage,
+    deleteDraft,
+    deliveryAvailable,
+    getMessage,
+    listMessages,
+    mergeRows,
+    prepareMessage,
+    previewMessage,
+    sendMessage,
+} from "./comms";
 import { csvResponse, toCsv } from "./csv";
 import { getLayout, resetLayout, saveLayout } from "./dashboard";
 import { audit, auditStatement, newRsvpCode, nowIso } from "./db";
 import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity, getEntity, householdDef, listEntities, updateEntity } from "./entities";
-import { EXPORTS } from "./exports";
+import { EXPORTS, fullJsonExport } from "./exports";
 import { loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
 import { importGuests } from "./import";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
+import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
@@ -131,6 +144,21 @@ add("GET", "/api/portal/audit", "portal.audit.view", async ({ env, url }) => jso
 
 // --- Exports --------------------------------------------------------------------------------------
 
+add("GET", "/api/portal/export/all.json", "wedding.export", async ({ env, user }) => {
+    const body = await fullJsonExport(env.DB);
+    await audit(env.DB, {
+        actor: user.email,
+        action: "export.full",
+        entityType: "export",
+        entityId: "all",
+        summary: "Exported all wedding portal data (JSON)",
+    });
+    return json(body, 200, {
+        "Content-Disposition": `attachment; filename="wedding-portal-${nowIso().slice(0, 10)}.json"`,
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
+});
+
 add(
     "GET",
     "/api/portal/export/:name",
@@ -211,6 +239,38 @@ add("POST", "/api/portal/wedding/households/:id/code", "wedding.guests.edit", as
         }),
     ]);
     return json({ household: await getEntity(env.DB, householdDef, params.id) });
+});
+
+add("POST", "/api/portal/wedding/households/:id/invitation", "wedding.guests.edit", async ({ env, request, user, params }) => {
+    const before = await getEntity(env.DB, householdDef, params.id);
+    if (!before) throw new NotFoundError("Household not found");
+    const { action } = z.object({ action: z.enum(["rotate", "revoke", "restore"]) }).parse(await readJson(request));
+    if ((action === "rotate" || action === "restore") && !invitationLinksConfigured(env))
+        throw new HttpError(503, "not_configured", "RSVP_LINK_SECRET must contain at least 32 bytes before invitation links can be issued");
+    const now = nowIso();
+    const nextVersion = action === "rotate" ? before.inviteVersion + 1 : before.inviteVersion;
+    const revokedAt = action === "revoke" ? now : null;
+    await env.DB.batch([
+        env.DB.prepare("UPDATE households SET invite_version = ?, invite_revoked_at = ?, updated_at = ? WHERE id = ?").bind(
+            nextVersion,
+            revokedAt,
+            now,
+            params.id,
+        ),
+        auditStatement(env.DB, {
+            actor: user.email,
+            action: `household.invitation.${action}`,
+            entityType: "household",
+            entityId: params.id,
+            summary: `${action === "revoke" ? "Revoked" : action === "rotate" ? "Rotated" : "Restored"} invitation link for “${before.name}”`,
+        }),
+    ]);
+    const household = await getEntity(env.DB, householdDef, params.id);
+    return json({
+        household: household
+            ? { ...household, invitationUrl: household.inviteRevokedAt ? null : await invitationUrl(env, household.id, household.inviteVersion) }
+            : null,
+    });
 });
 
 add("DELETE", "/api/portal/wedding/households/:id", "wedding.guests.edit", async ({ env, user, params }) => {
@@ -305,6 +365,22 @@ add(
 );
 add("GET", "/api/portal/wedding/catering", "wedding.view", async ({ env }) => json(await cateringSummary(env.DB)), "module.planning");
 
+// --- RSVP questions ------------------------------------------------------------------------------
+
+add("GET", "/api/portal/wedding/rsvp-questions", "wedding.view", async ({ env }) =>
+    json({ questions: await listQuestions(env.DB), summaries: await questionSummaries(env.DB) }),
+);
+add("POST", "/api/portal/wedding/rsvp-questions", "wedding.rsvp.edit", async ({ env, request, user }) =>
+    json({ question: await saveQuestion(env.DB, null, await readJson(request), user.email) }, 201),
+);
+add("PATCH", "/api/portal/wedding/rsvp-questions/:id", "wedding.rsvp.edit", async ({ env, request, user, params }) =>
+    json({ question: await saveQuestion(env.DB, params.id, await readJson(request), user.email) }),
+);
+add("DELETE", "/api/portal/wedding/rsvp-questions/:id", "wedding.rsvp.edit", async ({ env, user, params }) => {
+    await archiveQuestion(env.DB, params.id, user.email);
+    return json({ ok: true });
+});
+
 // --- Communications -------------------------------------------------------------------------------
 
 add("GET", "/api/portal/wedding/messages", "wedding.view", async ({ env }) => json({ messages: await listMessages(env.DB) }), "module.communications");
@@ -350,6 +426,13 @@ add(
     "/api/portal/wedding/messages/:id/send",
     "wedding.comms.send",
     async ({ env, user, params }) => json({ message: await sendMessage(env, env.DB, params.id, user.email) }),
+    "module.communications",
+);
+add(
+    "POST",
+    "/api/portal/wedding/messages/:id/unschedule",
+    "wedding.comms.edit",
+    async ({ env, user, params }) => json({ message: await cancelScheduledMessage(env.DB, params.id, user.email) }),
     "module.communications",
 );
 add(

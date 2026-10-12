@@ -54,6 +54,10 @@ interface NavEntry {
 
 const SECTIONS: { label: string; items: NavEntry[] }[] = [
     {
+        label: "Overview",
+        items: [{ label: "Portal home", href: "/portal", icon: BarChartSquare02 }],
+    },
+    {
         label: "Wedding",
         items: [
             { label: "Dashboard", href: "/portal/wedding", icon: BarChartSquare02 },
@@ -94,7 +98,7 @@ const SECTIONS: { label: string; items: NavEntry[] }[] = [
 const SIDEBAR_WIDTH = 280;
 
 const Logo = () => (
-    <a href="/portal/wedding" className="group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4">
+    <a href="/portal" className="group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4">
         <span
             aria-hidden="true"
             className="flex size-8 items-center justify-center rounded-lg bg-brand-solid text-xs font-bold tracking-wide text-white shadow-xs-skeuomorphic"

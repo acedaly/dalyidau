@@ -8,6 +8,7 @@ import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { handlePortalApi } from "./portal/api";
 import { type AuthResult, authenticate } from "./portal/auth";
+import { processDueMessages } from "./portal/comms";
 import { loadFlags } from "./portal/flags";
 import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { loadPortalPage } from "./portal/pages";
@@ -38,6 +39,7 @@ export default {
 
     async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
+        ctx.waitUntil(processDueMessages(env).then(() => undefined));
     },
 };
 
@@ -221,8 +223,6 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     const auth = await authenticate(request, env);
     if (!auth.ok) return accessDenied(auth);
     const path = url.pathname;
-    if (path === "/portal") return redirect(url, "/portal/wedding");
-
     const preview = /^\/portal\/wedding\/website\/preview(\/rsvp)?$/.exec(path);
     if (preview) {
         const data = await loadWeddingPage(env.DB, preview[1] ? "rsvp" : "home", true);
@@ -341,15 +341,13 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
         if (request.method !== "POST") return apiJson({ error: "method_not_allowed" }, 405, { Allow: "POST" });
         checkMutation(request, env);
         const body = await readJson(request, 50_000);
-        const household = action === "lookup" ? await lookupRsvp(env.DB, request, body) : await submitRsvp(env.DB, request, body);
+        const household = action === "lookup" ? await lookupRsvp(env, request, body) : await submitRsvp(env, request, body);
         return apiJson({ household });
     } catch (error) {
         if (error instanceof RsvpError) return apiJson({ error: error.code, message: error.message }, error.status);
         return errorResponse(error, new URL(request.url).pathname);
     }
 }
-
-const redirect = (url: URL, to: string) => new Response(null, { status: 302, headers: { Location: `${url.origin}${to}`, "Cache-Control": "no-store" } });
 
 /**
  * Edge-caches successful HTML. The key includes the app build and the content version, which

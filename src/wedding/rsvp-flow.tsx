@@ -4,14 +4,17 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { RadioButton, RadioGroup } from "@/components/base/radio-buttons/radio-buttons";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { formatDate, formatTime } from "@/portal/lib/format";
-import type { RsvpHousehold } from "@/shared/portal/types";
+import { questionApplies } from "@/shared/portal/rsvp-questions";
+import type { AnswerValue, RsvpHousehold, RsvpQuestion } from "@/shared/portal/types";
 import { Sprig } from "@/wedding/components/ornament";
 
 type Answers = Record<string, { events: Record<string, "attending" | "declined" | undefined>; dietary: string }>;
+type QuestionAnswers = { household: Record<string, AnswerValue>; guests: Record<string, Record<string, AnswerValue>> };
 
 const answersFrom = (household: RsvpHousehold): Answers =>
     Object.fromEntries(
@@ -43,35 +46,103 @@ async function post<T>(url: string, body: unknown): Promise<T> {
     return data as T;
 }
 
+const QuestionField = ({ question, value, onChange }: { question: RsvpQuestion; value: AnswerValue | undefined; onChange: (value: AnswerValue) => void }) => {
+    const label = `${question.label}${question.required ? " *" : ""}`;
+    if (question.type === "long_text")
+        return <TextArea label={label} hint={question.help ?? undefined} rows={4} value={typeof value === "string" ? value : ""} onChange={onChange} />;
+    if (question.type === "short_text" || question.type === "number" || question.type === "date")
+        return (
+            <Input
+                label={label}
+                hint={question.help ?? undefined}
+                type={question.type === "short_text" ? "text" : question.type}
+                value={value === undefined ? "" : String(value)}
+                onChange={(next) => onChange(question.type === "number" && next !== "" ? Number(next) : next)}
+            />
+        );
+    if (question.type === "multiple_choice") {
+        const selected = Array.isArray(value) ? value : [];
+        return (
+            <fieldset className="flex flex-col gap-3">
+                <legend className="text-sm font-medium text-secondary">{label}</legend>
+                {question.help && <p className="text-sm text-tertiary">{question.help}</p>}
+                {question.options.map((option) => (
+                    <Checkbox
+                        key={option}
+                        size="md"
+                        label={option}
+                        isSelected={selected.includes(option)}
+                        onChange={(checked) => onChange(checked ? [...selected, option] : selected.filter((item) => item !== option))}
+                    />
+                ))}
+            </fieldset>
+        );
+    }
+    const options = question.type === "yes_no" ? ["yes", "no"] : question.options;
+    return (
+        <RadioGroup
+            aria-label={question.label}
+            value={typeof value === "string" ? value : null}
+            onChange={(next) => onChange(String(next))}
+            className="flex flex-col gap-3"
+        >
+            <div>
+                <p className="text-sm font-medium text-secondary">{label}</p>
+                {question.help && <p className="text-sm text-tertiary">{question.help}</p>}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-x-6">
+                {options.map((option) => (
+                    <RadioButton key={option} value={option} label={question.type === "yes_no" ? (option === "yes" ? "Yes" : "No") : option} size="md" />
+                ))}
+            </div>
+        </RadioGroup>
+    );
+};
+
 export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: string | null }) => {
     const [code, setCode] = useState("");
     const [household, setHousehold] = useState<RsvpHousehold | null>(null);
     const [answers, setAnswers] = useState<Answers>({});
+    const [questionAnswers, setQuestionAnswers] = useState<QuestionAnswers>({ household: {}, guests: {} });
+    const [token, setToken] = useState<string | null>(null);
+    const [clientId, setClientId] = useState(() => crypto.randomUUID());
     const [message, setMessage] = useState("");
     const [email, setEmail] = useState("");
     const [step, setStep] = useState<"code" | "form" | "done">("code");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Invitations can link straight here with ?code=XXXX.
-    useEffect(() => {
-        const fromLink = new URLSearchParams(window.location.search).get("code");
-        if (fromLink) setCode(fromLink.toUpperCase());
-    }, []);
-
-    const lookup = async () => {
+    const openInvitation = async (credential: { code?: string; token?: string }) => {
         setBusy(true);
         setError(null);
         try {
-            const { household: found } = await post<{ household: RsvpHousehold }>(`${apiBase}/lookup`, { code });
+            const { household: found } = await post<{ household: RsvpHousehold }>(`${apiBase}/lookup`, credential);
             setHousehold(found);
             setAnswers(answersFrom(found));
+            setQuestionAnswers(found.answers);
             setStep("form");
         } catch (e) {
             setError((e as Error).message);
         } finally {
             setBusy(false);
         }
+    };
+
+    // Signed invitation links open directly; short codes remain available only when enabled in settings.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const invite = params.get("invite");
+        const fromLink = params.get("code");
+        if (invite) {
+            setToken(invite);
+            void openInvitation({ token: invite });
+        } else if (fromLink) setCode(fromLink.toUpperCase());
+        // The URL credential is immutable for this mounted flow.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const lookup = async () => {
+        await openInvitation({ code });
     };
 
     const complete = household?.guests.every((g) => Object.keys(household.responses[g.id] ?? {}).every((eventId) => answers[g.id]?.events[eventId])) ?? false;
@@ -86,7 +157,8 @@ export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: str
         setError(null);
         try {
             const { household: updated } = await post<{ household: RsvpHousehold }>(`${apiBase}/submit`, {
-                code,
+                ...(token ? { token } : { code }),
+                clientId,
                 guests: household.guests.map((g) => ({
                     guestId: g.id,
                     events: answers[g.id].events,
@@ -94,8 +166,10 @@ export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: str
                 })),
                 message: household.collectMessage ? message : null,
                 email,
+                answers: questionAnswers,
             });
             setHousehold(updated);
+            setClientId(crypto.randomUUID());
             setStep("done");
             window.scrollTo({ top: 0, behavior: "smooth" });
         } catch (e) {
@@ -110,6 +184,19 @@ export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: str
             {error}
         </p>
     );
+
+    const appliesToGuest = (question: RsvpQuestion, guest: RsvpHousehold["guests"][number]) =>
+        questionApplies(question, {
+            ageGroup: guest.ageGroup,
+            attending: (eventId) => answers[guest.id]?.events[eventId] === "attending",
+            answerTo: (questionId) => questionAnswers.guests[guest.id]?.[questionId],
+        });
+    const appliesToHousehold = (question: RsvpQuestion) =>
+        questionApplies(question, {
+            ageGroup: null,
+            attending: (eventId) => household?.guests.some((guest) => answers[guest.id]?.events[eventId] === "attending") ?? false,
+            answerTo: (questionId) => questionAnswers.household[questionId],
+        });
 
     if (step === "code" || !household) {
         return (
@@ -232,8 +319,52 @@ export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: str
                                 onChange={(v) => setAnswers({ ...answers, [guest.id]: { ...answers[guest.id], dietary: v } })}
                             />
                         )}
+                        {household.questions
+                            .filter((question) => question.scope === "guest" && appliesToGuest(question, guest))
+                            .map((question) => (
+                                <QuestionField
+                                    key={question.id}
+                                    question={question}
+                                    value={questionAnswers.guests[guest.id]?.[question.id]}
+                                    onChange={(value) =>
+                                        setQuestionAnswers({
+                                            ...questionAnswers,
+                                            guests: {
+                                                ...questionAnswers.guests,
+                                                [guest.id]: { ...questionAnswers.guests[guest.id], [question.id]: value },
+                                            },
+                                        })
+                                    }
+                                />
+                            ))}
                     </section>
                 ))}
+
+                {household.questions.some((question) => question.scope === "household" && appliesToHousehold(question)) && (
+                    <section
+                        aria-labelledby="household-questions"
+                        className="flex flex-col gap-5 rounded-2xl bg-primary p-5 shadow-xs ring-1 ring-secondary sm:p-6"
+                    >
+                        <h3 id="household-questions" className="wedding-display text-xl text-primary">
+                            For your party
+                        </h3>
+                        {household.questions
+                            .filter((question) => question.scope === "household" && appliesToHousehold(question))
+                            .map((question) => (
+                                <QuestionField
+                                    key={question.id}
+                                    question={question}
+                                    value={questionAnswers.household[question.id]}
+                                    onChange={(value) =>
+                                        setQuestionAnswers({
+                                            ...questionAnswers,
+                                            household: { ...questionAnswers.household, [question.id]: value },
+                                        })
+                                    }
+                                />
+                            ))}
+                    </section>
+                )}
 
                 {household.collectMessage && <TextArea label="A note for us (optional)" rows={4} value={message} onChange={setMessage} />}
                 <Input
@@ -247,7 +378,15 @@ export const RsvpFlow = ({ apiBase, deadline }: { apiBase: string; deadline: str
 
             {errorBox}
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-                <Button color="tertiary" iconLeading={ArrowLeft} onClick={() => setStep("code")}>
+                <Button
+                    color="tertiary"
+                    iconLeading={ArrowLeft}
+                    onClick={() => {
+                        setToken(null);
+                        setHousehold(null);
+                        setStep("code");
+                    }}
+                >
                     Use a different code
                 </Button>
                 {!household.deadlinePassed && (

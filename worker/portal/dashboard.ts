@@ -7,6 +7,7 @@ import { nowIso, parseJson } from "./db";
 export const DEFAULT_WIDGETS: DashboardWidget[] = [
     { id: "w-countdown", type: "countdown", size: "sm" },
     { id: "w-rsvp", type: "rsvp-summary", size: "md" },
+    { id: "w-invitations", type: "invitation-readiness", size: "sm" },
     { id: "w-events", type: "event-attendance", size: "lg" },
     { id: "w-tasks", type: "upcoming-tasks", size: "md" },
     { id: "w-budget", type: "budget-summary", size: "sm" },
@@ -14,6 +15,8 @@ export const DEFAULT_WIDGETS: DashboardWidget[] = [
     { id: "w-guests", type: "guest-breakdown", size: "sm" },
     { id: "w-responses", type: "rsvp-responses", size: "md" },
     { id: "w-dietary", type: "dietary", size: "sm" },
+    { id: "w-seating-ready", type: "seating-readiness", size: "sm" },
+    { id: "w-comms", type: "communications-status", size: "sm" },
     { id: "w-activity", type: "recent-activity", size: "lg" },
 ];
 

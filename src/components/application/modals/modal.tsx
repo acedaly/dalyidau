@@ -28,7 +28,7 @@ export const Modal = (props: AriaModalOverlayProps) => (
         {...props}
         className={(state) =>
             cx(
-                "w-full rounded-xl bg-primary align-middle shadow-xl outline-hidden max-sm:overflow-y-auto sm:rounded-2xl",
+                "w-full overflow-y-auto rounded-xl bg-primary align-middle shadow-xl outline-hidden sm:rounded-2xl",
                 // Max height based on parent's vertical padding
                 "max-h-[calc(var(--visual-viewport-height)-var(--modal-pt)-var(--modal-pb))]",
                 // Animations
@@ -40,6 +40,4 @@ export const Modal = (props: AriaModalOverlayProps) => (
     />
 );
 
-export const Dialog = (props: AriaDialogProps) => (
-    <AriaDialog {...props} className={cx("relative max-h-[inherit] w-full overflow-y-auto outline-hidden", props.className)} />
-);
+export const Dialog = (props: AriaDialogProps) => <AriaDialog {...props} className={cx("relative w-full outline-hidden", props.className)} />;

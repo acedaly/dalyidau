@@ -16,7 +16,15 @@ import { api, errorMessage } from "@/portal/lib/api";
 import { formatNumber, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { Message, MessageRecipient } from "@/shared/portal/types";
+import type { Message, MessageCategory, MessageRecipient } from "@/shared/portal/types";
+
+const CATEGORY_LABELS: Record<MessageCategory, string> = {
+    save_the_date: "Save the date",
+    invitation: "Invitation",
+    reminder: "Reminder",
+    update: "Update",
+    thank_you: "Thank you",
+};
 
 const RECIPIENT_STATUS: Record<MessageRecipient["status"], { label: string; color: "gray" | "success" | "error" | "warning" }> = {
     pending: { label: "Ready", color: "gray" },
@@ -34,6 +42,8 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
     const reachable = data.recipients.filter((r) => r.email);
     const skipped = data.recipients.filter((r) => r.status === "skipped").length;
     const isDraft = message.status === "draft";
+    const isQueued = message.status === "queued";
+    const isEditable = isDraft || isQueued;
 
     const columns: DataColumn<MessageRecipient & { id: string }>[] = [
         { id: "name", label: "Guest", isRowHeader: true, sortValue: (r) => r.name, render: (r) => <span className="font-medium text-primary">{r.name}</span> },
@@ -48,7 +58,12 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                 </BadgeWithDot>
             ),
         },
-        { id: "note", label: "Note", render: (r) => r.error ?? (r.sentAt ? <Timestamp iso={r.sentAt} /> : ""), className: "max-md:hidden" },
+        {
+            id: "note",
+            label: "Note",
+            render: (r) => r.error ?? (r.sentAt ? <Timestamp iso={r.sentAt} /> : r.providerId ? `Provider ${r.providerId}` : ""),
+            className: "max-md:hidden",
+        },
     ];
 
     return (
@@ -58,6 +73,7 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                 description={
                     <span className="flex flex-wrap items-center gap-2">
                         <MessageStatusBadge status={message.status} />
+                        <span>{CATEGORY_LABELS[message.category]}</span>
                         <span>
                             Prepared by {message.createdBy}, <Timestamp iso={message.createdAt} />
                         </span>
@@ -74,24 +90,42 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                                 Mail-merge CSV
                             </Button>
                         )}
-                        {isDraft && can("wedding.comms.edit") && (
+                        {isEditable && can("wedding.comms.edit") && (
                             <Button color="secondary-destructive" iconLeading={Trash01} onClick={() => setConfirm("delete")}>
                                 Delete draft
                             </Button>
                         )}
-                        {isDraft && can("wedding.comms.send") && (
+                        {isQueued && can("wedding.comms.edit") && (
+                            <Button
+                                color="secondary"
+                                onClick={async () => {
+                                    const result = await api<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/unschedule`, {});
+                                    setMessage(result.message);
+                                    toast.success("Scheduled delivery cancelled");
+                                }}
+                            >
+                                Cancel schedule
+                            </Button>
+                        )}
+                        {isEditable && can("wedding.comms.send") && (
                             <Button iconLeading={Send01} onClick={() => setConfirm("send")} isDisabled={!data.deliveryAvailable || reachable.length === 0}>
-                                Send to {pluralise(reachable.length, "guest")}
+                                {isQueued ? "Send now" : `Send to ${pluralise(reachable.length, "guest")}`}
                             </Button>
                         )}
                     </>
                 }
             />
 
-            {isDraft && !data.deliveryAvailable && (
+            {isEditable && !data.deliveryAvailable && (
                 <Notice color="brand" title="Ready, but not sendable from the portal yet">
                     Email delivery is off, so this draft can't be sent from here. Download the mail-merge CSV to send it with your own email account, or ask an
                     owner to set up delivery (see docs/PORTAL.md).
+                </Notice>
+            )}
+            {isQueued && message.scheduledAt && (
+                <Notice color="brand" title="Scheduled delivery">
+                    Due <Timestamp iso={message.scheduledAt} />. The existing Worker cron checks the queue every 15 minutes; nothing is sent while email
+                    delivery is off.
                 </Notice>
             )}
             {message.deliveryNote && <Notice title="Delivery">{message.deliveryNote}</Notice>}

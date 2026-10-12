@@ -5,6 +5,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { FlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { MESSAGE_CATEGORIES } from "../../src/shared/portal/types";
 import type { BudgetItem, CustomField, Household, MessageTemplate, Supplier, Task, TimelineItem, WeddingEvent } from "../../src/shared/portal/types";
 import { auditIfChanged, auditStatement, diff, newId, newRsvpCode, nowIso, parseJson } from "./db";
 import { redactChanges, redactSnapshot } from "./redact";
@@ -256,6 +257,8 @@ export const householdDef: EntityDef<Household> = {
         postcode: { column: "postcode" },
         country: { column: "country" },
         notes: { column: "notes" },
+        inviteVersion: { column: "invite_version" },
+        inviteRevokedAt: { column: "invite_revoked_at" },
     },
     create: z.object({
         name: str(120).min(1, "Name is required"),
@@ -362,11 +365,12 @@ export const templateDef: EntityDef<MessageTemplate> = {
     noun: "template",
     table: "message_templates",
     idPrefix: "tpl",
-    columns: { name: { column: "name" }, subject: { column: "subject" }, body: { column: "body" } },
+    columns: { name: { column: "name" }, subject: { column: "subject" }, body: { column: "body" }, category: { column: "category" } },
     create: z.object({
         name: str(120).min(1, "Name is required"),
         subject: str(200).min(1, "Subject is required"),
         body: str(20_000).min(1, "Body is required"),
+        category: z.enum(MESSAGE_CATEGORIES).default("update"),
     }),
     orderBy: "t.name COLLATE NOCASE",
     title: (t) => t.name,

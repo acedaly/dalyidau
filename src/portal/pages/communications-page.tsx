@@ -14,7 +14,15 @@ import { useCollection } from "@/portal/hooks/use-collection";
 import { pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { Message, MessageTemplate } from "@/shared/portal/types";
+import type { Message, MessageCategory, MessageTemplate } from "@/shared/portal/types";
+
+const CATEGORY_LABELS: Record<MessageCategory, string> = {
+    save_the_date: "Save the date",
+    invitation: "Invitation",
+    reminder: "Reminder",
+    update: "Update",
+    thank_you: "Thank you",
+};
 
 export const CommunicationsPage = ({ data }: { data: PageData<"communications"> }) => {
     const { can } = usePortal();
@@ -43,13 +51,14 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             render: (m) => <span className="font-medium text-primary">{m.subject}</span>,
         },
         { id: "status", label: "Status", sortValue: (m) => m.status, render: (m) => <MessageStatusBadge status={m.status} /> },
+        { id: "category", label: "Category", sortValue: (m) => m.category, render: (m) => CATEGORY_LABELS[m.category], className: "max-md:hidden" },
         { id: "recipients", label: "Recipients", sortValue: (m) => m.recipientCount, render: (m) => pluralise(m.recipientCount, "guest") },
         { id: "by", label: "Prepared by", sortValue: (m) => m.createdBy, render: (m) => m.createdBy, className: "max-lg:hidden" },
         {
             id: "created",
             label: "Prepared",
             sortValue: (m) => m.createdAt,
-            render: (m) => <Timestamp iso={m.createdAt} relative />,
+            render: (m) => <Timestamp iso={m.scheduledAt ?? m.createdAt} relative />,
             className: "max-md:hidden",
         },
     ];
@@ -63,6 +72,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             render: (t) => <span className="font-medium text-primary">{t.name}</span>,
         },
         { id: "subject", label: "Subject", sortValue: (t) => t.subject, render: (t) => t.subject, className: "max-md:hidden" },
+        { id: "category", label: "Category", sortValue: (t) => t.category, render: (t) => CATEGORY_LABELS[t.category], className: "max-lg:hidden" },
         { id: "updated", label: "Updated", sortValue: (t) => t.updatedAt, render: (t) => <Timestamp iso={t.updatedAt} relative />, className: "max-lg:hidden" },
         {
             id: "use",

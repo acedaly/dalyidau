@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building07, Download01, Plus, RefreshCw01 } from "@untitledui/icons";
+import { Building07, Download01, Link01, Plus, RefreshCw01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
@@ -41,6 +41,7 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<Draft>(toDraft(null));
     const [regenerate, setRegenerate] = useState<Household | null>(null);
+    const [invitationAction, setInvitationAction] = useState<{ household: Household; action: "rotate" | "revoke" | "restore" } | null>(null);
     const canEdit = can("wedding.guests.edit");
 
     const openPanel = (household: Household | null) => {
@@ -89,7 +90,7 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
         <>
             <PageHeader
                 title="Households"
-                description="Invitations go to households. Each has its own RSVP code."
+                description="Invitations go to households. Each has a signed RSVP link that can be rotated or revoked."
                 breadcrumbs={[{ label: "Households" }]}
                 actions={
                     <>
@@ -157,6 +158,55 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                                 )}
                             </div>
                         )}
+                        {editing && (
+                            <div className="flex flex-col gap-3 rounded-xl bg-secondary p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-secondary">Secure invitation link</p>
+                                        <p className="text-sm text-tertiary">
+                                            {editing.inviteRevokedAt
+                                                ? "Revoked. The previous link no longer opens this household."
+                                                : editing.invitationUrl
+                                                  ? "Signed and unique to this household."
+                                                  : "RSVP_LINK_SECRET is not configured for this environment."}
+                                        </p>
+                                    </div>
+                                    {editing.invitationUrl && <CopyCode code={editing.invitationUrl} label="Copy invitation link" />}
+                                </div>
+                                {canEdit && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {editing.inviteRevokedAt ? (
+                                            <Button
+                                                size="sm"
+                                                color="secondary"
+                                                iconLeading={Link01}
+                                                onClick={() => setInvitationAction({ household: editing, action: "restore" })}
+                                            >
+                                                Issue link
+                                            </Button>
+                                        ) : (
+                                            <>
+                                                <Button
+                                                    size="sm"
+                                                    color="secondary"
+                                                    iconLeading={RefreshCw01}
+                                                    onClick={() => setInvitationAction({ household: editing, action: "rotate" })}
+                                                >
+                                                    Rotate link
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    color="tertiary-destructive"
+                                                    onClick={() => setInvitationAction({ household: editing, action: "revoke" })}
+                                                >
+                                                    Revoke link
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <FormGrid>
                             <FullWidth>{field("name", "Household name", fieldError, { isRequired: true, placeholder: "The Smith family" })}</FullWidth>
                             {field("email", "Contact email", fieldError, { type: "email" })}
@@ -191,6 +241,37 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                     } catch (error) {
                         toast.error("Couldn't issue a new code", errorMessage(error));
                     }
+                }}
+            />
+            <ConfirmDialog
+                isOpen={!!invitationAction}
+                onOpenChange={(open) => !open && setInvitationAction(null)}
+                title={
+                    invitationAction?.action === "revoke"
+                        ? "Revoke this invitation link?"
+                        : invitationAction?.action === "rotate"
+                          ? "Rotate this invitation link?"
+                          : "Issue a new invitation link?"
+                }
+                description={
+                    invitationAction?.action === "revoke"
+                        ? "The current link stops working immediately. The short code is controlled separately in RSVP settings."
+                        : invitationAction?.action === "rotate"
+                          ? "The current link stops working immediately and a new signed link is created."
+                          : "A signed invitation link will be created for this household."
+                }
+                confirmLabel={invitationAction?.action === "revoke" ? "Revoke link" : invitationAction?.action === "rotate" ? "Rotate link" : "Issue link"}
+                destructive={invitationAction?.action === "revoke"}
+                onConfirm={async () => {
+                    if (!invitationAction) return;
+                    const { household } = await api<{ household: Household }>(
+                        "POST",
+                        `/api/portal/wedding/households/${invitationAction.household.id}/invitation`,
+                        { action: invitationAction.action },
+                    );
+                    households.setItems((list) => list.map((item) => (item.id === household.id ? household : item)));
+                    setEditing(household);
+                    toast.success(invitationAction.action === "revoke" ? "Invitation link revoked" : "Invitation link ready");
                 }}
             />
         </>

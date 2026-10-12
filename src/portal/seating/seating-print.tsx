@@ -52,7 +52,7 @@ export const SeatingPrint = ({ state, title, mode }: { state: SeatingState; titl
                     </thead>
                     <tbody>
                         {seated.map((g) => (
-                            <tr key={g.id} className="break-inside-avoid border-b border-gray-300">
+                            <tr key={g.id} className="break-inside-avoid border-b border-secondary">
                                 <td className="py-1">{g.name}</td>
                                 <td className="py-1">{tableName.get(g.tableId!)}</td>
                             </tr>
@@ -71,7 +71,7 @@ export const SeatingPrint = ({ state, title, mode }: { state: SeatingState; titl
                                 <table className="mt-1 w-full text-sm">
                                     <tbody>
                                         {needs.map((g) => (
-                                            <tr key={g.id} className="border-b border-gray-300">
+                                            <tr key={g.id} className="border-b border-secondary">
                                                 <td className="w-1/4 py-1">{g.name}</td>
                                                 <td className="w-1/5 py-1">{marks(g)}</td>
                                                 <td className="py-1">{[g.dietary, g.allergies && `ALLERGY: ${g.allergies}`].filter(Boolean).join(" · ")}</td>
