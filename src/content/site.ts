@@ -22,7 +22,6 @@ export const site = {
         { label: "Home", href: "/" },
         { label: "Blog", href: "/blog" },
         { label: "About", href: "/about" },
-        { label: "Wedding", href: "/wedding" },
         { label: "Contact", href: "/contact" },
     ],
 };
