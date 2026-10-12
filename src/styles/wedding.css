@@ -1,9 +1,9 @@
 /*
  * The public wedding website (/wedding). It uses the same Untitled UI components as the rest of the
- * site, re-rooted on its own palette: warm ivory paper, wine-red burgundy, copper, terracotta,
- * eucalyptus and sandstone. Cormorant Garamond gives the invitation its editorial character;
- * Jost handles practical copy and small tracked labels. The palette is drawn from Amelia's floral
- * reference rather than a generic pale-sage wedding theme.
+ * site, re-rooted on its own palette: warm ivory paper, chocolate ink, camel, waratah burgundy,
+ * banksia orange, wattle and eucalyptus. Cormorant Garamond gives the invitation its editorial
+ * character; Alex Brush is reserved for the couple's names; Jost handles practical copy and small
+ * tracked labels. The palette is drawn from Amelia's Australian-native wedding references.
  *
  * wedding-theme.generated.css re-declares every semantic token on .wedding-theme; the rules below
  * then swap the palette those tokens resolve to. Regenerate with `node scripts/build-wedding-theme.mjs`.
@@ -11,27 +11,32 @@
 @import "@fontsource-variable/cormorant-garamond";
 @import "@fontsource-variable/cormorant-garamond/wght-italic.css";
 @import "@fontsource-variable/jost";
+@import "@fontsource/alex-brush";
 @import "./wedding-theme.generated.css";
 
 @theme {
     --font-wedding-display: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
     --font-wedding-script: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
+    --font-wedding-calligraphy: "Alex Brush", "Segoe Script", "Snell Roundhand", cursive;
     --font-wedding-body: "Jost Variable", Jost, "Futura", "Avenir Next", "Segoe UI", sans-serif;
 
     /* The wedding palette, used sparingly and only inside .wedding-theme. */
-    --color-ivory: rgb(247 243 235); /* #F7F3EB main background */
+    --color-ivory: rgb(247 242 234); /* #F7F2EA warm paper */
     --color-paper: rgb(252 249 243); /* a lighter uncoated paper */
-    --color-sandstone: rgb(232 218 198); /* #E8DAC6 */
-    --color-sandstone-light: rgb(243 235 224);
-    --color-eucalypt: rgb(115 135 120); /* #738778 */
-    --color-eucalypt-light: rgb(229 235 228);
-    --color-forest: rgb(114 47 53); /* #722F35 burgundy: primary accent */
-    --color-forest-deep: rgb(82 32 38);
-    --color-olive: rgb(69 87 69); /* #455745 deep botanical */
-    --color-leaf: rgb(114 47 53);
-    --color-clay: rgb(197 109 54); /* #C56D36 burnt orange */
-    --color-terracotta: rgb(167 95 74); /* #A75F4A */
-    --color-charcoal: rgb(50 46 41); /* #322E29 */
+    --color-sandstone: rgb(234 225 211); /* #EAE1D3 parchment */
+    --color-sandstone-light: rgb(245 239 230);
+    --color-tan: rgb(181 150 114); /* #B59672 camel */
+    --color-eucalypt: rgb(123 141 120); /* #7B8D78 */
+    --color-eucalypt-light: rgb(232 236 229);
+    --color-gumnut: rgb(162 166 146); /* #A2A692 */
+    --color-forest: rgb(75 52 43); /* #4B342B chocolate: primary ink */
+    --color-forest-deep: rgb(60 42 35); /* #3C2A23 espresso */
+    --color-olive: rgb(93 106 86); /* #5D6A56 deep botanical */
+    --color-leaf: rgb(139 47 61); /* #8B2F3D waratah */
+    --color-clay: rgb(196 107 60); /* #C46B3C banksia */
+    --color-terracotta: rgb(167 97 73); /* #A76149 */
+    --color-gold: rgb(200 154 52); /* #C89A34 wattle */
+    --color-charcoal: rgb(46 41 37); /* #2E2925 */
 
     /* Accent scales kept for the portal preview banner and RSVP alerts. */
     --color-clay-50: rgb(253 246 239);
@@ -55,19 +60,19 @@
 }
 
 .wedding-theme {
-    /* Burgundy replaces the brand scale so Untitled UI controls belong to the invitation. */
+    /* Chocolate replaces the brand scale so Untitled UI controls feel printed, not app-like. */
     --color-brand-25: rgb(247 249 247);
     --color-brand-50: rgb(239 243 240);
-    --color-brand-100: rgb(243 225 225);
-    --color-brand-200: rgb(229 194 196);
-    --color-brand-300: rgb(205 148 152);
-    --color-brand-400: rgb(170 92 98);
-    --color-brand-500: rgb(137 59 65);
-    --color-brand-600: rgb(114 47 53);
-    --color-brand-700: rgb(91 36 42);
-    --color-brand-800: rgb(72 28 34);
-    --color-brand-900: rgb(55 21 26);
-    --color-brand-950: rgb(37 14 18);
+    --color-brand-100: rgb(237 229 222);
+    --color-brand-200: rgb(217 201 189);
+    --color-brand-300: rgb(186 158 140);
+    --color-brand-400: rgb(145 108 88);
+    --color-brand-500: rgb(101 70 57);
+    --color-brand-600: rgb(75 52 43);
+    --color-brand-700: rgb(60 42 35);
+    --color-brand-800: rgb(48 33 28);
+    --color-brand-900: rgb(37 26 22);
+    --color-brand-950: rgb(25 17 14);
 
     /* Warm, paper-like neutrals from ivory to charcoal replace the cool greys. */
     --color-neutral-25: rgb(252 250 246);
@@ -131,10 +136,10 @@
 }
 
 .wedding-names {
-    font-family: var(--font-wedding-display);
-    font-weight: 480;
-    letter-spacing: -0.055em;
-    line-height: 0.78;
+    font-family: var(--font-wedding-calligraphy);
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 0.76;
     font-feature-settings: "liga", "dlig", "kern";
 }
 

@@ -12,7 +12,7 @@ const buttonBase =
 
 /** Class names for Untitled UI Buttons on the wedding site. */
 export const weddingButton = {
-    /** Solid deep forest: RSVP and other primary actions. */
+    /** Solid chocolate: RSVP and other primary actions. */
     primary: cx(buttonBase, "bg-forest text-ivory hover:bg-forest-deep hover:-translate-y-px"),
     /** Hairline outline on ivory. */
     outline: cx(buttonBase, "text-forest ring-forest/40 hover:bg-forest hover:text-ivory bg-transparent ring-1"),

@@ -1,11 +1,11 @@
 // The public wedding website. Built from the same Untitled UI components and React Aria patterns as
 // the rest of the site, wrapped in .wedding-theme, which re-roots every design token on the wedding
-// palette (ivory, deep forest, eucalyptus, olive, sandstone, clay). See src/styles/wedding.css.
+// palette (ivory, chocolate, eucalyptus, olive, parchment, banksia and waratah). See src/styles/wedding.css.
 import { ArrowUpRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import type { WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
-import { NativeArrangement } from "@/wedding/components/ornament";
+import { EucalyptusBranch } from "@/wedding/components/ornament";
 import { Eyebrow, longDate, weddingButton } from "@/wedding/components/ui";
 import { HomePage } from "@/wedding/home-page";
 import { RsvpFlow } from "@/wedding/rsvp/rsvp-flow";
@@ -28,7 +28,7 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
                     <p className="wedding-prose text-charcoal max-w-sm">
                         We’re so glad you’re here. Reply for everyone named on your invitation, and come back any time before the deadline if plans change.
                     </p>
-                    <NativeArrangement quiet className="mt-2 -ml-16 h-72 w-72 rotate-[-8deg] max-lg:hidden" />
+                    <EucalyptusBranch className="text-eucalypt/65 mt-8 w-64 -rotate-6 max-lg:hidden" />
                 </aside>
                 <div className="w-full max-w-2xl lg:justify-self-end">
                     {native ? (
