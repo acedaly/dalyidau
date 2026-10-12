@@ -27,10 +27,27 @@ export const paragraphs = (text: string) =>
         .map((p) => p.trim())
         .filter(Boolean);
 
+/** Plain text with **bold** marks (as people type them in Say I Do and the portal). Never parsed as HTML. */
+export const Emphasis = ({ text }: { text: string }) => (
+    <>
+        {text.split(/\*\*(.+?)\*\*/g).map((part, i) =>
+            i % 2 === 1 ? (
+                <strong key={i} className="text-forest font-medium">
+                    {part}
+                </strong>
+            ) : (
+                part
+            ),
+        )}
+    </>
+);
+
 export const Prose = ({ text, className }: { text: string; className?: string }) => (
     <div className={cx("wedding-prose", className)}>
         {paragraphs(text).map((p, i) => (
-            <p key={i}>{p}</p>
+            <p key={i}>
+                <Emphasis text={p} />
+            </p>
         ))}
     </div>
 );
@@ -42,7 +59,7 @@ export const Eyebrow = ({ children, className }: { children: ReactNode; classNam
     <p className={cx("wedding-eyebrow text-olive-600", className)}>{children}</p>
 );
 
-/** Eyebrow + display heading. Sizes step down on small screens without becoming cramped. */
+/** Eyebrow + brush-lettered heading. Sizes step down on small screens without becoming cramped. */
 export const SectionHeading = ({
     id,
     eyebrow,
@@ -69,8 +86,8 @@ export const SectionHeading = ({
         <h2
             id={id}
             className={cx(
-                "wedding-display text-balance text-primary",
-                size === "lg" ? "text-[2.5rem] sm:text-[3.25rem] lg:text-[3.75rem]" : "text-[2rem] sm:text-[2.5rem]",
+                "wedding-script text-leaf text-balance",
+                size === "lg" ? "text-[3rem] sm:text-[3.75rem] lg:text-[4.25rem]" : "text-[2.5rem] sm:text-[3rem]",
             )}
         >
             {title}

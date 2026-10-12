@@ -290,7 +290,7 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
         await expect(page.getByRole("heading", { name: "Rhino Lodge", level: 2 })).toBeInViewport();
     } else {
         await page.getByRole("link", { name: "Explore our wedding" }).click();
-        await expect(page.getByText("We're getting married, and we'd love for you to celebrate with us.")).toBeInViewport();
+        await expect(page.getByText("We are excited to be getting married and even more excited to share the day with you.")).toBeInViewport();
     }
     expect(errors).toEqual([]);
 });

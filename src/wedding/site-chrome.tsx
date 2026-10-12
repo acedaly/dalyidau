@@ -29,11 +29,11 @@ export const rsvpLinkProps = (links: SiteLinks) =>
 /** Short navigation labels for each kind of section. */
 const NAV_LABELS: Partial<Record<SectionKind, string>> = {
     story: "Our story",
-    details: "The day",
+    details: "Schedule",
     venue: "Venue",
     accommodation: "Stay",
     travel: "Travel",
-    transport: "Travel",
+    transport: "Transport",
     children: "Families",
     faq: "FAQ",
     registry: "Gifts",
@@ -48,7 +48,7 @@ export const navItems = (data: WeddingPageData) => {
         seen.add(label);
         items.push({ id: section.id, label });
     }
-    if (!seen.has("The day") && data.events.length > 0) items.unshift({ id: "schedule", label: "The day" });
+    if (!seen.has("Schedule") && data.events.length > 0) items.unshift({ id: "schedule", label: "Schedule" });
     return items;
 };
 

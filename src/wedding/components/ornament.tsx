@@ -191,7 +191,16 @@ const GumTree = ({ x, y, scale = 1, tone = 1 }: { x: number; y: number; scale?: 
  * An illustrated country landscape (sky, sun, ranges, paddock and gums) in the wedding palette.
  * Used wherever a photo hasn't been uploaded yet, so frames never look empty or broken.
  */
-export const Landscape = ({ className, variant = "portrait" }: { className?: string; variant?: "portrait" | "wide" }) => {
+export const Landscape = ({
+    className,
+    variant = "portrait",
+    sky = true,
+}: {
+    className?: string;
+    variant?: "portrait" | "wide";
+    /** Off when the landscape sits directly on the page, so the paper shows through instead of a painted sky. */
+    sky?: boolean;
+}) => {
     const wide = variant === "wide";
     return (
         <svg
@@ -207,10 +216,10 @@ export const Landscape = ({ className, variant = "portrait" }: { className?: str
                     <stop offset="1" stopColor="rgb(240 230 212)" />
                 </linearGradient>
             </defs>
-            <rect width="100%" height="100%" fill={`url(#sky-${variant})`} />
+            {sky && <rect width="100%" height="100%" fill={`url(#sky-${variant})`} />}
             {wide ? (
                 <>
-                    <circle cx="560" cy="200" r="58" className="fill-clay" opacity="0.22" />
+                    <circle cx="640" cy="215" r="58" className="fill-clay" opacity="0.22" />
                     <path
                         d="M0 270 C 120 230 230 250 340 236 C 450 222 560 250 660 232 C 720 222 770 228 800 236 V 450 H 0 Z"
                         className="fill-eucalypt"

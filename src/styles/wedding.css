@@ -1,8 +1,9 @@
 /*
  * The public wedding website (/wedding). It uses the same Untitled UI components as the rest of the
  * site, re-rooted on its own palette: warm ivory paper, deep forest, eucalyptus, dusty olive,
- * sandstone and a little terracotta clay. Cormorant Garamond sets the display type (names, headings)
- * and Jost the reading text and tracked labels.
+ * sandstone and a little terracotta clay, with the leaf green of the couple's Say I Do site. Caveat
+ * Brush letters the names and section headings, Cormorant Garamond sets serif display and italic
+ * lines, and Jost the reading text and tracked labels.
  *
  * wedding-theme.generated.css re-declares every semantic token on .wedding-theme; the rules below
  * then swap the palette those tokens resolve to. Regenerate with `node scripts/build-wedding-theme.mjs`.
@@ -10,10 +11,13 @@
 @import "@fontsource-variable/cormorant-garamond";
 @import "@fontsource-variable/cormorant-garamond/wght-italic.css";
 @import "@fontsource-variable/jost";
+@import "@fontsource/caveat-brush";
 @import "./wedding-theme.generated.css";
 
 @theme {
     --font-wedding-display: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
+    /* Brush lettering for the names and section headings, as on the couple's Say I Do site. */
+    --font-wedding-script: "Caveat Brush", "Brush Script MT", cursive;
     --font-wedding-body: "Jost Variable", Jost, "Futura", "Avenir Next", "Segoe UI", sans-serif;
 
     /* The wedding palette, used sparingly and only inside .wedding-theme. */
@@ -26,6 +30,7 @@
     --color-forest: rgb(53 76 62); /* #354C3E primary text and buttons */
     --color-forest-deep: rgb(36 54 43);
     --color-olive: rgb(119 125 89); /* #777D59 */
+    --color-leaf: rgb(96 121 64); /* #607940, the green from the Say I Do site: script headings */
     --color-clay: rgb(183 124 98); /* #B77C62 restrained accent */
     --color-charcoal: rgb(53 51 46); /* #35332E reading text */
 
@@ -115,6 +120,14 @@
     letter-spacing: -0.012em;
     line-height: 1.08;
     font-feature-settings: "liga", "dlig";
+}
+
+/* Hand-brushed lettering: the couple's names and section headings. */
+.wedding-script {
+    font-family: var(--font-wedding-script);
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1;
 }
 
 /* Delicate tracked capitals for labels: "TOGETHER WITH OUR FAMILIES". */

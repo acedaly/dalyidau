@@ -33,7 +33,8 @@ export async function loadWeddingPage(db: D1Database, route: WeddingPageData["ro
     const sections = content.sections.filter((s) => s.visible);
     const byId = new Map(media.map((m) => [m.id, m]));
     // Only photos the published content actually uses are sent to the page.
-    const sectionImages = Object.fromEntries(sections.flatMap((s) => (s.imageId && byId.has(s.imageId) ? [[s.imageId, byId.get(s.imageId)!] as const] : [])));
+    const used = sections.flatMap((s) => [s.imageId, ...s.items.map((i) => i.imageId)]);
+    const sectionImages = Object.fromEntries(used.flatMap((id) => (id && byId.has(id) ? [[id, byId.get(id)!] as const] : [])));
     const mode: WeddingPageData["rsvp"]["mode"] = flags["rsvp.native"] ? "native" : rsvp.externalUrl ? "external" : "closed";
     return {
         route,

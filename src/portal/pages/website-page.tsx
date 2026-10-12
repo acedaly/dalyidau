@@ -24,7 +24,7 @@ const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleL
     story: { label: "Our story" },
     details: { label: "The big day" },
     venue: { label: "Venue", items: { noun: "detail", titleLabel: "Label (e.g. Address)", bodyLabel: "Details", urlLabel: "Map or directions link" } },
-    accommodation: { label: "Accommodation", items: { noun: "place to stay", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Booking link" } },
+    accommodation: { label: "Accommodation", items: { noun: "place to stay", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Booking or website link" } },
     travel: { label: "Getting there", items: { noun: "travel tip", titleLabel: "Heading", bodyLabel: "Details", urlLabel: "Map link" } },
     transport: { label: "Transport / courtesy bus" },
     children: { label: "Children and families" },
@@ -62,7 +62,17 @@ const readFile = (file: File) =>
         reader.readAsDataURL(file);
     });
 
-const ItemsEditor = ({ kind, items, onChange }: { kind: SectionKind; items: WebsiteItem[]; onChange: (items: WebsiteItem[]) => void }) => {
+const ItemsEditor = ({
+    kind,
+    items,
+    onChange,
+    photoOptions,
+}: {
+    kind: SectionKind;
+    items: WebsiteItem[];
+    onChange: (items: WebsiteItem[]) => void;
+    photoOptions: { id: string; label: string }[];
+}) => {
     const spec = KINDS[kind].items;
     if (!spec) return null;
     const set = (i: number, patch: Partial<WebsiteItem>) => onChange(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
@@ -82,10 +92,35 @@ const ItemsEditor = ({ kind, items, onChange }: { kind: SectionKind; items: Webs
                     </div>
                     <TextArea label={spec.bodyLabel} rows={3} value={item.body} onChange={(v) => set(i, { body: v })} />
                     {spec.urlLabel && <Input label={spec.urlLabel} type="url" placeholder="https://" value={item.url} onChange={(v) => set(i, { url: v })} />}
+                    {kind === "accommodation" && (
+                        <>
+                            <Input
+                                label="Small label"
+                                placeholder="5.2 km from the ceremony"
+                                value={item.detail}
+                                onChange={(v) => set(i, { detail: v })}
+                                hint="Shown above the name, e.g. the distance from the venue."
+                            />
+                            <Select
+                                label="Photo"
+                                items={photoOptions}
+                                value={item.imageId ?? "none"}
+                                onChange={(v) => set(i, { imageId: v === "none" ? null : String(v) })}
+                                hint="Use a photo you have permission to use."
+                            >
+                                {(option) => <Select.Item id={option.id}>{option.label}</Select.Item>}
+                            </Select>
+                        </>
+                    )}
                 </div>
             ))}
             <div>
-                <Button size="sm" color="secondary" iconLeading={Plus} onClick={() => onChange([...items, { title: "", body: "", url: "" }])}>
+                <Button
+                    size="sm"
+                    color="secondary"
+                    iconLeading={Plus}
+                    onClick={() => onChange([...items, { title: "", body: "", url: "", detail: "", imageId: null }])}
+                >
                     Add {spec.noun}
                 </Button>
             </div>
@@ -391,7 +426,12 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                                     </Select>
                                 )}
-                                <ItemsEditor kind={section.kind} items={section.items} onChange={(items) => setSection(i, { items })} />
+                                <ItemsEditor
+                                    kind={section.kind}
+                                    items={section.items}
+                                    onChange={(items) => setSection(i, { items })}
+                                    photoOptions={photoOptions}
+                                />
                             </div>
                         ))}
                         {canEdit && (

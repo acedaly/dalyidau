@@ -19,14 +19,14 @@ These are yours to do; the code is ready for them.
 
 1. **Cloudflare Access application** (Zero Trust dashboard). See [Set up Cloudflare Access](#set-up-cloudflare-access).
 2. **Worker secrets**: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `PORTAL_OWNER_EMAILS`, and `RSVP_LINK_SECRET`. Until the Access secrets are set, every portal request is refused; invitation links cannot be generated without the RSVP secret.
-3. **Wedding details** in Wedding Planner (Wedding settings → General): names, date, location, time zone. The defaults are placeholders ("Partner One", "Partner Two").
+3. **Wedding details** in Wedding Planner (Wedding settings → General): names, date, location, time zone. The defaults (Aidan & Amelia, 23 October 2027, Rhino Lodge · Dubbo, NSW) and the website's default content come from the Say I Do site.
 4. **Say I Do link** (RSVPs → Settings), so the website sends guests to it while the native form is off.
 5. **When to switch on the native RSVP form** (Wedding settings → Features → Native RSVP). Off by default. Say I Do stays the live RSVP until you turn this on.
 6. **When to publish the website** (Website → Publish). Off by default. It's `noindex` by default too.
 7. **Email and SMS providers** (SMTP2Go and ClickSend), if you want the portal to send email and texts itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0005_comms_channels.sql` to production.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0006_say_i_do_ceremony.sql` to production. `0006` adds the ceremony from the Say I Do site (2:00pm, smart casual, Rhino Lodge) only if Wedding Planner has no events yet.
 
 ---
 
@@ -200,7 +200,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0005`)
+## Data model (D1, migrations `0002`–`0006`)
 
 | Table                                                               | Contents                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |

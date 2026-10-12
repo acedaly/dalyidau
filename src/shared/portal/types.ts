@@ -32,6 +32,10 @@ export interface WebsiteItem {
     title: string;
     body: string;
     url: string;
+    /** A short label shown above the title, e.g. "5.2 km from the ceremony". */
+    detail: string;
+    /** website_media id of a photo for this item (a place to stay), if any. */
+    imageId: string | null;
 }
 
 export interface WebsiteSection {
