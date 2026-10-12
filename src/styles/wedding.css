@@ -1,0 +1,128 @@
+/*
+ * The public wedding website (/wedding). It uses the same Untitled UI components as the rest of the
+ * site, re-rooted on its own palette: warm ivory paper, eucalyptus green, olive and clay, with
+ * Cormorant Garamond for display type and Lora for reading.
+ *
+ * wedding-theme.generated.css re-declares every semantic token on .wedding-theme; the rules below
+ * then swap the palette those tokens resolve to. Regenerate with `node scripts/build-wedding-theme.mjs`.
+ */
+@import "@fontsource-variable/cormorant-garamond";
+@import "@fontsource-variable/cormorant-garamond/wght-italic.css";
+@import "@fontsource-variable/lora";
+@import "./wedding-theme.generated.css";
+
+@theme {
+    --font-wedding-display: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
+    --font-wedding-body: "Lora Variable", Lora, Georgia, "Times New Roman", serif;
+
+    /* Accent palettes only the wedding site uses. */
+    --color-clay-50: rgb(251 244 240);
+    --color-clay-100: rgb(246 230 221);
+    --color-clay-200: rgb(236 204 188);
+    --color-clay-300: rgb(220 168 145);
+    --color-clay-400: rgb(201 132 105);
+    --color-clay-500: rgb(181 104 78);
+    --color-clay-600: rgb(156 85 62);
+    --color-clay-700: rgb(126 68 51);
+
+    --color-olive-50: rgb(246 246 238);
+    --color-olive-100: rgb(234 235 218);
+    --color-olive-200: rgb(214 216 184);
+    --color-olive-300: rgb(184 188 141);
+    --color-olive-400: rgb(152 158 104);
+    --color-olive-500: rgb(122 128 78);
+    --color-olive-600: rgb(97 102 61);
+    --color-olive-700: rgb(76 80 49);
+    --color-olive-800: rgb(60 63 40);
+
+    --color-ivory: rgb(251 248 241);
+}
+
+.wedding-theme {
+    /* Eucalyptus replaces the brand scale. */
+    --color-brand-25: rgb(247 250 248);
+    --color-brand-50: rgb(238 244 240);
+    --color-brand-100: rgb(221 233 226);
+    --color-brand-200: rgb(193 214 202);
+    --color-brand-300: rgb(157 188 171);
+    --color-brand-400: rgb(119 158 138);
+    --color-brand-500: rgb(90 132 111);
+    --color-brand-600: rgb(71 110 91);
+    --color-brand-700: rgb(57 90 75);
+    --color-brand-800: rgb(46 73 61);
+    --color-brand-900: rgb(37 59 50);
+    --color-brand-950: rgb(22 36 30);
+
+    /* Warm, paper-like neutrals replace the cool greys. */
+    --color-neutral-25: rgb(253 251 246);
+    --color-neutral-50: rgb(249 245 236);
+    --color-neutral-100: rgb(242 236 224);
+    --color-neutral-200: rgb(229 221 205);
+    --color-neutral-300: rgb(211 201 182);
+    --color-neutral-400: rgb(168 158 139);
+    --color-neutral-500: rgb(127 118 101);
+    --color-neutral-600: rgb(97 90 76);
+    --color-neutral-700: rgb(75 70 59);
+    --color-neutral-800: rgb(55 52 44);
+    --color-neutral-900: rgb(39 37 31);
+    --color-neutral-950: rgb(25 24 20);
+
+    --font-body: var(--font-wedding-body);
+    --font-display: var(--font-wedding-display);
+
+    font-family: var(--font-wedding-body);
+    color: var(--color-text-secondary);
+    background-color: var(--color-ivory);
+}
+
+/* Semantic overrides on top of the re-rooted tokens. Must come after the generated file. */
+.wedding-theme {
+    --color-bg-primary: var(--color-ivory);
+    --color-bg-primary_alt: var(--color-ivory);
+    --color-bg-secondary: rgb(244 239 228);
+    --color-bg-primary_hover: rgb(243 237 225);
+    --color-text-primary: rgb(38 47 38);
+}
+
+.wedding-display {
+    font-family: var(--font-wedding-display);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
+/* Plain-text paragraphs from the portal keep their line breaks. */
+.wedding-prose p {
+    white-space: pre-line;
+}
+
+/* Gentle motion. Everything is visible without it, and the global reduced-motion rule turns it off. */
+@keyframes wedding-rise {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.wedding-rise {
+    animation: wedding-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Sections fade up as they scroll into view, where the browser supports scroll-driven animation. */
+@supports (animation-timeline: view()) {
+    .wedding-reveal {
+        animation: wedding-rise linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 40%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wedding-rise,
+    .wedding-reveal {
+        animation: none;
+    }
+}

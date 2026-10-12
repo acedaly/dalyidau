@@ -18,7 +18,7 @@ export interface InputBaseProps extends Omit<AriaInputProps, "size"> {
     isRequired?: boolean;
     /**
      * Input size.
-     * @default "sm"
+     * @default "md"
      */
     size?: "sm" | "md" | "lg";
     /** Placeholder text. */
@@ -33,7 +33,9 @@ export interface InputBaseProps extends Omit<AriaInputProps, "size"> {
     tooltipClassName?: string;
     /** Keyboard shortcut to display. */
     shortcut?: string | boolean;
+    /** Ref for the underlying input element. */
     ref?: Ref<HTMLInputElement>;
+    /** Ref for the group element that wraps the input, its icon, tooltip and shortcut. */
     groupRef?: Ref<HTMLDivElement>;
     /** Icon component to display on the left side of the input. */
     icon?: ComponentType<HTMLAttributes<HTMLOrSVGElement>>;
@@ -200,7 +202,7 @@ export const InputBase = ({
 
 InputBase.displayName = "InputBase";
 
-interface TextFieldContextProps extends Partial<Pick<InputBaseProps, "size" | "wrapperClassName" | "inputClassName" | "iconClassName" | "tooltipClassName">> {}
+type TextFieldContextProps = Partial<Pick<InputBaseProps, "size" | "wrapperClassName" | "inputClassName" | "iconClassName" | "tooltipClassName">>;
 
 const TextFieldContext = createContext<TextFieldContextProps>({});
 

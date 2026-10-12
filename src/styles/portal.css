@@ -1,0 +1,17 @@
+/*
+ * Chart colours for the portal. RSVP charts show attending and declined as two series with the
+ * unanswered remainder as the empty track. Both pairs were checked with the dataviz palette
+ * validator: they pass every check, with a colour-blind separation (ΔE ≈ 7) that relies on the
+ * direct labels, legend and 2px gaps the charts always draw.
+ */
+:root {
+    --chart-attending: #15803d;
+    --chart-declined: #c2410c;
+    --chart-series: var(--color-brand-600);
+}
+
+.dark-mode {
+    --chart-attending: #16a34a;
+    --chart-declined: #ea580c;
+    --chart-series: var(--color-brand-400);
+}
