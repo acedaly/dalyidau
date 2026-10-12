@@ -599,3 +599,49 @@ export interface CateringSummary {
     undecided: number;
     guests: CateringGuest[];
 }
+
+// ---------------------------------------------------------------------------------------------
+// RSVP questions
+
+export const QUESTION_TYPES = ["short_text", "long_text", "single_choice", "multiple_choice", "yes_no", "number", "date"] as const;
+export type QuestionType = (typeof QUESTION_TYPES)[number];
+
+export interface QuestionCondition {
+    /** Show this question only when the answer to that question… */
+    questionId: string;
+    /** …equals this (for yes/no: "yes" or "no"; for choices: one of the options). */
+    equals: string;
+}
+
+export interface RsvpQuestion {
+    id: string;
+    label: string;
+    help: string | null;
+    type: QuestionType;
+    options: string[];
+    required: boolean;
+    scope: "guest" | "household";
+    audience: "all" | "adult" | "child";
+    /** Ask only guests attending this event. Null = everyone the question applies to. */
+    eventId: string | null;
+    condition: QuestionCondition | null;
+    published: boolean;
+    sortOrder: number;
+    version: number;
+    archived: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type AnswerValue = string | number | boolean | string[];
+
+export interface QuestionSummary {
+    question: RsvpQuestion;
+    answered: number;
+    /** For choice and yes/no questions: option → count. */
+    counts: { option: string; count: number }[];
+    /** For number questions. */
+    total: number | null;
+    /** For text and date questions: the answers with who gave them. */
+    responses: { who: string; value: string; version: number }[];
+}
