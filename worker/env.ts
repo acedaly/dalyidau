@@ -34,6 +34,8 @@ export interface Env {
     EMAIL_DELIVERY?: string;
     /** From address for wedding emails once delivery is configured. */
     EMAIL_FROM?: string;
+    /** SMTP2GO API key for transactional wedding email; never expose to the client. */
+    SMTP2GO_API_KEY?: string;
     /** Optional Cloudflare Email Service binding. Add it only after the sending domain is approved. */
     EMAIL?: SendEmail;
     /** HMAC key for long, revocable native RSVP invitation links. */
