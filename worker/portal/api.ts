@@ -6,7 +6,9 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
+import { cateringSummary } from "./catering";
 import { audiencePreview, deleteDraft, deliveryAvailable, getMessage, listMessages, mergeRows, prepareMessage, previewMessage, sendMessage } from "./comms";
 import { csvResponse, toCsv } from "./csv";
 import { getLayout, resetLayout, saveLayout } from "./dashboard";
@@ -19,6 +21,7 @@ import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson
 import { importGuests } from "./import";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
+import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
 import { listUsers, removeUser, saveUser } from "./users";
@@ -57,6 +60,8 @@ const add = (method: string, path: string, permission: Route["permission"], hand
 
 const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
     privacy: "portal.data.erase",
+    catering: "wedding.planning.edit",
+    website_draft: "wedding.website.edit",
     wedding: "portal.settings.manage",
     website: "wedding.website.edit",
     // The RSVP link decides where guests are sent, so only owners and admins may change it.
@@ -65,11 +70,14 @@ const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
 };
 const isSettingsKey = (key: string): key is SettingsKey => key in SETTINGS_PERMISSIONS;
 
+/** Collections served by the generic routes. */
+const COLLECTIONS = { ...ENTITY_DEFS, "seating-tables": seatingTableDef } as unknown as Record<string, EntityDef<{ id: string }>>;
+
 const collection = (ctx: Ctx) => {
-    const def = ENTITY_DEFS[ctx.params.collection as keyof typeof ENTITY_DEFS];
+    const def = COLLECTIONS[ctx.params.collection];
     if (!def) throw new HttpError(404, "not_found", "Unknown collection");
     // The generic routes don't need the concrete row type.
-    return def as unknown as EntityDef<{ id: string }>;
+    return def;
 };
 
 // --- Session ------------------------------------------------------------------------------------
@@ -97,6 +105,8 @@ add(
     (ctx) => (isSettingsKey(ctx.params.key) ? SETTINGS_PERMISSIONS[ctx.params.key] : "portal.settings.manage"),
     async ({ env, request, user, params }) => {
         if (!isSettingsKey(params.key)) throw new HttpError(404, "not_found", "Unknown settings document");
+        // The published website only ever changes by publishing the draft.
+        if (params.key === "website") throw new HttpError(405, "method_not_allowed", "Edit the draft, then publish it");
         return json({ value: await saveSettings(env.DB, params.key, await readJson(request), user.email) });
     },
 );
@@ -226,6 +236,75 @@ add("POST", "/api/portal/privacy/retention", "portal.data.erase", async ({ env, 
     return json({ ...result, preview: await retentionPreview(env.DB), deleted: await listDeleted(env.DB) });
 });
 
+// --- Website: draft, publishing and photos ------------------------------------------------------
+
+add("POST", "/api/portal/wedding/website/publish", "wedding.website.edit", async ({ env, user }) => {
+    const draft = await getSettings(env.DB, "website_draft");
+    // The draft may refer to photos; make sure they still exist before it goes live.
+    const media = await listMedia(env.DB);
+    if (draft.heroImageId && !media.some((m) => m.id === draft.heroImageId))
+        throw new HttpError(422, "validation", "The hero photo was deleted; choose another");
+    const published = await saveSettings(env.DB, "website", draft, user.email);
+    return json({ published });
+});
+add("POST", "/api/portal/wedding/website/discard", "wedding.website.edit", async ({ env, user }) => {
+    const published = await getSettings(env.DB, "website");
+    return json({ draft: await saveSettings(env.DB, "website_draft", published, user.email) });
+});
+add("GET", "/api/portal/wedding/media", "wedding.view", async ({ env }) => json({ media: await listMedia(env.DB) }));
+add("POST", "/api/portal/wedding/media", "wedding.website.edit", async ({ env, request, user }) =>
+    json({ media: await uploadMedia(env.DB, env.MEDIA, await readJson(request, 8_000_000), user.email) }, 201),
+);
+add("PATCH", "/api/portal/wedding/media/:id", "wedding.website.edit", async ({ env, request, user, params }) =>
+    json({ media: await updateMedia(env.DB, params.id, await readJson(request), user.email) }),
+);
+add("DELETE", "/api/portal/wedding/media/:id", "wedding.website.edit", async ({ env, user, params }) => {
+    await deleteMedia(env.DB, env.MEDIA, params.id, user.email);
+    return json({ ok: true });
+});
+
+// --- Seating and catering ----------------------------------------------------------------------
+
+add("GET", "/api/portal/wedding/seating", "wedding.view", async ({ env }) => json(await seatingState(env.DB)), "module.planning");
+add(
+    "PUT",
+    "/api/portal/wedding/seating/assign",
+    "wedding.planning.edit",
+    async ({ env, request, user }) => {
+        await assignSeats(env.DB, await readJson(request), user.email);
+        return json(await seatingState(env.DB));
+    },
+    "module.planning",
+);
+add(
+    "POST",
+    "/api/portal/wedding/seating/snapshots",
+    "wedding.planning.edit",
+    async ({ env, request, user }) => json({ snapshots: await saveSnapshot(env.DB, await readJson(request), user.email) }, 201),
+    "module.planning",
+);
+add(
+    "POST",
+    "/api/portal/wedding/seating/snapshots/:id/restore",
+    "wedding.planning.edit",
+    async ({ env, user, params }) => {
+        await restoreSnapshot(env.DB, params.id, user.email);
+        return json(await seatingState(env.DB));
+    },
+    "module.planning",
+);
+add(
+    "DELETE",
+    "/api/portal/wedding/seating/snapshots/:id",
+    "wedding.planning.edit",
+    async ({ env, user, params }) => {
+        await deleteSnapshot(env.DB, params.id, user.email);
+        return json({ snapshots: await listSnapshots(env.DB) });
+    },
+    "module.planning",
+);
+add("GET", "/api/portal/wedding/catering", "wedding.view", async ({ env }) => json(await cateringSummary(env.DB)), "module.planning");
+
 // --- Communications -------------------------------------------------------------------------------
 
 add("GET", "/api/portal/wedding/messages", "wedding.view", async ({ env }) => json({ messages: await listMessages(env.DB) }), "module.communications");
@@ -315,10 +394,10 @@ add(
 // Registered last so the specific routes above win.
 
 const collectionPermission = (kind: "read" | "write") => (ctx: Ctx) => {
-    const def = ENTITY_DEFS[ctx.params.collection as keyof typeof ENTITY_DEFS];
+    const def = COLLECTIONS[ctx.params.collection];
     return def ? def[kind] : "portal.settings.manage";
 };
-const collectionFlag = (ctx: Ctx) => ENTITY_DEFS[ctx.params.collection as keyof typeof ENTITY_DEFS]?.flag;
+const collectionFlag = (ctx: Ctx) => COLLECTIONS[ctx.params.collection]?.flag;
 
 add(
     "GET",

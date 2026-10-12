@@ -38,6 +38,7 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
     const groups = useMemo(() => [...new Set(guests.map((g) => g.groupName).filter(Boolean) as string[])].sort(), [guests]);
     const tags = useMemo(() => [...new Set(guests.flatMap((g) => g.tags))].sort(), [guests]);
     const eventName = useMemo(() => new Map(data.events.map((e) => [e.id, e.name])), [data.events]);
+    const tableName = useMemo(() => new Map(data.tables.map((t) => [t.id, t.name])), [data.tables]);
     const tableFields = data.customFields.filter((f) => f.showInTable && !f.archived);
 
     const filtered = guests.filter((g) => {
@@ -112,7 +113,27 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
             render: (g) => g.groupName ?? <span className="text-quaternary">—</span>,
             className: "max-2xl:hidden",
         },
-        { id: "dietary", label: "Dietary", render: (g) => g.dietary ?? <span className="text-quaternary">—</span>, className: "max-xl:hidden" },
+        {
+            id: "table",
+            label: "Table",
+            sortValue: (g) => (g.tableId ? tableName.get(g.tableId) : null),
+            render: (g) => (g.tableId ? tableName.get(g.tableId) : <span className="text-quaternary">—</span>),
+            className: "max-xl:hidden",
+        },
+        {
+            id: "dietary",
+            label: "Dietary",
+            render: (g) =>
+                g.dietary || g.allergies ? (
+                    <span className="flex flex-col">
+                        {g.dietary && <span>{g.dietary}</span>}
+                        {g.allergies && <span className="font-medium text-error-primary">Allergy: {g.allergies}</span>}
+                    </span>
+                ) : (
+                    <span className="text-quaternary">—</span>
+                ),
+            className: "max-xl:hidden",
+        },
         ...tableFields.map<DataColumn<Guest>>((field) => ({
             id: `custom-${field.key}`,
             label: field.label,
@@ -249,6 +270,9 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                 households={data.households}
                 events={data.events}
                 customFields={data.customFields}
+                mealCategories={data.mealCategories}
+                allGuests={guests}
+                tables={data.tables}
                 onSaved={(guest) => {
                     upsert(guest);
                     setSelected(guest);

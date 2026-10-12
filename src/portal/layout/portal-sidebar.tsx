@@ -13,9 +13,11 @@ import {
     Clock,
     X as CloseIcon,
     Globe02,
+    LayoutGrid01,
     LogOut01,
     Mail01,
     Menu02,
+    Receipt,
     Settings01,
     ShieldTick,
     Users01,
@@ -72,6 +74,8 @@ const SECTIONS: { label: string; items: NavEntry[] }[] = [
     {
         label: "Planning",
         items: [
+            { label: "Seating", href: "/portal/wedding/seating", icon: LayoutGrid01, flag: "module.planning" },
+            { label: "Catering", href: "/portal/wedding/catering", icon: Receipt, flag: "module.planning" },
             { label: "Tasks", href: "/portal/wedding/tasks", icon: CheckDone01, flag: "module.planning" },
             { label: "Timeline", href: "/portal/wedding/timeline", icon: Clock, flag: "module.planning" },
             { label: "Budget", href: "/portal/wedding/budget", icon: Wallet02, flag: "module.budget", permission: "wedding.budget.view" },

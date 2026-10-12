@@ -1,11 +1,14 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { needsSeat } from "../../src/shared/portal/seating";
 import type { AuditEntry, BudgetItem, Guest, Household, Supplier, Task } from "../../src/shared/portal/types";
+import { cateringSummary } from "./catering";
 import { type CsvColumn, toCsv } from "./csv";
 import { parseJson } from "./db";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef } from "./entities";
 import { listGuests } from "./guests";
+import { seatingState } from "./seating";
 import { getSettings } from "./settings";
 
 const money = (cents: number | null) => (cents === null ? "" : (cents / 100).toFixed(2));
@@ -87,6 +90,54 @@ export const EXPORTS: Record<string, ExportDef> = {
                 { header: "Source", value: (r) => r.event.source },
                 { header: "Responded at", value: (r) => r.event.respondedAt },
                 { header: "Dietary", value: (r) => r.guest.dietary },
+            ]);
+        },
+    },
+    seating: {
+        label: "Seating plan",
+        permission: "wedding.export",
+        flag: "module.planning",
+        async build(db) {
+            const state = await seatingState(db);
+            const order = new Map(state.tables.map((t, i) => [t.id, i]));
+            const tableName = new Map(state.tables.map((t) => [t.id, t.name]));
+            const category = new Map(state.categories.map((c) => [c.id, c.label]));
+            const rows = [...state.guests]
+                .filter((g) => g.tableId || needsSeat(g))
+                .sort(
+                    (a, b) =>
+                        (a.tableId ? (order.get(a.tableId) ?? 999) : 1000) - (b.tableId ? (order.get(b.tableId) ?? 999) : 1000) || a.position - b.position,
+                );
+            return toCsv(rows, [
+                { header: "Table", value: (g) => (g.tableId ? tableName.get(g.tableId) : "Not seated") },
+                { header: "Seat order", value: (g) => (g.tableId ? g.position + 1 : null) },
+                { header: "Guest", value: (g) => g.name },
+                { header: "Household", value: (g) => g.householdName },
+                { header: "Age group", value: (g) => g.ageGroup },
+                { header: "RSVP", value: (g) => g.status },
+                { header: "Meal", value: (g) => (g.mealCategory ? category.get(g.mealCategory) : "") },
+                { header: "Dietary", value: (g) => g.dietary },
+                { header: "Allergies", value: (g) => g.allergies },
+            ]);
+        },
+    },
+    catering: {
+        label: "Catering list",
+        permission: "wedding.export",
+        flag: "module.planning",
+        async build(db) {
+            const summary = await cateringSummary(db);
+            const label = new Map(summary.settings.categories.map((c) => [c.id, c.label]));
+            return toCsv(summary.guests, [
+                { header: "Guest", value: (g) => g.name },
+                { header: "Household", value: (g) => g.householdName },
+                { header: "RSVP", value: (g) => g.status },
+                { header: "Age group", value: (g) => g.ageGroup },
+                { header: "Meal", value: (g) => (g.category ? label.get(g.category) : "Needs a decision") },
+                { header: "Meal chosen or default", value: (g) => (g.chosen ? "chosen" : g.category ? "default" : "") },
+                { header: "Dietary", value: (g) => g.dietary },
+                { header: "Allergies", value: (g) => g.allergies },
+                { header: "Table", value: (g) => g.tableName },
             ]);
         },
     },

@@ -2,6 +2,7 @@ import { ToastProvider } from "@/portal/components/toast";
 import { PortalSidebar } from "@/portal/layout/portal-sidebar";
 import { AuditPage } from "@/portal/pages/audit-page";
 import { BudgetPage } from "@/portal/pages/budget-page";
+import { CateringPage } from "@/portal/pages/catering-page";
 import { CommunicationsPage } from "@/portal/pages/communications-page";
 import { DashboardPage } from "@/portal/pages/dashboard-page";
 import { EventsPage } from "@/portal/pages/events-page";
@@ -9,6 +10,7 @@ import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
 import { MessagePage } from "@/portal/pages/message-page";
 import { RsvpsPage } from "@/portal/pages/rsvps-page";
+import { SeatingPage } from "@/portal/pages/seating-page";
 import { SettingsPage } from "@/portal/pages/settings-page";
 import { ForbiddenPage, NotFoundPage } from "@/portal/pages/status-pages";
 import { SuppliersPage } from "@/portal/pages/suppliers-page";
@@ -39,6 +41,10 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <TasksPage data={data} />;
         case "timeline":
             return <TimelinePage data={data} />;
+        case "seating":
+            return <SeatingPage data={data} />;
+        case "catering":
+            return <CateringPage data={data} />;
         case "budget":
             return <BudgetPage data={data} />;
         case "suppliers":
@@ -66,16 +72,18 @@ export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }
                 >
                     Skip to content
                 </a>
-                <div className="lg:bg-secondary_subtle flex min-h-dvh flex-col bg-primary lg:flex-row">
-                    <PortalSidebar path={path} />
-                    <main id="main" className="min-w-0 flex-1 lg:pt-1 lg:pr-1 lg:pb-1">
-                        <div className="min-h-full bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary">
+                <div className="flex min-h-dvh flex-col bg-primary lg:flex-row lg:bg-secondary print:block print:bg-primary">
+                    <div className="contents print:hidden">
+                        <PortalSidebar path={path} />
+                    </div>
+                    <main id="main" className="min-w-0 flex-1 lg:pt-1 lg:pr-1 lg:pb-1 print:p-0">
+                        <div className="min-h-full bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary print:shadow-none print:ring-0">
                             {data.context.environment !== "production" && (
-                                <p className="border-b border-secondary bg-warning-primary px-4 py-2 text-xs font-medium text-warning-primary lg:rounded-t-xl lg:px-8">
+                                <p className="border-b border-secondary bg-warning-primary px-4 py-2 text-xs font-medium text-warning-primary lg:rounded-t-xl lg:px-8 print:hidden">
                                     {data.context.environment} environment: changes here don't affect the live wedding data.
                                 </p>
                             )}
-                            <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8 lg:pt-8 lg:pb-12">
+                            <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8 lg:pt-8 lg:pb-12 print:max-w-none print:p-0">
                                 <Page data={data} />
                             </div>
                         </div>

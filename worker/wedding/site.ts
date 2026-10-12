@@ -5,14 +5,17 @@ import type { PublicEvent, WeddingPageData } from "../../src/shared/portal/types
 import { eventDef, listEntities } from "../portal/entities";
 import { loadFlags } from "../portal/flags";
 import { getSettings } from "../portal/settings";
+import { listMedia } from "./media";
 
 export async function loadWeddingPage(db: D1Database, route: WeddingPageData["route"], preview: boolean): Promise<WeddingPageData> {
-    const [details, content, rsvp, events, flags] = await Promise.all([
+    // The preview shows the draft; the public site shows what was last published.
+    const [details, content, rsvp, events, flags, media] = await Promise.all([
         getSettings(db, "wedding"),
-        getSettings(db, "website"),
+        getSettings(db, preview ? "website_draft" : "website"),
         getSettings(db, "rsvp"),
         listEntities(db, eventDef),
         loadFlags(db),
+        listMedia(db),
     ]);
     const publicEvents: PublicEvent[] = events
         .filter((e) => e.isPublic)
@@ -31,7 +34,9 @@ export async function loadWeddingPage(db: D1Database, route: WeddingPageData["ro
     return {
         route,
         details,
-        content,
+        content: { ...content, sections: content.sections.filter((s) => s.visible) },
+        heroImage: (content.heroImageId && media.find((m) => m.id === content.heroImageId)) || null,
+        gallery: content.showGallery ? media.filter((m) => m.inGallery) : [],
         events: publicEvents,
         rsvp: { mode, externalUrl: mode === "external" ? rsvp.externalUrl : null, deadline: rsvp.deadline || null },
         preview,

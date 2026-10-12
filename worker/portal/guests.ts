@@ -4,6 +4,7 @@ import type { CustomField, Guest, GuestEventStatus, RsvpSource, RsvpStatus } fro
 import { auditStatement, chunk, diff, isGuardFailure, newId, nowIso, parseJson, placeholders, requireChange } from "./db";
 import { CONFLICT_MESSAGE, ConflictError, NotFoundError, ValidationError, customFieldDef, fields, listEntities, takeExpectedVersion } from "./entities";
 import { redactChanges } from "./redact";
+import { getSettings } from "./settings";
 
 const guestSchema = z.object({
     firstName: fields.str(80).min(1, "First name is required"),
@@ -15,7 +16,11 @@ const guestSchema = z.object({
     groupName: fields.optStr(80),
     ageGroup: z.enum(["adult", "child", "infant"]).default("adult"),
     isPlusOne: z.boolean().default(false),
+    plusOneOf: fields.opt(z.string().max(40)),
     dietary: fields.optStr(500),
+    allergies: fields.optStr(500),
+    mealCategory: fields.opt(z.string().max(40)),
+    contactPreference: z.enum(["email", "post", "phone", "none"]).default("email"),
     accessibility: fields.optStr(500),
     notes: fields.optStr(4000),
     tags: z.array(fields.str(40).min(1)).max(30).default([]),
@@ -35,7 +40,11 @@ const COLUMNS: Record<string, string> = {
     groupName: "group_name",
     ageGroup: "age_group",
     isPlusOne: "is_plus_one",
+    plusOneOf: "plus_one_of",
     dietary: "dietary",
+    allergies: "allergies",
+    mealCategory: "meal_category",
+    contactPreference: "contact_preference",
     accessibility: "accessibility",
     notes: "notes",
     tags: "tags",
@@ -67,7 +76,12 @@ const toGuest = (row: Record<string, unknown>, events: GuestEventStatus[]): Gues
     groupName: (row.group_name as string | null) ?? null,
     ageGroup: row.age_group as Guest["ageGroup"],
     isPlusOne: row.is_plus_one === 1,
+    plusOneOf: (row.plus_one_of as string | null) ?? null,
     dietary: (row.dietary as string | null) ?? null,
+    allergies: (row.allergies as string | null) ?? null,
+    mealCategory: (row.meal_category as string | null) ?? null,
+    contactPreference: ((row.contact_preference as string | null) ?? "email") as Guest["contactPreference"],
+    tableId: (row.table_id as string | null) ?? null,
     accessibility: (row.accessibility as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
     tags: parseJson<string[]>(row.tags, []),
@@ -78,7 +92,8 @@ const toGuest = (row: Record<string, unknown>, events: GuestEventStatus[]): Gues
     updatedAt: row.updated_at as string,
 });
 
-const SELECT = "SELECT g.*, h.name AS household_name FROM guests g LEFT JOIN households h ON h.id = g.household_id AND h.deleted_at IS NULL";
+const SELECT =
+    "SELECT g.*, h.name AS household_name, sa.table_id FROM guests g LEFT JOIN households h ON h.id = g.household_id AND h.deleted_at IS NULL LEFT JOIN seat_assignments sa ON sa.guest_id = g.id";
 
 type EventRow = { guest_id: string; event_id: string; status: RsvpStatus; source: RsvpSource | null; responded_at: string | null };
 const toEventStatus = (row: EventRow): GuestEventStatus => ({ eventId: row.event_id, status: row.status, source: row.source, respondedAt: row.responded_at });
@@ -156,6 +171,18 @@ export function cleanCustom(input: Record<string, unknown>, definitions: CustomF
     return out;
 }
 
+async function checkGuestLinks(db: D1Database, id: string | null, plusOneOf: unknown, mealCategory: unknown) {
+    if (typeof plusOneOf === "string") {
+        if (plusOneOf === id) throw new ValidationError("A guest can't be their own plus-one", "plusOneOf");
+        const partner = await db.prepare("SELECT 1 FROM guests WHERE id = ? AND deleted_at IS NULL").bind(plusOneOf).first();
+        if (!partner) throw new ValidationError("That guest no longer exists", "plusOneOf");
+    }
+    if (typeof mealCategory === "string") {
+        const catering = await getSettings(db, "catering");
+        if (!catering.categories.some((c) => c.id === mealCategory)) throw new ValidationError("That meal category no longer exists", "mealCategory");
+    }
+}
+
 async function checkReferences(db: D1Database, householdId: unknown, eventIds: string[] | undefined) {
     if (typeof householdId === "string") {
         const exists = await db.prepare("SELECT 1 FROM households WHERE id = ? AND deleted_at IS NULL").bind(householdId).first();
@@ -184,6 +211,7 @@ export async function createGuest(db: D1Database, input: unknown, actor: string)
     const definitions = await listEntities(db, customFieldDef);
     const custom = cleanCustom(data.custom, definitions);
     await checkReferences(db, data.householdId, data.events);
+    await checkGuestLinks(db, null, data.plusOneOf, data.mealCategory);
 
     const id = newId("gst");
     const now = nowIso();
@@ -213,6 +241,7 @@ export async function updateGuest(db: D1Database, id: string, input: unknown, ac
         patch.custom = { ...before.custom, ...cleanCustom(patch.custom, definitions) };
     }
     await checkReferences(db, patch.householdId, patch.events);
+    await checkGuestLinks(db, id, patch.plusOneOf, patch.mealCategory);
 
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -317,6 +346,7 @@ export const bulkSchema = z.discriminatedUnion("action", [
     z.object({ action: z.literal("set-side"), ids: z.array(z.string()).min(1).max(1000), side: z.enum(["partner_one", "partner_two", "shared"]) }),
     z.object({ action: z.literal("set-group"), ids: z.array(z.string()).min(1).max(1000), groupName: fields.optStr(80) }),
     z.object({ action: z.literal("add-tag"), ids: z.array(z.string()).min(1).max(1000), tag: fields.str(40).min(1) }),
+    z.object({ action: z.literal("set-meal"), ids: z.array(z.string()).min(1).max(1000), mealCategory: z.string().max(40).nullable() }),
     z.object({ action: z.literal("remove-tag"), ids: z.array(z.string()).min(1).max(1000), tag: fields.str(40).min(1) }),
 ]);
 
@@ -341,6 +371,7 @@ export async function bulkUpdateGuests(db: D1Database, input: unknown, actor: st
         eventName = event.name;
     }
     if (command.action === "set-household" && command.householdId) await checkReferences(db, command.householdId, undefined);
+    if (command.action === "set-meal") await checkGuestLinks(db, null, null, command.mealCategory);
 
     const now = nowIso();
     const statements: D1PreparedStatement[] = [];
@@ -390,6 +421,12 @@ export async function bulkUpdateGuests(db: D1Database, input: unknown, actor: st
                     db.prepare(`UPDATE guests SET group_name = ?, updated_at = ? WHERE id IN ${inList}`).bind(command.groupName ?? null, now, ...part),
                 );
                 summary = `Changed group for ${targets.length} guests`;
+                break;
+            case "set-meal":
+                statements.push(
+                    db.prepare(`UPDATE guests SET meal_category = ?, updated_at = ? WHERE id IN ${inList}`).bind(command.mealCategory, now, ...part),
+                );
+                summary = command.mealCategory ? `Set the meal for ${targets.length} guests` : `Cleared the meal choice for ${targets.length} guests`;
                 break;
             case "add-tag":
                 statements.push(

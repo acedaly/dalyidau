@@ -4,6 +4,7 @@ import { Tabs } from "@/components/application/tabs/tabs";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Button } from "@/components/base/buttons/button";
+import { Select } from "@/components/base/select/select";
 import { ConfirmDialog } from "@/portal/components/dialog";
 import { FormError, useSubmit } from "@/portal/components/form";
 import { RecordPanel } from "@/portal/components/record-panel";
@@ -14,7 +15,7 @@ import { type GuestDraft, GuestForm, draftFromGuest, draftToPayload } from "@/po
 import { api, errorMessage } from "@/portal/lib/api";
 import { formatDateTime, initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
-import type { AuditEntry, CustomField, Guest, Household, RsvpStatus, WeddingEvent } from "@/shared/portal/types";
+import type { AuditEntry, CustomField, Guest, Household, MealCategory, RsvpStatus, SeatingTable, WeddingEvent } from "@/shared/portal/types";
 
 interface GuestPanelProps {
     guest: Guest | null;
@@ -23,13 +24,28 @@ interface GuestPanelProps {
     households: Pick<Household, "id" | "name">[];
     events: WeddingEvent[];
     customFields: CustomField[];
+    mealCategories: MealCategory[];
+    allGuests: Guest[];
+    tables: Pick<SeatingTable, "id" | "name" | "capacity">[];
     onSaved: (guest: Guest) => void;
     onDeleted: (id: string) => void;
 }
 
 const SOURCE_LABELS: Record<string, string> = { portal: "entered in the portal", native: "online RSVP", sayido: "from Say I Do", import: "imported" };
 
-export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, customFields, onSaved, onDeleted }: GuestPanelProps) => {
+export const GuestPanel = ({
+    guest,
+    isOpen,
+    onOpenChange,
+    households,
+    events,
+    customFields,
+    mealCategories,
+    allGuests,
+    tables,
+    onSaved,
+    onDeleted,
+}: GuestPanelProps) => {
     const { can, wedding } = usePortal();
     const toast = useToast();
     const canEdit = can("wedding.guests.edit");
@@ -66,6 +82,18 @@ export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, cu
             },
         },
     );
+
+    const setSeat = async (tableId: string | null) => {
+        if (!guest) return;
+        try {
+            await api("PUT", "/api/portal/wedding/seating/assign", { guestIds: [guest.id], tableId });
+            const { guest: fresh } = await api<{ guest: Guest }>("GET", `/api/portal/wedding/guests/${guest.id}`);
+            onSaved(fresh);
+            toast.success(tableId ? `Seated at ${tables.find((t) => t.id === tableId)?.name}` : "Unseated");
+        } catch (error) {
+            toast.error("Couldn't change the seat", errorMessage(error));
+        }
+    };
 
     const setRsvp = async (eventId: string, status: RsvpStatus) => {
         if (!guest) return;
@@ -118,6 +146,9 @@ export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, cu
                             households={households}
                             events={events}
                             customFields={customFields}
+                            mealCategories={mealCategories}
+                            guests={allGuests}
+                            selfId={null}
                             fieldError={save.fieldError}
                             readOnly={!canEdit}
                         />
@@ -141,15 +172,33 @@ export const GuestPanel = ({ guest, isOpen, onOpenChange, households, events, cu
                                 households={households}
                                 events={events}
                                 customFields={customFields}
+                                mealCategories={mealCategories}
+                                guests={allGuests}
+                                selfId={guest.id}
                                 fieldError={save.fieldError}
                                 readOnly={!canEdit}
                             />
                         </Tabs.Panel>
                         {guest && (
                             <Tabs.Panel id="rsvp" className="flex flex-col gap-5">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-tertiary">Overall</span>
-                                    <RsvpBadge status={guest.rsvp} />
+                                <div className="flex flex-wrap items-end justify-between gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-tertiary">Overall</span>
+                                        <RsvpBadge status={guest.rsvp} />
+                                    </div>
+                                    {tables.length > 0 && (
+                                        <Select
+                                            label="Table"
+                                            size="sm"
+                                            className="w-52"
+                                            isDisabled={!can("wedding.planning.edit")}
+                                            items={[{ id: "none", label: "Not seated" }, ...tables.map((t) => ({ id: t.id, label: t.name }))]}
+                                            value={guest.tableId ?? "none"}
+                                            onChange={(v) => setSeat(v === "none" ? null : String(v))}
+                                        >
+                                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                        </Select>
+                                    )}
                                 </div>
                                 {guest.events.length === 0 ? (
                                     <p className="text-sm text-tertiary">Not invited to any events yet. Choose events under Details.</p>

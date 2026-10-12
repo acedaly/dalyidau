@@ -7,7 +7,7 @@ import { Toggle } from "@/components/base/toggle/toggle";
 import { DateField } from "@/portal/components/date-field";
 import { FormGrid, FullWidth } from "@/portal/components/form";
 import { usePortal } from "@/portal/portal-context";
-import type { AgeGroup, CustomField, Guest, Household, Side, WeddingEvent } from "@/shared/portal/types";
+import type { AgeGroup, ContactPreference, CustomField, Guest, Household, MealCategory, Side, WeddingEvent } from "@/shared/portal/types";
 
 export interface GuestDraft {
     firstName: string;
@@ -19,7 +19,11 @@ export interface GuestDraft {
     groupName: string;
     ageGroup: AgeGroup;
     isPlusOne: boolean;
+    plusOneOf: string | null;
     dietary: string;
+    allergies: string;
+    mealCategory: string | null;
+    contactPreference: ContactPreference;
     accessibility: string;
     notes: string;
     tags: string;
@@ -37,7 +41,11 @@ export const draftFromGuest = (guest: Guest | null, defaults: Partial<GuestDraft
     groupName: guest?.groupName ?? "",
     ageGroup: guest?.ageGroup ?? "adult",
     isPlusOne: guest?.isPlusOne ?? false,
+    plusOneOf: guest?.plusOneOf ?? null,
     dietary: guest?.dietary ?? "",
+    allergies: guest?.allergies ?? "",
+    mealCategory: guest?.mealCategory ?? null,
+    contactPreference: guest?.contactPreference ?? "email",
     accessibility: guest?.accessibility ?? "",
     notes: guest?.notes ?? "",
     tags: guest?.tags.join(", ") ?? "",
@@ -60,11 +68,15 @@ interface GuestFormProps {
     households: Pick<Household, "id" | "name">[];
     events: WeddingEvent[];
     customFields: CustomField[];
+    mealCategories: MealCategory[];
+    /** Other guests, for choosing whose plus-one this is. */
+    guests: Pick<Guest, "id" | "firstName" | "lastName" | "householdId">[];
+    selfId: string | null;
     fieldError: (field: string) => string | undefined;
     readOnly?: boolean;
 }
 
-export const GuestForm = ({ draft, onChange, households, events, customFields, fieldError, readOnly }: GuestFormProps) => {
+export const GuestForm = ({ draft, onChange, households, events, customFields, mealCategories, guests, selfId, fieldError, readOnly }: GuestFormProps) => {
     const { sideLabel } = usePortal();
     const set = <K extends keyof GuestDraft>(key: K, value: GuestDraft[K]) => onChange({ ...draft, [key]: value });
     const setCustom = (key: string, value: string | number | boolean | null) => onChange({ ...draft, custom: { ...draft.custom, [key]: value } });
@@ -137,6 +149,53 @@ export const GuestForm = ({ draft, onChange, households, events, customFields, f
                 <FullWidth>
                     <Checkbox label="Plus one" hint="This guest is someone's plus one." isSelected={draft.isPlusOne} onChange={(v) => set("isPlusOne", v)} />
                 </FullWidth>
+                {draft.isPlusOne && (
+                    <FullWidth>
+                        <Select
+                            label="Plus one of"
+                            items={[
+                                { id: "none", label: "Not specified" },
+                                ...guests
+                                    .filter((g) => g.id !== selfId)
+                                    .sort((a, b) => Number(b.householdId === draft.householdId) - Number(a.householdId === draft.householdId))
+                                    .map((g) => ({ id: g.id, label: `${g.firstName} ${g.lastName}`.trim() })),
+                            ]}
+                            value={draft.plusOneOf ?? "none"}
+                            onChange={(v) => set("plusOneOf", v === "none" ? null : String(v))}
+                            hint={fieldError("plusOneOf") ?? "The seating planner warns if they're at different tables."}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                    </FullWidth>
+                )}
+                <Select
+                    label="Meal"
+                    items={[
+                        { id: "none", label: draft.ageGroup === "adult" ? "Default" : "Not decided" },
+                        ...mealCategories
+                            .filter((c) => c.appliesTo === "any" || c.appliesTo === (draft.ageGroup === "adult" ? "adult" : "child"))
+                            .map((c) => ({ id: c.id, label: c.label })),
+                    ]}
+                    value={draft.mealCategory ?? "none"}
+                    onChange={(v) => set("mealCategory", v === "none" ? null : String(v))}
+                    hint={fieldError("mealCategory") ?? (draft.ageGroup === "adult" ? undefined : "Children are only counted once a meal is chosen.")}
+                >
+                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                </Select>
+                <Select
+                    label="Contact by"
+                    items={[
+                        { id: "email", label: "Email" },
+                        { id: "post", label: "Post" },
+                        { id: "phone", label: "Phone" },
+                        { id: "none", label: "Don't contact" },
+                    ]}
+                    value={draft.contactPreference}
+                    onChange={(v) => set("contactPreference", v as ContactPreference)}
+                    hint="Guests marked “Post”, “Phone” or “Don't contact” are left out of emails."
+                >
+                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                </Select>
             </FormGrid>
 
             {events.length > 0 && (
@@ -158,6 +217,15 @@ export const GuestForm = ({ draft, onChange, households, events, customFields, f
             <FormGrid>
                 <FullWidth>
                     <Input label="Dietary requirements" placeholder="Vegetarian, coeliac…" value={draft.dietary} onChange={(v) => set("dietary", v)} />
+                </FullWidth>
+                <FullWidth>
+                    <Input
+                        label="Allergies"
+                        placeholder="Nuts, shellfish…"
+                        value={draft.allergies}
+                        onChange={(v) => set("allergies", v)}
+                        hint="Highlighted for the caterer and on the seating plan."
+                    />
                 </FullWidth>
                 <FullWidth>
                     <Input label="Accessibility needs" value={draft.accessibility} onChange={(v) => set("accessibility", v)} />

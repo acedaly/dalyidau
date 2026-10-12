@@ -116,6 +116,11 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "seat_assignments",
+    "seating_tables",
+    "seating_snapshots",
+    "rsvp_answers",
+    "website_media",
     "message_recipients",
     "messages",
     "message_templates",
@@ -139,6 +144,13 @@ const PORTAL_TABLES = [
 
 export const resetPortal = async () => {
     await testEnv.DB.batch(PORTAL_TABLES.map((t) => testEnv.DB.prepare(`DELETE FROM ${t}`)));
+    // Keep the built-in bus question (inserted by migration 0004) but reset it.
+    await testEnv.DB.prepare(
+        "INSERT OR REPLACE INTO rsvp_questions (id, label, help, type, options, required, scope, audience, published, sort_order, created_at, updated_at) VALUES ('q_bus', 'Would you like a seat on the courtesy bus?', NULL, 'yes_no', '[]', 0, 'guest', 'all', 0, 100, '2026-10-12T00:00:00.000Z', '2026-10-12T00:00:00.000Z')",
+    ).run();
+    await testEnv.DB.prepare("DELETE FROM rsvp_questions WHERE id != 'q_bus'").run();
+    const listed = await testEnv.MEDIA.list({ prefix: "wedding/" });
+    for (const object of listed.objects) await testEnv.MEDIA.delete(object.key);
 };
 
 export const auditActions = async () =>

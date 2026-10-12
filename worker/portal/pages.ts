@@ -4,13 +4,16 @@ import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { listMedia } from "../wedding/media";
 import { can } from "./auth";
+import { cateringSummary } from "./catering";
 import { deliveryAvailable, getMessage, listMessages } from "./comms";
 import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
+import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
 import { computeStats } from "./stats";
 import { listUsers } from "./users";
@@ -44,13 +47,23 @@ const PAGES: PageDef[] = [
         title: "Guests",
         permission: "wedding.view",
         load: async ({ env }) => {
-            const [guests, households, events, customFields] = await Promise.all([
+            const [guests, households, events, customFields, catering, tables] = await Promise.all([
                 listGuests(env.DB),
                 listEntities(env.DB, householdDef),
                 listEntities(env.DB, eventDef),
                 listEntities(env.DB, customFieldDef),
+                getSettings(env.DB, "catering"),
+                listEntities(env.DB, seatingTableDef),
             ]);
-            return { route: "guests", guests, households: households.map((h) => ({ id: h.id, name: h.name })), events, customFields };
+            return {
+                route: "guests",
+                guests,
+                households: households.map((h) => ({ id: h.id, name: h.name })),
+                events,
+                customFields,
+                mealCategories: catering.categories,
+                tables: tables.map((t) => ({ id: t.id, name: t.name, capacity: t.capacity })),
+            };
         },
     },
     {
@@ -125,6 +138,23 @@ const PAGES: PageDef[] = [
         load: async ({ env }) => ({ route: "timeline", items: await listEntities(env.DB, timelineDef) }),
     },
     {
+        pattern: /^\/portal\/wedding\/seating$/,
+        title: "Seating",
+        permission: "wedding.view",
+        flag: "module.planning",
+        load: async ({ env, user }) => ({ route: "seating", state: await seatingState(env.DB), canEdit: can(user, "wedding.planning.edit") }),
+    },
+    {
+        pattern: /^\/portal\/wedding\/catering$/,
+        title: "Catering",
+        permission: "wedding.view",
+        flag: "module.planning",
+        load: async ({ env }) => {
+            const [summary, events] = await Promise.all([cateringSummary(env.DB), listEntities(env.DB, eventDef)]);
+            return { route: "catering", summary, events: events.map((e) => ({ id: e.id, name: e.name })) };
+        },
+    },
+    {
         pattern: /^\/portal\/wedding\/budget$/,
         title: "Budget",
         permission: "wedding.budget.view",
@@ -150,8 +180,14 @@ const PAGES: PageDef[] = [
         title: "Website",
         permission: "wedding.view",
         load: async ({ env }) => {
-            const [content, events, rsvp] = await Promise.all([getSettings(env.DB, "website"), listEntities(env.DB, eventDef), getSettings(env.DB, "rsvp")]);
-            return { route: "website", content, events, rsvp };
+            const [content, published, media, events, rsvp] = await Promise.all([
+                getSettings(env.DB, "website_draft"),
+                getSettings(env.DB, "website"),
+                listMedia(env.DB),
+                listEntities(env.DB, eventDef),
+                getSettings(env.DB, "rsvp"),
+            ]);
+            return { route: "website", content, published, media, events, rsvp };
         },
     },
     {

@@ -68,7 +68,7 @@ export const MonthCalendar = ({ items, today, onSelect }: MonthCalendarProps) =>
                             key={i}
                             className={cx(
                                 "min-h-20 border-r border-b border-secondary p-1.5 text-left md:min-h-28 md:p-2 [&:nth-child(7n)]:border-r-0",
-                                !inMonth && "bg-secondary_subtle",
+                                !inMonth && "bg-secondary",
                             )}
                             aria-label={inMonth ? `${date}: ${dayItems.length ? dayItems.map((d) => d.label).join(", ") : "nothing due"}` : undefined}
                         >

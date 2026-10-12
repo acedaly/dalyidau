@@ -9,12 +9,13 @@ import { escapeHtml, jsonForScript } from "./lib/html";
 import { handlePortalApi } from "./portal/api";
 import { type AuthResult, authenticate } from "./portal/auth";
 import { loadFlags } from "./portal/flags";
-import { checkMutation, errorResponse, json as apiJson, readJson } from "./portal/http";
+import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { loadPortalPage } from "./portal/pages";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { type SyncSummary, runSync } from "./sync";
+import { serveMedia } from "./wedding/media";
 import { RsvpError, lookupRsvp, submitRsvp } from "./wedding/rsvp";
 import { loadWeddingPage, weddingTitle } from "./wedding/site";
 
@@ -71,6 +72,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     // The portal and the wedding site are never edge-cached: one is private, the other changes as
     // the couple edits it.
     if (path === "/portal" || path.startsWith("/portal/")) return portalPage(request, env, url);
+    const photo = /^\/wedding\/media\/([^/]+)$/.exec(path);
+    if (photo) return weddingPhoto(request, env, photo[1]);
     if (path === "/wedding" || path.startsWith("/wedding/")) return weddingPage(env, url, indexable);
 
     return cachedPage(request, env, ctx, indexable, async () => {
@@ -231,7 +234,9 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     const data: PortalPageData = { ...result.data, context: { user: auth.user, flags, wedding, environment: env.ENVIRONMENT } };
     return renderDocument(env, {
         area: "portal",
-        head: [`<title>${escapeHtml(result.title)} · Portal · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join("\n        "),
+        head: [`<title>${escapeHtml(result.title)} · Portal · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join(
+            "\n        ",
+        ),
         body: renderPortal(data, path),
         data,
         path,
@@ -305,6 +310,20 @@ function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, st
         // The wedding site has its own light palette; the stored dark-mode preference doesn't apply.
         htmlAttributes: 'data-theme-lock="light"',
     });
+}
+
+/** Website photos are public once the site is; before that, only signed-in portal users (the preview) see them. */
+async function weddingPhoto(request: Request, env: Env, file: string): Promise<Response> {
+    const flags = await loadFlags(env.DB);
+    if (!flags["wedding.site.public"]) {
+        const auth = await authenticate(request, env);
+        if (!auth.ok) return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+        const response = await serveMedia(env.MEDIA, file);
+        const copy = new Response(response.body, response);
+        copy.headers.set("Cache-Control", "private, no-store");
+        return copy;
+    }
+    return serveMedia(env.MEDIA, file);
 }
 
 async function weddingApi(request: Request, env: Env, url: URL): Promise<Response> {

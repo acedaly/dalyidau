@@ -1,10 +1,11 @@
 // The public wedding website. Built from the same Untitled UI components and React Aria patterns as
 // the rest of the site, wrapped in .wedding-theme, which re-roots every design token on the wedding
 // palette (ivory, eucalyptus, olive, clay) and serif typography. See src/styles/wedding.css.
+import { Fragment } from "react";
 import { Calendar, LinkExternal01, Mail01, MarkerPin01, Stars02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { formatDate, formatTime } from "@/portal/lib/format";
-import type { PublicEvent, WeddingPageData } from "@/shared/portal/types";
+import type { PublicEvent, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 import { Arch, Sprig } from "@/wedding/components/ornament";
 import { RsvpFlow } from "@/wedding/rsvp-flow";
@@ -19,7 +20,7 @@ const longDate = (iso: string) => formatDate(iso, { weekday: "long", day: "numer
 
 const Header = ({ data, links }: { data: WeddingPageData; links: { home: string; rsvp: string } }) => {
     const initials = `${data.details.partnerOne.charAt(0)} & ${data.details.partnerTwo.charAt(0)}`;
-    const visibleSections = data.content.sections.filter((s) => s.body.trim());
+    const visibleSections = data.content.sections.filter((s) => s.body.trim() || s.items.length);
     return (
         <header className="sticky top-0 z-20 border-b border-secondary bg-primary/90 backdrop-blur supports-[backdrop-filter]:bg-primary/75">
             <nav aria-label="Wedding" className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 md:px-8">
@@ -129,15 +130,90 @@ const RsvpCall = ({ data, href }: { data: WeddingPageData; href: string }) => {
     );
 };
 
+const SectionBody = ({ section }: { section: WebsiteSection }) => (
+    <>
+        {section.body && (
+            <div className="wedding-prose flex flex-col gap-4 text-lg leading-relaxed text-secondary">
+                {paragraphs(section.body).map((p, j) => (
+                    <p key={j}>{p}</p>
+                ))}
+            </div>
+        )}
+        {section.items.length > 0 &&
+            (section.kind === "faq" ? (
+                <dl className="flex w-full flex-col divide-y divide-secondary text-left">
+                    {section.items.map((item, j) => (
+                        <details key={j} className="group py-4">
+                            <summary className="flex cursor-pointer items-center justify-between gap-4 rounded-md text-lg font-medium text-primary outline-focus-ring focus-visible:outline-2">
+                                <dt>{item.title}</dt>
+                                <span aria-hidden="true" className="text-brand-600 transition duration-200 group-open:rotate-45">
+                                    +
+                                </span>
+                            </summary>
+                            <dd className="wedding-prose mt-3 text-md leading-relaxed text-secondary">
+                                {paragraphs(item.body).map((p, k) => (
+                                    <p key={k}>{p}</p>
+                                ))}
+                            </dd>
+                        </details>
+                    ))}
+                </dl>
+            ) : (
+                <ul className={cx("grid w-full grid-cols-1 gap-4 text-left", section.items.length > 1 && "sm:grid-cols-2")}>
+                    {section.items.map((item, j) => (
+                        <li key={j} className="flex flex-col gap-2 rounded-2xl bg-primary p-5 shadow-xs ring-1 ring-secondary">
+                            <h3 className="wedding-display text-xl text-primary">{item.title}</h3>
+                            {item.body && (
+                                <div className="wedding-prose text-md leading-relaxed text-secondary">
+                                    {paragraphs(item.body).map((p, k) => (
+                                        <p key={k}>{p}</p>
+                                    ))}
+                                </div>
+                            )}
+                            {item.url && (
+                                <a
+                                    href={item.url}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="mt-auto inline-flex items-center gap-1.5 self-start rounded-md text-sm font-semibold text-brand-secondary underline-offset-4 outline-focus-ring hover:underline focus-visible:outline-2"
+                                >
+                                    {section.kind === "accommodation" ? "Book or enquire" : section.kind === "travel" ? "Open map" : "Visit"}
+                                    <LinkExternal01 className="size-4" aria-hidden="true" />
+                                </a>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            ))}
+    </>
+);
+
+const Schedule = ({ events }: { events: PublicEvent[] }) => (
+    <section id="schedule" aria-labelledby="schedule-heading" className="wedding-reveal bg-secondary px-4 py-20 md:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col gap-12">
+            <h2 id="schedule-heading" className="wedding-display text-center text-display-md text-primary">
+                The celebration
+            </h2>
+            <ul className={cx("grid grid-cols-1 gap-6", events.length > 1 && "md:grid-cols-2", events.length > 2 && "lg:grid-cols-3")}>
+                {events.map((event) => (
+                    <EventCard key={event.id} event={event} />
+                ))}
+            </ul>
+        </div>
+    </section>
+);
+
 const Home = ({ data, links }: { data: WeddingPageData; links: { home: string; rsvp: string } }) => {
     const { details, content } = data;
     const names = content.heroTitle || `${details.partnerOne} & ${details.partnerTwo}`;
-    const sections = content.sections.filter((s) => s.body.trim());
+    const sections = content.sections.filter((s) => s.body.trim() || s.items.length);
+    // The schedule follows the "wedding details" section, or the welcome if there isn't one.
+    const detailsIndex = sections.findIndex((s) => s.kind === "details");
 
     return (
         <>
-            <section aria-labelledby="names" className="relative overflow-hidden px-4 pt-14 pb-20 md:px-8 md:pt-20 md:pb-28">
-                <div className="relative mx-auto flex max-w-xl flex-col items-center gap-6 px-10 pt-20 pb-14 text-center sm:px-14">
+            <section aria-labelledby="names" className="relative overflow-hidden px-4 pt-14 pb-16 md:px-8 md:pt-20 md:pb-24">
+                <div className="wedding-rise relative mx-auto flex max-w-xl flex-col items-center gap-6 px-10 pt-20 pb-14 text-center sm:px-14">
                     <Arch />
                     {content.heroEyebrow && (
                         <p className="relative text-xs tracking-[0.18em] text-tertiary uppercase sm:text-sm sm:tracking-[0.25em]">{content.heroEyebrow}</p>
@@ -155,10 +231,23 @@ const Home = ({ data, links }: { data: WeddingPageData; links: { home: string; r
                         </p>
                     )}
                 </div>
+                {data.heroImage && (
+                    <figure className="wedding-rise mx-auto mt-4 max-w-4xl [animation-delay:150ms]">
+                        <img
+                            src={data.heroImage.url}
+                            alt={data.heroImage.alt}
+                            width={data.heroImage.width ?? undefined}
+                            height={data.heroImage.height ?? undefined}
+                            fetchPriority="high"
+                            className="aspect-[4/3] w-full rounded-t-[999px] rounded-b-3xl object-cover shadow-lg sm:aspect-[16/9]"
+                        />
+                        {data.heroImage.caption && <figcaption className="mt-3 text-center text-sm text-tertiary italic">{data.heroImage.caption}</figcaption>}
+                    </figure>
+                )}
             </section>
 
             {content.welcome && (
-                <section aria-label="Welcome" className="px-4 pb-20 md:px-8">
+                <section aria-label="Welcome" className="wedding-reveal px-4 pb-20 md:px-8">
                     <div className="wedding-prose mx-auto flex max-w-2xl flex-col gap-5 text-center text-lg leading-relaxed text-secondary">
                         {paragraphs(content.welcome).map((p, i) => (
                             <p key={i}>{p}</p>
@@ -167,40 +256,53 @@ const Home = ({ data, links }: { data: WeddingPageData; links: { home: string; r
                 </section>
             )}
 
-            {data.events.length > 0 && (
-                <section id="schedule" aria-labelledby="schedule-heading" className="bg-secondary px-4 py-20 md:px-8">
-                    <div className="mx-auto flex max-w-5xl flex-col gap-12">
-                        <h2 id="schedule-heading" className="wedding-display text-center text-display-md text-primary">
-                            The celebration
+            {detailsIndex < 0 && data.events.length > 0 && <Schedule events={data.events} />}
+
+            {sections.map((section, i) => (
+                <Fragment key={section.id}>
+                    <section
+                        id={section.id}
+                        aria-labelledby={`${section.id}-heading`}
+                        className={cx("wedding-reveal px-4 py-20 md:px-8", (i + (detailsIndex >= 0 && i > detailsIndex ? 1 : 0)) % 2 === 1 && "bg-secondary")}
+                    >
+                        <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 text-center">
+                            <h2 id={`${section.id}-heading`} className="wedding-display text-display-sm text-primary">
+                                {section.title}
+                            </h2>
+                            <SectionBody section={section} />
+                        </div>
+                    </section>
+                    {i === detailsIndex && data.events.length > 0 && <Schedule events={data.events} />}
+                </Fragment>
+            ))}
+
+            {data.gallery.length > 0 && (
+                <section id="gallery" aria-labelledby="gallery-heading" className="wedding-reveal px-4 py-20 md:px-8">
+                    <div className="mx-auto flex max-w-6xl flex-col gap-10">
+                        <h2 id="gallery-heading" className="wedding-display text-center text-display-sm text-primary">
+                            Gallery
                         </h2>
-                        <ul className={cx("grid grid-cols-1 gap-6", data.events.length > 1 && "md:grid-cols-2", data.events.length > 2 && "lg:grid-cols-3")}>
-                            {data.events.map((event) => (
-                                <EventCard key={event.id} event={event} />
+                        <ul className="columns-1 gap-4 sm:columns-2 lg:columns-3">
+                            {data.gallery.map((photo) => (
+                                <li key={photo.id} className="mb-4 break-inside-avoid">
+                                    <figure>
+                                        <img
+                                            src={photo.url}
+                                            alt={photo.alt}
+                                            width={photo.width ?? undefined}
+                                            height={photo.height ?? undefined}
+                                            loading="lazy"
+                                            decoding="async"
+                                            className="w-full rounded-2xl object-cover shadow-xs"
+                                        />
+                                        {photo.caption && <figcaption className="mt-2 text-center text-sm text-tertiary italic">{photo.caption}</figcaption>}
+                                    </figure>
+                                </li>
                             ))}
                         </ul>
                     </div>
                 </section>
             )}
-
-            {sections.map((section, i) => (
-                <section
-                    key={section.id}
-                    id={section.id}
-                    aria-labelledby={`${section.id}-heading`}
-                    className={cx("px-4 py-20 md:px-8", i % 2 === 1 && "bg-secondary")}
-                >
-                    <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 text-center">
-                        <h2 id={`${section.id}-heading`} className="wedding-display text-display-sm text-primary">
-                            {section.title}
-                        </h2>
-                        <div className="wedding-prose flex flex-col gap-4 text-lg leading-relaxed text-secondary">
-                            {paragraphs(section.body).map((p, j) => (
-                                <p key={j}>{p}</p>
-                            ))}
-                        </div>
-                    </div>
-                </section>
-            ))}
 
             <RsvpCall data={data} href={links.rsvp} />
         </>

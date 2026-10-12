@@ -94,3 +94,35 @@
 .wedding-prose p {
     white-space: pre-line;
 }
+
+/* Gentle motion. Everything is visible without it, and the global reduced-motion rule turns it off. */
+@keyframes wedding-rise {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.wedding-rise {
+    animation: wedding-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Sections fade up as they scroll into view, where the browser supports scroll-driven animation. */
+@supports (animation-timeline: view()) {
+    .wedding-reveal {
+        animation: wedding-rise linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 40%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wedding-rise,
+    .wedding-reveal {
+        animation: none;
+    }
+}

@@ -23,21 +23,68 @@ export interface WeddingDetails {
     timeZone: string;
 }
 
-export interface WebsiteSection {
-    id: string;
+export const SECTION_KINDS = ["story", "details", "accommodation", "travel", "transport", "children", "dress", "registry", "faq", "custom"] as const;
+export type SectionKind = (typeof SECTION_KINDS)[number];
+
+/** A titled entry inside a section: an accommodation option, an FAQ, a registry link. */
+export interface WebsiteItem {
     title: string;
     body: string;
+    url: string;
+}
+
+export interface WebsiteSection {
+    id: string;
+    kind: SectionKind;
+    title: string;
+    body: string;
+    items: WebsiteItem[];
+    /** Hidden sections stay in the draft but never appear on the site. */
+    visible: boolean;
 }
 
 export interface WebsiteContent {
     heroEyebrow: string;
     heroTitle: string;
     heroSubtitle: string;
+    /** website_media id of the hero photo, if any. */
+    heroImageId: string | null;
     welcome: string;
     sections: WebsiteSection[];
+    showGallery: boolean;
     contactEmail: string;
     /** Keep search engines away. On by default. */
     noindex: boolean;
+}
+
+export interface WebsiteMedia {
+    id: string;
+    url: string;
+    contentType: string;
+    bytes: number;
+    width: number | null;
+    height: number | null;
+    alt: string;
+    caption: string | null;
+    inGallery: boolean;
+    sortOrder: number;
+}
+
+export interface MealCategory {
+    id: string;
+    label: string;
+    description: string;
+    /** Who the category can be chosen for. */
+    appliesTo: "any" | "adult" | "child";
+}
+
+export interface CateringSettings {
+    /** The event the meal is served at. Null = picked automatically (an event called "Reception", else the first). */
+    eventId: string | null;
+    categories: MealCategory[];
+    /** Category adults get when nobody has chosen one. Children never get one automatically. */
+    adultDefault: string | null;
+    notes: string;
 }
 
 export interface RsvpSettings {
@@ -47,6 +94,11 @@ export interface RsvpSettings {
     deadline: string;
     collectDietary: boolean;
     collectMessage: boolean;
+    allowChangesAfterDeadline: boolean;
+    /** Accept the short household codes as well as invitation links. */
+    allowCodes: boolean;
+    /** Invitation links stop working this many days after the deadline. 0 = never. */
+    linkExpiryDays: number;
 }
 
 export interface BudgetSettings {
@@ -63,6 +115,9 @@ export interface PrivacySettings {
 
 export interface SettingsDocuments {
     privacy: PrivacySettings;
+    catering: CateringSettings;
+    /** What the portal edits; the public site shows `website` until changes are published. */
+    website_draft: WebsiteContent;
     wedding: WeddingDetails;
     website: WebsiteContent;
     rsvp: RsvpSettings;
@@ -77,6 +132,7 @@ export type Side = "partner_one" | "partner_two" | "shared";
 export type AgeGroup = "adult" | "child" | "infant";
 export type RsvpStatus = "pending" | "attending" | "declined";
 export type RsvpSource = "portal" | "native" | "sayido" | "import";
+export type ContactPreference = "email" | "post" | "phone" | "none";
 
 export interface GuestEventStatus {
     eventId: string;
@@ -97,12 +153,20 @@ export interface Guest {
     groupName: string | null;
     ageGroup: AgeGroup;
     isPlusOne: boolean;
+    /** The guest this person is the plus-one of. */
+    plusOneOf: string | null;
     dietary: string | null;
+    allergies: string | null;
+    /** Catering category id; null = not chosen (adults then count as the adult default). */
+    mealCategory: string | null;
+    contactPreference: ContactPreference;
     accessibility: string | null;
     notes: string | null;
     tags: string[];
     custom: Record<string, string | number | boolean | null>;
     events: GuestEventStatus[];
+    /** Table name from the seating planner, if seated. */
+    tableId: string | null;
     /** Derived: attending if attending anything, declined if declined everything, else pending. */
     rsvp: RsvpStatus | "not_invited";
     createdAt: string;
@@ -368,7 +432,15 @@ export interface PortalContext {
 
 export type PortalRoute =
     | { route: "dashboard"; stats: DashboardStats; widgets: DashboardWidget[] }
-    | { route: "guests"; guests: Guest[]; households: Pick<Household, "id" | "name">[]; events: WeddingEvent[]; customFields: CustomField[] }
+    | {
+          route: "guests";
+          guests: Guest[];
+          households: Pick<Household, "id" | "name">[];
+          events: WeddingEvent[];
+          customFields: CustomField[];
+          mealCategories: MealCategory[];
+          tables: Pick<SeatingTable, "id" | "name" | "capacity">[];
+      }
     | { route: "households"; households: Household[] }
     | { route: "events"; events: WeddingEvent[] }
     | {
@@ -391,9 +463,20 @@ export type PortalRoute =
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
     | { route: "tasks"; tasks: Task[]; assignees: { email: string; name: string | null }[] }
     | { route: "timeline"; items: TimelineItem[] }
+    | { route: "seating"; state: SeatingState; canEdit: boolean }
+    | { route: "catering"; summary: CateringSummary; events: Pick<WeddingEvent, "id" | "name">[] }
     | { route: "budget"; items: BudgetItem[]; suppliers: Pick<Supplier, "id" | "name">[]; settings: BudgetSettings }
     | { route: "suppliers"; suppliers: Supplier[] }
-    | { route: "website"; content: WebsiteContent; events: WeddingEvent[]; rsvp: RsvpSettings }
+    | {
+          route: "website";
+          /** The draft being edited. */
+          content: WebsiteContent;
+          /** What the public site currently shows. */
+          published: WebsiteContent;
+          media: WebsiteMedia[];
+          events: WeddingEvent[];
+          rsvp: RsvpSettings;
+      }
     | {
           route: "settings";
           tab: "general" | "features" | "fields" | "people" | "privacy";
@@ -434,8 +517,85 @@ export interface WeddingPageData {
     route: "home" | "rsvp";
     details: WeddingDetails;
     content: WebsiteContent;
+    heroImage: WebsiteMedia | null;
+    gallery: WebsiteMedia[];
     events: PublicEvent[];
     rsvp: { mode: "native" | "external" | "closed"; externalUrl: string | null; deadline: string | null };
     /** Rendered inside the portal for a signed-in user: links stay inside the preview. */
     preview: boolean;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Seating and catering
+
+export interface SeatingTable {
+    id: string;
+    name: string;
+    shape: "round" | "rectangle";
+    capacity: number;
+    sortOrder: number;
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface SeatingGuest {
+    id: string;
+    name: string;
+    firstName: string;
+    householdId: string | null;
+    householdName: string | null;
+    ageGroup: AgeGroup;
+    dietary: string | null;
+    allergies: string | null;
+    mealCategory: string | null;
+    isPlusOne: boolean;
+    plusOneOf: string | null;
+    groupName: string | null;
+    side: Side;
+    /** RSVP for the meal event. */
+    status: RsvpStatus | "not_invited";
+    tableId: string | null;
+    position: number;
+}
+
+export interface SeatingSnapshot {
+    id: string;
+    name: string;
+    createdAt: string;
+    createdBy: string;
+    seated: number;
+}
+
+export interface SeatingState {
+    event: { id: string; name: string } | null;
+    tables: SeatingTable[];
+    guests: SeatingGuest[];
+    snapshots: SeatingSnapshot[];
+    categories: MealCategory[];
+}
+
+export interface CateringGuest {
+    id: string;
+    name: string;
+    householdName: string | null;
+    ageGroup: AgeGroup;
+    status: RsvpStatus;
+    /** The category actually counted (explicit, or the adult default). Null = needs a decision. */
+    category: string | null;
+    chosen: boolean;
+    dietary: string | null;
+    allergies: string | null;
+    tableName: string | null;
+}
+
+export interface CateringSummary {
+    event: { id: string; name: string } | null;
+    settings: CateringSettings;
+    attending: { adults: number; children: number; infants: number; total: number };
+    awaiting: { adults: number; children: number; infants: number; total: number };
+    /** Category id → counts among attending (and awaiting, as a range). */
+    byCategory: { id: string; label: string; attending: number; awaiting: number }[];
+    undecided: number;
+    guests: CateringGuest[];
 }
