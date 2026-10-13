@@ -56,6 +56,32 @@ const coupleNames = (data: WeddingPageData): [string, string] | null => {
     return parts.length === 2 ? [parts[0], parts[1]] : null;
 };
 
+/**
+ * The watercolour frame's top (banksia, wattle) or bottom (waratah) as a band sized to the card's width, fading into the
+ * paper, so the florals frame the invitation on phones and tablets without sitting behind any text or links.
+ */
+const FrameBand = ({ edge }: { edge: "top" | "bottom" }) => (
+    <div
+        aria-hidden="true"
+        className={cx(
+            "relative -z-10 shrink-0 overflow-hidden lg:hidden",
+            edge === "top"
+                ? "aspect-[2/1] [mask-image:linear-gradient(to_bottom,black_62%,transparent)] sm:aspect-[5/2]"
+                : "aspect-[2/1] [mask-image:linear-gradient(to_top,black_62%,transparent)] sm:aspect-[5/2]",
+        )}
+    >
+        <img
+            src="/wedding/native-invitation-frame.jpg"
+            alt=""
+            width="1122"
+            height="1402"
+            fetchPriority={edge === "top" ? "high" : undefined}
+            decoding="async"
+            className={cx("size-full object-cover", edge === "top" ? "object-top" : "object-bottom")}
+        />
+    </div>
+);
+
 const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
     const { details, content } = data;
     const names = coupleNames(data);
@@ -124,19 +150,10 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
             <div className="wedding-rise relative mx-auto w-full max-w-[43rem] lg:max-w-7xl">
                 {/* A tilted paper backing on phones and tablets; on desktop the card sits flat and quiet. */}
                 <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4 lg:hidden" />
-                {/* Content sets the height. Tablets keep the frame artwork's 4:5 shape (aspect-ratio still grows with
-                    the content). Desktop is a 55/45 image and text split, about 440–520px tall, so the countdown shows on the first screen. */}
-                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] lg:grid lg:aspect-auto lg:min-h-[clamp(27.5rem,34vw,32.5rem)] lg:grid-cols-[55fr_45fr] lg:shadow-[0_12px_32px_-28px_currentColor]">
-                    <img
-                        src="/wedding/native-invitation-frame.jpg"
-                        alt=""
-                        width="1122"
-                        height="1402"
-                        aria-hidden="true"
-                        fetchPriority="high"
-                        decoding="async"
-                        className="absolute inset-0 -z-10 size-full object-cover lg:hidden"
-                    />
+                {/* Content sets the height. Below desktop the floral frame sits above and below the text, never behind it.
+                    Desktop is a 55/45 image and text split, about 440–520px tall, so the countdown shows on the first screen. */}
+                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] lg:grid lg:min-h-[clamp(27.5rem,34vw,32.5rem)] lg:grid-cols-[55fr_45fr] lg:shadow-[0_12px_32px_-28px_currentColor]">
+                    <FrameBand edge="top" />
                     <div className="bg-forest relative hidden overflow-hidden lg:block" data-testid="hero-editorial-image">
                         <img
                             src={photo?.url ?? "/wedding/native-invitation-frame.jpg"}
@@ -151,7 +168,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                         <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,transparent_70%,rgb(75_52_43/0.16))]" />
                     </div>
                     <div
-                        className="relative flex flex-1 flex-col items-center justify-center px-7 pt-28 pb-24 text-center sm:px-20 sm:pt-28 sm:pb-20 lg:items-start lg:px-10 lg:py-10 lg:text-left xl:px-14"
+                        className="relative flex flex-1 flex-col items-center justify-center px-6 py-2 text-center sm:px-20 lg:items-start lg:px-10 lg:py-10 lg:text-left xl:px-14"
                         data-testid="hero-editorial-copy"
                     >
                         {content.heroEyebrow && <Eyebrow className="text-forest/75 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
@@ -182,6 +199,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                         </div>
                         {actions}
                     </div>
+                    <FrameBand edge="bottom" />
                 </article>
             </div>
             {photo?.caption && <p className="sr-only">{photo.caption}</p>}
@@ -242,21 +260,22 @@ const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     if (!date || left === null) return null;
     const totalDays = left ? Math.ceil((zonedTime(start.slice(0, 16), timeZone) - Date.now()) / 86_400_000) : null;
     return (
-        <section aria-label="Countdown to the wedding" className="border-sandstone bg-paper relative overflow-hidden border-y px-5 py-9 sm:py-11">
-            <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[8%] w-px" />
-            <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[8%] w-px" />
+        <section aria-label="Countdown to the wedding" className="border-sandstone bg-paper relative overflow-hidden border-y px-3 py-9 min-[360px]:px-5 sm:py-11">
+            {/* Gilt rules either side, at 8% or just outside the 56rem content when that is closer; they slide off-screen when there is no room. */}
+            <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[min(8%,calc(50%-30rem))] w-px" />
+            <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[min(8%,calc(50%-30rem))] w-px" />
             {totalDays !== null && <p className="sr-only">{totalDays.toLocaleString("en-AU")} days to go</p>}
             <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10">
                 <p aria-hidden="true" className="wedding-display text-leaf text-[1.4rem] italic sm:max-w-[8rem] sm:text-[1.6rem]">
                     Counting down to our day
                 </p>
-                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-3 sm:gap-8">
+                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-1 min-[360px]:gap-3 sm:gap-8">
                     {COUNTDOWN_UNITS.map((unit) => (
                         <li key={unit} className="flex flex-col items-center gap-1.5 sm:items-start">
                             <span className="wedding-display text-forest text-[2.8rem] leading-none tabular-nums sm:text-[3.5rem]">
                                 {left ? left[unit] : "–"}
                             </span>
-                            <span className="wedding-eyebrow text-olive text-[0.58rem] sm:text-[0.66rem]">
+                            <span className="wedding-eyebrow text-olive text-[0.58rem] max-[359px]:tracking-[0.12em]! sm:text-[0.66rem]">
                                 {left && left[unit] === 1 ? unit.slice(0, -1) : unit}
                             </span>
                         </li>
