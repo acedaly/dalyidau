@@ -28,6 +28,7 @@
     "vars": {
         "ENVIRONMENT": "production",
         "SITE_URL": "https://daly.id.au",
+        "WEDDING_URL": "https://wedding.daly.id.au",
         "CAPACITIES_API_BASE": "https://api.capacities.io",
         "CAPACITIES_STRUCTURE_NAME": "Blog Post",
         "SYNC_MAX_REQUESTS": "40",
@@ -35,6 +36,8 @@
         "IMAGE_TRANSFORMS": "off",
         // The portal's email and SMS providers. "off" means nothing is ever sent (docs/COMMUNICATIONS.md).
         "EMAIL_DELIVERY": "off",
+        "EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+        "EMAIL_REPLY_TO": "wedding@daly.id.au",
         "SMS_DELIVERY": "off",
     },
     // daly.id.au and www.daly.id.au are Custom Domains on this Worker (cut over 11 October 2026,
@@ -44,6 +47,7 @@
     "routes": [
         { "pattern": "daly.id.au", "custom_domain": true },
         { "pattern": "www.daly.id.au", "custom_domain": true },
+        { "pattern": "wedding.daly.id.au", "custom_domain": true },
     ],
     "observability": {
         "enabled": true,
@@ -76,12 +80,16 @@
                 // Replace with the staging workers.dev URL once it exists (docs/STAGING.md), so links
                 // in staging point at staging, not at the live site.
                 "SITE_URL": "https://daly.id.au",
+                // Staging has no public custom domain; host routing still works in tests and local dev.
+                "WEDDING_URL": "https://wedding.daly.id.au",
                 "CAPACITIES_API_BASE": "https://api.capacities.io",
                 "CAPACITIES_STRUCTURE_NAME": "Blog Post",
                 "SYNC_MAX_REQUESTS": "40",
                 "SYNC_REQUEST_SPACING_MS": "2100",
                 "IMAGE_TRANSFORMS": "off",
                 "EMAIL_DELIVERY": "off",
+                "EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+                "EMAIL_REPLY_TO": "wedding@daly.id.au",
                 "SMS_DELIVERY": "off",
             },
             "observability": {

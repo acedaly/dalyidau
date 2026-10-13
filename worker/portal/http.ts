@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import { ProviderError } from "../comms/providers";
 import type { Env } from "../env";
 import { RsvpError } from "../wedding/rsvp";
 import { ConflictError, NotFoundError, ValidationError } from "./entities";
@@ -75,6 +76,8 @@ export const errorResponse = (error: unknown, path: string) => {
     if (error instanceof NotFoundError) return json({ error: "not_found", message: error.message }, 404);
     if (error instanceof ConflictError) return json({ error: "conflict", message: error.message }, 409);
     if (error instanceof RsvpError) return json({ error: error.code, message: error.message }, error.status);
+    if (error instanceof ProviderError)
+        return json({ error: "provider_error", message: error.message, provider: error.provider, retryable: error.retryable }, error.retryable ? 503 : 422);
     // A reference to a record that was deleted in the meantime (e.g. a budget item's supplier).
     if (/FOREIGN KEY constraint failed/.test((error as Error)?.message ?? "")) {
         return json({ error: "validation", message: "A linked record no longer exists. Reload the page and try again.", issues: [] }, 422);

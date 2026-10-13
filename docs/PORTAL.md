@@ -5,7 +5,7 @@ The same Worker that serves the blog also serves:
 | Path                        | What                                                                                                                                                                          | Who                                                                                                             |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `/portal`                   | Private application launcher. Wedding Planner lives under `/portal/wedding/*`; portal-wide identity, access and settings remain under `/portal/settings` and `/portal/audit`. | The two owners (and anyone you add later), through Cloudflare Access                                            |
-| `/wedding`, `/wedding/rsvp` | Public wedding website and the native RSVP form                                                                                                                               | Guests. Returns 404 until you publish it                                                                        |
+| `https://wedding.daly.id.au/`, `/rsvp` | Canonical public wedding website and native RSVP form. Legacy `/wedding` links redirect here without dropping signed credentials. | Guests. Returns 404 until you publish it |
 | `/api/portal/*`             | JSON API behind the portal                                                                                                                                                    | Same as `/portal`                                                                                               |
 | `/api/wedding/rsvp/*`       | Public RSVP lookup and submit                                                                                                                                                 | Anyone with a signed household invitation link (or an enabled legacy code), rate-limited, only when switched on |
 
@@ -23,10 +23,10 @@ These are yours to do; the code is ready for them.
 4. **Say I Do link** (RSVPs → Settings), so the website sends guests to it while the native form is off.
 5. **When to switch on the native RSVP form** (Wedding settings → Features → Native RSVP). Off by default. Say I Do stays the live RSVP until you turn this on.
 6. **When to publish the website** (Website → Publish). Off by default. It's `noindex` by default too.
-7. **Email and SMS providers** (SMTP2Go and ClickSend), if you want the portal to send email and texts itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
+7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and applies all unapplied migrations through `0007_guest_import.sql` to production. `0006` adds the ceremony from the Say I Do site (2:00pm, smart casual, Rhino Lodge) only if Wedding Planner has no events yet; `0007` only adds columns and tables (no data changes). Importing guests is a manual step in the portal afterwards; nothing imports itself.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`. This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -71,7 +71,7 @@ For staging, see [STAGING.md](STAGING.md): it has its own Access application and
 | Request                                               | Access in front?                             | What the Worker does                                                                                                       |
 | ----------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `daly.id.au/portal…`, `daly.id.au/api/portal…`        | Yes (the application's two paths)            | Verifies the Access JWT and the role on every request                                                                      |
-| `daly.id.au/wedding…`, `/api/wedding/rsvp…`           | No (public)                                  | Serves only if published / switched on                                                                                     |
+| `wedding.daly.id.au`, `/api/wedding/rsvp…`            | No (public)                                  | Serves only if published / switched on; the hostname exposes no portal/admin routes                                        |
 | `dalyidau.<sub>.workers.dev/portal…` and preview URLs | No (unless you enable Access on workers.dev) | Still requires a valid Access JWT for _your_ application, so it refuses everyone who isn't already signed in to daly.id.au |
 | Anything else                                         | No                                           | The blog                                                                                                                   |
 
@@ -132,7 +132,7 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 
 | Switch                                     | Default | Effect                                                                                                                                                                                         |
 | ------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public wedding website                     | Off     | `/wedding` serves the site; otherwise it's a normal 404.                                                                                                                                       |
+| Public wedding website                     | Off     | `wedding.daly.id.au` serves the site; otherwise it's a normal 404.                                                                                                                             |
 | Native RSVP                                | Off     | The website's RSVP button opens our own form, and `/api/wedding/rsvp/*` accepts responses. While off, the button links to Say I Do and the API returns 404. Needs the website switched on too. |
 | Email delivery                             | Off     | Allows sending email from the portal (campaigns and RSVP confirmations). Also needs `EMAIL_DELIVERY` and its provider secrets on the Worker.                                                   |
 | SMS delivery                               | Off     | Allows sending texts and replies. Also needs `SMS_DELIVERY` and its provider secrets on the Worker.                                                                                            |
@@ -162,11 +162,13 @@ Guests → Import (`/portal/wedding/guests/import`). Nothing is written until yo
 - **Matching** (no duplicates): households by Say I Do link, then by name, then by their guests; guests by email, then by name within the household, then by a unique exact name anywhere. Close names are offered as suggestions, never applied automatically. Deleted guests and households are not silently recreated. You can match any row to any existing guest or household, or skip it.
 - **Overwrites need confirmation**: filling an empty field or linking a guest with no household is applied; replacing a recorded name, address, household or RSVP only happens when you tick "Replace" (or "Replace all recorded values").
 - **Applying** is one D1 batch (one transaction) with compare-and-set checks: if anything changed since the preview, nothing is applied and you're asked to review again. Each import has a client id, so a double click or retry applies once. Importing the same file again shows everything as up to date.
-- **Audit and report**: every import is in the audit log (`guest.import`) and keeps a per-row report (Guests → Import → Previous imports). Downloading the report CSV needs the export permission and is audited. Erasing a guest or household scrubs it from import reports.
+- **Every row is accounted for**: the review has a numbered row ledger covering created, matched, linked, kept/skipped and invalid rows. Every import is in the audit log (`guest.import`) and keeps a per-row report (Guests → Import → Previous imports). Downloading the report CSV needs the export permission and is audited. Erasing a guest or household scrubs it from import reports.
 
 ## Households dashboard
 
-Households shows each household's RSVP progress (complete, partly answered, no reply yet, not invited) next to its guests' attendance, a one-click copy of its signed invitation link, and filters by progress. Select households → **Generate invitations** marks their links ready (skipping revoked links and households nobody in which is invited) and is audited; **Download invitation list** exports links and addresses for mail-merge. Nothing is sent from here: sending stays in Communications, behind the email delivery switch.
+Households shows each household's RSVP progress (complete, partly answered, no reply yet, not invited) next to its guests' attendance, a one-click copy of its signed invitation link, and filters by progress. Selection supports event assignment, tags, contact preferences, state/country edits, generation, copying, export and explicit soft deletion. Deletion previews guest/invitation/response counts and asks whether guests should become unassigned or be soft-deleted with the household; RSVP history is never removed. Restore deleted records from Settings → Privacy. Nothing is sent from here.
+
+Invitation Studio generates and previews household- or guest-specific email, SMS and print versions. Guest QR links only highlight that guest inside the household RSVP; normal signature, version, expiry, revocation and rate-limit checks still apply. Repeating generation updates the existing ledger entry. It never sends—approval and delivery remain separate in Communications.
 
 ---
 
@@ -174,7 +176,7 @@ Households shows each household's RSVP progress (complete, partly answered, no r
 
 Nothing is sent from production today. You can choose email or SMS, categorise and schedule a message, filter by RSVP, event, side, group, tag, age and contact preference, preview it for any guest, and download a **mail-merge CSV**. Invitation recipients are deduplicated against earlier prepared or sent invitations.
 
-Providers (SMTP2Go for email, ClickSend for SMS), delivery reports, retries, text conversations, opt-outs and the activation checklist are in [COMMUNICATIONS.md](COMMUNICATIONS.md). Each channel needs its provider configured on the Worker **and** its switch on; the scheduled D1 queue stays inert until both are.
+Providers (Fastmail JMAP preferred, authenticated TLS SMTP or SMTP2Go for email; ClickSend for SMS), delivery reports, retries, text conversations, opt-outs and the activation checklist are in [COMMUNICATIONS.md](COMMUNICATIONS.md). Each channel needs its provider configured on the Worker **and** its switch on; the scheduled D1 queue stays inert until both are. Provider credentials are Worker secrets, never D1 settings.
 
 ---
 
@@ -186,7 +188,8 @@ Providers (SMTP2Go for email, ClickSend for SMS), delivery reports, retries, tex
 | Dashboard            | Customisable wedding summary widgets, current tasks, RSVP progress, seating, catering, communications and budget status.                                                                                                                                                                                          |
 | Dashboard            | Personal, customisable widget grid: countdown, RSVP summary, invitation readiness, seating readiness, communication status, attendance by event, replies over time, guest breakdown, dietary needs, tasks due, budget, latest online replies, recent activity. Add, remove, reorder and resize; saved per person. |
 | Guests               | Searchable, sortable, filterable table (RSVP, event, side, group, tag); bulk actions (invite, set RSVP, move household, side, group, tags, delete); profile slide-over with details, per-event RSVP and activity history; custom fields; CSV import (dry run first) and export.                                   |
-| Households           | Invitation units with signed links, copy, rotation, revocation, optional legacy codes, contact and postal details.                                                                                                                                                                                                |
+| Households           | Invitation units with signed links, copy, rotation, revocation, optional legacy codes, contact/postal details and safeguarded bulk actions.                                                                                                                                                                        |
+| Invitation Studio    | Household and optional guest-specific email/SMS/print previews, signed links, real QR codes, printable PDFs and an idempotent generation ledger that never auto-sends.                                                                                                                                             |
 | Events               | Ceremony, reception and anything else, with public/private and RSVP on/off per event.                                                                                                                                                                                                                             |
 | RSVPs                | Response metrics, attendance by event, replies per household, configurable conditional question builder, versioned answer reports, courtesy-bus count, online response log and settings.                                                                                                                          |
 | Communications       | Email and SMS, categories, templates, recipient filters, invitation deduplication, scheduling, per-guest preview, frozen recipient lists, delivery reports, retries, SMS cost, text conversations with replies, opt-outs and mail-merge export.                                                                   |
@@ -196,7 +199,7 @@ Providers (SMTP2Go for email, ClickSend for SMS), delivery reports, retries, tex
 | Timeline             | Day-of run sheet grouped by day.                                                                                                                                                                                                                                                                                  |
 | Budget               | Total budget, committed, paid, overdue; per-category progress; payment status per item; linked suppliers.                                                                                                                                                                                                         |
 | Suppliers            | Directory with status, contacts and links.                                                                                                                                                                                                                                                                        |
-| Website              | Content editor (hero, welcome, sections with their own photos, RSVP invitation), photo library, draft/publish, visibility switch, preview.                                                                                                                                                                        |
+| Website              | Content editor (wide editorial desktop hero, portrait mobile hero, focal point and alt text, welcome, sections with photos, RSVP invitation), R2 photo library, draft/publish, visibility switch, preview.                                                                                                          |
 | Wedding settings     | Wedding details, feature switches and custom guest fields.                                                                                                                                                                                                                                                        |
 | Portal settings      | Signed-in identity, application permissions, appearance, people and roles, and privacy controls.                                                                                                                                                                                                                  |
 | Audit log            | Every change, who made it and when, with field-level before/after values; searchable, exportable. Deletes keep a full snapshot.                                                                                                                                                                                   |
@@ -217,7 +220,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0007`)
+## Data model (D1, migrations `0002`–`0008`)
 
 | Table                                                               | Contents                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -277,6 +280,6 @@ When you're ready (none of this has been done):
 ## Outstanding
 
 - Native RSVP, public website publishing and production email delivery remain disabled until separately approved. Say I Do remains the live RSVP destination: <https://sayi.do/aidanandamelia2258/>.
-- SMTP2Go and ClickSend are implemented but not configured: accounts, DNS records for the sending domain, a dedicated SMS number, secrets and controlled tests are still to do ([COMMUNICATIONS.md](COMMUNICATIONS.md#activation-checklist-needs-your-approval)). Confirm with ClickSend that RSVP links on daly.id.au are allowed before any SMS invitations.
+- Fastmail JMAP, generic authenticated TLS SMTP, SMTP2Go and ClickSend are implemented but not configured: accounts, any required DNS records, a dedicated SMS number, secrets and controlled tests are still to do ([COMMUNICATIONS.md](COMMUNICATIONS.md#activation-checklist-needs-your-approval)). Confirm with ClickSend that links on `wedding.daly.id.au` are allowed before any SMS invitations.
 - Staging has not been deployed and its URL remains a placeholder.
 - Erasure can't reach downloaded exports, backup files or D1's 30-day Time Travel history ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).

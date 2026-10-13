@@ -51,17 +51,23 @@ export async function listDeleted(db: D1Database): Promise<DeletedRecord[]> {
 // ---------------------------------------------------------------------------------------------
 // Households: soft delete and restore (guests are handled in guests.ts)
 
-export async function deleteHousehold(db: D1Database, id: string, actor: string) {
+export async function deleteHousehold(db: D1Database, id: string, actor: string, guests: "unassign" | "delete" = "unassign") {
     const row = await db.prepare("SELECT name FROM households WHERE id = ? AND deleted_at IS NULL").bind(id).first<{ name: string }>();
     if (!row) throw new NotFoundError("Household not found");
+    const now = nowIso();
     await db.batch([
-        db.prepare("UPDATE households SET deleted_at = ?, deleted_by = ? WHERE id = ?").bind(nowIso(), actor, id),
+        guests === "delete"
+            ? db
+                  .prepare("UPDATE guests SET deleted_at = ?, deleted_by = ?, updated_at = ? WHERE household_id = ? AND deleted_at IS NULL")
+                  .bind(now, actor, now, id)
+            : db.prepare("UPDATE guests SET household_id = NULL, updated_at = ? WHERE household_id = ? AND deleted_at IS NULL").bind(now, id),
+        db.prepare("UPDATE households SET deleted_at = ?, deleted_by = ?, updated_at = ? WHERE id = ?").bind(now, actor, now, id),
         auditStatement(db, {
             actor,
             action: "household.delete",
             entityType: "household",
             entityId: id,
-            summary: `Deleted household “${row.name}” (restorable; its RSVP code stops working)`,
+            summary: `Deleted household “${row.name}” (${guests === "delete" ? "guests soft-deleted" : "guests preserved as unassigned"}; RSVP history kept)`,
         }),
     ]);
 }

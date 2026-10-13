@@ -18,6 +18,7 @@ import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { type SyncSummary, runSync } from "./sync";
+import { weddingOrigin } from "./wedding/invitations";
 import { serveMedia } from "./wedding/media";
 import { RsvpError, lookupRsvp, submitRsvp } from "./wedding/rsvp";
 import { loadWeddingPage, weddingTitle } from "./wedding/site";
@@ -48,13 +49,25 @@ export default {
 async function handle(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const siteUrl = new URL(env.SITE_URL);
+    const weddingUrl = new URL(weddingOrigin(env));
 
     // www → apex, preserving path and query.
     if (url.hostname === `www.${siteUrl.hostname}`) {
         return Response.redirect(`${siteUrl.origin}${url.pathname}${url.search}`, 301);
     }
 
+    // The wedding custom domain is a deliberately narrow public surface. Portal, admin, health,
+    // communication webhook and personal-site routes never fall through onto this hostname.
+    if (url.hostname === weddingUrl.hostname) return weddingHost(request, env, url, weddingUrl);
+
     const path = url.pathname;
+
+    // Keep old invitations working, including their signed query credential. Media stays in place
+    // for authenticated portal previews and previously cached pages.
+    if (url.hostname === siteUrl.hostname && (path === "/wedding" || path === "/wedding/rsvp")) {
+        const target = path === "/wedding" ? "/" : "/rsvp";
+        return Response.redirect(`${weddingUrl.origin}${target}${url.search}`, 301);
+    }
 
     if (path.startsWith("/api/portal/")) return portalApi(request, env);
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
@@ -297,7 +310,7 @@ async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Resp
     // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
     if (!route || !flags["wedding.site.public"])
         return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false } }, url.pathname, 404, true);
-    const data = await loadWeddingPage(env.DB, route, false);
+    const data = { ...(await loadWeddingPage(env.DB, route, false)), legacyPaths: true };
     const noindex = data.content.noindex || !indexable;
     return renderWeddingDocument(env, data, url.pathname, 200, noindex, {
         "Cache-Control": "public, max-age=0, must-revalidate",
@@ -305,9 +318,41 @@ async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Resp
     });
 }
 
+async function weddingHost(request: Request, env: Env, url: URL, canonical: URL): Promise<Response> {
+    const path = url.pathname;
+    if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
+    if (path.startsWith("/portal") || path.startsWith("/api/portal/") || path.startsWith("/api/admin/") || path.startsWith("/api/comms/")) {
+        return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    if (path.length > 1 && path.endsWith("/")) return Response.redirect(`${canonical.origin}${path.replace(/\/+$/, "")}${url.search}`, 301);
+    const photo = /^\/wedding\/media\/([^/]+)$/.exec(path);
+    if (photo) return weddingPhoto(request, env, photo[1]);
+    const indexable = env.ENVIRONMENT === "production" && url.hostname === canonical.hostname;
+    if (path === "/robots.txt") return text(robotsTxt(canonical.origin, indexable), "text/plain", 3600);
+    if (path === "/sitemap.xml") {
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${canonical.origin}/</loc></url>\n</urlset>\n`;
+        return text(xml, "application/xml", HTML_EDGE_TTL);
+    }
+    const route = path === "/" ? "home" : path === "/rsvp" ? "rsvp" : null;
+    const flags = await loadFlags(env.DB);
+    if (!route || !flags["wedding.site.public"]) {
+        return new Response("Not found", {
+            status: 404,
+            headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex" },
+        });
+    }
+    const data = await loadWeddingPage(env.DB, route, false);
+    const noindex = data.content.noindex || !indexable || route === "rsvp";
+    return renderWeddingDocument(env, data, path, 200, noindex, {
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
+    });
+}
+
 function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, status: number, noindex: boolean, headers: Record<string, string>) {
     const title = weddingTitle(data);
-    const site = env.SITE_URL.replace(/\/+$/, "");
+    const site = weddingOrigin(env);
     const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
     const when = data.details.date
         ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(

@@ -41,6 +41,8 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/wedding/rsvps",
         "/portal/wedding/events",
         "/portal/wedding/communications",
+        "/portal/wedding/invitations",
+        "/portal/wedding/communications/providers",
         "/portal/wedding/tasks",
         "/portal/wedding/timeline",
         "/portal/wedding/seating",
@@ -68,6 +70,8 @@ test("core portal workflows expose labelled controls and keyboard focus", async 
         "/portal/wedding/seating",
         "/portal/wedding/catering",
         "/portal/wedding/communications",
+        "/portal/wedding/invitations",
+        "/portal/wedding/communications/providers",
         "/portal/wedding/households",
         "/portal/wedding/guests/import",
     ]) {
@@ -288,6 +292,9 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
     await page.goto("/portal/wedding/website/preview");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Aidan & Amelia");
     if (isMobile) {
+        await expect(page.getByTestId("hero-editorial-image")).toBeHidden();
+        const heroBox = await page.getByTestId("wedding-hero").boundingBox();
+        expect(heroBox && heroBox.height > heroBox.width).toBe(true);
         // The sticky RSVP bar appears once the hero has scrolled away, and the menu works without a page load.
         const bar = page.getByText("Will you join us?");
         await expect(bar).toBeHidden();
@@ -298,6 +305,9 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
         await page.getByRole("link", { name: "Venue" }).click();
         await expect(page.getByRole("heading", { name: "Rhino Lodge", level: 2 })).toBeInViewport();
     } else {
+        const imageBox = await page.getByTestId("hero-editorial-image").boundingBox();
+        const copyBox = await page.getByTestId("hero-editorial-copy").boundingBox();
+        expect(imageBox && copyBox && imageBox.x < copyBox.x && Math.abs(imageBox.y - copyBox.y) < 2).toBe(true);
         await page.getByRole("link", { name: "Explore our wedding" }).click();
         await expect(page.getByText("We are excited to be getting married and even more excited to share the day with you.")).toBeInViewport();
     }

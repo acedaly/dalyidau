@@ -80,7 +80,7 @@ async function deadlinePassed(db: D1Database) {
     return !!rsvp.deadline && todayIn(wedding.timeZone) > rsvp.deadline;
 }
 
-async function loadHousehold(db: D1Database, household: { id: string; name: string }): Promise<RsvpHousehold> {
+async function loadHousehold(db: D1Database, household: { id: string; name: string; highlightedGuestId?: string | null }): Promise<RsvpHousehold> {
     const [guests, invitations, settings, passed, questions, storedAnswers] = await Promise.all([
         db
             .prepare(
@@ -125,6 +125,7 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
     }
     return {
         householdName: household.name,
+        highlightedGuestId: household.highlightedGuestId ?? null,
         deadlinePassed: passed && !settings.allowChangesAfterDeadline,
         // Guests who are not invited to anything with RSVPs open are left out of the form.
         guests: guests.results

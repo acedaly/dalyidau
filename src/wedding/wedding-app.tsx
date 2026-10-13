@@ -36,7 +36,7 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
                             apiBase={data.preview ? "/api/portal/wedding/rsvp-test" : "/api/wedding/rsvp"}
                             deadline={data.rsvp.deadline}
                             wedding={data.details}
-                            homeHref={data.preview ? "/portal/wedding/website/preview" : "/wedding"}
+                            homeHref={data.preview ? "/portal/wedding/website/preview" : data.legacyPaths ? "/wedding" : "/"}
                         />
                     ) : data.rsvp.mode === "external" && data.rsvp.externalUrl ? (
                         <div className="bg-paper border-sandstone flex flex-col items-center gap-6 border px-6 py-12 text-center sm:px-12">

@@ -59,20 +59,21 @@ beforeEach(resetPortal);
 describe("wedding website", () => {
     it("is indistinguishable from a missing page until published", async () => {
         await setup();
-        expect(await (await call("/")).text()).not.toContain('href="/wedding"');
+        expect(await (await call("/")).text()).not.toContain('href="https://wedding.daly.id.au"');
         const response = await call("/wedding");
-        expect(response.status).toBe(404);
-        expect(await response.text()).toContain("Page not found");
-        expect((await call("/wedding/rsvp")).status).toBe(404);
+        expect(response.status).toBe(301);
+        expect(response.headers.get("Location")).toBe("https://wedding.daly.id.au/");
+        expect((await call("/", { host: "wedding.daly.id.au" })).status).toBe(404);
+        expect((await call("/rsvp", { host: "wedding.daly.id.au" })).status).toBe(404);
     });
 
     it("shows public details only, in its own theme, once published", async () => {
         await setup();
         await enable("wedding.site.public");
         const personalSite = await (await call("/")).text();
-        expect(personalSite).toContain('href="/wedding"');
+        expect(personalSite).toContain('href="https://wedding.daly.id.au"');
         expect(personalSite).not.toContain("/portal/wedding");
-        const response = await call("/wedding");
+        const response = await call("/", { host: "wedding.daly.id.au" });
         expect(response.status).toBe(200);
         const html = await response.text();
         expect(html).toContain('data-theme-lock="light"');

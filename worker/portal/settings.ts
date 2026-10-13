@@ -57,6 +57,8 @@ const website = z.object({
     heroTitle: text(120),
     heroSubtitle: text(240),
     heroImageId: z.string().max(40).nullable().default(null),
+    heroFocalX: z.number().min(0).max(100).default(50),
+    heroFocalY: z.number().min(0).max(100).default(50),
     welcome: text(4000),
     sections: z.array(section).max(20),
     rsvpHeading: text(120).default("We hope you'll celebrate with us."),
@@ -142,6 +144,8 @@ const DEFAULT_WEBSITE: WebsiteContent = {
     heroTitle: "",
     heroSubtitle: "We're getting married",
     heroImageId: null,
+    heroFocalX: 50,
+    heroFocalY: 50,
     welcome: "We are excited to be getting married and even more excited to share the day with you.",
     sections: [
         { id: "story", kind: "story", title: "Our story", body: "", items: [], imageId: null, visible: false },

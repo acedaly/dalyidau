@@ -25,7 +25,7 @@ for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET"])
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
 // Provider credentials are secrets; a plain var would be visible in the dashboard and in wrangler.jsonc.
-for (const name of ["SMTP2GO_API_KEY", "CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"]) {
+for (const name of ["FASTMAIL_API_TOKEN", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP2GO_API_KEY", "CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"]) {
     report.check(
         !(name in target.vars),
         `${name} is not a plain var`,
@@ -45,6 +45,12 @@ report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", 
 
 const db = target.d1.find((d) => d.binding === "DB");
 report.check(!!db, `D1 binding DB → ${db?.database_name}`, "No D1 binding called DB");
+if (env === "production") {
+    const wedding = new URL(target.vars.WEDDING_URL ?? "https://invalid.invalid");
+    const customDomain = (target.routes ?? []).some((route) => typeof route === "object" && route.custom_domain && route.pattern === wedding.hostname);
+    report.check(wedding.protocol === "https:" && wedding.hostname === "wedding.daly.id.au", `Wedding origin is ${wedding.origin}`, "WEDDING_URL must be https://wedding.daly.id.au");
+    report.check(customDomain, `Custom domain ${wedding.hostname} is configured`, `No custom-domain route claims ${wedding.hostname}`);
+}
 if (env !== "production") {
     const prodDb = production.d1.find((d) => d.binding === "DB");
     report.check(db && prodDb && db.database_id !== prodDb.database_id, "Uses its own D1 database, not production's", "Shares the production D1 database!");
@@ -78,6 +84,8 @@ if (!listed) {
     }
     // Chosen providers need their credentials (names only; values are never read).
     const needed = [
+        ...(delivery === "fastmail" ? ["FASTMAIL_API_TOKEN"] : []),
+        ...(delivery === "smtp" ? ["SMTP_USERNAME", "SMTP_PASSWORD"] : []),
         ...(delivery === "smtp2go" ? ["SMTP2GO_API_KEY", "COMMS_WEBHOOK_SECRET"] : []),
         ...(sms === "clicksend" ? ["CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"] : []),
     ];

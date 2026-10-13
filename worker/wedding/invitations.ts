@@ -3,7 +3,7 @@ import type { RsvpSettings } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 
 const encoder = new TextEncoder();
-const TOKEN_RE = /^([A-Za-z0-9_-]{4,80})\.([1-9][0-9]{0,8})\.([A-Za-z0-9_-]{43})$/;
+const TOKEN_RE = /^([A-Za-z0-9_-]{4,80})\.([1-9][0-9]{0,8})(?:\.([A-Za-z0-9_-]{4,80}))?\.([A-Za-z0-9_-]{43})$/;
 
 const base64url = (bytes: Uint8Array) => {
     let binary = "";
@@ -49,29 +49,33 @@ export interface InvitationHousehold {
 }
 
 /** Tokens contain only a random database id and version; integrity comes from a 256-bit HMAC. */
-export async function invitationToken(secret: string, householdId: string, version: number) {
-    const payload = `${encodeText(householdId)}.${version}`;
+export async function invitationToken(secret: string, householdId: string, version: number, guestId?: string | null) {
+    const payload = `${encodeText(householdId)}.${version}${guestId ? `.${encodeText(guestId)}` : ""}`;
     return `${payload}.${await signature(secret, payload)}`;
 }
 
-export async function invitationUrl(env: Env, householdId: string, version: number) {
+export const weddingOrigin = (env: Env) => (env.WEDDING_URL || `https://wedding.${new URL(env.SITE_URL).hostname}`).replace(/\/+$/, "");
+
+export async function invitationUrl(env: Env, householdId: string, version: number, guestId?: string | null) {
     const secret = validSecret(env.RSVP_LINK_SECRET);
     if (!secret) return null;
-    const token = await invitationToken(secret, householdId, version);
-    return `${env.SITE_URL.replace(/\/+$/, "")}/wedding/rsvp?invite=${encodeURIComponent(token)}`;
+    const token = await invitationToken(secret, householdId, version, guestId);
+    return `${weddingOrigin(env)}/rsvp?invite=${encodeURIComponent(token)}`;
 }
 
-export async function verifyInvitationToken(secret: string, token: string): Promise<{ householdId: string; version: number } | null> {
+export async function verifyInvitationToken(secret: string, token: string): Promise<{ householdId: string; version: number; guestId: string | null } | null> {
     const match = TOKEN_RE.exec(token);
     if (!match) return null;
     const householdId = decodeText(match[1]);
     const version = Number(match[2]);
     if (!householdId || householdId.length > 40 || !Number.isSafeInteger(version)) return null;
-    const payload = `${match[1]}.${match[2]}`;
-    const provided = decodeBytes(match[3]);
-    if (!provided || base64url(provided) !== match[3]) return null;
+    const guestId = match[3] ? decodeText(match[3]) : null;
+    if (guestId && guestId.length > 40) return null;
+    const payload = `${match[1]}.${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+    const provided = decodeBytes(match[4]);
+    if (!provided || base64url(provided) !== match[4]) return null;
     const valid = await crypto.subtle.verify("HMAC", await signingKey(secret), provided, encoder.encode(payload));
-    return valid ? { householdId, version } : null;
+    return valid ? { householdId, version, guestId } : null;
 }
 
 export function invitationExpired(settings: RsvpSettings, now = new Date()) {
@@ -86,11 +90,20 @@ export async function householdForInvitation(db: D1Database, env: Env, token: st
     if (!secret || invitationExpired(settings)) return null;
     const verified = await verifyInvitationToken(secret, token);
     if (!verified) return null;
-    return db
+    const household = await db
         .prepare(
             `SELECT id, name, rsvp_code, invite_version, invite_revoked_at FROM households
              WHERE id = ? AND invite_version = ? AND invite_revoked_at IS NULL AND deleted_at IS NULL`,
         )
         .bind(verified.householdId, verified.version)
         .first<InvitationHousehold>();
+    if (!household) return null;
+    if (verified.guestId) {
+        const guest = await db
+            .prepare("SELECT 1 FROM guests WHERE id = ? AND household_id = ? AND deleted_at IS NULL")
+            .bind(verified.guestId, household.id)
+            .first();
+        if (!guest) return null;
+    }
+    return { ...household, highlightedGuestId: verified.guestId };
 }

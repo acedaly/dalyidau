@@ -23,7 +23,7 @@ import type {
 } from "../../src/shared/portal/types";
 import { type EmailProvider, type SmsProvider, emailProvider, htmlForText, smsProvider } from "../comms/providers";
 import type { Env } from "../env";
-import { invitationUrl } from "../wedding/invitations";
+import { invitationUrl, weddingOrigin } from "../wedding/invitations";
 import { auditStatement, newId, nowIso, parseJson } from "./db";
 import { NotFoundError, ValidationError } from "./entities";
 import { isEnabled } from "./flags";
@@ -63,11 +63,11 @@ async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
             .prepare("SELECT id, name, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL")
             .all<{ id: string; name: string; rsvp_code: string; invite_version: number; invite_revoked_at: string | null }>(),
     ]);
-    const site = env.SITE_URL.replace(/\/+$/, "");
+    const site = weddingOrigin(env);
     return {
         wedding,
         rsvpDeadline: formatDate(rsvp.deadline),
-        fallbackRsvpLink: native ? `${site}/wedding/rsvp` : rsvp.externalUrl || `${site}/wedding`,
+        fallbackRsvpLink: native ? `${site}/rsvp` : rsvp.externalUrl || site,
         householdCodes: new Map(
             await Promise.all(
                 households.results.map(
@@ -557,13 +557,13 @@ export async function sendRsvpConfirmation(env: Env, db: D1Database, household: 
         });
         const coming = result.guests.some((guest) => Object.values(result.responses[guest.id] ?? {}).includes("attending"));
         const couple = `${wedding.partnerOne} & ${wedding.partnerTwo}`;
-        const site = env.SITE_URL.replace(/\/+$/, "");
+        const site = weddingOrigin(env);
         const subject = `Your RSVP for ${couple}'s wedding`;
         const body = [
             `Hi ${result.householdName},`,
             coming ? "Thank you for your RSVP. We can't wait to celebrate with you!" : "Thank you for letting us know. We'll miss you.",
             `Here's what we have:\n${lines.map((line) => `• ${line}`).join("\n")}`,
-            `If anything changes, you can update your RSVP using the link in your invitation${settings.deadline ? ` until ${formatDate(settings.deadline)}` : ""}. Wedding details are at ${site}/wedding.`,
+            `If anything changes, you can update your RSVP using the link in your invitation${settings.deadline ? ` until ${formatDate(settings.deadline)}` : ""}. Wedding details are at ${site}.`,
             `Love,\n${couple}`,
         ].join("\n\n");
         const id = newId("msg");

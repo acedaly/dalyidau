@@ -9,9 +9,11 @@ import { EventsPage } from "@/portal/pages/events-page";
 import { GuestImportPage } from "@/portal/pages/guest-import-page";
 import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
+import { InvitationStudioPage } from "@/portal/pages/invitation-studio-page";
 import { MessagePage } from "@/portal/pages/message-page";
 import { PortalHomePage } from "@/portal/pages/portal-home-page";
 import { PortalSettingsPage } from "@/portal/pages/portal-settings-page";
+import { ProviderSettingsPage } from "@/portal/pages/provider-settings-page";
 import { RsvpsPage } from "@/portal/pages/rsvps-page";
 import { SeatingPage } from "@/portal/pages/seating-page";
 import { WeddingSettingsPage } from "@/portal/pages/settings-page";
@@ -43,6 +45,10 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <RsvpsPage data={data} />;
         case "communications":
             return <CommunicationsPage data={data} />;
+        case "invitation-studio":
+            return <InvitationStudioPage data={data} />;
+        case "provider-settings":
+            return <ProviderSettingsPage data={data} />;
         case "message":
             return <MessagePage data={data} />;
         case "texts":

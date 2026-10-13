@@ -15,8 +15,8 @@ export interface SiteLinks {
 }
 
 export const siteLinks = (data: WeddingPageData): SiteLinks => {
-    const home = data.preview ? "/portal/wedding/website/preview" : "/wedding";
-    const nativePage = data.preview ? "/portal/wedding/website/preview/rsvp" : "/wedding/rsvp";
+    const home = data.preview ? "/portal/wedding/website/preview" : data.legacyPaths ? "/wedding" : "/";
+    const nativePage = data.preview ? "/portal/wedding/website/preview/rsvp" : data.legacyPaths ? "/wedding/rsvp" : "/rsvp";
     // The preview always shows the native form, so owners can try it before switching it on.
     if (data.preview || data.rsvp.mode === "native") return { home, rsvp: nativePage, rsvpExternal: false };
     if (data.rsvp.mode === "external" && data.rsvp.externalUrl) return { home, rsvp: data.rsvp.externalUrl, rsvpExternal: true };

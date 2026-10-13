@@ -109,7 +109,7 @@ test("a household opens its invitation link, replies in part, then finishes; the
     const errors = watchErrors(page);
 
     try {
-        await page.goto(new URL(issued.invitationUrl).pathname + new URL(issued.invitationUrl).search);
+        await page.goto(`/wedding/rsvp${new URL(issued.invitationUrl).search}`);
         await expect(page.getByRole("heading", { name: "Who's coming?" })).toBeVisible();
         // Everyone named on the invitation, by full name.
         for (const name of [`Alex Partial-${tag}`, `Sam Partial-${tag}`, `Jo O'Partial ${tag}`])

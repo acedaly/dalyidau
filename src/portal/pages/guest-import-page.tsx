@@ -17,6 +17,7 @@ import { PageHeader } from "@/portal/components/page-header";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
 import {
+    ActionBadge,
     type Directory,
     type GuestDecision,
     type HouseholdDecision,
@@ -241,6 +242,16 @@ export const GuestImportPage = ({ data }: { data: PageData<"guest-import"> }) =>
     ];
     const inviteIds = decisions.inviteEventIds ?? plan.inviteEventIds;
     const rsvpFromSayIDo = (decisions.rsvpSource ?? (plan.source === "sayido" ? "sayido" : "import")) === "sayido";
+    const rowLedger = [
+        ...plan.guests.map((guest) => ({
+            line: guest.line,
+            name: `${guest.firstName} ${guest.lastName}`.trim() || guest.rawName,
+            action: guest.action,
+            match: guest.target.kind === "existing" ? `Existing guest: ${guest.target.name}` : guest.target.kind === "skip" ? guest.target.reason : "New guest",
+            note: guest.issues.map((issue) => issue.message).join(" · "),
+        })),
+        ...plan.errors.map((row) => ({ line: row.line, name: row.name || "Unnamed row", action: "error", match: "Cannot import", note: row.message })),
+    ].sort((a, b) => a.line - b.line);
 
     return (
         <>
@@ -371,6 +382,43 @@ export const GuestImportPage = ({ data }: { data: PageData<"guest-import"> }) =>
                         </ul>
                     </Notice>
                 )}
+
+                <section aria-labelledby="all-import-rows" className="overflow-hidden rounded-xl bg-primary shadow-xs ring-1 ring-secondary ring-inset">
+                    <div className="border-b border-secondary px-4 py-4 md:px-5">
+                        <h2 id="all-import-rows" className="text-md font-semibold text-primary">
+                            Every CSV row
+                        </h2>
+                        <p className="mt-1 text-sm text-tertiary">
+                            {rowLedger.length} of {s.rows} data rows are accounted for. Errors remain in the final report and are never silently skipped.
+                        </p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-secondary text-sm">
+                            <thead className="bg-secondary text-left text-xs font-semibold tracking-wide text-tertiary uppercase">
+                                <tr>
+                                    <th className="px-4 py-3 md:px-5">Line</th>
+                                    <th className="px-4 py-3">Guest</th>
+                                    <th className="px-4 py-3">Decision</th>
+                                    <th className="px-4 py-3">Match / issue</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-secondary">
+                                {rowLedger.map((row) => (
+                                    <tr key={row.line} data-testid={`import-row-${row.line}`}>
+                                        <td className="px-4 py-3 text-tertiary md:px-5">{row.line}</td>
+                                        <th scope="row" className="px-4 py-3 text-left font-medium text-primary">
+                                            {row.name}
+                                        </th>
+                                        <td className="px-4 py-3">
+                                            <ActionBadge action={row.action} />
+                                        </td>
+                                        <td className="max-w-md px-4 py-3 text-tertiary">{row.note || row.match}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
                 <Tabs selectedKey={filter} onSelectionChange={(key) => setFilter(key as typeof filter)}>
                     <Tabs.List type="button-minimal" size="sm" className="w-max max-w-full overflow-x-auto">

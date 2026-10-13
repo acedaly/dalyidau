@@ -3,7 +3,7 @@
 // click from the clipboard. Invitations can be generated in bulk; sending them is a separate step
 // in Communications and stays off until delivery is approved and switched on.
 import { useState } from "react";
-import { Building07, Download01, Link01, Mail01, Plus, RefreshCw01 } from "@untitledui/icons";
+import { Building07, Download01, Link01, Mail01, Plus, RefreshCw01, Trash01 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -26,7 +26,7 @@ import { api, errorMessage } from "@/portal/lib/api";
 import { percent, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { Household, HouseholdResponseStatus, HouseholdRow } from "@/shared/portal/types";
+import type { ContactPreference, Household, HouseholdResponseStatus, HouseholdRow } from "@/shared/portal/types";
 
 type Draft = Record<"name" | "email" | "phone" | "addressLine1" | "addressLine2" | "locality" | "region" | "postcode" | "country" | "notes", string>;
 
@@ -93,6 +93,14 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
     const [invitationAction, setInvitationAction] = useState<{ household: Household; action: "rotate" | "revoke" | "restore" } | null>(null);
     const [status, setStatus] = useState<HouseholdResponseStatus | "all">("all");
     const [generating, setGenerating] = useState(false);
+    const [deleteGuests, setDeleteGuests] = useState<"unassign" | "delete">("unassign");
+    const [bulk, setBulk] = useState<{ ids: string[]; kind: "guests" | "delete" } | null>(null);
+    const [bulkEvent, setBulkEvent] = useState<string>("");
+    const [bulkTag, setBulkTag] = useState("");
+    const [bulkTagAction, setBulkTagAction] = useState<"add-tag" | "remove-tag">("add-tag");
+    const [bulkPreference, setBulkPreference] = useState<ContactPreference | "">("");
+    const [bulkRegion, setBulkRegion] = useState("");
+    const [bulkCountry, setBulkCountry] = useState("");
     const canEdit = can("wedding.guests.edit");
 
     const refresh = async () => {
@@ -140,6 +148,35 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
         } finally {
             setGenerating(false);
         }
+    };
+
+    const selectedRows = (ids: string[]) => households.items.filter((household) => ids.includes(household.id));
+    const copyLinks = async (ids: string[]) => {
+        const text = selectedRows(ids)
+            .filter((household) => household.invitationUrl)
+            .map((household) => `${household.name}\t${household.invitationUrl}`)
+            .join("\n");
+        if (!text) return toast.error("No links to copy", "Generate or restore invitation links first.");
+        await navigator.clipboard.writeText(text);
+        toast.success(`Copied ${pluralise(text.split("\n").length, "invitation link")}`);
+    };
+    const exportSelected = (ids: string[]) => {
+        const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
+        const csv = [
+            "Household,Guests,Invitation link,RSVP code",
+            ...selectedRows(ids).map((h) => [h.name, h.response.guestNames.join(", "), h.invitationUrl ?? "", h.rsvpCode].map(quote).join(",")),
+        ].join("\r\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "selected-wedding-invitations.csv";
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+    const bulkCall = async (body: Record<string, unknown>) => {
+        const result = await api<{ households: HouseholdRow[]; affected: number }>("POST", "/api/portal/wedding/households/bulk", body);
+        households.setItems(result.households);
+        return result;
     };
 
     const rows = status === "all" ? households.items : households.items.filter((h) => h.response.status === status);
@@ -289,6 +326,18 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                         >
                             Generate invitations
                         </Button>
+                        <Button size="sm" color="secondary" onClick={() => void copyLinks(ids)}>
+                            Copy links
+                        </Button>
+                        <Button size="sm" color="secondary" iconLeading={Download01} onClick={() => exportSelected(ids)}>
+                            Export selected
+                        </Button>
+                        <Button size="sm" color="secondary" onClick={() => setBulk({ ids, kind: "guests" })}>
+                            Edit &amp; assign
+                        </Button>
+                        <Button size="sm" color="tertiary-destructive" iconLeading={Trash01} onClick={() => setBulk({ ids, kind: "delete" })}>
+                            Delete
+                        </Button>
                         {data.emailDelivery ? (
                             <Button size="sm" color="secondary" iconLeading={Mail01} href="/portal/wedding/communications">
                                 Send from Communications
@@ -346,8 +395,31 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                     await refresh();
                     return saved;
                 }}
-                onDelete={editing ? () => households.remove(editing.id) : undefined}
-                deleteWarning="Its RSVP code stops working straight away. Its guests stay on the guest list. You can restore the household from Settings → Privacy."
+                onDelete={
+                    editing
+                        ? async () => {
+                              await bulkCall({ action: "delete", ids: [editing.id], guests: deleteGuests, confirmed: true });
+                          }
+                        : undefined
+                }
+                deleteWarning={
+                    editing ? (
+                        <div className="flex flex-col gap-3">
+                            <p>
+                                This affects 1 household and {pluralise(editing.guestCount, "guest")}. It has {editing.response.invited} invited guests and{" "}
+                                {editing.response.answeredInvitations} confirmed RSVP answers. RSVP history is always preserved.
+                            </p>
+                            <label className="flex gap-2">
+                                <input type="radio" name="delete-guests" checked={deleteGuests === "unassign"} onChange={() => setDeleteGuests("unassign")} />{" "}
+                                Preserve guests as unassigned
+                            </label>
+                            <label className="flex gap-2">
+                                <input type="radio" name="delete-guests" checked={deleteGuests === "delete"} onChange={() => setDeleteGuests("delete")} />{" "}
+                                Soft-delete the household and its guests
+                            </label>
+                        </div>
+                    ) : null
+                }
             >
                 {(fieldError) => (
                     <>
@@ -462,6 +534,121 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                     } catch (error) {
                         toast.error("Couldn't issue a new code", errorMessage(error));
                     }
+                }}
+            />
+            <ConfirmDialog
+                isOpen={bulk?.kind === "guests"}
+                onOpenChange={(open) => !open && setBulk(null)}
+                title={`Edit guests in ${bulk?.ids.length ?? 0} households?`}
+                description={
+                    <div className="flex flex-col gap-4">
+                        <p>
+                            {bulk
+                                ? pluralise(
+                                      selectedRows(bulk.ids).reduce((n, h) => n + h.guestCount, 0),
+                                      "guest",
+                                  )
+                                : "No guests"}{" "}
+                            will be considered. Blank choices are left unchanged.
+                        </p>
+                        <Select
+                            label="Assign to event"
+                            items={[{ id: "", label: "No change" }, ...data.events]}
+                            value={bulkEvent}
+                            onChange={(value) => setBulkEvent(String(value))}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[10rem_1fr]">
+                            <Select
+                                label="Tag action"
+                                items={[
+                                    { id: "add-tag", label: "Add tag" },
+                                    { id: "remove-tag", label: "Remove tag" },
+                                ]}
+                                value={bulkTagAction}
+                                onChange={(value) => setBulkTagAction(String(value) as typeof bulkTagAction)}
+                            >
+                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                            </Select>
+                            <Input label="Tag" value={bulkTag} onChange={setBulkTag} placeholder="e.g. family" />
+                        </div>
+                        <Select
+                            label="Contact preference"
+                            items={[
+                                { id: "", label: "No change" },
+                                { id: "email", label: "Email" },
+                                { id: "phone", label: "Phone / SMS" },
+                                { id: "post", label: "Post" },
+                                { id: "none", label: "Do not contact" },
+                            ]}
+                            value={bulkPreference}
+                            onChange={(value) => setBulkPreference(String(value) as ContactPreference | "")}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <Input label="Set state / region" value={bulkRegion} onChange={setBulkRegion} placeholder="Leave blank for no change" />
+                            <Input label="Set country" value={bulkCountry} onChange={setBulkCountry} placeholder="Leave blank for no change" />
+                        </div>
+                    </div>
+                }
+                confirmLabel="Apply changes"
+                onConfirm={async () => {
+                    if (!bulk) return;
+                    if (bulkEvent) await bulkCall({ action: "assign-event", ids: bulk.ids, eventId: bulkEvent, confirmed: true });
+                    if (bulkTag.trim()) await bulkCall({ action: bulkTagAction, ids: bulk.ids, tag: bulkTag, confirmed: true });
+                    if (bulkPreference) await bulkCall({ action: "contact-preference", ids: bulk.ids, preference: bulkPreference, confirmed: true });
+                    if (bulkRegion.trim() || bulkCountry.trim())
+                        await bulkCall({
+                            action: "edit",
+                            ids: bulk.ids,
+                            patch: {
+                                ...(bulkRegion.trim() ? { region: bulkRegion.trim() } : {}),
+                                ...(bulkCountry.trim() ? { country: bulkCountry.trim() } : {}),
+                            },
+                            confirmed: true,
+                        });
+                    setBulkEvent("");
+                    setBulkTag("");
+                    setBulkPreference("");
+                    setBulkRegion("");
+                    setBulkCountry("");
+                    toast.success("Households updated", "No invitations or RSVP records were removed.");
+                }}
+            />
+            <ConfirmDialog
+                isOpen={bulk?.kind === "delete"}
+                onOpenChange={(open) => !open && setBulk(null)}
+                title={`Delete ${bulk?.ids.length ?? 0} households?`}
+                description={
+                    <div className="flex flex-col gap-3">
+                        <p>
+                            {bulk
+                                ? pluralise(
+                                      selectedRows(bulk.ids).reduce((n, h) => n + h.guestCount, 0),
+                                      "guest",
+                                  )
+                                : "No guests"}
+                            ; {bulk ? selectedRows(bulk.ids).reduce((n, h) => n + h.response.answeredInvitations, 0) : 0} confirmed RSVP answers. Records remain
+                            restorable and RSVP history is never deleted.
+                        </p>
+                        <label className="flex gap-2">
+                            <input type="radio" name="bulk-delete-guests" checked={deleteGuests === "unassign"} onChange={() => setDeleteGuests("unassign")} />{" "}
+                            Preserve guests as unassigned
+                        </label>
+                        <label className="flex gap-2">
+                            <input type="radio" name="bulk-delete-guests" checked={deleteGuests === "delete"} onChange={() => setDeleteGuests("delete")} />{" "}
+                            Soft-delete households and guests
+                        </label>
+                    </div>
+                }
+                confirmLabel="Delete selected"
+                destructive
+                onConfirm={async () => {
+                    if (!bulk) return;
+                    await bulkCall({ action: "delete", ids: bulk.ids, guests: deleteGuests, confirmed: true });
+                    toast.success("Households deleted", "They can be restored from Settings → Privacy.");
                 }}
             />
             <ConfirmDialog

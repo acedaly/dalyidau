@@ -12,6 +12,7 @@ export type NavigationIcon =
     | "rsvps"
     | "events"
     | "communications"
+    | "invitations"
     | "website"
     | "seating"
     | "catering"
@@ -76,12 +77,18 @@ export const APPLICATIONS = [
                     { label: "Households", href: "/portal/wedding/households", icon: "households" },
                     { label: "RSVPs", href: "/portal/wedding/rsvps", icon: "rsvps" },
                     { label: "Events", href: "/portal/wedding/events", icon: "events" },
+                    { label: "Invitation Studio", href: "/portal/wedding/invitations", icon: "invitations" },
                     {
                         label: "Communications",
                         href: "/portal/wedding/communications",
                         icon: "communications",
                         flag: "module.communications",
-                        active: "prefix",
+                    },
+                    {
+                        label: "Email & SMS settings",
+                        href: "/portal/wedding/communications/providers",
+                        icon: "settings",
+                        flag: "module.communications",
                     },
                     { label: "Website", href: "/portal/wedding/website", icon: "website", active: "prefix" },
                 ],

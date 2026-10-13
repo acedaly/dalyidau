@@ -167,7 +167,7 @@ describe("catering", () => {
 });
 
 describe("website draft and publishing", () => {
-    const html = async (path: string, token?: string) => (await call(path, token ? { token } : {})).text();
+    const html = async (path: string, token?: string, host?: string) => (await call(path, { ...(token ? { token } : {}), ...(host ? { host } : {}) })).text();
 
     it("edits a draft that only reaches the public site when published", async () => {
         await apiCall("PUT", "/api/portal/flags/wedding.site.public", { enabled: true });
@@ -176,6 +176,8 @@ describe("website draft and publishing", () => {
             heroTitle: "",
             heroSubtitle: "",
             heroImageId: null,
+            heroFocalX: 50,
+            heroFocalY: 50,
             welcome: "A brand new welcome",
             sections: [
                 { id: "bus", kind: "transport", title: "Courtesy bus", body: "Leaves at 3pm (unconfirmed)", visible: false },
@@ -193,14 +195,14 @@ describe("website draft and publishing", () => {
             noindex: true,
         });
         expect(draft.status).toBe(200);
-        expect(await html("/wedding")).not.toContain("A brand new welcome");
+        expect(await html("/", undefined, "wedding.daly.id.au")).not.toContain("A brand new welcome");
         const preview = await html("/portal/wedding/website/preview", await accessToken());
         expect(preview).toContain("A brand new welcome");
         expect(preview).not.toContain("Leaves at 3pm"); // hidden section
 
         expect((await apiCall("PUT", "/api/portal/settings/website", { heroTitle: "x" })).status).toBe(405);
         expect((await apiCall("POST", "/api/portal/wedding/website/publish", {})).status).toBe(200);
-        const live = await html("/wedding");
+        const live = await html("/", undefined, "wedding.daly.id.au");
         expect(live).toContain("A brand new welcome");
         expect(live).toContain("Rhino Lodge");
         expect(live).not.toContain("Leaves at 3pm");
@@ -208,7 +210,7 @@ describe("website draft and publishing", () => {
 
     it("ships with the couple's details and keeps unconfirmed parts hidden", async () => {
         await apiCall("PUT", "/api/portal/flags/wedding.site.public", { enabled: true });
-        const live = await html("/wedding");
+        const live = await html("/", undefined, "wedding.daly.id.au");
         expect(live).toContain("Aidan &amp; Amelia");
         expect(live).toContain("Saturday 23 October 2027");
         expect(live).toContain("Rhino Lodge");

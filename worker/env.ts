@@ -7,6 +7,8 @@ export interface Env {
 
     ENVIRONMENT: string;
     SITE_URL: string;
+    /** Canonical public wedding origin. */
+    WEDDING_URL?: string;
     CAPACITIES_API_BASE: string;
     CAPACITIES_STRUCTURE_NAME: string;
     /** Optional: pin the Blog Post type by id instead of by name. */
@@ -30,7 +32,7 @@ export interface Env {
     ACCESS_DEV_EMAIL?: string;
     /** Tests only, ignored in production: a JWKS document to verify Access tokens against. */
     ACCESS_TEST_JWKS?: string;
-    /** Email delivery provider: "smtp2go", "cloudflare", or "log" (development only). Unset or "off" means nothing is ever sent. See docs/COMMUNICATIONS.md. */
+    /** Email delivery provider: "fastmail", "smtp", "smtp2go", "cloudflare", or "log" (development only). */
     EMAIL_DELIVERY?: string;
     /** From address for wedding emails, e.g. "Aidan & Amelia" <wedding@daly.id.au>. */
     EMAIL_FROM?: string;
@@ -40,6 +42,16 @@ export interface Env {
     SMTP2GO_API_KEY?: string;
     /** Optional, e.g. https://au-api.smtp2go.com/v3 for the Australian region. */
     SMTP2GO_API_BASE?: string;
+    /** Secret Fastmail JMAP API token with the Email Submission scope. */
+    FASTMAIL_API_TOKEN?: string;
+    /** Optional override for tests; defaults to Fastmail's official session endpoint. */
+    FASTMAIL_SESSION_URL?: string;
+    /** Generic authenticated SMTP. Password is always a Worker secret. */
+    SMTP_HOST?: string;
+    SMTP_PORT?: string;
+    SMTP_USERNAME?: string;
+    SMTP_PASSWORD?: string;
+    SMTP_SECURITY?: string;
     /** SMS delivery provider: "clicksend", or "log" (development only). Unset or "off" means nothing is ever sent. */
     SMS_DELIVERY?: string;
     /** Secret: ClickSend API username. */
