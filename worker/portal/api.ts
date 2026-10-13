@@ -83,6 +83,7 @@ const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
     catering: "wedding.planning.edit",
     website_draft: "wedding.website.edit",
     wedding: "portal.settings.manage",
+    invitation: "wedding.comms.edit",
     website: "wedding.website.edit",
     // The RSVP link decides where guests are sent, so only owners and admins may change it.
     rsvp: "portal.settings.manage",

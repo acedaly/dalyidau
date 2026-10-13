@@ -25,6 +25,17 @@ export interface WeddingDetails {
     timeZone: string;
 }
 
+export interface InvitationTemplateSettings {
+    /** The visual treatment shared by print and email previews. */
+    artwork: "native-botanicals" | "none";
+    accent: "burgundy" | "rust" | "eucalyptus";
+    eyebrow: string;
+    invitationLine: string;
+    greetingPrefix: string;
+    emailIntroduction: string;
+    emailSignoff: string;
+}
+
 export const SECTION_KINDS = ["story", "details", "venue", "accommodation", "travel", "transport", "children", "dress", "registry", "faq", "custom"] as const;
 export type SectionKind = (typeof SECTION_KINDS)[number];
 
@@ -135,6 +146,7 @@ export interface SettingsDocuments {
     /** What the portal edits; the public site shows `website` until changes are published. */
     website_draft: WebsiteContent;
     wedding: WeddingDetails;
+    invitation: InvitationTemplateSettings;
     website: WebsiteContent;
     rsvp: RsvpSettings;
     budget: BudgetSettings;
@@ -419,6 +431,14 @@ export interface InvitationPreview {
     guestNames: string[];
     highlightedGuest: string | null;
     coupleNames: string;
+    greeting: string;
+    eyebrow: string;
+    invitationLine: string;
+    weddingDate: string;
+    location: string;
+    artwork: InvitationTemplateSettings["artwork"];
+    accent: InvitationTemplateSettings["accent"];
+    sample: boolean;
     rsvpUrl: string;
     fallback: string;
     rsvpCode: string;
@@ -644,7 +664,12 @@ export type PortalRoute =
           comms: { status: CommsStatus; email: boolean; sms: boolean };
           unreadTexts: number;
       }
-    | { route: "invitation-studio"; households: InvitationStudioHousehold[]; canGenerateLinks: boolean }
+    | {
+          route: "invitation-studio";
+          households: InvitationStudioHousehold[];
+          canGenerateLinks: boolean;
+          template: InvitationTemplateSettings;
+      }
     | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean }
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
     | { route: "texts"; threads: SmsThread[]; status: CommsStatus; emailAvailable: boolean; smsAvailable: boolean }

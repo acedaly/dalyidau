@@ -146,11 +146,10 @@ const PAGES: PageDef[] = [
         title: "Invitation Studio",
         permission: "wedding.view",
         application: "wedding",
-        load: async ({ env }) => ({
-            route: "invitation-studio",
-            households: await listStudioHouseholds(env.DB),
-            canGenerateLinks: invitationLinksConfigured(env),
-        }),
+        load: async ({ env }) => {
+            const [households, template] = await Promise.all([listStudioHouseholds(env.DB), getSettings(env.DB, "invitation")]);
+            return { route: "invitation-studio", households, template, canGenerateLinks: invitationLinksConfigured(env) };
+        },
     },
     {
         pattern: /^\/portal\/wedding\/communications\/providers$/,

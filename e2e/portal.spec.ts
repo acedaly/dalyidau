@@ -96,6 +96,18 @@ test("core portal workflows expose labelled controls and keyboard focus", async 
     }
 });
 
+test("Invitation Studio exposes the shared native stationery template", async ({ page }) => {
+    await page.goto("/portal/wedding/invitations");
+
+    await expect(page.getByRole("heading", { level: 2, name: "Invitation template" })).toBeVisible();
+    await expect(page.getByLabel("Artwork")).toContainText("Australian native botanicals");
+    await expect(page.getByLabel("Primary accent")).toContainText("Waratah burgundy");
+    await expect(page.getByLabel("Greeting prefix")).toHaveValue("For");
+    await expect(page.getByLabel("Invitation wording")).toHaveValue("invite you to celebrate their marriage");
+    await expect(page.getByRole("button", { name: "Save template" })).toBeVisible();
+    await expect(page.getByText("Generating never sends.")).toBeVisible();
+});
+
 test("builds an RSVP question with Untitled UI controls", async ({ page }, info) => {
     const question = `Which song will get you dancing? ${info.project.name}`;
     await page.goto("/portal/wedding/rsvps");

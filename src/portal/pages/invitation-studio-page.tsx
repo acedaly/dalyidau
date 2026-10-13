@@ -3,6 +3,9 @@ import { Download01, Eye, Link01, Printer } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
+import { Select } from "@/components/base/select/select";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
@@ -11,7 +14,65 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { InvitationPreview } from "@/shared/portal/types";
+import type { InvitationPreview, InvitationTemplateSettings } from "@/shared/portal/types";
+
+const ACCENTS: Record<InvitationTemplateSettings["accent"], string> = {
+    burgundy: "#8b2f3d",
+    rust: "#c46b3c",
+    eucalyptus: "#526f54",
+};
+
+const InvitationCard = ({ invitation, label }: { invitation: InvitationPreview; label: string }) => (
+    <div>
+        <p className="mb-2 text-xs font-semibold tracking-[.12em] text-tertiary uppercase">{label}</p>
+        <div
+            className="wedding-theme relative mx-auto flex aspect-[148/210] w-full max-w-[30rem] flex-col items-center overflow-hidden bg-[#f7f2ea] bg-cover bg-center px-[12%] py-[8%] text-center text-[#3c2a23] shadow-sm ring-1 ring-[#d8cdbc] ring-inset"
+            style={{
+                backgroundImage: invitation.artwork === "native-botanicals" ? "url('/wedding/native-invitation-frame.jpg')" : undefined,
+            }}
+        >
+            {invitation.sample && (
+                <p
+                    className="absolute top-2 rounded-full bg-[#f7f2ea]/95 px-3 py-1 text-[9px] font-bold tracking-[.12em] uppercase"
+                    style={{ color: ACCENTS[invitation.accent] }}
+                >
+                    Sample preview - not for delivery
+                </p>
+            )}
+            <p className="mt-[4%] text-[10px] font-semibold tracking-[.22em] uppercase">{invitation.eyebrow}</p>
+            <h3 className="wedding-names mt-[7%] text-5xl sm:text-6xl" style={{ color: ACCENTS[invitation.accent] }}>
+                {invitation.coupleNames}
+            </h3>
+            <div className="mt-5 h-px w-16 bg-[#c89a34]" />
+            <p className="mt-4 font-serif text-lg italic">{invitation.invitationLine}</p>
+            <p className="mt-5 font-serif text-lg font-semibold">{invitation.greeting}</p>
+            <p className="mt-1 text-xs text-[#5d6a56]">{invitation.guestNames.join(" · ")}</p>
+            <p className="mt-7 font-serif text-lg font-semibold tracking-wide uppercase">{invitation.weddingDate}</p>
+            <p className="mt-1 font-serif text-base italic" style={{ color: ACCENTS[invitation.accent] }}>
+                {invitation.location}
+            </p>
+            <div className="mt-4 space-y-1 text-xs">
+                {invitation.eventLines.map((line) => (
+                    <p key={line}>{line}</p>
+                ))}
+            </div>
+            {invitation.deadline && (
+                <p className="mt-4 text-xs font-semibold" style={{ color: ACCENTS[invitation.accent] }}>
+                    Kindly reply by {invitation.deadline}
+                </p>
+            )}
+            <div className="mt-auto bg-white p-1.5 shadow-xs">
+                <img src={invitation.qrDataUrl} alt={`QR code for ${invitation.householdName}`} className="size-28 sm:size-32" />
+            </div>
+            <p className="mt-2 text-[10px] font-semibold tracking-[.14em] uppercase" style={{ color: ACCENTS[invitation.accent] }}>
+                Scan to RSVP
+            </p>
+            <p className="mt-1 rounded bg-[#f7f2ea]/90 px-2 py-1 text-[10px]">
+                {invitation.fallback} · code {invitation.rsvpCode}
+            </p>
+        </div>
+    </div>
+);
 
 export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-studio"> }) => {
     const { can } = usePortal();
@@ -22,7 +83,23 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
     const [busy, setBusy] = useState(false);
     const channels = ["email", "sms", "print"] as const;
     const [chosenChannels, setChosenChannels] = useState<(typeof channels)[number][]>(["print"]);
+    const [template, setTemplate] = useState(data.template);
+    const [savingTemplate, setSavingTemplate] = useState(false);
     const request = { householdIds: selected, guestSpecific, channels: chosenChannels };
+
+    const saveTemplate = async () => {
+        setSavingTemplate(true);
+        try {
+            const result = await api<{ value: InvitationTemplateSettings }>("PUT", "/api/portal/settings/invitation", template);
+            setTemplate(result.value);
+            setPreviews([]);
+            toast.success("Invitation template saved", "Preview again to see the updated recipient versions.");
+        } catch (error) {
+            toast.error("Couldn't save the invitation template", errorMessage(error));
+        } finally {
+            setSavingTemplate(false);
+        }
+    };
 
     const preview = async () => {
         setBusy(true);
@@ -69,6 +146,68 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                 Every personalised version is shown before generation. Delivery remains a separate action in Communications; this page never sends
                 automatically.
             </Notice>
+
+            <section className="mb-6 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h2 className="text-md font-semibold text-primary">Invitation template</h2>
+                        <p className="mt-1 text-sm text-tertiary">
+                            Shared by printable invitations and email previews. Placeholders such as {"{{couple_names}}"} remain dynamic.
+                        </p>
+                    </div>
+                    {can("wedding.comms.edit") && (
+                        <Button size="sm" onClick={() => void saveTemplate()} isLoading={savingTemplate}>
+                            Save template
+                        </Button>
+                    )}
+                </div>
+                <fieldset disabled={!can("wedding.comms.edit")} className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <Select
+                        label="Artwork"
+                        items={[
+                            { id: "native-botanicals", label: "Australian native botanicals" },
+                            { id: "none", label: "Minimal paper" },
+                        ]}
+                        value={template.artwork}
+                        onChange={(value) => setTemplate({ ...template, artwork: value as InvitationTemplateSettings["artwork"] })}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
+                    <Select
+                        label="Primary accent"
+                        items={[
+                            { id: "burgundy", label: "Waratah burgundy" },
+                            { id: "rust", label: "Banksia rust" },
+                            { id: "eucalyptus", label: "Eucalyptus green" },
+                        ]}
+                        value={template.accent}
+                        onChange={(value) => setTemplate({ ...template, accent: value as InvitationTemplateSettings["accent"] })}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
+                    <Input label="Greeting prefix" value={template.greetingPrefix} onChange={(value) => setTemplate({ ...template, greetingPrefix: value })} />
+                    <Input label="Eyebrow" value={template.eyebrow} onChange={(value) => setTemplate({ ...template, eyebrow: value })} />
+                    <Input
+                        label="Invitation wording"
+                        value={template.invitationLine}
+                        onChange={(value) => setTemplate({ ...template, invitationLine: value })}
+                        className="lg:col-span-2"
+                    />
+                    <TextArea
+                        label="Email introduction"
+                        rows={3}
+                        value={template.emailIntroduction}
+                        onChange={(value) => setTemplate({ ...template, emailIntroduction: value })}
+                    />
+                    <TextArea
+                        label="Email sign-off"
+                        rows={3}
+                        value={template.emailSignoff}
+                        onChange={(value) => setTemplate({ ...template, emailSignoff: value })}
+                        hint="Supports {{couple_names}}, {{wedding_date}}, {{wedding_location}} and {{rsvp_deadline}}."
+                    />
+                </fieldset>
+            </section>
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[22rem_1fr]">
                 <aside className="flex flex-col gap-5 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
@@ -178,26 +317,12 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                             {previews.map((invitation) => (
                                 <article
                                     key={invitation.key}
-                                    className="relative overflow-hidden rounded-xl bg-[#fcf9f3] p-7 text-center text-[#3c2a23] shadow-xs ring-1 ring-[#d3c8b4] ring-inset print:break-after-page"
+                                    className="rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset print:break-after-page"
                                 >
-                                    <p className="text-xs font-semibold tracking-[.22em] uppercase">Together with our families</p>
-                                    <h3 className="mt-5 font-serif text-4xl">{invitation.coupleNames}</h3>
-                                    <p className="mt-4 font-serif text-lg">Dear {invitation.highlightedGuest ?? invitation.householdName}</p>
-                                    <p className="mt-2 text-sm">{invitation.guestNames.join(", ")}</p>
-                                    <div className="mx-auto mt-5 max-w-md space-y-1 text-sm">
-                                        {invitation.eventLines.map((line) => (
-                                            <p key={line}>{line}</p>
-                                        ))}
-                                    </div>
-                                    {invitation.deadline && <p className="mt-4 text-sm font-semibold">Kindly reply by {invitation.deadline}</p>}
-                                    <img
-                                        src={invitation.qrDataUrl}
-                                        alt={`QR code for ${invitation.householdName}`}
-                                        className="mx-auto mt-5 size-44 bg-white p-1"
-                                    />
-                                    <p className="mt-3 text-xs">
-                                        {invitation.fallback} · code {invitation.rsvpCode}
-                                    </p>
+                                    {chosenChannels.includes("print") && <InvitationCard invitation={invitation} label="Print invitation preview" />}
+                                    {!chosenChannels.includes("print") && !chosenChannels.includes("email") && (
+                                        <p className="text-sm text-tertiary">This selection contains an SMS invitation only.</p>
+                                    )}
                                     <div className="mt-4 flex justify-center gap-2">
                                         {chosenChannels.map((channel) => (
                                             <Badge key={channel} size="sm" color="gray">
@@ -206,9 +331,12 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                         ))}
                                     </div>
                                     {chosenChannels.includes("email") && (
-                                        <div className="mt-5 rounded-lg bg-white/70 p-4 text-left text-sm ring-1 ring-[#dfd5c5] ring-inset">
-                                            <p className="font-semibold">Email · {invitation.emailSubject}</p>
-                                            <p className="mt-2 text-xs leading-5 whitespace-pre-line">{invitation.emailBody}</p>
+                                        <div className="mt-6 border-t border-secondary pt-5">
+                                            <InvitationCard invitation={invitation} label={`Email invitation · ${invitation.emailSubject}`} />
+                                            <details className="mt-4 rounded-lg bg-secondary p-4 text-left text-sm">
+                                                <summary className="cursor-pointer font-semibold">Plain-text email fallback</summary>
+                                                <p className="mt-2 text-xs leading-5 whitespace-pre-line">{invitation.emailBody}</p>
+                                            </details>
                                         </div>
                                     )}
                                     {chosenChannels.includes("sms") && (

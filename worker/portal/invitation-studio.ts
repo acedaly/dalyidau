@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { PDFDocument, type PDFFont, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import { z } from "zod";
 import type { InvitationPreview, InvitationStudioHousehold } from "../../src/shared/portal/types";
@@ -17,6 +18,8 @@ const requestSchema = z.object({
         .min(1)
         .max(3)
         .default(["print"]),
+    /** Used only for fixture/documentation output. Normal Studio previews are never labelled sample. */
+    sample: z.boolean().default(false),
 });
 
 export async function listStudioHouseholds(db: D1Database): Promise<InvitationStudioHousehold[]> {
@@ -60,10 +63,33 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
 
 const formatDate = (date: string) =>
     date
-        ? new Intl.DateTimeFormat("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(
-              new Date(`${date}T12:00:00Z`),
-          )
+        ? new Intl.DateTimeFormat("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+              .format(new Date(`${date}T12:00:00Z`))
+              .replace(/^(\p{L}+)\s/u, "$1, ")
         : "";
+
+const formatTime = (dateTime: string | null) => {
+    if (!dateTime) return "";
+    const match = /T(\d{2}):(\d{2})/.exec(dateTime);
+    if (!match) return "";
+    const hour = Number(match[1]);
+    const minute = match[2];
+    return `${hour % 12 || 12}:${minute} ${hour < 12 ? "am" : "pm"}`;
+};
+
+const displayLocation = (location: string) =>
+    location
+        .replace(/\s*[·•]\s*/g, ", ")
+        .replace(/,\s*(NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b/g, " $1")
+        .trim();
+
+export const invitationGreeting = (name: string, prefix = "For") => {
+    const clean = name.trim();
+    const article = /^the\s+(.+)$/i.exec(clean);
+    return article ? `${prefix} the ${article[1]}` : `${prefix} ${clean}`;
+};
+
+const mergeCopy = (copy: string, values: Record<string, string>) => copy.replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token);
 
 const svgDataUrl = async (value: string) => {
     const svg = await QRCode.toString(value, {
@@ -81,18 +107,22 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
     const households = await listStudioHouseholds(env.DB);
     const selected = households.filter((household) => request.householdIds.includes(household.id));
     if (selected.length !== new Set(request.householdIds).size) throw new ValidationError("One of those households no longer exists", "householdIds");
-    const [wedding, rsvp, events] = await Promise.all([
+    const [wedding, rsvp, template, events] = await Promise.all([
         getSettings(env.DB, "wedding"),
         getSettings(env.DB, "rsvp"),
-        env.DB.prepare("SELECT name, starts_at, venue_name FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at").all<{
+        getSettings(env.DB, "invitation"),
+        env.DB.prepare("SELECT name, starts_at, venue_name, address FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at").all<{
             name: string;
             starts_at: string | null;
             venue_name: string | null;
+            address: string | null;
         }>(),
     ]);
-    const eventLines = events.results.map((event) =>
-        [event.name, event.starts_at ? formatDate(event.starts_at.slice(0, 10)) : null, event.venue_name].filter(Boolean).join(" - "),
-    );
+    const eventLines = events.results.map((event) => {
+        const time = formatTime(event.starts_at);
+        const detail = [time, event.venue_name].filter(Boolean).join(" at ");
+        return [event.name, detail].filter(Boolean).join(" - ");
+    });
     const previews: InvitationPreview[] = [];
     for (const household of selected) {
         const targets = request.guestSpecific && household.guests.length ? household.guests.map((guest) => ({ guest })) : [{ guest: null }];
@@ -100,8 +130,19 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
             const rsvpUrl = await invitationUrl(env, household.id, household.inviteVersion, guest?.id);
             if (!rsvpUrl) throw new ValidationError("Invitation links are not configured", "householdIds");
             const coupleNames = `${wedding.partnerOne} & ${wedding.partnerTwo}`;
-            const greeting = guest?.name ?? household.name;
+            const recipient = guest?.name ?? household.name;
+            const greeting = invitationGreeting(recipient, template.greetingPrefix);
             const deadline = formatDate(rsvp.deadline);
+            const weddingDate = formatDate(wedding.date);
+            const location = displayLocation(wedding.location);
+            const mergeValues = {
+                couple_names: coupleNames,
+                household_name: household.name,
+                guest_name: guest?.name ?? "",
+                wedding_date: weddingDate,
+                wedding_location: location,
+                rsvp_deadline: deadline,
+            };
             previews.push({
                 key: `${household.id}:${guest?.id ?? "household"}`,
                 householdId: household.id,
@@ -110,6 +151,14 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 guestNames: household.guests.map((person) => person.name),
                 highlightedGuest: guest?.name ?? null,
                 coupleNames,
+                greeting,
+                eyebrow: mergeCopy(template.eyebrow, mergeValues),
+                invitationLine: mergeCopy(template.invitationLine, mergeValues),
+                weddingDate,
+                location,
+                artwork: template.artwork,
+                accent: template.accent,
+                sample: request.sample,
                 rsvpUrl,
                 fallback: `${new URL(weddingOrigin(env)).host}/rsvp`,
                 rsvpCode: household.rsvpCode,
@@ -118,13 +167,16 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 deadline,
                 emailSubject: `You're invited to ${coupleNames}'s wedding`,
                 emailBody: [
-                    `Dear ${greeting},`,
-                    `${coupleNames} request the pleasure of your company at their wedding.`,
+                    `${greeting},`,
+                    mergeCopy(template.emailIntroduction, mergeValues),
+                    `${coupleNames}\n${weddingDate}\n${location}`,
                     ...eventLines,
+                    `Invited guests: ${household.guests.map((person) => person.name).join(", ")}`,
                     `${deadline ? `Please reply by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
                     `If the link does not open, visit ${new URL(weddingOrigin(env)).host}/rsvp and enter ${household.rsvpCode}.`,
+                    mergeCopy(template.emailSignoff, mergeValues),
                 ].join("\n\n"),
-                smsBody: `${greeting}, you're invited to ${coupleNames}'s wedding. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
+                smsBody: `${greeting}: you're invited to ${coupleNames}'s wedding on ${weddingDate}. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
             });
         }
     }
@@ -173,13 +225,14 @@ export async function generateStudioInvitations(env: Env, input: unknown, actor:
     return { generated: previews.length, households: ids.length, channels: request.channels, sent: 0, previews };
 }
 
-const wrap = (text: string, max = 72) => {
-    const words = text.split(/\s+/);
+const wrap = (text: string, font: PDFFont, size: number, maxWidth: number) => {
+    const words = text.trim().split(/\s+/);
     const lines: string[] = [];
     let line = "";
     for (const word of words) {
-        if (`${line} ${word}`.trim().length > max && line) (lines.push(line), (line = word));
-        else line = `${line} ${word}`.trim();
+        const next = `${line} ${word}`.trim();
+        if (font.widthOfTextAtSize(next, size) > maxWidth && line) (lines.push(line), (line = word));
+        else line = next;
     }
     if (line) lines.push(line);
     return lines;
@@ -188,35 +241,71 @@ const wrap = (text: string, max = 72) => {
 export async function printableInvitations(env: Env, input: unknown): Promise<Uint8Array> {
     const request = requestSchema.parse(input);
     const previews = await invitationPreviews(env, request);
-    const wedding = await getSettings(env.DB, "wedding");
     const pdf = await PDFDocument.create();
+    pdf.registerFontkit(fontkit);
+    const [artworkResponse, scriptResponse] = await Promise.all([
+        env.ASSETS.fetch("https://assets.local/wedding/native-invitation-frame.jpg"),
+        env.ASSETS.fetch("https://assets.local/wedding/invitation-script.woff"),
+    ]);
+    if (previews.some((preview) => preview.artwork === "native-botanicals") && !artworkResponse.ok)
+        throw new Error("Invitation botanical artwork is missing; run the client build");
+    const artwork = artworkResponse.ok ? await pdf.embedJpg(await artworkResponse.arrayBuffer()) : null;
+    if (!scriptResponse.ok) throw new Error("Invitation script font is missing; run the client build");
+    const script = await pdf.embedFont(await scriptResponse.arrayBuffer(), { subset: true });
     const serif = await pdf.embedFont(StandardFonts.TimesRoman);
     const serifBold = await pdf.embedFont(StandardFonts.TimesRomanBold);
+    const serifItalic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
     const sans = await pdf.embedFont(StandardFonts.Helvetica);
+    const sansBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const pageWidth = 419.53;
+    const pageHeight = 595.28;
+    const espresso = rgb(0.235, 0.165, 0.137);
+    const ivory = rgb(0.969, 0.949, 0.918);
+    const accentColours = {
+        burgundy: rgb(0.545, 0.184, 0.239),
+        rust: rgb(0.769, 0.42, 0.235),
+        eucalyptus: rgb(0.322, 0.439, 0.329),
+    };
     for (const preview of previews) {
-        const page = pdf.addPage([595.28, 841.89]);
-        page.drawRectangle({ x: 0, y: 0, width: 595.28, height: 841.89, color: rgb(0.988, 0.976, 0.953) });
-        page.drawRectangle({ x: 28, y: 28, width: 539.28, height: 785.89, borderColor: rgb(0.55, 0.18, 0.24), borderWidth: 1 });
-        const centre = (text: string, y: number, size: number, font = serif) =>
-            page.drawText(text, { x: (595.28 - font.widthOfTextAtSize(text, size)) / 2, y, size, font, color: rgb(0.235, 0.165, 0.137) });
-        centre("TOGETHER WITH OUR FAMILIES", 762, 9, sans);
-        centre(`${wedding.partnerOne} & ${wedding.partnerTwo}`, 700, 35, serifBold);
-        centre("request the pleasure of your company", 662, 15);
-        centre(`Dear ${preview.highlightedGuest ?? preview.householdName}`, 614, 18, serifBold);
-        let y = 574;
-        for (const line of preview.eventLines.flatMap((event) => wrap(event, 66))) {
-            centre(line, y, 12, sans);
-            y -= 18;
+        const page = pdf.addPage([pageWidth, pageHeight]);
+        page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: ivory });
+        if (artwork && preview.artwork === "native-botanicals") page.drawImage(artwork, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+        const accent = accentColours[preview.accent];
+        const centre = (text: string, y: number, size: number, font = serif, color = espresso) =>
+            page.drawText(text, { x: (pageWidth - font.widthOfTextAtSize(text, size)) / 2, y, size, font, color });
+        const centredLines = (text: string, y: number, size: number, font: PDFFont, maxWidth: number, leading: number, color = espresso) => {
+            for (const line of wrap(text, font, size, maxWidth)) {
+                centre(line, y, size, font, color);
+                y -= leading;
+            }
+            return y;
+        };
+
+        if (preview.sample) {
+            page.drawRectangle({ x: 111, y: 572, width: 198, height: 15, color: ivory, opacity: 0.94 });
+            centre("SAMPLE PREVIEW - NOT FOR DELIVERY", 577, 6.5, sansBold, accent);
         }
-        if (preview.deadline) centre(`Kindly reply by ${preview.deadline}`, y - 14, 12, serifBold);
+        centre(preview.eyebrow.toUpperCase(), 532, 7.2, sansBold, espresso);
+        const scriptSize = Math.min(38, (350 / script.widthOfTextAtSize(preview.coupleNames, 38)) * 38);
+        centre(preview.coupleNames, 481, scriptSize, script, accent);
+        page.drawLine({ start: { x: 172, y: 468 }, end: { x: 248, y: 468 }, thickness: 0.8, color: rgb(0.784, 0.604, 0.204) });
+        centredLines(preview.invitationLine, 448, 12, serifItalic, 282, 15);
+        centre(preview.greeting, 414, 12.5, serifBold, espresso);
+        centredLines(preview.guestNames.join(" - "), 394, 8.5, sans, 260, 11, rgb(0.365, 0.416, 0.337));
+
+        centre(preview.weddingDate.toUpperCase(), 349, 13, serifBold, espresso);
+        centre(preview.location, 327, 11, serifItalic, accent);
+        let eventY = 300;
+        for (const event of preview.eventLines.slice(0, 3)) eventY = centredLines(event, eventY, 8.5, sans, 270, 12, espresso) - 2;
+        if (preview.deadline) centre(`Kindly reply by ${preview.deadline}`, Math.max(238, eventY - 5), 8.5, sansBold, accent);
 
         const qr = QRCode.create(preview.rsvpUrl, { errorCorrectionLevel: "M" });
         const modules = qr.modules.size;
         const quiet = 4;
-        const box = 174;
+        const box = 112;
         const cell = box / (modules + quiet * 2);
-        const x0 = (595.28 - box) / 2;
-        const y0 = 190;
+        const x0 = (pageWidth - box) / 2;
+        const y0 = 92;
         page.drawRectangle({ x: x0, y: y0, width: box, height: box, color: rgb(1, 1, 1) });
         for (let row = 0; row < modules; row++) {
             for (let column = 0; column < modules; column++) {
@@ -226,15 +315,16 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
                     y: y0 + box - (row + quiet + 1) * cell,
                     width: cell + 0.02,
                     height: cell + 0.02,
-                    color: rgb(0.235, 0.165, 0.137),
+                    color: espresso,
                 });
             }
         }
-        centre("Scan to RSVP", 165, 13, serifBold);
-        centre(`${preview.fallback}  -  code ${preview.rsvpCode}`, 142, 9, sans);
-        centre(preview.guestNames.join(" • "), 106, 10, serif);
+        centre("SCAN TO RSVP", 76, 7.5, sansBold, accent);
+        page.drawRectangle({ x: 96, y: 39, width: 228, height: 27, color: ivory, opacity: 0.94 });
+        centre(preview.fallback, 56, 7.5, sans, espresso);
+        centre(`INVITATION CODE  ${preview.rsvpCode}`, 44, 7.2, sansBold, espresso);
     }
-    pdf.setTitle(`${wedding.partnerOne} & ${wedding.partnerTwo} - Wedding invitations`);
+    pdf.setTitle(`${previews[0]?.coupleNames ?? "Wedding"} - Wedding invitations`);
     pdf.setCreator("Wedding Planner Invitation Studio");
     return pdf.save();
 }

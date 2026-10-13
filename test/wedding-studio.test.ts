@@ -1,4 +1,5 @@
 import jsQR from "jsqr";
+import { PDFDocument } from "pdf-lib";
 import { PNG } from "pngjs";
 import QRCode from "qrcode";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -122,6 +123,15 @@ describe("Invitation Studio", () => {
         const invitation = response.json.previews[0];
         expect(invitation.rsvpUrl).toMatch(/^https:\/\/wedding\.daly\.id\.au\/rsvp\?invite=/);
         expect(invitation.highlightedGuest).toBe("Alex Studio");
+        expect(invitation).toMatchObject({
+            coupleNames: "Aidan & Amelia",
+            greeting: "For Alex Studio",
+            weddingDate: "Saturday, 23 October 2027",
+            location: "Rhino Lodge, Dubbo NSW",
+            artwork: "native-botanicals",
+            accent: "burgundy",
+        });
+        expect(invitation.eventLines).toContain("Ceremony - 3:30 pm at Rhino Lodge");
         expect(invitation.qrDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
 
         const encoded = QRCode.create(invitation.rsvpUrl, { errorCorrectionLevel: "M" });
@@ -164,7 +174,11 @@ describe("Invitation Studio", () => {
             body: JSON.stringify(request),
         });
         expect(pdf.status).toBe(200);
-        expect(new TextDecoder().decode((await pdf.arrayBuffer()).slice(0, 5))).toBe("%PDF-");
+        const pdfBytes = await pdf.arrayBuffer();
+        expect(new TextDecoder().decode(pdfBytes.slice(0, 5))).toBe("%PDF-");
+        const document = await PDFDocument.load(pdfBytes);
+        expect(document.getPageCount()).toBe(1);
+        expect(document.getPage(0).getSize()).toEqual({ width: 419.53, height: 595.28 });
 
         await apiCall("POST", `/api/portal/wedding/households/${f.household.id}/invitation`, { action: "revoke" });
         const revoked = await call("/api/wedding/rsvp/lookup", {
@@ -174,6 +188,34 @@ describe("Invitation Studio", () => {
             body: JSON.stringify({ token }),
         });
         expect(revoked.status).toBe(404);
+    });
+
+    it("uses an editable template and avoids duplicated household articles", async () => {
+        const f = await fixture("The Nguyens");
+        const saved = await apiCall<{ value: { greetingPrefix: string; accent: string } }>("PUT", "/api/portal/settings/invitation", {
+            artwork: "native-botanicals",
+            accent: "eucalyptus",
+            eyebrow: "Please join us",
+            invitationLine: "would love you to celebrate with them",
+            greetingPrefix: "For",
+            emailIntroduction: "A country celebration awaits.",
+            emailSignoff: "With love,\n{{couple_names}}",
+        });
+        expect(saved.status).toBe(200);
+        const response = await apiCall<{ previews: InvitationPreview[] }>("POST", "/api/portal/wedding/invitations/preview", {
+            householdIds: [f.household.id],
+            guestSpecific: false,
+            channels: ["email", "print"],
+        });
+        expect(response.json.previews[0]).toMatchObject({
+            greeting: "For the Nguyens",
+            eyebrow: "Please join us",
+            invitationLine: "would love you to celebrate with them",
+            accent: "eucalyptus",
+        });
+        expect(response.json.previews[0].emailBody).toContain("A country celebration awaits.");
+        expect(response.json.previews[0].emailBody).toContain("With love,\nAidan & Amelia");
+        expect(response.json.previews[0].emailBody).not.toContain("Dear The Nguyens");
     });
 });
 
