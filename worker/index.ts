@@ -58,13 +58,15 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     // The wedding custom domain is a deliberately narrow public surface. Portal, admin, health,
     // communication webhook and personal-site routes never fall through onto this hostname.
-    if (url.hostname === weddingUrl.hostname) return weddingHost(request, env, url, weddingUrl);
+    // On staging WEDDING_URL is `<staging host>/wedding`, so the wedding site is served by path instead.
+    const weddingHasOwnHost = weddingUrl.hostname !== siteUrl.hostname;
+    if (weddingHasOwnHost && url.hostname === weddingUrl.hostname) return weddingHost(request, env, url, weddingUrl);
 
     const path = url.pathname;
 
     // Keep old invitations working, including their signed query credential. Media stays in place
     // for authenticated portal previews and previously cached pages.
-    if (url.hostname === siteUrl.hostname && (path === "/wedding" || path === "/wedding/rsvp")) {
+    if (weddingHasOwnHost && url.hostname === siteUrl.hostname && (path === "/wedding" || path === "/wedding/rsvp")) {
         const target = path === "/wedding" ? "/" : "/rsvp";
         return Response.redirect(`${weddingUrl.origin}${target}${url.search}`, 301);
     }

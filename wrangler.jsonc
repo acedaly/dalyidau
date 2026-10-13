@@ -80,7 +80,9 @@
                 // Replace with the staging workers.dev URL once it exists (docs/STAGING.md), so links
                 // in staging point at staging, not at the live site.
                 "SITE_URL": "https://daly.id.au",
-                // Staging has no public custom domain; host routing still works in tests and local dev.
+                // Staging has no wedding custom domain. Set this to "<staging workers.dev URL>/wedding"
+                // with SITE_URL (docs/STAGING.md). Until then staging refuses to make invitation links,
+                // so no staging QR code or email can point guests at the live site.
                 "WEDDING_URL": "https://wedding.daly.id.au",
                 "CAPACITIES_API_BASE": "https://api.capacities.io",
                 "CAPACITIES_STRUCTURE_NAME": "Blog Post",

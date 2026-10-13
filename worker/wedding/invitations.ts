@@ -30,7 +30,14 @@ const decodeText = (value: string) => {
 
 const validSecret = (secret: string | undefined) => (secret && encoder.encode(secret).byteLength >= 32 ? secret : null);
 
-export const invitationLinksConfigured = (env: Env) => !!validSecret(env.RSVP_LINK_SECRET);
+/**
+ * Staging has its own database and secret, so a link it mints only works on staging. Until
+ * WEDDING_URL points at the staging workers.dev host, staging makes no links at all rather than
+ * printing QR codes that send guests to the live site.
+ */
+const linksPointHere = (env: Env) => env.ENVIRONMENT !== "staging" || new URL(weddingOrigin(env)).hostname.endsWith(".workers.dev");
+
+export const invitationLinksConfigured = (env: Env) => !!validSecret(env.RSVP_LINK_SECRET) && linksPointHere(env);
 
 const signingKey = (secret: string) => {
     if (!validSecret(secret)) throw new Error("RSVP_LINK_SECRET must contain at least 32 bytes");
@@ -54,11 +61,15 @@ export async function invitationToken(secret: string, householdId: string, versi
     return `${payload}.${await signature(secret, payload)}`;
 }
 
+/** Base URL of the wedding site. Usually its own host; on staging it is `<staging host>/wedding`. */
 export const weddingOrigin = (env: Env) => (env.WEDDING_URL || `https://wedding.${new URL(env.SITE_URL).hostname}`).replace(/\/+$/, "");
+
+/** The RSVP address as printed for people to type in, without the scheme. */
+export const typedRsvpAddress = (env: Env) => `${weddingOrigin(env).replace(/^https?:\/\//, "")}/rsvp`;
 
 export async function invitationUrl(env: Env, householdId: string, version: number, guestId?: string | null) {
     const secret = validSecret(env.RSVP_LINK_SECRET);
-    if (!secret) return null;
+    if (!secret || !linksPointHere(env)) return null;
     const token = await invitationToken(secret, householdId, version, guestId);
     return `${weddingOrigin(env)}/rsvp?invite=${encodeURIComponent(token)}`;
 }

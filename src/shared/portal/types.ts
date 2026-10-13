@@ -418,8 +418,10 @@ export interface InvitationStudioHousehold {
     phone: string | null;
     rsvpCode: string;
     inviteVersion: number;
+    inviteRevoked: boolean;
     invitationGeneratedAt: string | null;
-    guests: { id: string; name: string }[];
+    /** `invited` is false for guests with no RSVP-enabled event; they get no invitation of their own. */
+    guests: { id: string; name: string; invited: boolean }[];
     delivery: { channel: "email" | "sms" | "print"; status: string; updatedAt: string }[];
 }
 
@@ -441,7 +443,8 @@ export interface InvitationPreview {
     sample: boolean;
     rsvpUrl: string;
     fallback: string;
-    rsvpCode: string;
+    /** Null when RSVP codes are switched off, so no unusable code is printed or sent. */
+    rsvpCode: string | null;
     qrDataUrl: string;
     eventLines: string[];
     deadline: string;

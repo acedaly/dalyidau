@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { z } from "zod";
 import type { InvitationPreview, InvitationStudioHousehold } from "../../src/shared/portal/types";
 import type { Env } from "../env";
-import { invitationUrl, weddingOrigin } from "../wedding/invitations";
+import { invitationUrl, typedRsvpAddress } from "../wedding/invitations";
 import { auditStatement, newId, nowIso, placeholders } from "./db";
 import { ValidationError } from "./entities";
 import { getSettings } from "./settings";
@@ -22,15 +22,24 @@ const requestSchema = z.object({
     sample: z.boolean().default(false),
 });
 
+/** One version per recipient; generation stores one row per recipient and channel. */
+const MAX_RECIPIENTS = 1000;
+/** Artefact rows per INSERT. Rows travel as one JSON parameter, so a whole run is a handful of D1 queries. */
+const ARTIFACT_ROWS_PER_STATEMENT = 250;
+
 export async function listStudioHouseholds(db: D1Database): Promise<InvitationStudioHousehold[]> {
     const [homes, guests, deliveries] = await db.batch([
         db.prepare(
-            `SELECT id, name, email, phone, rsvp_code, invite_version, invitation_generated_at
+            `SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at, invitation_generated_at
              FROM households WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE`,
         ),
         db.prepare(
-            `SELECT id, household_id, first_name, last_name FROM guests
-             WHERE deleted_at IS NULL AND household_id IS NOT NULL ORDER BY household_order IS NULL, household_order, first_name`,
+            // `invited` mirrors the RSVP form, which only shows guests invited to an event with RSVPs open.
+            `SELECT g.id, g.household_id, g.first_name, g.last_name,
+                    EXISTS (SELECT 1 FROM guest_events ge JOIN events e ON e.id = ge.event_id
+                            WHERE ge.guest_id = g.id AND e.rsvp_enabled = 1) AS invited
+             FROM guests g WHERE g.deleted_at IS NULL AND g.household_id IS NOT NULL
+             ORDER BY g.household_order IS NULL, g.household_order, g.first_name`,
         ),
         db.prepare(
             `SELECT household_id, channel, status, updated_at FROM (
@@ -47,10 +56,11 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
         phone: (home.phone as string | null) ?? null,
         rsvpCode: String(home.rsvp_code),
         inviteVersion: Number(home.invite_version),
+        inviteRevoked: home.invite_revoked_at != null,
         invitationGeneratedAt: (home.invitation_generated_at as string | null) ?? null,
         guests: (guests.results as Record<string, unknown>[])
             .filter((guest) => guest.household_id === home.id)
-            .map((guest) => ({ id: String(guest.id), name: `${guest.first_name} ${guest.last_name ?? ""}`.trim() })),
+            .map((guest) => ({ id: String(guest.id), name: `${guest.first_name} ${guest.last_name ?? ""}`.trim(), invited: Boolean(guest.invited) })),
         delivery: (deliveries.results as Record<string, unknown>[])
             .filter((delivery) => delivery.household_id === home.id)
             .map((delivery) => ({
@@ -123,10 +133,24 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
         const detail = [time, event.venue_name].filter(Boolean).join(" at ");
         return [event.name, detail].filter(Boolean).join(" - ");
     });
+    // Only guests the RSVP form will show get an invitation, matching the bulk generator: a household
+    // with nobody invited to an RSVP-enabled event, or a revoked link, would get a link that 404s.
+    const skipped = selected.filter((household) => household.inviteRevoked || !household.guests.some((guest) => guest.invited));
+    if (skipped.length)
+        throw new ValidationError(
+            `${skipped.map((household) => household.name).join(", ")} ${skipped.length === 1 ? "has" : "have"} no one invited to an event with RSVPs open, or a revoked link. Deselect ${skipped.length === 1 ? "it" : "them"} first.`,
+            "householdIds",
+        );
+    const recipients = selected.map((household) => {
+        const invited = household.guests.filter((guest) => guest.invited);
+        return { household, invited, targets: request.guestSpecific ? invited : [null] };
+    });
+    if (recipients.reduce((total, { targets }) => total + targets.length, 0) > MAX_RECIPIENTS)
+        throw new ValidationError(`That is more than ${MAX_RECIPIENTS} invitations. Choose fewer households.`, "householdIds");
     const previews: InvitationPreview[] = [];
-    for (const household of selected) {
-        const targets = request.guestSpecific && household.guests.length ? household.guests.map((guest) => ({ guest })) : [{ guest: null }];
-        for (const { guest } of targets) {
+    for (const { household, invited, targets } of recipients) {
+        const guestNames = invited.map((person) => person.name);
+        for (const guest of targets) {
             const rsvpUrl = await invitationUrl(env, household.id, household.inviteVersion, guest?.id);
             if (!rsvpUrl) throw new ValidationError("Invitation links are not configured", "householdIds");
             const coupleNames = `${wedding.partnerOne} & ${wedding.partnerTwo}`;
@@ -148,7 +172,7 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 householdId: household.id,
                 guestId: guest?.id ?? null,
                 householdName: household.name,
-                guestNames: household.guests.map((person) => person.name),
+                guestNames,
                 highlightedGuest: guest?.name ?? null,
                 coupleNames,
                 greeting,
@@ -160,8 +184,8 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 accent: template.accent,
                 sample: request.sample,
                 rsvpUrl,
-                fallback: `${new URL(weddingOrigin(env)).host}/rsvp`,
-                rsvpCode: household.rsvpCode,
+                fallback: typedRsvpAddress(env),
+                rsvpCode: rsvp.allowCodes ? household.rsvpCode : null,
                 qrDataUrl: await svgDataUrl(rsvpUrl),
                 eventLines,
                 deadline,
@@ -171,9 +195,10 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                     mergeCopy(template.emailIntroduction, mergeValues),
                     `${coupleNames}\n${weddingDate}\n${location}`,
                     ...eventLines,
-                    `Invited guests: ${household.guests.map((person) => person.name).join(", ")}`,
+                    `Invited guests: ${guestNames.join(", ")}`,
                     `${deadline ? `Please reply by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
-                    `If the link does not open, visit ${new URL(weddingOrigin(env)).host}/rsvp and enter ${household.rsvpCode}.`,
+                    // Only offer the code when the RSVP page accepts codes.
+                    ...(rsvp.allowCodes ? [`If the link does not open, visit ${typedRsvpAddress(env)} and enter ${household.rsvpCode}.`] : []),
                     mergeCopy(template.emailSignoff, mergeValues),
                 ].join("\n\n"),
                 smsBody: `${greeting}: you're invited to ${coupleNames}'s wedding on ${weddingDate}. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
@@ -188,18 +213,29 @@ export async function generateStudioInvitations(env: Env, input: unknown, actor:
     const request = requestSchema.parse(input);
     const previews = await invitationPreviews(env, request);
     const now = nowIso();
-    const statements = [];
-    for (const preview of previews) {
+    const rows = previews.flatMap((preview) => {
         const version = Number(preview.rsvpUrl.match(/invite=[^.]+\.([0-9]+)/)?.[1] ?? 1);
-        for (const channel of request.channels) {
-            statements.push(
-                env.DB.prepare(
-                    `INSERT INTO invitation_artifacts (id, household_id, guest_id, recipient_key, channel, invite_version, status, created_by, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, 'generated', ?, ?, ?)
-                         ON CONFLICT(household_id, recipient_key, channel, invite_version) DO UPDATE SET updated_at = excluded.updated_at`,
-                ).bind(newId("inv"), preview.householdId, preview.guestId, preview.guestId ?? "household", channel, version, actor, now, now),
-            );
-        }
+        return request.channels.map((channel) => ({
+            id: newId("inv"),
+            household_id: preview.householdId,
+            guest_id: preview.guestId,
+            recipient_key: preview.guestId ?? "household",
+            channel,
+            invite_version: version,
+        }));
+    });
+    const statements = [];
+    for (let start = 0; start < rows.length; start += ARTIFACT_ROWS_PER_STATEMENT) {
+        statements.push(
+            env.DB.prepare(
+                // `WHERE true` lets SQLite parse the upsert after a SELECT.
+                `INSERT INTO invitation_artifacts (id, household_id, guest_id, recipient_key, channel, invite_version, status, created_by, created_at, updated_at)
+                     SELECT value ->> 'id', value ->> 'household_id', value ->> 'guest_id', value ->> 'recipient_key', value ->> 'channel',
+                            value ->> 'invite_version', 'generated', ?2, ?3, ?3
+                     FROM json_each(?1) WHERE true
+                     ON CONFLICT(household_id, recipient_key, channel, invite_version) DO UPDATE SET updated_at = excluded.updated_at`,
+            ).bind(JSON.stringify(rows.slice(start, start + ARTIFACT_ROWS_PER_STATEMENT)), actor, now),
+        );
     }
     const ids = [...new Set(previews.map((preview) => preview.householdId))];
     for (let start = 0; start < ids.length; start += 80) {
@@ -281,6 +317,16 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
             return y;
         };
 
+        // A soft ivory wash behind the heading keeps the script names readable where the banksia and
+        // wattle reach in, without hiding the artwork.
+        if (artwork && preview.artwork === "native-botanicals")
+            for (const [xScale, yScale, opacity] of [
+                [188, 80, 0.28],
+                [168, 64, 0.32],
+                [146, 50, 0.36],
+            ] as const)
+                page.drawEllipse({ x: pageWidth / 2, y: 488, xScale, yScale, color: ivory, opacity });
+
         if (preview.sample) {
             page.drawRectangle({ x: 111, y: 572, width: 198, height: 15, color: ivory, opacity: 0.94 });
             centre("SAMPLE PREVIEW - NOT FOR DELIVERY", 577, 6.5, sansBold, accent);
@@ -319,10 +365,15 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
                 });
             }
         }
-        centre("SCAN TO RSVP", 76, 7.5, sansBold, accent);
-        page.drawRectangle({ x: 96, y: 39, width: 228, height: 27, color: ivory, opacity: 0.94 });
-        centre(preview.fallback, 56, 7.5, sans, espresso);
-        centre(`INVITATION CODE  ${preview.rsvpCode}`, 44, 7.2, sansBold, espresso);
+        // The caption shares the ivory panel so it stays legible over the foliage. The typed fallback
+        // is only useful with a code; without one the QR code is the way in.
+        const panelBottom = preview.rsvpCode ? 39 : 69;
+        page.drawRectangle({ x: 96, y: panelBottom, width: 228, height: 86 - panelBottom, color: ivory, opacity: 0.94 });
+        centre("SCAN TO RSVP", 75, 7.5, sansBold, accent);
+        if (preview.rsvpCode) {
+            centre(preview.fallback, 56, 7.5, sans, espresso);
+            centre(`INVITATION CODE  ${preview.rsvpCode}`, 44, 7.2, sansBold, espresso);
+        }
     }
     pdf.setTitle(`${previews[0]?.coupleNames ?? "Wedding"} - Wedding invitations`);
     pdf.setCreator("Wedding Planner Invitation Studio");

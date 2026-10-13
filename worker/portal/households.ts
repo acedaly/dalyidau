@@ -188,7 +188,11 @@ export async function bulkUpdateHouseholds(db: D1Database, input: unknown, actor
 
 /** Marks invitations ready for the chosen households. Revoked links and empty households are skipped, never re-issued. */
 export async function generateInvitations(env: Env, input: unknown, actor: string): Promise<GenerateResult> {
-    if (!invitationLinksConfigured(env)) throw new ValidationError("Invitation links aren't set up yet: RSVP_LINK_SECRET is missing", "ids");
+    if (!invitationLinksConfigured(env))
+        throw new ValidationError(
+            "Invitation links aren't set up yet: RSVP_LINK_SECRET is missing, or on staging WEDDING_URL still points at the live site",
+            "ids",
+        );
     const ids = [...new Set(generateSchema.parse(input).ids)];
     const db: D1Database = env.DB;
     const rows: { id: string; name: string; invite_revoked_at: string | null; guests: number }[] = [];

@@ -26,6 +26,7 @@ import { api, errorMessage } from "@/portal/lib/api";
 import { percent, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
+import { toCsv } from "@/shared/portal/csv";
 import type { ContactPreference, Household, HouseholdResponseStatus, HouseholdRow } from "@/shared/portal/types";
 
 type Draft = Record<"name" | "email" | "phone" | "addressLine1" | "addressLine2" | "locality" | "region" | "postcode" | "country" | "notes", string>;
@@ -161,11 +162,13 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
         toast.success(`Copied ${pluralise(text.split("\n").length, "invitation link")}`);
     };
     const exportSelected = (ids: string[]) => {
-        const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
-        const csv = [
-            "Household,Guests,Invitation link,RSVP code",
-            ...selectedRows(ids).map((h) => [h.name, h.response.guestNames.join(", "), h.invitationUrl ?? "", h.rsvpCode].map(quote).join(",")),
-        ].join("\r\n");
+        // Same escaping as the server export, so a name like "=HYPERLINK(...)" stays text in a spreadsheet.
+        const csv = toCsv(selectedRows(ids), [
+            { header: "Household", value: (h) => h.name },
+            { header: "Guests", value: (h) => h.response.guestNames.join(", ") },
+            { header: "Invitation link", value: (h) => h.invitationUrl ?? "" },
+            { header: "RSVP code", value: (h) => h.rsvpCode },
+        ]);
         const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
         const link = document.createElement("a");
         link.href = url;
@@ -329,9 +332,11 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                         <Button size="sm" color="secondary" onClick={() => void copyLinks(ids)}>
                             Copy links
                         </Button>
-                        <Button size="sm" color="secondary" iconLeading={Download01} onClick={() => exportSelected(ids)}>
-                            Export selected
-                        </Button>
+                        {can("wedding.export") && (
+                            <Button size="sm" color="secondary" iconLeading={Download01} onClick={() => exportSelected(ids)}>
+                                Export selected
+                            </Button>
+                        )}
                         <Button size="sm" color="secondary" onClick={() => setBulk({ ids, kind: "guests" })}>
                             Edit &amp; assign
                         </Button>

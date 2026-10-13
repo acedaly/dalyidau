@@ -25,7 +25,7 @@ Staging is a separate copy of the site for trying changes, migrations and the po
 All free on the current plan; nothing here is paid.
 
 1. **Deploy staging once** to create the Worker: GitHub → Actions → Deploy → Run workflow → `staging` (or `npm run deploy:staging`). It applies migrations to the staging database.
-2. **Note the URL** it prints (`https://dalyidau-staging.<subdomain>.workers.dev`) and set `SITE_URL` in `env.staging.vars` in `wrangler.jsonc` to it, so links and RSVP codes in staging point at staging. Commit and redeploy.
+2. **Note the URL** it prints (`https://dalyidau-staging.<subdomain>.workers.dev`) and set `SITE_URL` in `env.staging.vars` in `wrangler.jsonc` to it, and `WEDDING_URL` to the same URL followed by `/wedding`, so links and RSVP codes in staging point at staging. Until `WEDDING_URL` is a workers.dev address, staging refuses to make invitation links (the Studio and bulk generator say links aren't set up). Commit and redeploy.
 3. **Protect the whole hostname with Access**: Workers & Pages → `dalyidau-staging` → Settings → Domains & Routes → workers.dev → enable **Cloudflare Access** (this also covers preview URLs). Then in Zero Trust → Access → Applications, open the application it created, set the policy to your two emails, and copy its **AUD tag**.
 4. **Secrets**:
     ```bash

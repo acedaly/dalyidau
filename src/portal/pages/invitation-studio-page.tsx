@@ -67,9 +67,11 @@ const InvitationCard = ({ invitation, label }: { invitation: InvitationPreview; 
             <p className="mt-2 text-[10px] font-semibold tracking-[.14em] uppercase" style={{ color: ACCENTS[invitation.accent] }}>
                 Scan to RSVP
             </p>
-            <p className="mt-1 rounded bg-[#f7f2ea]/90 px-2 py-1 text-[10px]">
-                {invitation.fallback} · code {invitation.rsvpCode}
-            </p>
+            {invitation.rsvpCode && (
+                <p className="mt-1 rounded bg-[#f7f2ea]/90 px-2 py-1 text-[10px]">
+                    {invitation.fallback} · code {invitation.rsvpCode}
+                </p>
+            )}
         </div>
     </div>
 );
@@ -262,7 +264,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                         Preview every version
                     </Button>
                     {!data.canGenerateLinks && (
-                        <p className="text-sm text-error-primary">RSVP_LINK_SECRET is required before secure invitations can be made.</p>
+                        <p className="text-sm text-error-primary">
+                            RSVP_LINK_SECRET is required before secure invitations can be made (on staging, WEDDING_URL must also point at staging).
+                        </p>
                     )}
                 </aside>
 
@@ -274,35 +278,40 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                 {previews.length ? `${previews.length} personalised versions` : "Preview selections to continue."}
                             </p>
                         </div>
-                        {previews.length > 0 && can("wedding.guests.edit") && (
+                        {previews.length > 0 && (can("wedding.guests.edit") || can("wedding.export")) && (
                             <div className="flex flex-wrap gap-2">
-                                <Button color="secondary" iconLeading={Printer} onClick={() => void printPdf()} isLoading={busy}>
-                                    Download printable PDF
-                                </Button>
-                                <Button
-                                    iconLeading={Link01}
-                                    onClick={async () => {
-                                        setBusy(true);
-                                        try {
-                                            const result = await api<{ generated: number; sent: number }>(
-                                                "POST",
-                                                "/api/portal/wedding/invitations/generate",
-                                                request,
-                                            );
-                                            toast.success(
-                                                `${result.generated} invitations generated`,
-                                                `${result.sent} sent. Review delivery in Communications.`,
-                                            );
-                                        } catch (error) {
-                                            toast.error("Couldn't generate invitations", errorMessage(error));
-                                        } finally {
-                                            setBusy(false);
-                                        }
-                                    }}
-                                    isLoading={busy}
-                                >
-                                    Generate (do not send)
-                                </Button>
+                                {/* The PDF endpoint needs the export permission, which editors don't have. */}
+                                {can("wedding.export") && (
+                                    <Button color="secondary" iconLeading={Printer} onClick={() => void printPdf()} isLoading={busy}>
+                                        Download printable PDF
+                                    </Button>
+                                )}
+                                {can("wedding.guests.edit") && (
+                                    <Button
+                                        iconLeading={Link01}
+                                        onClick={async () => {
+                                            setBusy(true);
+                                            try {
+                                                const result = await api<{ generated: number; sent: number }>(
+                                                    "POST",
+                                                    "/api/portal/wedding/invitations/generate",
+                                                    request,
+                                                );
+                                                toast.success(
+                                                    `${result.generated} invitations generated`,
+                                                    `${result.sent} sent. Review delivery in Communications.`,
+                                                );
+                                            } catch (error) {
+                                                toast.error("Couldn't generate invitations", errorMessage(error));
+                                            } finally {
+                                                setBusy(false);
+                                            }
+                                        }}
+                                        isLoading={busy}
+                                    >
+                                        Generate (do not send)
+                                    </Button>
+                                )}
                             </div>
                         )}
                     </div>
