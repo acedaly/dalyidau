@@ -69,7 +69,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         content.heroTitle
     );
     const actions = (
-        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:justify-start">
+        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:mt-6 lg:justify-start lg:gap-6">
             {links.rsvp && (
                 <Button
                     {...rsvpLinkProps(links)}
@@ -85,7 +85,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                 aria-label="Explore our wedding"
                 className={cx(
                     weddingButton.link,
-                    "inline-flex min-h-12 items-center justify-center gap-2 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
+                    "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
                 )}
             >
                 Explore the details
@@ -98,7 +98,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         <section
             id="hero"
             aria-labelledby="names"
-            className="bg-sandstone relative isolate min-h-[calc(100svh-4.5rem)] overflow-hidden px-3 py-7 sm:px-8 sm:py-12 lg:flex lg:min-h-[min(88svh,58rem)] lg:items-center lg:px-10 lg:py-12"
+            className="bg-sandstone relative isolate overflow-hidden px-3 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-8"
             data-testid="wedding-hero"
         >
             {photo && (
@@ -122,8 +122,11 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
             <span aria-hidden="true" className="bg-eucalypt/18 absolute right-[4%] bottom-[4%] -z-10 h-2/3 w-[28%] rotate-[5deg] rounded-[45%] blur-3xl" />
 
             <div className="wedding-rise relative mx-auto w-full max-w-[43rem] lg:max-w-7xl">
-                <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4" />
-                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex min-h-[45rem] flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] sm:min-h-0 lg:grid lg:aspect-auto lg:min-h-[42rem] lg:grid-cols-[1.25fr_.75fr]">
+                {/* A tilted paper backing on phones and tablets; on desktop the card sits flat and quiet. */}
+                <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4 lg:hidden" />
+                {/* Content sets the height. Tablets keep the frame artwork's 4:5 shape (aspect-ratio still grows with
+                    the content). Desktop is a 55/45 image and text split, about 440–520px tall, so the countdown shows on the first screen. */}
+                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] lg:grid lg:aspect-auto lg:min-h-[clamp(27.5rem,34vw,32.5rem)] lg:grid-cols-[55fr_45fr] lg:shadow-[0_12px_32px_-28px_currentColor]">
                     <img
                         src="/wedding/native-invitation-frame.jpg"
                         alt=""
@@ -142,26 +145,26 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                             height={photo?.height ?? 1402}
                             fetchPriority="high"
                             decoding="async"
-                            className="size-full object-cover"
+                            className="absolute inset-0 size-full object-cover"
                             style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
                         />
                         <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,transparent_70%,rgb(75_52_43/0.16))]" />
                     </div>
                     <div
-                        className="relative flex min-h-[45rem] flex-1 flex-col items-center justify-center px-7 pt-28 pb-12 text-center sm:min-h-0 sm:px-20 sm:pt-28 sm:pb-20 lg:items-start lg:px-12 lg:py-16 lg:text-left xl:px-16"
+                        className="relative flex flex-1 flex-col items-center justify-center px-7 pt-28 pb-24 text-center sm:px-20 sm:pt-28 sm:pb-20 lg:items-start lg:px-10 lg:py-10 lg:text-left xl:px-14"
                         data-testid="hero-editorial-copy"
                     >
                         {content.heroEyebrow && <Eyebrow className="text-forest/75 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
-                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:text-[clamp(5rem,7vw,7.8rem)]">
+                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:mt-4 lg:text-[clamp(4.5rem,6vw,5.5rem)]">
                             {title}
                         </h1>
                         {content.heroSubtitle && (
-                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem]">{content.heroSubtitle}</p>
+                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem] lg:mt-5 lg:text-[1.375rem]">{content.heroSubtitle}</p>
                         )}
-                        <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12" />
-                        <div className="text-charcoal mt-5">
+                        <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12 lg:mt-4" />
+                        <div className="text-charcoal mt-5 lg:mt-4">
                             {details.date && (
-                                <p className="wedding-display text-[1.35rem] leading-tight italic sm:text-[1.7rem]">
+                                <p className="wedding-display text-[1.35rem] leading-tight italic sm:text-[1.7rem] lg:text-[1.5rem]">
                                     <time dateTime={details.date}>{longDate(details.date)}</time>
                                 </p>
                             )}
