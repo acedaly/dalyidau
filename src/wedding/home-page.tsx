@@ -56,6 +56,32 @@ const coupleNames = (data: WeddingPageData): [string, string] | null => {
     return parts.length === 2 ? [parts[0], parts[1]] : null;
 };
 
+/**
+ * The watercolour frame's top (banksia, wattle) or bottom (waratah) as a band sized to the card's width, fading into the
+ * paper, so the florals frame the invitation on phones and tablets without sitting behind any text or links.
+ */
+const FrameBand = ({ edge }: { edge: "top" | "bottom" }) => (
+    <div
+        aria-hidden="true"
+        className={cx(
+            "relative -z-10 shrink-0 overflow-hidden lg:hidden",
+            edge === "top"
+                ? "aspect-[2/1] [mask-image:linear-gradient(to_bottom,black_62%,transparent)] sm:aspect-[5/2]"
+                : "aspect-[2/1] [mask-image:linear-gradient(to_top,black_62%,transparent)] sm:aspect-[5/2]",
+        )}
+    >
+        <img
+            src="/wedding/native-invitation-frame.jpg"
+            alt=""
+            width="1122"
+            height="1402"
+            fetchPriority={edge === "top" ? "high" : undefined}
+            decoding="async"
+            className={cx("size-full object-cover", edge === "top" ? "object-top" : "object-bottom")}
+        />
+    </div>
+);
+
 const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
     const { details, content } = data;
     const names = coupleNames(data);
@@ -69,7 +95,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         content.heroTitle
     );
     const actions = (
-        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:justify-start">
+        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:mt-6 lg:justify-start lg:gap-6">
             {links.rsvp && (
                 <Button
                     {...rsvpLinkProps(links)}
@@ -85,7 +111,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                 aria-label="Explore our wedding"
                 className={cx(
                     weddingButton.link,
-                    "inline-flex min-h-12 items-center justify-center gap-2 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
+                    "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
                 )}
             >
                 Explore the details
@@ -98,7 +124,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         <section
             id="hero"
             aria-labelledby="names"
-            className="bg-sandstone relative isolate min-h-[calc(100svh-4.5rem)] overflow-hidden px-3 py-7 sm:px-8 sm:py-12 lg:flex lg:min-h-[min(88svh,58rem)] lg:items-center lg:px-10 lg:py-12"
+            className="bg-sandstone relative isolate overflow-hidden px-3 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-8"
             data-testid="wedding-hero"
         >
             {photo && (
@@ -122,18 +148,12 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
             <span aria-hidden="true" className="bg-eucalypt/18 absolute right-[4%] bottom-[4%] -z-10 h-2/3 w-[28%] rotate-[5deg] rounded-[45%] blur-3xl" />
 
             <div className="wedding-rise relative mx-auto w-full max-w-[43rem] lg:max-w-7xl">
-                <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4" />
-                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex min-h-[45rem] flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] sm:min-h-0 lg:grid lg:aspect-auto lg:min-h-[42rem] lg:grid-cols-[1.25fr_.75fr]">
-                    <img
-                        src="/wedding/native-invitation-frame.jpg"
-                        alt=""
-                        width="1122"
-                        height="1402"
-                        aria-hidden="true"
-                        fetchPriority="high"
-                        decoding="async"
-                        className="absolute inset-0 -z-10 size-full object-cover lg:hidden"
-                    />
+                {/* A tilted paper backing on phones and tablets; on desktop the card sits flat and quiet. */}
+                <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4 lg:hidden" />
+                {/* Content sets the height. Below desktop the floral frame sits above and below the text, never behind it.
+                    Desktop is a 55/45 image and text split, about 440–520px tall, so the countdown shows on the first screen. */}
+                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] lg:grid lg:min-h-[clamp(27.5rem,34vw,32.5rem)] lg:grid-cols-[55fr_45fr] lg:shadow-[0_12px_32px_-28px_currentColor]">
+                    <FrameBand edge="top" />
                     <div className="bg-forest relative hidden overflow-hidden lg:block" data-testid="hero-editorial-image">
                         <img
                             src={photo?.url ?? "/wedding/native-invitation-frame.jpg"}
@@ -142,26 +162,26 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                             height={photo?.height ?? 1402}
                             fetchPriority="high"
                             decoding="async"
-                            className="size-full object-cover"
+                            className="absolute inset-0 size-full object-cover"
                             style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
                         />
                         <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,transparent_70%,rgb(75_52_43/0.16))]" />
                     </div>
                     <div
-                        className="relative flex min-h-[45rem] flex-1 flex-col items-center justify-center px-7 pt-28 pb-12 text-center sm:min-h-0 sm:px-20 sm:pt-28 sm:pb-20 lg:items-start lg:px-12 lg:py-16 lg:text-left xl:px-16"
+                        className="relative flex flex-1 flex-col items-center justify-center px-6 py-2 text-center sm:px-20 lg:items-start lg:px-10 lg:py-10 lg:text-left xl:px-14"
                         data-testid="hero-editorial-copy"
                     >
                         {content.heroEyebrow && <Eyebrow className="text-forest/75 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
-                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:text-[clamp(5rem,7vw,7.8rem)]">
+                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:mt-4 lg:text-[clamp(4.5rem,6vw,5.5rem)]">
                             {title}
                         </h1>
                         {content.heroSubtitle && (
-                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem]">{content.heroSubtitle}</p>
+                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem] lg:mt-5 lg:text-[1.375rem]">{content.heroSubtitle}</p>
                         )}
-                        <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12" />
-                        <div className="text-charcoal mt-5">
+                        <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12 lg:mt-4" />
+                        <div className="text-charcoal mt-5 lg:mt-4">
                             {details.date && (
-                                <p className="wedding-display text-[1.35rem] leading-tight italic sm:text-[1.7rem]">
+                                <p className="wedding-display text-[1.35rem] leading-tight italic sm:text-[1.7rem] lg:text-[1.5rem]">
                                     <time dateTime={details.date}>{longDate(details.date)}</time>
                                 </p>
                             )}
@@ -179,6 +199,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                         </div>
                         {actions}
                     </div>
+                    <FrameBand edge="bottom" />
                 </article>
             </div>
             {photo?.caption && <p className="sr-only">{photo.caption}</p>}
@@ -239,21 +260,22 @@ const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     if (!date || left === null) return null;
     const totalDays = left ? Math.ceil((zonedTime(start.slice(0, 16), timeZone) - Date.now()) / 86_400_000) : null;
     return (
-        <section aria-label="Countdown to the wedding" className="border-sandstone bg-paper relative overflow-hidden border-y px-5 py-9 sm:py-11">
-            <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[8%] w-px" />
-            <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[8%] w-px" />
+        <section aria-label="Countdown to the wedding" className="border-sandstone bg-paper relative overflow-hidden border-y px-3 py-9 min-[360px]:px-5 sm:py-11">
+            {/* Gilt rules either side, at 8% or just outside the 56rem content when that is closer; they slide off-screen when there is no room. */}
+            <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[min(8%,calc(50%-30rem))] w-px" />
+            <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[min(8%,calc(50%-30rem))] w-px" />
             {totalDays !== null && <p className="sr-only">{totalDays.toLocaleString("en-AU")} days to go</p>}
             <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10">
                 <p aria-hidden="true" className="wedding-display text-leaf text-[1.4rem] italic sm:max-w-[8rem] sm:text-[1.6rem]">
                     Counting down to our day
                 </p>
-                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-3 sm:gap-8">
+                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-1 min-[360px]:gap-3 sm:gap-8">
                     {COUNTDOWN_UNITS.map((unit) => (
                         <li key={unit} className="flex flex-col items-center gap-1.5 sm:items-start">
                             <span className="wedding-display text-forest text-[2.8rem] leading-none tabular-nums sm:text-[3.5rem]">
                                 {left ? left[unit] : "–"}
                             </span>
-                            <span className="wedding-eyebrow text-olive text-[0.58rem] sm:text-[0.66rem]">
+                            <span className="wedding-eyebrow text-olive text-[0.58rem] max-[359px]:tracking-[0.12em]! sm:text-[0.66rem]">
                                 {left && left[unit] === 1 ? unit.slice(0, -1) : unit}
                             </span>
                         </li>
