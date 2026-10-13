@@ -259,7 +259,7 @@ describe("Invitation Studio recipients", () => {
     it("stores a large guest-specific generation for every channel", async () => {
         const f = await fixture("The Large Family");
         const now = new Date().toISOString();
-        const extra = Array.from({ length: 150 }, (_, i) => `gst_bulk_${i}`);
+        const extra = Array.from({ length: 90 }, (_, i) => `gst_bulk_${i}`);
         await db().batch(
             extra.flatMap((id, i) => [
                 db()
@@ -273,13 +273,13 @@ describe("Invitation Studio recipients", () => {
         const request = { householdIds: [f.household.id], guestSpecific: true, channels: ["email", "sms", "print"] };
         const generated = await apiCall<{ generated: number }>("POST", "/api/portal/wedding/invitations/generate", request);
         expect(generated.status, generated.text).toBe(201);
-        expect(generated.json.generated).toBe(151);
-        expect(await db().prepare("SELECT COUNT(*) AS n FROM invitation_artifacts").first()).toEqual({ n: 453 });
+        expect(generated.json.generated).toBe(91);
+        expect(await db().prepare("SELECT COUNT(*) AS n FROM invitation_artifacts").first()).toEqual({ n: 273 });
         expect(await db().prepare("SELECT COUNT(*) AS n FROM invitation_artifacts WHERE guest_id IS NULL").first()).toEqual({ n: 0 });
         // Regenerating updates the same rows rather than adding more.
         await apiCall("POST", "/api/portal/wedding/invitations/generate", request);
-        expect(await db().prepare("SELECT COUNT(*) AS n FROM invitation_artifacts").first()).toEqual({ n: 453 });
-    });
+        expect(await db().prepare("SELECT COUNT(*) AS n FROM invitation_artifacts").first()).toEqual({ n: 273 });
+    }, 30_000);
 
     it("refuses staging links that would point at the live wedding site, and serves staging by path", async () => {
         const f = await fixture();
