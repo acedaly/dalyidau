@@ -102,7 +102,8 @@ test("Invitation Studio exposes the shared native stationery template", async ({
     await expect(page.getByRole("heading", { level: 2, name: "Invitation template" })).toBeVisible();
     await expect(page.getByLabel("Artwork")).toContainText("Australian native botanicals");
     await expect(page.getByLabel("Primary accent")).toContainText("Waratah burgundy");
-    await expect(page.getByLabel("Greeting prefix")).toHaveValue("For");
+    await expect(page.getByLabel("Email greeting")).toHaveValue("Dear");
+    await expect(page.getByText("Advanced delivery")).toBeVisible();
     await expect(page.getByLabel("Invitation wording")).toHaveValue("invite you to celebrate their marriage");
     await expect(page.getByRole("button", { name: "Save template" })).toBeVisible();
     await expect(page.getByText("Generating never sends.")).toBeVisible();
@@ -252,7 +253,9 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await page.getByLabel("Invitation code").fill(household.rsvpCode);
     await page.getByRole("button", { name: "Find my invitation" }).click();
     await expect(page.getByRole("heading", { name: "Who's coming?" })).toBeVisible();
-    await expect(page.getByText(`The Testers ${suffix}`)).toBeVisible();
+    // Addressed like the invitation (the invited guests' names), with each guest listed to answer for.
+    await expect(page.getByText("Replying for")).toBeVisible();
+    await expect(page.getByText(`Taylor ${suffix}`, { exact: true })).toHaveCount(2);
     // Continuing without an answer explains what's missing.
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByText("We still need an answer for Taylor.")).toBeVisible();

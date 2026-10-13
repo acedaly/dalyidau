@@ -60,3 +60,33 @@ describe("migration 0006", () => {
         expect((await db().prepare("SELECT id FROM events").all()).results).toEqual([{ id: "evt_mine" }]);
     });
 });
+
+describe("migration 0009", () => {
+    it("adds household invitation names and changes only the old default greeting", async () => {
+        const columns = (await db().prepare("PRAGMA table_info(households)").all<{ name: string }>()).results.map((column) => column.name);
+        expect(columns).toEqual(expect.arrayContaining(["invitation_name", "invitation_list_names"]));
+
+        const { default: sql } = await import("../migrations/0009_household_invitation_names.sql?raw");
+        const update = sql
+            .split("\n")
+            .filter((line: string) => !line.trim().startsWith("--"))
+            .join("\n")
+            .split(";")
+            .map((statement: string) => statement.trim())
+            .find((statement: string) => statement.startsWith("UPDATE settings"))!;
+        const store = (value: unknown) =>
+            db()
+                .prepare("INSERT OR REPLACE INTO settings (key, value, updated_at, updated_by) VALUES ('invitation', ?, 'now', 'test')")
+                .bind(JSON.stringify(value))
+                .run();
+        const read = async () => JSON.parse((await db().prepare("SELECT value FROM settings WHERE key = 'invitation'").first<{ value: string }>())!.value);
+
+        await store({ greetingPrefix: "For", accent: "rust" });
+        await db().prepare(update).run();
+        expect(await read()).toEqual({ greetingPrefix: "Dear", accent: "rust" });
+
+        await store({ greetingPrefix: "Hello" });
+        await db().prepare(update).run();
+        expect(await read()).toEqual({ greetingPrefix: "Hello" });
+    });
+});

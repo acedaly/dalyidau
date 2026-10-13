@@ -72,7 +72,7 @@ export async function householdResponses(db: D1Database): Promise<Map<string, Ho
         db.prepare("SELECT id FROM households WHERE deleted_at IS NULL"),
         db.prepare(
             `SELECT id, household_id, first_name, last_name FROM guests WHERE deleted_at IS NULL AND household_id IS NOT NULL
-             ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, first_name COLLATE NOCASE`,
+             ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, created_at, rowid`,
         ),
         db.prepare(
             `SELECT ge.guest_id, ge.status, ge.responded_at FROM guest_events ge

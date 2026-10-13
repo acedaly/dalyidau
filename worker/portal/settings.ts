@@ -266,7 +266,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         accent: "burgundy",
         eyebrow: "Together with their families",
         invitationLine: "invite you to celebrate their marriage",
-        greetingPrefix: "For",
+        greetingPrefix: "Dear",
         emailIntroduction: "We would love you to join us as we celebrate our wedding.",
         emailSignoff: "With love,\n{{couple_names}}",
     },

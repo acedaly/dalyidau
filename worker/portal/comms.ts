@@ -28,6 +28,7 @@ import { auditStatement, newId, nowIso, parseJson } from "./db";
 import { NotFoundError, ValidationError } from "./entities";
 import { isEnabled } from "./flags";
 import { listGuests } from "./guests";
+import { type HouseholdAddressing, householdAddressing } from "./invitation-studio";
 import { getSettings } from "./settings";
 
 export { MERGE_FIELDS };
@@ -52,20 +53,23 @@ interface MergeContext {
     rsvpDeadline: string;
     fallbackRsvpLink: string;
     householdCodes: Map<string, { name: string; code: string; link: string | null }>;
+    addressing: Map<string, HouseholdAddressing>;
 }
 
 async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
-    const [wedding, rsvp, native, households] = await Promise.all([
+    const [wedding, rsvp, native, households, addressing] = await Promise.all([
         getSettings(db, "wedding"),
         getSettings(db, "rsvp"),
         isEnabled(db, "rsvp.native"),
         db
             .prepare("SELECT id, name, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL")
             .all<{ id: string; name: string; rsvp_code: string; invite_version: number; invite_revoked_at: string | null }>(),
+        householdAddressing(db),
     ]);
     const site = weddingOrigin(env);
     return {
         wedding,
+        addressing,
         rsvpDeadline: formatDate(rsvp.deadline),
         fallbackRsvpLink: native ? `${site}/rsvp` : rsvp.externalUrl || site,
         householdCodes: new Map(
@@ -88,11 +92,15 @@ async function mergeContext(env: Env, db: D1Database): Promise<MergeContext> {
 
 const valuesFor = (guest: Pick<Guest, "firstName" | "lastName" | "householdId">, context: MergeContext): Record<string, string> => {
     const household = guest.householdId ? context.householdCodes.get(guest.householdId) : undefined;
+    const addressing = guest.householdId ? context.addressing.get(guest.householdId) : undefined;
+    const fullName = `${guest.firstName} ${guest.lastName}`.trim();
     return {
         first_name: guest.firstName,
         last_name: guest.lastName,
         full_name: `${guest.firstName} ${guest.lastName}`.trim(),
-        household_name: household?.name ?? `${guest.firstName} ${guest.lastName}`.trim(),
+        household_name: household?.name ?? fullName,
+        invitation_names: addressing?.recipientLine || fullName,
+        greeting_names: addressing?.greetingNames || guest.firstName,
         rsvp_code: household?.code ?? "",
         rsvp_link: household?.link ?? context.fallbackRsvpLink,
         rsvp_deadline: context.rsvpDeadline,
@@ -163,6 +171,11 @@ const messageSchema = z.object({
         .nullable()
         .optional()
         .refine((value) => !value || Number.isFinite(Date.parse(value)), "Choose a valid date and time"),
+    /**
+     * Invitations go to one person per household by default, addressed to the whole household.
+     * True sends one to every matching guest instead (the explicit individual-delivery option).
+     */
+    individualDelivery: z.boolean().default(false),
 });
 
 const toMessage = (row: Record<string, unknown>): Message => ({
@@ -242,7 +255,8 @@ export async function prepareMessage(db: D1Database, input: unknown, actor: stri
     const data = messageSchema.parse(input);
     const unknown = unknownMergeFields(`${data.subject}\n${data.body}`);
     if (unknown.length) throw new ValidationError(`Unknown merge field${unknown.length > 1 ? "s" : ""}: ${unknown.map((k) => `{{${k}}}`).join(", ")}`, "body");
-    const guests = (await listGuests(db)).filter((g) => matchesAudience(g, data.audience));
+    const everyone = await listGuests(db);
+    const guests = everyone.filter((g) => matchesAudience(g, data.audience));
     if (guests.length === 0) throw new ValidationError("No guests match this audience", "audience");
     if (data.scheduledAt && Date.parse(data.scheduledAt) <= Date.now()) throw new ValidationError("Choose a future sending time", "scheduledAt");
     if (data.channel === "sms" && smsSegments(data.body).segments > 6)
@@ -259,6 +273,43 @@ export async function prepareMessage(db: D1Database, input: unknown, actor: stri
             )
             .all<{ guest_id: string }>();
         for (const row of rows.results) duplicateInvitations.add(row.guest_id);
+    }
+
+    // An invitation is addressed to the whole household, like the printed one, and goes to one
+    // reachable person in it (in RSVP order). Everyone else in the household is recorded as covered
+    // by it. Individual delivery is the explicit exception: one invitation per matching guest.
+    const perHousehold = data.category === "invitation" && !data.individualDelivery;
+    const addressing = perHousehold ? await householdAddressing(db) : new Map<string, HouseholdAddressing>();
+    const invitedHouseholds = new Set(everyone.filter((g) => g.householdId && duplicateInvitations.has(g.id)).map((g) => g.householdId));
+    const plan = guests.map((guest) => {
+        const reach = reachability(guest, data.channel, consent.get(guest.id));
+        const duplicate = duplicateInvitations.has(guest.id) || (perHousehold && !!guest.householdId && invitedHouseholds.has(guest.householdId));
+        return {
+            guest,
+            name: `${guest.firstName} ${guest.lastName}`.trim(),
+            phone: reach.phone,
+            error: duplicate ? "Invitation already prepared or sent" : reach.error,
+        };
+    });
+    let households = 0;
+    if (perHousehold) {
+        const byHousehold = new Map<string, typeof plan>();
+        for (const entry of plan)
+            if (entry.guest.householdId) byHousehold.set(entry.guest.householdId, [...(byHousehold.get(entry.guest.householdId) ?? []), entry]);
+        for (const [householdId, members] of byHousehold) {
+            const household = addressing.get(householdId);
+            const rank = (entry: (typeof plan)[number]) => {
+                const index = household?.guestIds.indexOf(entry.guest.id) ?? -1;
+                return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+            };
+            const chosen = [...members].sort((a, b) => rank(a) - rank(b)).find((entry) => !entry.error);
+            if (!chosen) continue;
+            households++;
+            for (const entry of members) {
+                if (entry === chosen) entry.name = household?.recipientLine || entry.name;
+                else entry.error = `Included in the household invitation to ${chosen.name}`;
+            }
+        }
     }
 
     const id = newId("msg");
@@ -282,22 +333,11 @@ export async function prepareMessage(db: D1Database, input: unknown, actor: stri
                 now,
                 data.scheduledAt ?? null,
             ),
-        ...guests.map((g) => {
-            const duplicate = duplicateInvitations.has(g.id);
-            const reach = reachability(g, data.channel, consent.get(g.id));
-            const error = duplicate ? "Invitation already prepared or sent" : reach.error;
-            return db
+        ...plan.map(({ guest, name, phone, error }) =>
+            db
                 .prepare("INSERT INTO message_recipients (message_id, guest_id, name, email, phone, status, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
-                .bind(
-                    id,
-                    g.id,
-                    `${g.firstName} ${g.lastName}`.trim(),
-                    data.channel === "email" ? g.email : null,
-                    reach.phone,
-                    error ? "skipped" : "pending",
-                    error,
-                );
-        }),
+                .bind(id, guest.id, name, data.channel === "email" ? guest.email : null, phone, error ? "skipped" : "pending", error),
+        ),
         auditStatement(db, {
             actor,
             action: "message.prepare",
@@ -310,6 +350,7 @@ export async function prepareMessage(db: D1Database, input: unknown, actor: stri
                 category: data.category,
                 scheduledAt: data.scheduledAt ?? null,
                 duplicates: duplicateInvitations.size,
+                ...(data.category === "invitation" ? { delivery: perHousehold ? "household" : "individual", households } : {}),
             },
         }),
     ];

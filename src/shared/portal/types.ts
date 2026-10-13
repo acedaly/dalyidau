@@ -214,6 +214,10 @@ export interface Household {
     postcode: string | null;
     country: string | null;
     notes: string | null;
+    /** How the invitation is addressed, e.g. "The Daly Family". Null uses the invited guests' names. */
+    invitationName: string | null;
+    /** With an invitation name, also list the invited people beneath it. */
+    invitationListNames: boolean;
     guestCount: number;
     inviteVersion: number;
     inviteRevokedAt: string | null;
@@ -420,19 +424,33 @@ export interface InvitationStudioHousehold {
     inviteVersion: number;
     inviteRevoked: boolean;
     invitationGeneratedAt: string | null;
+    invitationName: string | null;
+    invitationListNames: boolean;
+    /** How the household invitation is addressed, e.g. "Fred & Ann Daly". */
+    recipientLine: string;
     /** `invited` is false for guests with no RSVP-enabled event; they get no invitation of their own. */
-    guests: { id: string; name: string; invited: boolean }[];
+    guests: { id: string; name: string; firstName: string; lastName: string; invited: boolean }[];
     delivery: { channel: "email" | "sms" | "print"; status: string; updatedAt: string }[];
 }
+
+export type InvitationDelivery = "household" | "individual";
 
 export interface InvitationPreview {
     key: string;
     householdId: string;
     guestId: string | null;
     householdName: string;
+    /** "household": one invitation for everyone invited. "individual": one per person (advanced). */
+    delivery: InvitationDelivery;
+    /** Everyone the RSVP link lets the recipient reply for. Not printed; the recipient line covers it. */
     guestNames: string[];
     highlightedGuest: string | null;
     coupleNames: string;
+    /** The one line the invitation is addressed to, e.g. "Fred & Ann Daly" or "The Daly Family". */
+    recipientLine: string;
+    /** Invited people listed beneath a custom invitation name, when the household asks for it. */
+    namesLine: string | null;
+    /** Email and SMS salutation, e.g. "Dear Fred & Ann". */
     greeting: string;
     eyebrow: string;
     invitationLine: string;

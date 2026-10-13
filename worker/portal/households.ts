@@ -9,6 +9,7 @@ import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations
 import { type CsvColumn, toCsv } from "./csv";
 import { auditStatement, chunk, nowIso, placeholders } from "./db";
 import { NotFoundError, ValidationError, householdDef, listEntities } from "./entities";
+import { householdAddressing } from "./invitation-studio";
 import { householdResponses } from "./queries";
 
 export async function listHouseholdRows(env: Env): Promise<HouseholdRow[]> {
@@ -236,9 +237,12 @@ const STATUS_LABELS = { not_invited: "Not invited to an event", not_started: "No
 
 /** One row per household with its link and progress: a mail-merge source for printed or emailed invitations. */
 export async function invitationsCsv(env: Env) {
-    const rows = await listHouseholdRows(env);
+    const [rows, addressing] = await Promise.all([listHouseholdRows(env), householdAddressing(env.DB)]);
     const columns: CsvColumn<HouseholdRow>[] = [
         { header: "Household", value: (h) => h.name },
+        // The same recipient line as the printed invitation, for envelopes and mail merges.
+        { header: "Addressed to", value: (h) => addressing.get(h.id)?.recipientLine ?? h.name },
+        { header: "Listed names", value: (h) => addressing.get(h.id)?.namesLine ?? "" },
         { header: "Guests", value: (h) => h.response.guestNames.join(", ") },
         { header: "Invitation link", value: (h) => h.invitationUrl ?? (h.inviteRevokedAt ? "Revoked" : "") },
         { header: "RSVP code", value: (h) => h.rsvpCode },

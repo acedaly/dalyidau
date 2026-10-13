@@ -14,7 +14,7 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { InvitationPreview, InvitationTemplateSettings } from "@/shared/portal/types";
+import type { InvitationDelivery, InvitationPreview, InvitationTemplateSettings } from "@/shared/portal/types";
 
 const ACCENTS: Record<InvitationTemplateSettings["accent"], string> = {
     burgundy: "#8b2f3d",
@@ -45,8 +45,8 @@ const InvitationCard = ({ invitation, label }: { invitation: InvitationPreview; 
             </h3>
             <div className="mt-5 h-px w-16 bg-[#c89a34]" />
             <p className="mt-4 font-serif text-lg italic">{invitation.invitationLine}</p>
-            <p className="mt-5 font-serif text-lg font-semibold">{invitation.greeting}</p>
-            <p className="mt-1 text-xs text-[#5d6a56]">{invitation.guestNames.join(" · ")}</p>
+            <p className="mt-5 font-serif text-lg font-semibold text-balance">{invitation.recipientLine}</p>
+            {invitation.namesLine && <p className="mt-1 text-xs text-balance text-[#5d6a56]">{invitation.namesLine}</p>}
             <p className="mt-7 font-serif text-lg font-semibold tracking-wide uppercase">{invitation.weddingDate}</p>
             <p className="mt-1 font-serif text-base italic" style={{ color: ACCENTS[invitation.accent] }}>
                 {invitation.location}
@@ -62,7 +62,7 @@ const InvitationCard = ({ invitation, label }: { invitation: InvitationPreview; 
                 </p>
             )}
             <div className="mt-auto bg-white p-1.5 shadow-xs">
-                <img src={invitation.qrDataUrl} alt={`QR code for ${invitation.householdName}`} className="size-28 sm:size-32" />
+                <img src={invitation.qrDataUrl} alt={`RSVP QR code for ${invitation.recipientLine}`} className="size-28 sm:size-32" />
             </div>
             <p className="mt-2 text-[10px] font-semibold tracking-[.14em] uppercase" style={{ color: ACCENTS[invitation.accent] }}>
                 Scan to RSVP
@@ -80,14 +80,14 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
     const { can } = usePortal();
     const toast = useToast();
     const [selected, setSelected] = useState<string[]>([]);
-    const [guestSpecific, setGuestSpecific] = useState(false);
+    const [delivery, setDelivery] = useState<InvitationDelivery>("household");
     const [previews, setPreviews] = useState<InvitationPreview[]>([]);
     const [busy, setBusy] = useState(false);
     const channels = ["email", "sms", "print"] as const;
     const [chosenChannels, setChosenChannels] = useState<(typeof channels)[number][]>(["print"]);
     const [template, setTemplate] = useState(data.template);
     const [savingTemplate, setSavingTemplate] = useState(false);
-    const request = { householdIds: selected, guestSpecific, channels: chosenChannels };
+    const request = { householdIds: selected, delivery, channels: chosenChannels };
 
     const saveTemplate = async () => {
         setSavingTemplate(true);
@@ -187,7 +187,12 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                     >
                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                     </Select>
-                    <Input label="Greeting prefix" value={template.greetingPrefix} onChange={(value) => setTemplate({ ...template, greetingPrefix: value })} />
+                    <Input
+                        label="Email greeting"
+                        hint="Opens emails and texts, e.g. “Dear Fred & Ann”."
+                        value={template.greetingPrefix}
+                        onChange={(value) => setTemplate({ ...template, greetingPrefix: value })}
+                    />
                     <Input label="Eyebrow" value={template.eyebrow} onChange={(value) => setTemplate({ ...template, eyebrow: value })} />
                     <Input
                         label="Invitation wording"
@@ -234,16 +239,27 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                 isSelected={selected.includes(household.id)}
                                 onChange={(on) => setSelected((ids) => (on ? [...ids, household.id] : ids.filter((id) => id !== household.id)))}
                                 label={household.name}
-                                hint={`${household.guests.length} guest${household.guests.length === 1 ? "" : "s"}${household.email ? " · email" : ""}${household.phone ? " · mobile" : ""}${household.delivery.length ? ` · ${household.delivery.map((item) => `${item.channel}: ${item.status}`).join(", ")}` : " · not generated"}`}
+                                hint={`${household.recipientLine} · ${household.guests.length} guest${household.guests.length === 1 ? "" : "s"}${household.email ? " · email" : ""}${household.phone ? " · mobile" : ""}${household.delivery.length ? ` · ${household.delivery.map((item) => `${item.channel}: ${item.status}`).join(", ")}` : " · not generated"}`}
                             />
                         ))}
                     </div>
-                    <Toggle
-                        label="Guest-specific QR entry points"
-                        hint="Each QR still opens the household RSVP and only highlights that guest."
-                        isSelected={guestSpecific}
-                        onChange={setGuestSpecific}
-                    />
+                    <p className="text-sm text-tertiary">
+                        One invitation per household, addressed to everyone invited. Each guest is listed on the RSVP page to answer for individually.
+                    </p>
+                    <details className="rounded-lg bg-secondary p-3 text-sm" open={delivery === "individual"}>
+                        <summary className="cursor-pointer font-medium text-secondary">Advanced delivery</summary>
+                        <div className="mt-3">
+                            <Toggle
+                                label="Individual invitations"
+                                hint="One invitation per invited person, each with their own QR code and link. Every link still opens the whole household's RSVP. Use only when people in a household need separate invitations."
+                                isSelected={delivery === "individual"}
+                                onChange={(on) => {
+                                    setDelivery(on ? "individual" : "household");
+                                    setPreviews([]);
+                                }}
+                            />
+                        </div>
+                    </details>
                     <div className="flex flex-col gap-2">
                         <p className="text-sm font-medium text-secondary">Formats to generate</p>
                         {channels.map((channel) => (
@@ -275,7 +291,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                         <div>
                             <h2 className="text-md font-semibold text-primary">2. Review and generate</h2>
                             <p className="text-sm text-tertiary">
-                                {previews.length ? `${previews.length} personalised versions` : "Preview selections to continue."}
+                                {previews.length
+                                    ? `${previews.length} ${delivery === "individual" ? "individual" : "household"} invitation${previews.length === 1 ? "" : "s"}`
+                                    : "Preview selections to continue."}
                             </p>
                         </div>
                         {previews.length > 0 && (can("wedding.guests.edit") || can("wedding.export")) && (

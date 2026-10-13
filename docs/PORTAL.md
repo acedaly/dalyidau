@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`. This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql` and `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For"). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -168,7 +168,34 @@ Guests → Import (`/portal/wedding/guests/import`). Nothing is written until yo
 
 Households shows each household's RSVP progress (complete, partly answered, no reply yet, not invited) next to its guests' attendance, a one-click copy of its signed invitation link, and filters by progress. Selection supports event assignment, tags, contact preferences, state/country edits, generation, copying, export and explicit soft deletion. Deletion previews guest/invitation/response counts and asks whether guests should become unassigned or be soft-deleted with the household; RSVP history is never removed. Restore deleted records from Settings → Privacy. Nothing is sent from here.
 
-Invitation Studio generates and previews household- or guest-specific email, SMS and print versions. Its editable template shares Australian-native botanical artwork, accent palette, invitation wording, greeting rules and email copy across A5 print and email previews. Documentation and fixture exports are explicitly marked as sample previews. Guest QR links only highlight that guest inside the household RSVP; normal signature, version, expiry, revocation and rate-limit checks still apply. Repeating generation updates the existing ledger entry. It never sends—approval and delivery remain separate in Communications.
+Invitation Studio generates and previews email, SMS and print versions: **one invitation per household by default**, addressed once to everyone invited. Its editable template shares Australian-native botanical artwork, accent palette, invitation wording, email greeting and email copy across A5 print and email previews. Documentation and fixture exports are explicitly marked as sample previews. Repeating generation updates the existing ledger entry (one per household, channel and link version). It never sends—approval and delivery remain separate in Communications.
+
+### How invitations are addressed
+
+One set of rules (`src/shared/portal/invitation-names.ts`) addresses printed invitations, Studio previews, Studio emails and texts, the `{{invitation_names}}` and `{{greeting_names}}` merge fields, the invitations CSV ("Addressed to") and the "Replying for" line on the RSVP page:
+
+| Household                                    | Invitation reads                       | Email greeting             |
+| -------------------------------------------- | -------------------------------------- | -------------------------- |
+| One guest                                    | Fred Daly                              | Dear Fred                  |
+| Couple, same surname                         | Fred & Ann Daly                        | Dear Fred & Ann            |
+| Couple, different surnames                   | Sam Lee & Kate Smith                   | Dear Sam & Kate            |
+| Family                                       | Fred, Ann, Tom & Lucy Daly             | Dear Fred, Ann, Tom & Lucy |
+| Mixed                                        | Fred & Ann Daly and Kate Smith         | Dear Fred, Ann & Kate      |
+| Invitation name "The Daly Family"            | The Daly Family                        | Dear the Daly Family       |
+| …with "List each invited person" switched on | The Daly Family / Fred, Ann & Tom Daly | Dear the Daly Family       |
+
+- Only guests invited to an event with RSVPs open are named, in RSVP-form order (import order, then the order they were added).
+- **Invitation name** (household panel) overrides the line, e.g. "The Daly Family" or "Mr & Mrs Daly". For larger families, tick **List each invited person beneath the invitation name** to print the names underneath.
+- The **Email greeting** template field is the salutation word ("Dear"). Migration 0009 changes the old default "For" to "Dear"; a greeting you chose yourself is kept.
+- The RSVP page lists every invited guest by full name, and each person's attendance is chosen separately for each event.
+
+### Individual invitations (advanced)
+
+Studio → Advanced delivery → **Individual invitations** makes one invitation per invited person, addressed to that person, each with its own signed link and QR code. Every individual link still opens the whole household's RSVP and only highlights that guest; normal signature, version, expiry, revocation and rate-limit checks still apply. Use it only when people in a household need separate invitations.
+
+In Communications, an **Invitation** message goes to one reachable person per household (in RSVP order), named with the household's invitation line; the rest of the household is recorded as "Included in the household invitation to …". Households that already have an invitation prepared or sent are skipped. **Send to each guest individually** is the explicit exception.
+
+Sample: [`docs/design/assets/wedding-enhancement/household-invitations-sample.pdf`](design/assets/wedding-enhancement/household-invitations-sample.pdf) (a couple and a family, fictional names).
 
 ---
 
@@ -189,7 +216,7 @@ Providers (Fastmail JMAP preferred, authenticated TLS SMTP or SMTP2Go for email;
 | Dashboard            | Personal, customisable widget grid: countdown, RSVP summary, invitation readiness, seating readiness, communication status, attendance by event, replies over time, guest breakdown, dietary needs, tasks due, budget, latest online replies, recent activity. Add, remove, reorder and resize; saved per person. |
 | Guests               | Searchable, sortable, filterable table (RSVP, event, side, group, tag); bulk actions (invite, set RSVP, move household, side, group, tags, delete); profile slide-over with details, per-event RSVP and activity history; custom fields; CSV import (dry run first) and export.                                   |
 | Households           | Invitation units with signed links, copy, rotation, revocation, optional legacy codes, contact/postal details and safeguarded bulk actions.                                                                                                                                                                       |
-| Invitation Studio    | Household and optional guest-specific email/SMS/print previews, signed links, real QR codes, printable PDFs and an idempotent generation ledger that never auto-sends.                                                                                                                                            |
+| Invitation Studio    | One household invitation per household (individual invitations as an advanced option): email/SMS/print previews, signed links, real QR codes, printable PDFs and an idempotent generation ledger that never auto-sends.                                                                                           |
 | Events               | Ceremony, reception and anything else, with public/private and RSVP on/off per event.                                                                                                                                                                                                                             |
 | RSVPs                | Response metrics, attendance by event, replies per household, configurable conditional question builder, versioned answer reports, courtesy-bus count, online response log and settings.                                                                                                                          |
 | Communications       | Email and SMS, categories, templates, recipient filters, invitation deduplication, scheduling, per-guest preview, frozen recipient lists, delivery reports, retries, SMS cost, text conversations with replies, opt-outs and mail-merge export.                                                                   |
@@ -220,7 +247,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0008`)
+## Data model (D1, migrations `0002`–`0009`)
 
 | Table                                                               | Contents                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |

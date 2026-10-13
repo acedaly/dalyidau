@@ -3,6 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, type PDFFont, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { type InvitationAddressing, invitationAddressing, salutation } from "../../src/shared/portal/invitation-names";
 import type { InvitationPreview, InvitationStudioHousehold } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { invitationUrl, typedRsvpAddress } from "../wedding/invitations";
@@ -12,7 +13,12 @@ import { getSettings } from "./settings";
 
 const requestSchema = z.object({
     householdIds: z.array(z.string().max(40)).min(1).max(250),
-    guestSpecific: z.boolean().default(false),
+    /**
+     * "household" (the default) makes one invitation per household, addressed to everyone invited.
+     * "individual" is the advanced option: one per invited person, each with their own QR code,
+     * which still opens the whole household's RSVP.
+     */
+    delivery: z.enum(["household", "individual"]).default("household"),
     channels: z
         .array(z.enum(["email", "sms", "print"]))
         .min(1)
@@ -22,15 +28,55 @@ const requestSchema = z.object({
     sample: z.boolean().default(false),
 });
 
-/** One version per recipient; generation stores one row per recipient and channel. */
+/** One version per household (or per person for individual delivery); generation stores one row per version and channel. */
 const MAX_RECIPIENTS = 1000;
 /** Artefact rows per INSERT. Rows travel as one JSON parameter, so a whole run is a handful of D1 queries. */
 const ARTIFACT_ROWS_PER_STATEMENT = 250;
 
+/** The RSVP page's order, so an invitation names people in the order they appear on the form. */
+const HOUSEHOLD_ORDER = "g.is_plus_one, g.household_order IS NULL, g.household_order, g.age_group, g.created_at, g.rowid";
+
+export interface HouseholdAddressing extends InvitationAddressing {
+    /** Invited guests in RSVP order, for choosing who receives a household's single email or text. */
+    guestIds: string[];
+}
+
+/**
+ * How every live household's invitation is addressed: its invitation name, or the names of the
+ * guests invited to an event with RSVPs open (the people its RSVP link lets it answer for).
+ */
+export async function householdAddressing(db: D1Database): Promise<Map<string, HouseholdAddressing>> {
+    const [homes, guests] = await db.batch([
+        db.prepare("SELECT id, name, invitation_name, invitation_list_names FROM households WHERE deleted_at IS NULL"),
+        db.prepare(
+            `SELECT g.id, g.household_id, g.first_name, g.last_name FROM guests g
+             WHERE g.deleted_at IS NULL AND g.household_id IS NOT NULL
+               AND EXISTS (SELECT 1 FROM guest_events ge JOIN events e ON e.id = ge.event_id WHERE ge.guest_id = g.id AND e.rsvp_enabled = 1)
+             ORDER BY ${HOUSEHOLD_ORDER}`,
+        ),
+    ]);
+    const people = new Map<string, { id: string; firstName: string; lastName: string }[]>();
+    for (const guest of guests.results as { id: string; household_id: string; first_name: string; last_name: string | null }[])
+        people.set(guest.household_id, [
+            ...(people.get(guest.household_id) ?? []),
+            { id: guest.id, firstName: guest.first_name, lastName: guest.last_name ?? "" },
+        ]);
+    const out = new Map<string, HouseholdAddressing>();
+    for (const home of homes.results as { id: string; name: string; invitation_name: string | null; invitation_list_names: number }[]) {
+        const invited = people.get(home.id) ?? [];
+        out.set(home.id, {
+            ...invitationAddressing(invited, { invitationName: home.invitation_name, listNames: !!home.invitation_list_names }, home.name),
+            guestIds: invited.map((guest) => guest.id),
+        });
+    }
+    return out;
+}
+
 export async function listStudioHouseholds(db: D1Database): Promise<InvitationStudioHousehold[]> {
     const [homes, guests, deliveries] = await db.batch([
         db.prepare(
-            `SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at, invitation_generated_at
+            `SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at, invitation_generated_at,
+                    invitation_name, invitation_list_names
              FROM households WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE`,
         ),
         db.prepare(
@@ -39,7 +85,7 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
                     EXISTS (SELECT 1 FROM guest_events ge JOIN events e ON e.id = ge.event_id
                             WHERE ge.guest_id = g.id AND e.rsvp_enabled = 1) AS invited
              FROM guests g WHERE g.deleted_at IS NULL AND g.household_id IS NOT NULL
-             ORDER BY g.household_order IS NULL, g.household_order, g.first_name`,
+             ORDER BY ${HOUSEHOLD_ORDER}`,
         ),
         db.prepare(
             `SELECT household_id, channel, status, updated_at FROM (
@@ -49,26 +95,42 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
              ) WHERE position = 1 ORDER BY updated_at DESC`,
         ),
     ]);
-    return (homes.results as Record<string, unknown>[]).map((home) => ({
-        id: String(home.id),
-        name: String(home.name),
-        email: (home.email as string | null) ?? null,
-        phone: (home.phone as string | null) ?? null,
-        rsvpCode: String(home.rsvp_code),
-        inviteVersion: Number(home.invite_version),
-        inviteRevoked: home.invite_revoked_at != null,
-        invitationGeneratedAt: (home.invitation_generated_at as string | null) ?? null,
-        guests: (guests.results as Record<string, unknown>[])
+    return (homes.results as Record<string, unknown>[]).map((home) => {
+        const members = (guests.results as Record<string, unknown>[])
             .filter((guest) => guest.household_id === home.id)
-            .map((guest) => ({ id: String(guest.id), name: `${guest.first_name} ${guest.last_name ?? ""}`.trim(), invited: Boolean(guest.invited) })),
-        delivery: (deliveries.results as Record<string, unknown>[])
-            .filter((delivery) => delivery.household_id === home.id)
-            .map((delivery) => ({
-                channel: delivery.channel as "email" | "sms" | "print",
-                status: String(delivery.status),
-                updatedAt: String(delivery.updated_at),
-            })),
-    }));
+            .map((guest) => {
+                const firstName = String(guest.first_name);
+                const lastName = String(guest.last_name ?? "");
+                return { id: String(guest.id), name: `${firstName} ${lastName}`.trim(), firstName, lastName, invited: Boolean(guest.invited) };
+            });
+        const invitationName = (home.invitation_name as string | null) ?? null;
+        const invitationListNames = Boolean(home.invitation_list_names);
+        return {
+            id: String(home.id),
+            name: String(home.name),
+            invitationName,
+            invitationListNames,
+            recipientLine: invitationAddressing(
+                members.filter((guest) => guest.invited),
+                { invitationName, listNames: invitationListNames },
+                String(home.name),
+            ).recipientLine,
+            email: (home.email as string | null) ?? null,
+            phone: (home.phone as string | null) ?? null,
+            rsvpCode: String(home.rsvp_code),
+            inviteVersion: Number(home.invite_version),
+            inviteRevoked: home.invite_revoked_at != null,
+            invitationGeneratedAt: (home.invitation_generated_at as string | null) ?? null,
+            guests: members,
+            delivery: (deliveries.results as Record<string, unknown>[])
+                .filter((delivery) => delivery.household_id === home.id)
+                .map((delivery) => ({
+                    channel: delivery.channel as "email" | "sms" | "print",
+                    status: String(delivery.status),
+                    updatedAt: String(delivery.updated_at),
+                })),
+        };
+    });
 }
 
 const formatDate = (date: string) =>
@@ -92,12 +154,6 @@ const displayLocation = (location: string) =>
         .replace(/\s*[·•]\s*/g, ", ")
         .replace(/,\s*(NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b/g, " $1")
         .trim();
-
-export const invitationGreeting = (name: string, prefix = "For") => {
-    const clean = name.trim();
-    const article = /^the\s+(.+)$/i.exec(clean);
-    return article ? `${prefix} the ${article[1]}` : `${prefix} ${clean}`;
-};
 
 const mergeCopy = (copy: string, values: Record<string, string>) => copy.replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token);
 
@@ -141,9 +197,10 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
             `${skipped.map((household) => household.name).join(", ")} ${skipped.length === 1 ? "has" : "have"} no one invited to an event with RSVPs open, or a revoked link. Deselect ${skipped.length === 1 ? "it" : "them"} first.`,
             "householdIds",
         );
+    const individual = request.delivery === "individual";
     const recipients = selected.map((household) => {
         const invited = household.guests.filter((guest) => guest.invited);
-        return { household, invited, targets: request.guestSpecific ? invited : [null] };
+        return { household, invited, targets: individual ? invited : [null] };
     });
     if (recipients.reduce((total, { targets }) => total + targets.length, 0) > MAX_RECIPIENTS)
         throw new ValidationError(`That is more than ${MAX_RECIPIENTS} invitations. Choose fewer households.`, "householdIds");
@@ -154,8 +211,13 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
             const rsvpUrl = await invitationUrl(env, household.id, household.inviteVersion, guest?.id);
             if (!rsvpUrl) throw new ValidationError("Invitation links are not configured", "householdIds");
             const coupleNames = `${wedding.partnerOne} & ${wedding.partnerTwo}`;
-            const recipient = guest?.name ?? household.name;
-            const greeting = invitationGreeting(recipient, template.greetingPrefix);
+            // A household invitation is addressed to everyone invited, once. An individual one is
+            // addressed to that person alone; their link still opens the whole household's RSVP.
+            const addressing = guest
+                ? invitationAddressing([guest], {}, guest.name)
+                : invitationAddressing(invited, { invitationName: household.invitationName, listNames: household.invitationListNames }, household.name);
+            const greeting = salutation(template.greetingPrefix, addressing.greetingNames);
+            const addressedTo = addressing.namesLine ? `${addressing.recipientLine} (${addressing.namesLine})` : addressing.recipientLine;
             const deadline = formatDate(rsvp.deadline);
             const weddingDate = formatDate(wedding.date);
             const location = displayLocation(wedding.location);
@@ -163,6 +225,8 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 couple_names: coupleNames,
                 household_name: household.name,
                 guest_name: guest?.name ?? "",
+                invitation_names: addressing.recipientLine,
+                greeting_names: addressing.greetingNames,
                 wedding_date: weddingDate,
                 wedding_location: location,
                 rsvp_deadline: deadline,
@@ -172,9 +236,12 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                 householdId: household.id,
                 guestId: guest?.id ?? null,
                 householdName: household.name,
+                delivery: request.delivery,
                 guestNames,
                 highlightedGuest: guest?.name ?? null,
                 coupleNames,
+                recipientLine: addressing.recipientLine,
+                namesLine: addressing.namesLine,
                 greeting,
                 eyebrow: mergeCopy(template.eyebrow, mergeValues),
                 invitationLine: mergeCopy(template.invitationLine, mergeValues),
@@ -195,13 +262,13 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
                     mergeCopy(template.emailIntroduction, mergeValues),
                     `${coupleNames}\n${weddingDate}\n${location}`,
                     ...eventLines,
-                    `Invited guests: ${guestNames.join(", ")}`,
+                    `This invitation is for ${addressedTo}.${guestNames.length > 1 ? " You can reply for each person separately." : ""}`,
                     `${deadline ? `Please reply by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
                     // Only offer the code when the RSVP page accepts codes.
                     ...(rsvp.allowCodes ? [`If the link does not open, visit ${typedRsvpAddress(env)} and enter ${household.rsvpCode}.`] : []),
                     mergeCopy(template.emailSignoff, mergeValues),
                 ].join("\n\n"),
-                smsBody: `${greeting}: you're invited to ${coupleNames}'s wedding on ${weddingDate}. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
+                smsBody: `${greeting}, you're invited to ${coupleNames}'s wedding on ${weddingDate}. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
             });
         }
     }
@@ -254,7 +321,7 @@ export async function generateStudioInvitations(env: Env, input: unknown, actor:
             action: "invitation.generate",
             entityType: "invitation",
             summary: `Generated ${previews.length} invitation${previews.length === 1 ? "" : "s"} for ${ids.length} households (nothing sent)`,
-            changes: { householdIds: ids, channels: request.channels, guestSpecific: request.guestSpecific },
+            changes: { householdIds: ids, channels: request.channels, delivery: request.delivery },
         }),
     );
     await env.DB.batch(statements);
@@ -335,9 +402,27 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
         const scriptSize = Math.min(38, (350 / script.widthOfTextAtSize(preview.coupleNames, 38)) * 38);
         centre(preview.coupleNames, 481, scriptSize, script, accent);
         page.drawLine({ start: { x: 172, y: 468 }, end: { x: 248, y: 468 }, thickness: 0.8, color: rgb(0.784, 0.604, 0.204) });
-        centredLines(preview.invitationLine, 448, 12, serifItalic, 282, 15);
-        centre(preview.greeting, 414, 12.5, serifBold, espresso);
-        centredLines(preview.guestNames.join(" - "), 394, 8.5, sans, 260, 11, rgb(0.365, 0.416, 0.337));
+        const afterLine = centredLines(preview.invitationLine, 448, 12, serifItalic, 282, 15);
+        // One recipient line, never a separate heading plus a repeated list. Long lines step down a
+        // size rather than run into the date.
+        let recipientSize = 14;
+        let recipientLines = wrap(preview.recipientLine, serifBold, recipientSize, 290);
+        if (recipientLines.length > 2) {
+            recipientSize = 12;
+            recipientLines = wrap(preview.recipientLine, serifBold, recipientSize, 300).slice(0, 3);
+        }
+        let recipientY = Math.min(414, afterLine - 5);
+        for (const line of recipientLines) {
+            centre(line, recipientY, recipientSize, serifBold, espresso);
+            recipientY -= recipientSize + 3;
+        }
+        // Listed names stop short of the date line.
+        if (preview.namesLine)
+            for (const [index, line] of wrap(preview.namesLine, sans, 8.5, 260).entries()) {
+                const y = recipientY - 1 - index * 11;
+                if (y < 362) break;
+                centre(line, y, 8.5, sans, rgb(0.365, 0.416, 0.337));
+            }
 
         centre(preview.weddingDate.toUpperCase(), 349, 13, serifBold, espresso);
         centre(preview.location, 327, 11, serifItalic, accent);

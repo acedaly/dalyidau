@@ -164,10 +164,14 @@ async function eraseGuestStatements(db: D1Database, id: string): Promise<{ state
 }
 
 async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ statements: D1PreparedStatement[]; name: string }> {
-    const household = await db
-        .prepare("SELECT name, email, phone, address_line1, rsvp_code FROM households WHERE id = ?")
-        .bind(id)
-        .first<{ name: string; email: string | null; phone: string | null; address_line1: string | null; rsvp_code: string }>();
+    const household = await db.prepare("SELECT name, email, phone, address_line1, rsvp_code, invitation_name FROM households WHERE id = ?").bind(id).first<{
+        name: string;
+        email: string | null;
+        phone: string | null;
+        address_line1: string | null;
+        rsvp_code: string;
+        invitation_name: string | null;
+    }>();
     if (!household) throw new NotFoundError("Household not found");
     return {
         name: household.name,
@@ -179,7 +183,14 @@ async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ s
             db.prepare("DELETE FROM sms_messages WHERE household_id = ?").bind(id),
             db.prepare("UPDATE guest_import_rows SET household_name = ?, address = NULL, notes = '[]' WHERE household_id = ?").bind(ERASED, id),
             ...webhookScrub(db, [household.email]),
-            ...scrubAudit(db, id, [household.name, household.email ?? "", household.phone ?? "", household.address_line1 ?? "", household.rsvp_code]),
+            ...scrubAudit(db, id, [
+                household.name,
+                household.email ?? "",
+                household.phone ?? "",
+                household.address_line1 ?? "",
+                household.rsvp_code,
+                household.invitation_name ?? "",
+            ]),
         ],
     };
 }

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Building07, Download01, Link01, Mail01, Plus, RefreshCw01, Trash01 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { ProgressBarBase } from "@/components/base/progress-indicators/progress-indicators";
 import { Select } from "@/components/base/select/select";
@@ -29,7 +30,8 @@ import { usePortal } from "@/portal/portal-context";
 import { toCsv } from "@/shared/portal/csv";
 import type { ContactPreference, Household, HouseholdResponseStatus, HouseholdRow } from "@/shared/portal/types";
 
-type Draft = Record<"name" | "email" | "phone" | "addressLine1" | "addressLine2" | "locality" | "region" | "postcode" | "country" | "notes", string>;
+type TextField = "name" | "email" | "phone" | "addressLine1" | "addressLine2" | "locality" | "region" | "postcode" | "country" | "notes" | "invitationName";
+type Draft = Record<TextField, string> & { invitationListNames: boolean };
 
 const toDraft = (h: Household | null): Draft => ({
     name: h?.name ?? "",
@@ -42,6 +44,8 @@ const toDraft = (h: Household | null): Draft => ({
     postcode: h?.postcode ?? "",
     country: h?.country ?? "",
     notes: h?.notes ?? "",
+    invitationName: h?.invitationName ?? "",
+    invitationListNames: h?.invitationListNames ?? false,
 });
 
 export const RESPONSE_LABELS: Record<HouseholdResponseStatus, string> = {
@@ -118,7 +122,7 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
         households.setItems((list) => list.map((h) => (h.id === household.id ? { ...h, ...household } : h)));
         setEditing((current) => (current && current.id === household.id ? { ...current, ...household } : current));
     };
-    const field = (key: keyof Draft, label: string, fieldError: (f: string) => string | undefined, props: Record<string, unknown> = {}) => (
+    const field = (key: TextField, label: string, fieldError: (f: string) => string | undefined, props: Record<string, unknown> = {}) => (
         <Input
             label={label}
             value={draft[key]}
@@ -508,6 +512,23 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                         )}
                         <FormGrid>
                             <FullWidth>{field("name", "Household name", fieldError, { isRequired: true, placeholder: "The Smith family" })}</FullWidth>
+                            <FullWidth>
+                                {field("invitationName", "Invitation name", fieldError, {
+                                    placeholder: editing?.response.guestNames.length ? "Invited guests' names, e.g. Fred & Ann Daly" : "e.g. The Daly Family",
+                                    hint:
+                                        fieldError("invitationName") ??
+                                        "Optional. Leave blank to address the invitation to the invited guests by name (Fred & Ann Daly). Use a family name for larger households.",
+                                })}
+                            </FullWidth>
+                            <FullWidth>
+                                <Checkbox
+                                    label="List each invited person beneath the invitation name"
+                                    hint="Only used with an invitation name."
+                                    isDisabled={!draft.invitationName.trim()}
+                                    isSelected={draft.invitationListNames}
+                                    onChange={(on) => setDraft({ ...draft, invitationListNames: on })}
+                                />
+                            </FullWidth>
                             {field("email", "Contact email", fieldError, { type: "email" })}
                             {field("phone", "Phone", fieldError, { type: "tel" })}
                             <FullWidth>{field("addressLine1", "Address", fieldError)}</FullWidth>
