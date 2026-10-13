@@ -122,16 +122,16 @@ const GuestRow = ({
     const options = [
         { id: "new", label: "Add as a new guest" },
         ...(matched && matched.matchedBy !== "chosen"
-            ? [{ id: matched.id, label: `Same person as ${matched.name}${matched.householdName ? ` (${matched.householdName})` : ""}` }]
+            ? [{ id: matched.id, label: `Match and safely update ${matched.name}${matched.householdName ? ` (${matched.householdName})` : ""}` }]
             : []),
         ...guest.suggestions
             .filter((s) => s.id !== matched?.id)
             .map((s) => ({ id: s.id, label: `${s.name}${s.detail ? ` (${s.detail})` : ""}: ${s.reason.toLowerCase()}` })),
-        ...(matched?.matchedBy === "chosen" ? [{ id: matched.id, label: `Same person as ${matched.name}` }] : []),
+        ...(matched?.matchedBy === "chosen" ? [{ id: matched.id, label: `Match and safely update ${matched.name}` }] : []),
         ...directory.guests
             .filter((g) => g.id !== matched?.id && !guest.suggestions.some((s) => s.id === g.id))
             .map((g) => ({ id: g.id, label: `${g.name}${g.householdName ? ` (${g.householdName})` : ""}` })),
-        { id: "skip", label: "Don't import this guest" },
+        { id: "skip", label: "Keep existing data / don't import this row" },
     ];
     const selected = decision?.target ?? (guest.target.kind === "existing" ? guest.target.id : guest.target.kind === "skip" ? "skip" : "new");
 
@@ -266,14 +266,14 @@ export const HouseholdReview = ({
     const matched = household.target.kind === "existing" ? household.target : null;
     const options = [
         { id: "new", label: "Create a new household" },
-        ...(matched ? [{ id: matched.id, label: `Existing: ${matched.name}` }] : []),
+        ...(matched ? [{ id: matched.id, label: `Match and safely merge into ${matched.name}` }] : []),
         ...household.suggestions.filter((s) => s.id !== matched?.id).map((s) => ({ id: s.id, label: `${s.name}: ${s.reason.toLowerCase()}` })),
         ...directory.households
             // A household already standing for another Say I Do party can't take this one too.
             .filter((h) => !household.externalId || !h.externalId || h.externalId === household.externalId)
             .filter((h) => h.id !== matched?.id && !household.suggestions.some((s) => s.id === h.id))
             .map((h) => ({ id: h.id, label: h.name })),
-        { id: "skip", label: "Skip this party" },
+        { id: "skip", label: "Keep existing data / skip this party" },
     ];
     const selected = decision?.target ?? (matched ? matched.id : household.target.kind === "skip" ? "skip" : "new");
     const chosenAddress = household.address ? formatAddress(household.address) : null;

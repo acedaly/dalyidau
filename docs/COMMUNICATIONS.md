@@ -1,4 +1,4 @@
-# Communications: email (SMTP2Go) and SMS (ClickSend)
+# Communications: email (Fastmail JMAP, SMTP or SMTP2Go) and SMS (ClickSend)
 
 Wedding Planner prepares, sends and tracks guest email and text messages from one place
 (**Wedding Planner → Communications**). Providers sit behind a small interface (`worker/comms/providers.ts`),
@@ -8,7 +8,7 @@ so the portal never depends on a particular service.
 
 | Channel | Worker setting                                | Secrets                                   | Switch (Wedding settings → Features) |
 | ------- | --------------------------------------------- | ----------------------------------------- | ------------------------------------ |
-| Email   | `EMAIL_DELIVERY = "smtp2go"` and `EMAIL_FROM` | `SMTP2GO_API_KEY`                         | Email delivery                       |
+| Email   | `EMAIL_DELIVERY = "fastmail"` and `EMAIL_FROM` | `FASTMAIL_API_TOKEN`                       | Email delivery                       |
 | SMS     | `SMS_DELIVERY = "clicksend"` and `SMS_FROM`   | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | SMS delivery                         |
 
 Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes exist for tests and local development and are ignored in production.
@@ -31,6 +31,35 @@ Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes
 Phone numbers are normalised to E.164. Australian mobiles can be entered locally (`0412 345 678`); landlines are never texted. The composer shows SMS length and parts: curly quotes and emoji switch a message to Unicode, which shortens each part from 160 to 70 characters.
 
 ---
+
+## Email: Fastmail JMAP (preferred)
+
+Fastmail is used through its official JMAP session and Email Submission APIs. The token must have
+both Mail and Email Submission access, and `EMAIL_FROM` must match an identity returned by
+`Identity/get`. The Worker validates the session, scopes and identity before submitting mail.
+
+```bash
+npx wrangler secret put FASTMAIL_API_TOKEN --env=""
+```
+
+```jsonc
+"EMAIL_DELIVERY": "fastmail",
+"EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+"EMAIL_REPLY_TO": "wedding@daly.id.au"
+```
+
+Create and rotate the API token in Fastmail, then replace the Worker secret with the command above.
+The token is never accepted by a browser endpoint or stored in D1. Use **Wedding Planner → Email &
+SMS settings** to validate the session and send one controlled test to an address you own. Official
+references: [Fastmail API tokens](https://www.fastmail.com/dev/#authentication) and
+[JMAP Email Submission](https://www.fastmail.com/dev/email-submission.html).
+
+## Email: generic authenticated SMTP
+
+Set `EMAIL_DELIVERY = "smtp"`, then provision `SMTP_USERNAME` and `SMTP_PASSWORD` as Worker
+secrets. `SMTP_HOST`, `SMTP_PORT` and `SMTP_SECURITY` are configuration values. Only implicit TLS on
+465 and STARTTLS on 587 are accepted; port 25 and unauthenticated/plaintext configurations are
+rejected. Connection validation remains incomplete until a controlled test succeeds.
 
 ## Email: SMTP2Go
 
@@ -78,7 +107,7 @@ If you still want `AidanAmelia`, ask ClickSend whether a private individual can 
 
 ### Before sending invitations by SMS
 
-- **Links**: ask ClickSend to confirm that messages containing `https://daly.id.au/wedding/rsvp?invite=…` links are allowed on your account. Some providers hold messages with unknown links, require URL allow-listing or force their own shortener. **This hasn't been confirmed yet.** Don't send SMS invitations until it is.
+- **Links**: ask ClickSend to confirm that messages containing `https://wedding.daly.id.au/rsvp?invite=…` links are allowed on your account. Some providers hold messages with unknown links, require URL allow-listing or force their own shortener. **This hasn't been confirmed yet.** Don't send SMS invitations until it is.
 - **Payload check**: ClickSend's push formats for delivery receipts and inbound messages aren't fully documented publicly. The webhook parser accepts the common field names (`message_id`, `status_text`/`status_code`, `from`, `body`, `custom_string`) as JSON or form posts, and keeps every raw payload. Before relying on it, send yourself a test text, reply to it, and confirm both appear correctly under Text conversations.
 
 ### Setup
@@ -117,10 +146,10 @@ ClickSend reports a price per message, which the portal stores and totals per ca
 
 ## Activation checklist (needs your approval)
 
-1. SMTP2Go: account, domain DNS records, sender, API key, webhook, secrets, `EMAIL_DELIVERY`.
+1. Chosen email provider: Fastmail token and sender identity, authenticated SMTP credentials, or SMTP2Go account/domain/API key/webhook; then `EMAIL_DELIVERY`.
 2. ClickSend: account, dedicated number, link approval, inbound and receipt URLs, secrets, `SMS_DELIVERY`, `SMS_FROM`.
 3. `COMMS_WEBHOOK_SECRET`.
-4. Deploy (merging deploys production and applies migration `0005_comms_channels.sql`).
+4. Deploy only after review and explicit approval; migration `0008_invitation_studio.sql` is additive and creates generation/check ledgers.
 5. Controlled tests to your own addresses and numbers only, then switch each channel off again.
 6. Turn on _Email delivery_ / _SMS delivery_ when you're ready to contact guests. Optionally turn on RSVP confirmations.
 

@@ -16,6 +16,7 @@ import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, su
 import { listGuests } from "./guests";
 import { listHouseholdRows } from "./households";
 import { listImports } from "./import";
+import { listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
 import { listQuestions, questionSummaries } from "./rsvp-questions";
@@ -100,12 +101,20 @@ const PAGES: PageDef[] = [
         title: "Households",
         permission: "wedding.view",
         application: "wedding",
-        load: async ({ env }) => ({
-            route: "households",
-            households: await listHouseholdRows(env),
-            emailDelivery: await deliveryAvailable(env, env.DB),
-            canGenerateLinks: invitationLinksConfigured(env),
-        }),
+        load: async ({ env }) => {
+            const [households, events, emailDelivery] = await Promise.all([
+                listHouseholdRows(env),
+                listEntities(env.DB, eventDef),
+                deliveryAvailable(env, env.DB),
+            ]);
+            return {
+                route: "households",
+                households,
+                events: events.map((event) => ({ id: event.id, name: event.name })),
+                emailDelivery,
+                canGenerateLinks: invitationLinksConfigured(env),
+            };
+        },
     },
     {
         pattern: /^\/portal\/wedding\/events$/,
@@ -131,6 +140,29 @@ const PAGES: PageDef[] = [
             ]);
             return { route: "rsvps", events, stats, submissions, settings, households, questions, summaries };
         },
+    },
+    {
+        pattern: /^\/portal\/wedding\/invitations$/,
+        title: "Invitation Studio",
+        permission: "wedding.view",
+        application: "wedding",
+        load: async ({ env }) => {
+            const [households, template] = await Promise.all([listStudioHouseholds(env.DB), getSettings(env.DB, "invitation")]);
+            return { route: "invitation-studio", households, template, canGenerateLinks: invitationLinksConfigured(env) };
+        },
+    },
+    {
+        pattern: /^\/portal\/wedding\/communications\/providers$/,
+        title: "Email & SMS providers",
+        permission: "portal.settings.manage",
+        application: "wedding",
+        flag: "module.communications",
+        load: async ({ env }) => ({
+            route: "provider-settings",
+            status: providerStatus(env),
+            emailEnabled: await deliveryAvailable(env, env.DB, "email"),
+            smsEnabled: await deliveryAvailable(env, env.DB, "sms"),
+        }),
     },
     {
         pattern: /^\/portal\/wedding\/communications$/,

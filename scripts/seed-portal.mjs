@@ -4,6 +4,7 @@
 //   node scripts/seed-portal.mjs [http://localhost:8787]
 //
 // It refuses to run against anything but localhost. The names are invented.
+import { readFile } from "node:fs/promises";
 
 const base = (process.argv[2] ?? "http://localhost:8787").replace(/\/+$/, "");
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base)) {
@@ -32,10 +33,17 @@ await call("PUT", "/api/portal/settings/wedding", {
     location: "Southern Highlands, NSW",
     timeZone: "Australia/Sydney",
 });
-await call("PUT", "/api/portal/settings/website", {
+const heroPhoto = await call("POST", "/api/portal/wedding/media", {
+    data: (await readFile(new URL("../docs/design/wedding-redesign/hero-desktop.jpg", import.meta.url))).toString("base64"),
+    alt: "A couple walking together beneath eucalyptus trees",
+});
+await call("PUT", "/api/portal/settings/website_draft", {
     heroEyebrow: "Together with their families",
     heroTitle: "",
     heroSubtitle: "invite you to celebrate their marriage among the gums.",
+    heroImageId: heroPhoto.media.id,
+    heroFocalX: 52,
+    heroFocalY: 44,
     welcome: "We're so glad you're here.\n\nEverything you need for the weekend is below. If anything's unclear, just ask.",
     sections: [
         {
@@ -53,6 +61,8 @@ await call("PUT", "/api/portal/settings/website", {
     contactEmail: "hello@example.com",
     noindex: true,
 });
+await call("POST", "/api/portal/wedding/website/publish", {});
+await call("PUT", "/api/portal/flags/wedding.site.public", { enabled: true });
 await call("PUT", "/api/portal/settings/rsvp", {
     externalUrl: "https://example.com/sayido",
     deadline: inDays(100),
@@ -61,6 +71,7 @@ await call("PUT", "/api/portal/settings/rsvp", {
 });
 await call("PUT", "/api/portal/settings/budget", { totalCents: 4_500_000, currency: "AUD" });
 
+const existingEvents = (await call("GET", "/api/portal/wedding/events")).items;
 const events = [];
 for (const e of [
     {
@@ -74,8 +85,11 @@ for (const e of [
     },
     { name: "Reception", startsAt: `${inDays(160)}T17:30`, endsAt: `${inDays(160)}T23:30`, venueName: "The Barn", address: "1 Example Lane", sortOrder: 20 },
     { name: "Recovery brunch", startsAt: `${inDays(161)}T10:00`, venueName: "Café on the corner", isPublic: false, sortOrder: 30 },
-])
-    events.push((await call("POST", "/api/portal/wedding/events", e)).item);
+]) {
+    const existing = existingEvents.find((event) => event.name === e.name);
+    const result = existing ? await call("PATCH", `/api/portal/wedding/events/${existing.id}`, e) : await call("POST", "/api/portal/wedding/events", e);
+    events.push(result.item);
+}
 
 await call("POST", "/api/portal/wedding/custom-fields", {
     key: "meal",

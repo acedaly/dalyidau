@@ -11,7 +11,7 @@ const isActive = (href: string, path: string) => (href === "/" ? path === "/" : 
 // Adapted from the Untitled UI marketing header navigation.
 export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPublished: boolean }) => {
     const headerRef = useRef<HTMLElement>(null);
-    const navigation = weddingPublished ? [...site.nav, { label: "Wedding", href: "/wedding" }] : site.nav;
+    const navigation = weddingPublished ? [...site.nav, { label: "Wedding", href: "https://wedding.daly.id.au" }] : site.nav;
 
     return (
         <header

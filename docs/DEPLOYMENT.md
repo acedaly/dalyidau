@@ -10,7 +10,7 @@ Everything for this site is separate from DalyHub. Nothing below touches `dalyhu
 | D1 database | `dalyidau-production` (`a003fec1-8404-4468-a23f-de5fb202bc57`) | `dalyidau-staging` (`a88696eb-3621-4dcb-ac9f-a907a9cd9c06`) |
 | R2 bucket | `dalyidau-media` | `dalyidau-media-staging` |
 | Cron | `*/15 * * * *` | none (sync manually) |
-| Hostname | `daly.id.au` (after cut-over), `dalyidau.<account>.workers.dev` | `dalyidau-staging.<account>.workers.dev` |
+| Hostname | `daly.id.au`, `wedding.daly.id.au`, `dalyidau.<account>.workers.dev` | `dalyidau-staging.<account>.workers.dev` |
 
 The D1 databases and R2 buckets already exist (created 11 October 2026). The Workers are created on the first deploy. Local development uses Miniflare's local D1/R2 and never touches either environment.
 
@@ -66,7 +66,9 @@ Check it works at `https://dalyidau.<account>.workers.dev`, then run a manual sy
 
 ## DNS cut-over (done 11 October 2026)
 
-`daly.id.au` and `www.daly.id.au` are Custom Domains on the `dalyidau` Worker, declared in the `routes` block of `wrangler.jsonc`. Cloudflare manages their DNS records and certificates. The Worker 301s `www` to the apex.
+`daly.id.au`, `www.daly.id.au` and `wedding.daly.id.au` are declared as Custom Domains on the `dalyidau` Worker in `wrangler.jsonc`. Cloudflare manages their DNS records and certificates after an approved deploy. The Worker 301s `www` to the apex and legacy `/wedding` URLs to the wedding hostname while preserving their query string. The wedding hostname deliberately refuses portal, admin and communication-webhook routes.
+
+The configuration change does not activate itself from this feature branch: do not run `wrangler deploy` or apply migration `0008_invitation_studio.sql` remotely until the pull request and production migration are explicitly approved.
 
 **Records removed (the only DNS change):**
 

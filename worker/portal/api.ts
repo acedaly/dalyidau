@@ -5,7 +5,7 @@ import { z } from "zod";
 import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
-import { providerStatus } from "../comms/providers";
+import { emailProvider, htmlForText, providerStatus, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
@@ -34,9 +34,10 @@ import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity,
 import { EXPORTS, fullJsonExport } from "./exports";
 import { loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
-import { generateInvitations, listHouseholdRows } from "./households";
+import { bulkUpdateHouseholds, generateInvitations, listHouseholdRows } from "./households";
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
 import { MAX_IMPORT_BYTES, commitImport, getImportReport, importReportCsv, listImports, planImport } from "./import";
+import { generateStudioInvitations, invitationPreviews, printableInvitations } from "./invitation-studio";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
 import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
@@ -82,6 +83,7 @@ const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
     catering: "wedding.planning.edit",
     website_draft: "wedding.website.edit",
     wedding: "portal.settings.manage",
+    invitation: "wedding.comms.edit",
     website: "wedding.website.edit",
     // The RSVP link decides where guests are sent, so only owners and admins may change it.
     rsvp: "portal.settings.manage",
@@ -102,6 +104,63 @@ const collection = (ctx: Ctx) => {
 // --- Session ------------------------------------------------------------------------------------
 
 add("GET", "/api/portal/me", "wedding.view", async ({ env, user }) => json({ user, flags: await loadFlags(env.DB) }));
+
+add("POST", "/api/portal/wedding/providers/validate", "portal.settings.manage", async ({ env, request }) => {
+    const { channel } = z.object({ channel: z.enum(["email", "sms"]) }).parse(await readJson(request));
+    return json(await validateProviderConnection(env, channel));
+});
+
+add("POST", "/api/portal/wedding/providers/test", "portal.settings.manage", async ({ env, request, user }) => {
+    const body = z
+        .object({
+            channel: z.enum(["email", "sms"]),
+            to: z.string().trim().max(254),
+            confirm: z.literal("SEND TEST"),
+        })
+        .parse(await readJson(request));
+    const now = nowIso();
+    let provider = "";
+    if (body.channel === "email") {
+        if (!z.email().safeParse(body.to).success) throw new HttpError(422, "validation", "Enter a valid test email address");
+        const adapter = emailProvider(env);
+        if (!adapter) throw new HttpError(503, "not_configured", "The selected email provider is not configured");
+        provider = adapter.name;
+        await adapter.send({
+            to: body.to,
+            toName: "Wedding Planner test",
+            subject: "Wedding Planner email test",
+            text: "This controlled test confirms that Wedding Planner can send email. No guest invitation was sent.",
+            html: htmlForText("This controlled test confirms that Wedding Planner can send email. No guest invitation was sent."),
+            reference: `provider-test:${crypto.randomUUID()}`,
+        });
+    } else {
+        if (!/^\+61[2-478][0-9]{8}$/.test(body.to)) throw new HttpError(422, "validation", "Use an approved Australian number in +61 format");
+        const adapter = smsProvider(env);
+        if (!adapter || !env.SMS_FROM || !env.COMMS_WEBHOOK_SECRET)
+            throw new HttpError(503, "not_configured", "ClickSend credentials, an approved sender and webhook validation must be configured first");
+        provider = adapter.name;
+        await adapter.send({
+            to: body.to,
+            body: "Wedding Planner controlled SMS test. No invitation was sent.",
+            reference: `provider-test:${crypto.randomUUID()}`,
+        });
+    }
+    await env.DB.batch([
+        env.DB.prepare(
+            `INSERT INTO communication_provider_checks (channel, provider, tested_at, tested_by, result)
+                 VALUES (?, ?, ?, ?, 'sent')
+                 ON CONFLICT(channel) DO UPDATE SET provider = excluded.provider, tested_at = excluded.tested_at, tested_by = excluded.tested_by, result = excluded.result`,
+        ).bind(body.channel, provider, now, user.email),
+        auditStatement(env.DB, {
+            actor: user.email,
+            action: `provider.${body.channel}.test`,
+            entityType: "communication_provider",
+            entityId: body.channel,
+            summary: `Sent a controlled ${body.channel} provider test via ${provider}`,
+        }),
+    ]);
+    return json({ ok: true, provider });
+});
 
 // --- Dashboard ----------------------------------------------------------------------------------
 
@@ -315,8 +374,36 @@ add("POST", "/api/portal/wedding/households/invitations", "wedding.guests.edit",
     return json({ ...result, households: await listHouseholdRows(env) });
 });
 
+add("POST", "/api/portal/wedding/households/bulk", "wedding.guests.edit", async ({ env, request, user }) => {
+    const result = await bulkUpdateHouseholds(env.DB, await readJson(request), user.email);
+    return json({ ...result, households: await listHouseholdRows(env) });
+});
+
+add("POST", "/api/portal/wedding/invitations/preview", "wedding.view", async ({ env, request }) =>
+    json({ previews: await invitationPreviews(env, await readJson(request)) }),
+);
+add("POST", "/api/portal/wedding/invitations/generate", "wedding.guests.edit", async ({ env, request, user }) =>
+    json(await generateStudioInvitations(env, await readJson(request), user.email), 201),
+);
+add("POST", "/api/portal/wedding/invitations/print.pdf", "wedding.export", async ({ env, request, user }) => {
+    const pdf = await printableInvitations(env, await readJson(request));
+    await audit(env.DB, {
+        actor: user.email,
+        action: "export.invitations.pdf",
+        entityType: "invitation",
+        summary: "Generated printable wedding invitations (PDF; nothing sent)",
+    });
+    return new Response(new Uint8Array(pdf).buffer, {
+        headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="wedding-invitations.pdf"',
+            "Cache-Control": "no-store",
+        },
+    });
+});
+
 add("DELETE", "/api/portal/wedding/households/:id", "wedding.guests.edit", async ({ env, user, params }) => {
-    await deleteHousehold(env.DB, params.id, user.email);
+    await deleteHousehold(env.DB, params.id, user.email, "unassign");
     return json({ ok: true });
 });
 

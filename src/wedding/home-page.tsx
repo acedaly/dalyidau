@@ -69,7 +69,7 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         content.heroTitle
     );
     const actions = (
-        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7">
+        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:justify-start">
             {links.rsvp && (
                 <Button
                     {...rsvpLinkProps(links)}
@@ -98,7 +98,8 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
         <section
             id="hero"
             aria-labelledby="names"
-            className="bg-sandstone relative isolate min-h-[calc(100svh-4.5rem)] overflow-hidden px-3 py-7 sm:px-8 sm:py-12 lg:min-h-[min(94svh,65rem)] lg:py-16"
+            className="bg-sandstone relative isolate min-h-[calc(100svh-4.5rem)] overflow-hidden px-3 py-7 sm:px-8 sm:py-12 lg:flex lg:min-h-[min(88svh,58rem)] lg:items-center lg:px-10 lg:py-12"
+            data-testid="wedding-hero"
         >
             {photo && (
                 <>
@@ -120,9 +121,9 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
             <span aria-hidden="true" className="bg-tan/20 absolute top-[7%] left-[4%] -z-10 h-2/3 w-[28%] rotate-[-4deg] rounded-[45%] blur-3xl" />
             <span aria-hidden="true" className="bg-eucalypt/18 absolute right-[4%] bottom-[4%] -z-10 h-2/3 w-[28%] rotate-[5deg] rounded-[45%] blur-3xl" />
 
-            <div className="wedding-rise relative mx-auto w-full max-w-[43rem]">
+            <div className="wedding-rise relative mx-auto w-full max-w-[43rem] lg:max-w-7xl">
                 <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4" />
-                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex min-h-[45rem] flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] sm:min-h-0">
+                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex min-h-[45rem] flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] sm:aspect-[4/5] sm:min-h-0 lg:grid lg:aspect-auto lg:min-h-[42rem] lg:grid-cols-[1.25fr_.75fr]">
                     <img
                         src="/wedding/native-invitation-frame.jpg"
                         alt=""
@@ -131,11 +132,27 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                         aria-hidden="true"
                         fetchPriority="high"
                         decoding="async"
-                        className="absolute inset-0 -z-10 size-full object-cover"
+                        className="absolute inset-0 -z-10 size-full object-cover lg:hidden"
                     />
-                    <div className="relative flex min-h-[45rem] flex-1 flex-col items-center justify-center px-7 pt-28 pb-12 text-center sm:min-h-0 sm:px-20 sm:pt-28 sm:pb-20">
+                    <div className="bg-forest relative hidden overflow-hidden lg:block" data-testid="hero-editorial-image">
+                        <img
+                            src={photo?.url ?? "/wedding/native-invitation-frame.jpg"}
+                            alt={photo?.alt ?? ""}
+                            width={photo?.width ?? 1122}
+                            height={photo?.height ?? 1402}
+                            fetchPriority="high"
+                            decoding="async"
+                            className="size-full object-cover"
+                            style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
+                        />
+                        <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,transparent_70%,rgb(75_52_43/0.16))]" />
+                    </div>
+                    <div
+                        className="relative flex min-h-[45rem] flex-1 flex-col items-center justify-center px-7 pt-28 pb-12 text-center sm:min-h-0 sm:px-20 sm:pt-28 sm:pb-20 lg:items-start lg:px-12 lg:py-16 lg:text-left xl:px-16"
+                        data-testid="hero-editorial-copy"
+                    >
                         {content.heroEyebrow && <Eyebrow className="text-forest/75 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
-                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)]">
+                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:text-[clamp(5rem,7vw,7.8rem)]">
                             {title}
                         </h1>
                         {content.heroSubtitle && (

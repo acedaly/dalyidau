@@ -25,6 +25,17 @@ export interface WeddingDetails {
     timeZone: string;
 }
 
+export interface InvitationTemplateSettings {
+    /** The visual treatment shared by print and email previews. */
+    artwork: "native-botanicals" | "none";
+    accent: "burgundy" | "rust" | "eucalyptus";
+    eyebrow: string;
+    invitationLine: string;
+    greetingPrefix: string;
+    emailIntroduction: string;
+    emailSignoff: string;
+}
+
 export const SECTION_KINDS = ["story", "details", "venue", "accommodation", "travel", "transport", "children", "dress", "registry", "faq", "custom"] as const;
 export type SectionKind = (typeof SECTION_KINDS)[number];
 
@@ -57,6 +68,9 @@ export interface WebsiteContent {
     heroSubtitle: string;
     /** website_media id of the hero photo, if any. */
     heroImageId: string | null;
+    /** Focal point percentages used by responsive object-position cropping. */
+    heroFocalX: number;
+    heroFocalY: number;
     welcome: string;
     sections: WebsiteSection[];
     /** The closing RSVP invitation, e.g. "We hope you'll celebrate with us." */
@@ -132,6 +146,7 @@ export interface SettingsDocuments {
     /** What the portal edits; the public site shows `website` until changes are published. */
     website_draft: WebsiteContent;
     wedding: WeddingDetails;
+    invitation: InvitationTemplateSettings;
     website: WebsiteContent;
     rsvp: RsvpSettings;
     budget: BudgetSettings;
@@ -396,6 +411,48 @@ export interface CommsStatus {
     webhooks: boolean;
 }
 
+export interface InvitationStudioHousehold {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    rsvpCode: string;
+    inviteVersion: number;
+    inviteRevoked: boolean;
+    invitationGeneratedAt: string | null;
+    /** `invited` is false for guests with no RSVP-enabled event; they get no invitation of their own. */
+    guests: { id: string; name: string; invited: boolean }[];
+    delivery: { channel: "email" | "sms" | "print"; status: string; updatedAt: string }[];
+}
+
+export interface InvitationPreview {
+    key: string;
+    householdId: string;
+    guestId: string | null;
+    householdName: string;
+    guestNames: string[];
+    highlightedGuest: string | null;
+    coupleNames: string;
+    greeting: string;
+    eyebrow: string;
+    invitationLine: string;
+    weddingDate: string;
+    location: string;
+    artwork: InvitationTemplateSettings["artwork"];
+    accent: InvitationTemplateSettings["accent"];
+    sample: boolean;
+    rsvpUrl: string;
+    fallback: string;
+    /** Null when RSVP codes are switched off, so no unusable code is printed or sent. */
+    rsvpCode: string | null;
+    qrDataUrl: string;
+    eventLines: string[];
+    deadline: string;
+    emailSubject: string;
+    emailBody: string;
+    smsBody: string;
+}
+
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
 
@@ -575,7 +632,13 @@ export type PortalRoute =
           mealCategories: MealCategory[];
           tables: Pick<SeatingTable, "id" | "name" | "capacity">[];
       }
-    | { route: "households"; households: HouseholdRow[]; emailDelivery: boolean; canGenerateLinks: boolean }
+    | {
+          route: "households";
+          households: HouseholdRow[];
+          events: Pick<WeddingEvent, "id" | "name">[];
+          emailDelivery: boolean;
+          canGenerateLinks: boolean;
+      }
     | {
           route: "guest-import";
           households: Pick<Household, "id" | "name" | "externalId">[];
@@ -604,6 +667,13 @@ export type PortalRoute =
           comms: { status: CommsStatus; email: boolean; sms: boolean };
           unreadTexts: number;
       }
+    | {
+          route: "invitation-studio";
+          households: InvitationStudioHousehold[];
+          canGenerateLinks: boolean;
+          template: InvitationTemplateSettings;
+      }
+    | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean }
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
     | { route: "texts"; threads: SmsThread[]; status: CommsStatus; emailAvailable: boolean; smsAvailable: boolean }
     | { route: "tasks"; tasks: Task[]; assignees: { email: string; name: string | null }[] }
@@ -638,6 +708,8 @@ export type PortalPageData = PortalRoute & { context: PortalContext };
 /** What the public RSVP form shows once a code is accepted. */
 export interface RsvpHousehold {
     householdName: string;
+    /** Present only for a signed guest-specific entry point; used to focus, never to limit or authorise. */
+    highlightedGuestId?: string | null;
     deadlinePassed: boolean;
     guests: { id: string; firstName: string; lastName: string; ageGroup: AgeGroup; dietary: string | null }[];
     events: { id: string; name: string; startsAt: string | null; venueName: string | null }[];
@@ -675,6 +747,8 @@ export interface WeddingPageData {
     rsvp: { mode: "native" | "external" | "closed"; externalUrl: string | null; deadline: string | null };
     /** Rendered inside the portal for a signed-in user: links stay inside the preview. */
     preview: boolean;
+    /** Local/workers.dev compatibility only; production apex requests redirect to the canonical host. */
+    legacyPaths?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------

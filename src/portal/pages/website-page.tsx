@@ -329,10 +329,36 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                             items={[{ id: "none", label: "No photo" }, ...media.map((m, i) => ({ id: m.id, label: m.alt || m.caption || `Photo ${i + 1}` }))]}
                             value={content.heroImageId ?? "none"}
                             onChange={(v) => setContent({ ...content, heroImageId: v === "none" ? null : String(v) })}
-                            hint="A portrait-shaped photo of the two of you works best. Upload photos in the Photos section below."
+                            hint="Used as a wide editorial photograph on desktop and cropped responsively. Upload photos below."
                         >
                             {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                         </Select>
+                        {content.heroImageId && (
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <Input
+                                    label="Horizontal focal point (%)"
+                                    type="number"
+                                    value={String(content.heroFocalX)}
+                                    onChange={(v) => setContent({ ...content, heroFocalX: Math.max(0, Math.min(100, Number(v) || 0)) })}
+                                    hint="0 is left; 100 is right."
+                                />
+                                <Input
+                                    label="Vertical focal point (%)"
+                                    type="number"
+                                    value={String(content.heroFocalY)}
+                                    onChange={(v) => setContent({ ...content, heroFocalY: Math.max(0, Math.min(100, Number(v) || 0)) })}
+                                    hint="0 is top; 100 is bottom."
+                                />
+                                <div className="relative aspect-[16/7] overflow-hidden rounded-xl bg-secondary sm:col-span-2" aria-label="Hero crop preview">
+                                    <img
+                                        src={media.find((m) => m.id === content.heroImageId)?.url}
+                                        alt={media.find((m) => m.id === content.heroImageId)?.alt ?? ""}
+                                        className="size-full object-cover"
+                                        style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <TextArea
                             label="Welcome message"
                             rows={5}

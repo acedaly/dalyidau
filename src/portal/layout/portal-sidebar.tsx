@@ -60,6 +60,7 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     rsvps: CalendarCheck01,
     events: Calendar,
     communications: Mail01,
+    invitations: Mail01,
     website: Globe02,
     seating: LayoutGrid01,
     catering: Receipt,

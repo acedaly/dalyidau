@@ -5,7 +5,7 @@ set -euo pipefail
 LOG=${1:-.wrangler/logs}
 mkdir -p "$LOG"
 [ -f .dev.vars ] || cp .dev.vars.example .dev.vars
-npx vite build > "$LOG/vite.log" 2>&1
+npm run build:client > "$LOG/vite.log" 2>&1
 npx wrangler d1 migrations apply DB --local --env="" > "$LOG/migrate.log" 2>&1
 nohup node scripts/mock-capacities.mjs > "$LOG/mock.log" 2>&1 &
 echo $! > "$LOG/mock.pid"

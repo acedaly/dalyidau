@@ -540,7 +540,7 @@ describe("bulk invitation generation", () => {
         expect(csv.status).toBe(200);
         const text = await csv.text();
         expect(text).toContain("Household,Guests,Invitation link");
-        expect(text).toContain("https://daly.id.au/wedding/rsvp?invite=");
+        expect(text).toContain("https://wedding.daly.id.au/rsvp?invite=");
 
         // Viewers can't generate.
         await apiCall("POST", "/api/portal/users", { email: "viewer@example.com", role: "viewer" });
