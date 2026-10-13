@@ -5,6 +5,7 @@
 // events they are invited to with RSVPs enabled. Every submission is stored verbatim and audited.
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
+import { invitationAddressing } from "../../src/shared/portal/invitation-names";
 import { questionApplies, validateAnswer } from "../../src/shared/portal/rsvp-questions";
 import type { AnswerValue, RsvpHousehold, RsvpQuestion, RsvpStatus } from "../../src/shared/portal/types";
 import type { Env } from "../env";
@@ -81,10 +82,10 @@ async function deadlinePassed(db: D1Database) {
 }
 
 async function loadHousehold(db: D1Database, household: { id: string; name: string; highlightedGuestId?: string | null }): Promise<RsvpHousehold> {
-    const [guests, invitations, settings, passed, questions, storedAnswers] = await Promise.all([
+    const [guests, invitations, settings, passed, questions, storedAnswers, naming] = await Promise.all([
         db
             .prepare(
-                "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, first_name",
+                "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, created_at, rowid",
             )
             .bind(household.id)
             .all<{ id: string; first_name: string; last_name: string; age_group: "adult" | "child" | "infant"; dietary: string | null }>(),
@@ -104,6 +105,10 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
             guest_id: string;
             value: string;
         }>(),
+        db
+            .prepare("SELECT invitation_name, invitation_list_names FROM households WHERE id = ?")
+            .bind(household.id)
+            .first<{ invitation_name: string | null; invitation_list_names: number }>(),
     ]);
 
     const events = new Map<string, RsvpHousehold["events"][number]>();
@@ -123,14 +128,18 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
         if (row.guest_id) (answers.guests[row.guest_id] ??= {})[row.question_id] = value;
         else answers.household[row.question_id] = value;
     }
+    // Guests who are not invited to anything with RSVPs open are left out of the form.
+    const invitedGuests = guests.results.filter((g) => responses[g.id]);
     return {
-        householdName: household.name,
+        // Addressed exactly as the invitation was, e.g. "Fred & Ann Daly".
+        householdName: invitationAddressing(
+            invitedGuests.map((g) => ({ firstName: g.first_name, lastName: g.last_name })),
+            { invitationName: naming?.invitation_name, listNames: !!naming?.invitation_list_names },
+            household.name,
+        ).recipientLine,
         highlightedGuestId: household.highlightedGuestId ?? null,
         deadlinePassed: passed && !settings.allowChangesAfterDeadline,
-        // Guests who are not invited to anything with RSVPs open are left out of the form.
-        guests: guests.results
-            .filter((g) => responses[g.id])
-            .map((g) => ({ id: g.id, firstName: g.first_name, lastName: g.last_name, ageGroup: g.age_group, dietary: g.dietary })),
+        guests: invitedGuests.map((g) => ({ id: g.id, firstName: g.first_name, lastName: g.last_name, ageGroup: g.age_group, dietary: g.dietary })),
         events: [...events.values()],
         responses,
         collectDietary: settings.collectDietary,

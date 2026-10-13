@@ -539,7 +539,9 @@ describe("bulk invitation generation", () => {
         const csv = await call("/api/portal/export/invitations.csv", { token: await accessToken() });
         expect(csv.status).toBe(200);
         const text = await csv.text();
-        expect(text).toContain("Household,Guests,Invitation link");
+        expect(text).toContain("Household,Addressed to,Listed names,Guests,Invitation link");
+        expect(text).toContain("Drew & Emery Fictional,Drew & Emery Fictional,,");
+        expect(text).toContain('"Oak, Pip & Rue Leaf"');
         expect(text).toContain("https://wedding.daly.id.au/rsvp?invite=");
 
         // Viewers can't generate.

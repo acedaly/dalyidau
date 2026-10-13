@@ -113,11 +113,11 @@ describe("household bulk safeguards", () => {
 });
 
 describe("Invitation Studio", () => {
-    it("builds scannable guest-specific links, generates idempotently without sending, and revokes access", async () => {
+    it("builds scannable individual links, generates idempotently without sending, and revokes access", async () => {
         const f = await fixture();
         await apiCall("PUT", "/api/portal/flags/wedding.site.public", { enabled: true });
         await apiCall("PUT", "/api/portal/flags/rsvp.native", { enabled: true });
-        const request = { householdIds: [f.household.id], guestSpecific: true, channels: ["email", "print"] };
+        const request = { householdIds: [f.household.id], delivery: "individual", channels: ["email", "print"] };
         const response = await apiCall<{ previews: InvitationPreview[] }>("POST", "/api/portal/wedding/invitations/preview", request);
         expect(response.status, response.text).toBe(200);
         const invitation = response.json.previews[0];
@@ -125,7 +125,10 @@ describe("Invitation Studio", () => {
         expect(invitation.highlightedGuest).toBe("Alex Studio");
         expect(invitation).toMatchObject({
             coupleNames: "Aidan & Amelia",
-            greeting: "For Alex Studio",
+            delivery: "individual",
+            recipientLine: "Alex Studio",
+            namesLine: null,
+            greeting: "Dear Alex",
             weddingDate: "Saturday, 23 October 2027",
             location: "Rhino Lodge, Dubbo NSW",
             artwork: "native-botanicals",
@@ -191,24 +194,25 @@ describe("Invitation Studio", () => {
     });
 
     it("uses an editable template and avoids duplicated household articles", async () => {
-        const f = await fixture("The Nguyens");
+        const f = await fixture("Nguyen household");
+        await apiCall("PATCH", `/api/portal/wedding/households/${f.household.id}`, { invitationName: "The Nguyens" });
         const saved = await apiCall<{ value: { greetingPrefix: string; accent: string } }>("PUT", "/api/portal/settings/invitation", {
             artwork: "native-botanicals",
             accent: "eucalyptus",
             eyebrow: "Please join us",
             invitationLine: "would love you to celebrate with them",
-            greetingPrefix: "For",
+            greetingPrefix: "Dear",
             emailIntroduction: "A country celebration awaits.",
             emailSignoff: "With love,\n{{couple_names}}",
         });
         expect(saved.status).toBe(200);
         const response = await apiCall<{ previews: InvitationPreview[] }>("POST", "/api/portal/wedding/invitations/preview", {
             householdIds: [f.household.id],
-            guestSpecific: false,
             channels: ["email", "print"],
         });
         expect(response.json.previews[0]).toMatchObject({
-            greeting: "For the Nguyens",
+            recipientLine: "The Nguyens",
+            greeting: "Dear the Nguyens",
             eyebrow: "Please join us",
             invitationLine: "would love you to celebrate with them",
             accent: "eucalyptus",
@@ -226,14 +230,14 @@ describe("Invitation Studio recipients", () => {
     it("only invites guests the RSVP form will show and rejects households with nobody invited", async () => {
         const f = await fixture();
         await apiCall("POST", "/api/portal/wedding/guests", { firstName: "Uninvited", lastName: "Studio", householdId: f.household.id, events: [] });
-        const response = await preview({ householdIds: [f.household.id], guestSpecific: true, channels: ["print"] });
+        const response = await preview({ householdIds: [f.household.id], delivery: "individual", channels: ["print"] });
         expect(response.status, response.text).toBe(200);
         expect(response.json.previews.map((item) => item.highlightedGuest)).toEqual(["Alex Studio"]);
         expect(response.json.previews[0].guestNames).toEqual(["Alex Studio"]);
 
         const empty = (await apiCall<{ item: Household }>("POST", "/api/portal/wedding/households", { name: "The Empty Family" })).json.item;
         await apiCall("POST", "/api/portal/wedding/guests", { firstName: "Nobody", householdId: empty.id, events: [] });
-        const rejected = await preview({ householdIds: [f.household.id, empty.id], guestSpecific: false, channels: ["print"] });
+        const rejected = await preview({ householdIds: [f.household.id, empty.id], channels: ["print"] });
         expect(rejected.status).toBe(422);
         expect(rejected.text).toContain("The Empty Family");
 
@@ -256,7 +260,7 @@ describe("Invitation Studio recipients", () => {
         expect(withoutCodes.emailBody).toContain(withoutCodes.rsvpUrl);
     });
 
-    it("stores a large guest-specific generation for every channel", async () => {
+    it("stores a large individual generation for every channel", async () => {
         const f = await fixture("The Large Family");
         const now = new Date().toISOString();
         const extra = Array.from({ length: 90 }, (_, i) => `gst_bulk_${i}`);
@@ -270,7 +274,7 @@ describe("Invitation Studio recipients", () => {
                 db().prepare("INSERT INTO guest_events (guest_id, event_id, status) VALUES (?, ?, 'pending')").bind(id, f.event.id),
             ]),
         );
-        const request = { householdIds: [f.household.id], guestSpecific: true, channels: ["email", "sms", "print"] };
+        const request = { householdIds: [f.household.id], delivery: "individual", channels: ["email", "sms", "print"] };
         const generated = await apiCall<{ generated: number }>("POST", "/api/portal/wedding/invitations/generate", request);
         expect(generated.status, generated.text).toBe(201);
         expect(generated.json.generated).toBe(91);

@@ -52,6 +52,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
     const [templateId, setTemplateId] = useState<string | null>(null);
     const [content, setContent] = useState({ subject: "", body: "" });
     const [category, setCategory] = useState<MessageCategory>("update");
+    const [individualDelivery, setIndividualDelivery] = useState(false);
     const [channel, setChannel] = useState<MessageChannel>("email");
     const [schedule, setSchedule] = useState(false);
     const [scheduledAt, setScheduledAt] = useState("");
@@ -64,6 +65,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
         setTemplateId(initialTemplate?.id ?? null);
         setContent({ subject: initialTemplate?.subject ?? "", body: initialTemplate?.body ?? "" });
         setCategory(initialTemplate?.category ?? "update");
+        setIndividualDelivery(false);
         setChannel("email");
         setSchedule(false);
         setScheduledAt("");
@@ -89,6 +91,7 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                 audience,
                 channel,
                 category,
+                individualDelivery: category === "invitation" && individualDelivery,
                 scheduledAt: schedule && scheduledAt ? new Date(scheduledAt).toISOString() : null,
             }),
         { onSuccess: ({ message }) => window.location.assign(`/portal/wedding/communications/${message.id}`) },
@@ -168,10 +171,23 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                         items={MESSAGE_CATEGORIES.map((item) => ({ id: item, label: CATEGORY_LABELS[item] }))}
                         value={category}
                         onChange={(value) => setCategory(value as MessageCategory)}
-                        hint={category === "invitation" ? "Guests already included in another invitation are automatically skipped." : undefined}
+                        hint={
+                            category === "invitation"
+                                ? "One invitation per household, addressed to everyone invited (use {{invitation_names}} and {{greeting_names}}). Households already invited are skipped."
+                                : undefined
+                        }
                     >
                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                     </Select>
+
+                    {category === "invitation" && (
+                        <Toggle
+                            label="Send to each guest individually"
+                            hint="Advanced. Every matching guest with an address gets their own copy instead of one per household."
+                            isSelected={individualDelivery}
+                            onChange={setIndividualDelivery}
+                        />
+                    )}
 
                     <MessageEditor subject={content.subject} body={content.body} onChange={setContent} fieldError={prepare.fieldError} channel={channel} />
 
