@@ -5,7 +5,7 @@ import { ArrowUpRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import type { WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
-import { EucalyptusBranch } from "@/wedding/components/ornament";
+import { SignatureBotanicals } from "@/wedding/components/ornament";
 import { Eyebrow, longDate, weddingButton } from "@/wedding/components/ui";
 import { HomePage } from "@/wedding/home-page";
 import { RsvpFlow } from "@/wedding/rsvp/rsvp-flow";
@@ -15,9 +15,10 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
     // The preview always shows the native form, so owners can test it before switching it on.
     const native = data.rsvp.mode === "native" || data.preview;
     return (
-        <section aria-labelledby="rsvp-title" className="relative isolate overflow-hidden bg-ivory px-4 py-12 sm:px-6 sm:py-20 lg:py-24">
-            <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-eucalypt/50 to-transparent" />
-            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
+        <section aria-labelledby="rsvp-title" className="bg-ivory relative isolate overflow-hidden px-4 py-12 sm:px-6 sm:py-20 lg:py-24">
+            <div aria-hidden="true" className="via-eucalypt/50 absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent" />
+            <SignatureBotanicals quiet />
+            <div className="relative z-10 mx-auto grid max-w-7xl grid-cols-1 gap-10 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
                 <aside className="relative flex flex-col items-start gap-5 lg:sticky lg:top-28 lg:self-start">
                     <Eyebrow>
                         {data.details.partnerOne} &amp; {data.details.partnerTwo}
@@ -25,11 +26,10 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
                     <h1 id="rsvp-title" className="wedding-script text-forest text-[4.25rem] leading-[0.9] sm:text-[6.25rem]">
                         Your RSVP
                     </h1>
-                    {data.details.date && <p className="wedding-eyebrow border-y border-sandstone py-3 text-leaf">{longDate(data.details.date)}</p>}
+                    {data.details.date && <p className="wedding-eyebrow border-sandstone text-leaf border-y py-3">{longDate(data.details.date)}</p>}
                     <p className="wedding-prose text-charcoal max-w-sm">
                         We’re so glad you’re here. Reply for everyone named on your invitation, and come back any time before the deadline if plans change.
                     </p>
-                    <EucalyptusBranch className="text-eucalypt/65 mt-8 w-64 -rotate-6 max-lg:hidden" />
                 </aside>
                 <div className="w-full max-w-2xl lg:justify-self-end">
                     {native ? (

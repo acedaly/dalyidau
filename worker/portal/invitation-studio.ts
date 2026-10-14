@@ -377,14 +377,15 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
             return y;
         };
 
-        page.drawRectangle({ x: 18, y: 18, width: pageWidth - 36, height: pageHeight - 36, borderColor: accent, borderOpacity: 0.22, borderWidth: 0.65 });
+        page.drawRectangle({ x: 18, y: 18, width: pageWidth - 36, height: pageHeight - 36, borderColor: accent, borderOpacity: 0.12, borderWidth: 0.5 });
 
-        // A soft ivory wash keeps the editorial heading readable without hiding the native artwork.
+        // A restrained paper clearing protects the typographic hierarchy while retaining the
+        // fine-art edge detail. Layered low-opacity ellipses avoid a hard digital-looking panel.
         if (artwork && preview.artwork === "native-botanicals")
             for (const [xScale, yScale, opacity] of [
-                [178, 108, 0.34],
-                [154, 88, 0.38],
-                [132, 68, 0.42],
+                [178, 108, 0.22],
+                [154, 88, 0.28],
+                [132, 68, 0.34],
             ] as const)
                 page.drawEllipse({ x: pageWidth / 2, y: 454, xScale, yScale, color: ivory, opacity });
 

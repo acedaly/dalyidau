@@ -84,9 +84,15 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
                 style={{ backgroundImage: invitation.artwork === "native-botanicals" ? "url('/wedding/native-invitation-frame.jpg')" : undefined }}
             >
                 <div aria-hidden="true" className="absolute inset-[4.5%] border border-[#783B4A]/18" />
-                <div aria-hidden="true" className="absolute inset-x-[14%] top-[5%] h-[58%] rounded-[50%] bg-[#F5F0E7]/70 blur-2xl" />
+                <div
+                    aria-hidden="true"
+                    className="absolute inset-x-[9%] top-[4%] h-[59%] bg-[radial-gradient(ellipse_at_center,rgba(245,240,231,0.96)_0%,rgba(245,240,231,0.78)_54%,rgba(245,240,231,0)_79%)]"
+                />
                 {invitation.sample && (
-                    <p className="absolute top-2 z-10 rounded-full bg-[#F5F0E7]/95 px-3 py-1 text-[9px] font-bold tracking-[.12em] uppercase" style={{ color: accent }}>
+                    <p
+                        className="absolute top-2 z-10 rounded-full bg-[#F5F0E7]/95 px-3 py-1 text-[9px] font-bold tracking-[.12em] uppercase"
+                        style={{ color: accent }}
+                    >
                         Sample preview — not for delivery
                     </p>
                 )}
@@ -107,7 +113,7 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
                         <p className="wedding-display mt-1.5 text-[1.25rem] leading-none font-semibold text-balance sm:text-[1.45rem]">
                             {invitation.recipientLine}
                         </p>
-                        {invitation.namesLine && <p className="mt-1.5 text-[10px] leading-snug text-[#4f614d] text-balance">{invitation.namesLine}</p>}
+                        {invitation.namesLine && <p className="mt-1.5 text-[10px] leading-snug text-balance text-[#4f614d]">{invitation.namesLine}</p>}
                     </div>
 
                     <div className="mt-4">
@@ -134,7 +140,8 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
                             {invitation.rsvpCode && (
                                 <p className="mt-1 text-[8px] leading-snug break-words">
                                     {invitation.fallback}
-                                    <br />Code {invitation.rsvpCode}
+                                    <br />
+                                    Code {invitation.rsvpCode}
                                 </p>
                             )}
                         </div>
@@ -177,11 +184,21 @@ const PreviewPanel = ({ invitation, mode }: { invitation: InvitationPreview; mod
 const recipientIssuesFor = (household: InvitationStudioHousehold, channels: Channel[]): RecipientIssue[] => {
     const issues: RecipientIssue[] = [];
     if (!household.guests.some((guest) => guest.invited))
-        issues.push({ key: `${household.id}-assignment`, householdId: household.id, kind: "assignment", message: "No guest is assigned to an RSVP-enabled event." });
+        issues.push({
+            key: `${household.id}-assignment`,
+            householdId: household.id,
+            kind: "assignment",
+            message: "No guest is assigned to an RSVP-enabled event.",
+        });
     if (household.inviteRevoked)
         issues.push({ key: `${household.id}-revoked`, householdId: household.id, kind: "link", message: "The household RSVP link has been revoked." });
     if (channels.includes("email") && !household.email)
-        issues.push({ key: `${household.id}-email`, householdId: household.id, kind: "contact", message: "Email is selected, but no email address is recorded." });
+        issues.push({
+            key: `${household.id}-email`,
+            householdId: household.id,
+            kind: "contact",
+            message: "Email is selected, but no email address is recorded.",
+        });
     if (channels.includes("sms") && !household.phone)
         issues.push({ key: `${household.id}-sms`, householdId: household.id, kind: "contact", message: "SMS is selected, but no mobile number is recorded." });
     return issues;
@@ -204,7 +221,12 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
     const issues = useMemo(() => {
         const found = selectedHouseholds.flatMap((household) => recipientIssuesFor(household, chosenChannels));
         if (!data.canGenerateLinks)
-            found.unshift({ key: "link-configuration", householdId: null, kind: "link", message: "Secure RSVP links are not configured for this environment." });
+            found.unshift({
+                key: "link-configuration",
+                householdId: null,
+                kind: "link",
+                message: "Secure RSVP links are not configured for this environment.",
+            });
         return found;
     }, [chosenChannels, data.canGenerateLinks, selectedHouseholds]);
     const previewBlockers = issues.filter((issue) => issue.kind !== "contact");
@@ -467,7 +489,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                             </Badge>
                         </div>
                         {selectedHouseholds.length === 0 ? (
-                            <p className="mt-4 rounded-lg bg-secondary px-4 py-3 text-sm text-tertiary">Select at least one household to run recipient checks.</p>
+                            <p className="mt-4 rounded-lg bg-secondary px-4 py-3 text-sm text-tertiary">
+                                Select at least one household to run recipient checks.
+                            </p>
                         ) : (
                             <ul className="mt-4 divide-y divide-secondary border-y border-secondary">
                                 {selectedHouseholds.map((household) => {
@@ -477,7 +501,8 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                             <div>
                                                 <p className="text-sm font-semibold text-primary">{household.recipientLine}</p>
                                                 <p className="mt-0.5 text-sm text-tertiary">
-                                                    {household.guests.filter((guest) => guest.invited).length} invited · {household.email ?? "No email"} · {household.phone ?? "No mobile"}
+                                                    {household.guests.filter((guest) => guest.invited).length} invited · {household.email ?? "No email"} ·{" "}
+                                                    {household.phone ?? "No mobile"}
                                                 </p>
                                                 {householdIssues.map((issue) => (
                                                     <p key={issue.key} className="mt-1 text-sm font-medium text-error-primary">
@@ -485,7 +510,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                                     </p>
                                                 ))}
                                             </div>
-                                            <span className={cx("text-xs font-semibold", householdIssues.length ? "text-error-primary" : "text-success-primary")}>
+                                            <span
+                                                className={cx("text-xs font-semibold", householdIssues.length ? "text-error-primary" : "text-success-primary")}
+                                            >
                                                 {householdIssues.length ? "Needs attention" : "Ready"}
                                             </span>
                                         </li>
@@ -494,8 +521,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                             </ul>
                         )}
                         {issues.some((issue) => issue.householdId === null) && (
-                            <p role="alert" className="mt-4 border-l-4 border-error-primary bg-error-primary px-4 py-3 text-sm font-medium text-error-primary">
-                                {issues.find((issue) => issue.householdId === null)?.message} RSVP_LINK_SECRET is required; staging must also use its own WEDDING_URL.
+                            <p role="alert" className="border-error-primary mt-4 border-l-4 bg-error-primary px-4 py-3 text-sm font-medium text-error-primary">
+                                {issues.find((issue) => issue.householdId === null)?.message} RSVP_LINK_SECRET is required; staging must also use its own
+                                WEDDING_URL.
                             </p>
                         )}
                     </section>
@@ -528,12 +556,19 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                             </div>
                         </div>
                         {previews.length === 0 ? (
-                            <Empty icon={Download01} title="No previews yet" description="Select households and formats, then preview every recipient version." />
+                            <Empty
+                                icon={Download01}
+                                title="No previews yet"
+                                description="Select households and formats, then preview every recipient version."
+                            />
                         ) : (
                             <>
                                 <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
                                     {previews.map((invitation) => (
-                                        <article key={invitation.key} className="rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset print:break-after-page sm:p-5">
+                                        <article
+                                            key={invitation.key}
+                                            className="rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset sm:p-5 print:break-after-page"
+                                        >
                                             <PreviewPanel invitation={invitation} mode={previewMode} />
                                             <div className="mt-4 flex justify-center gap-2">
                                                 {chosenChannels.map((channel) => (
@@ -559,7 +594,9 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                 </div>
                                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-secondary bg-primary p-4 shadow-xs">
                                     <p className="text-sm text-tertiary">
-                                        {issues.length ? `Resolve ${issues.length} recipient issue${issues.length === 1 ? "" : "s"} before generating.` : "Recipient checks passed. Generation still does not send."}
+                                        {issues.length
+                                            ? `Resolve ${issues.length} recipient issue${issues.length === 1 ? "" : "s"} before generating.`
+                                            : "Recipient checks passed. Generation still does not send."}
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         {can("wedding.export") && (
@@ -574,8 +611,15 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                                 onClick={async () => {
                                                     setBusy(true);
                                                     try {
-                                                        const result = await api<{ generated: number; sent: number }>("POST", "/api/portal/wedding/invitations/generate", request);
-                                                        toast.success(`${result.generated} invitations generated`, `${result.sent} sent. Review delivery in Communications.`);
+                                                        const result = await api<{ generated: number; sent: number }>(
+                                                            "POST",
+                                                            "/api/portal/wedding/invitations/generate",
+                                                            request,
+                                                        );
+                                                        toast.success(
+                                                            `${result.generated} invitations generated`,
+                                                            `${result.sent} sent. Review delivery in Communications.`,
+                                                        );
                                                     } catch (error) {
                                                         toast.error("Couldn't generate invitations", errorMessage(error));
                                                     } finally {

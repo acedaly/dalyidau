@@ -300,6 +300,9 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const path of ["/portal/wedding/website/preview", "/portal/wedding/website/preview/rsvp"]) {
         await page.goto(path);
+        const signature = page.getByTestId("signature-botanicals").first();
+        await expect(signature).toBeVisible();
+        await expect(signature.locator("span").first()).toHaveCSS("background-image", /native-invitation-frame\.jpg/);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
         // The preview banner belongs to the portal, so only the wedding site itself is checked.

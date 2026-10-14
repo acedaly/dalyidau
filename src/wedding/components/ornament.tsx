@@ -1,7 +1,22 @@
-// Hand-drawn style botanicals and a country landscape, all inline SVG so the site needs no image
-// requests for its decoration. Shapes are generated from fixed values, so the server render and
-// the browser always agree. Everything here is decorative (aria-hidden).
+// Botanical details shared by the wedding experience. The signature corner treatment deliberately
+// reuses the invitation's original Australian native painting; the smaller line motifs remain inline
+// SVG. Everything here is decorative (aria-hidden).
 import { cx } from "@/utils/cx";
+
+/**
+ * Art-directed crops of the master invitation painting. Both corners use one cached source image,
+ * with masks that keep the centre clear for functional content and preserve generous negative space.
+ */
+export const SignatureBotanicals = ({ className, quiet = false }: { className?: string; quiet?: boolean }) => (
+    <div
+        aria-hidden="true"
+        data-testid="signature-botanicals"
+        className={cx("wedding-signature-botanicals", quiet && "wedding-signature-botanicals--quiet", className)}
+    >
+        <span className="wedding-signature-botanicals__corner wedding-signature-botanicals__corner--top" />
+        <span className="wedding-signature-botanicals__corner wedding-signature-botanicals__corner--bottom" />
+    </div>
+);
 
 type Point = [number, number];
 

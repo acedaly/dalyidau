@@ -176,6 +176,82 @@
     margin-top: 1em;
 }
 
+/*
+ * Signature Australian native artwork. These are art-directed crops of the same painting used on
+ * the printed invitation—not separate web decoration. Diagonal masks let each composition dissolve
+ * into the paper before it reaches the reading column, preserving the artwork's natural edges and
+ * the generous negative space expected of fine stationery.
+ */
+.wedding-signature-botanicals {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.wedding-signature-botanicals__corner {
+    position: absolute;
+    width: clamp(24rem, 43vw, 43rem);
+    height: clamp(21rem, 37vw, 37rem);
+    background-image: url("/wedding/native-invitation-frame.jpg");
+    background-repeat: no-repeat;
+    background-size: clamp(34rem, 55vw, 54rem) auto;
+    opacity: 0.68;
+    filter: saturate(0.88) contrast(0.97);
+    mix-blend-mode: multiply;
+}
+
+.wedding-signature-botanicals__corner--top {
+    top: -7rem;
+    left: -7rem;
+    background-position: top left;
+    -webkit-mask-image: linear-gradient(135deg, black 0%, black 48%, transparent 82%);
+    mask-image: linear-gradient(135deg, black 0%, black 48%, transparent 82%);
+}
+
+.wedding-signature-botanicals__corner--bottom {
+    right: -6rem;
+    bottom: -8rem;
+    background-position: right bottom;
+    -webkit-mask-image: linear-gradient(315deg, black 0%, black 48%, transparent 82%);
+    mask-image: linear-gradient(315deg, black 0%, black 48%, transparent 82%);
+}
+
+.wedding-signature-botanicals--quiet .wedding-signature-botanicals__corner {
+    opacity: 0.42;
+}
+
+@media (max-width: 640px) {
+    .wedding-signature-botanicals__corner {
+        width: 25rem;
+        height: 22rem;
+        background-size: 34rem auto;
+        opacity: 0.46;
+    }
+
+    .wedding-signature-botanicals__corner--top {
+        top: -7rem;
+        left: -8rem;
+    }
+
+    .wedding-signature-botanicals__corner--bottom {
+        right: -8rem;
+        bottom: -7rem;
+    }
+
+    .wedding-signature-botanicals--quiet .wedding-signature-botanicals__corner {
+        opacity: 0.3;
+    }
+}
+
+@media print {
+    .wedding-signature-botanicals__corner {
+        filter: none;
+        mix-blend-mode: normal;
+    }
+}
+
 /* Gentle motion. Everything is visible without it, and reduced motion turns it off. */
 @keyframes wedding-rise {
     from {
