@@ -101,12 +101,15 @@ test("Invitation Studio exposes the shared native stationery template", async ({
 
     await expect(page.getByRole("heading", { level: 2, name: "Invitation template" })).toBeVisible();
     await expect(page.getByLabel("Artwork")).toContainText("Australian native botanicals");
-    await expect(page.getByLabel("Primary accent")).toContainText("Waratah burgundy");
+    await expect(page.getByLabel("Primary accent")).toContainText("Deep burgundy");
     await expect(page.getByLabel("Email greeting")).toHaveValue("Dear");
     await expect(page.getByText("Advanced delivery")).toBeVisible();
     await expect(page.getByLabel("Invitation wording")).toHaveValue("invite you to celebrate their marriage");
     await expect(page.getByRole("button", { name: "Save template" })).toBeVisible();
     await expect(page.getByText("Generating never sends.")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Invitation Studio workflow" })).toContainText("Check recipients");
+    await expect(page.getByRole("heading", { level: 2, name: "Check recipients" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mobile", exact: true })).toBeVisible();
 });
 
 test("builds an RSVP question with Untitled UI controls", async ({ page }, info) => {
@@ -297,6 +300,9 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const path of ["/portal/wedding/website/preview", "/portal/wedding/website/preview/rsvp"]) {
         await page.goto(path);
+        const signature = page.getByTestId("signature-botanicals").first();
+        await expect(signature).toBeVisible();
+        await expect(signature.locator("span").first()).toHaveCSS("background-image", /native-invitation-frame\.jpg/);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
         // The preview banner belongs to the portal, so only the wedding site itself is checked.

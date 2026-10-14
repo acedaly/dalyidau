@@ -1,5 +1,4 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, type PDFFont, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import { z } from "zod";
@@ -345,16 +344,10 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
     const request = requestSchema.parse(input);
     const previews = await invitationPreviews(env, request);
     const pdf = await PDFDocument.create();
-    pdf.registerFontkit(fontkit);
-    const [artworkResponse, scriptResponse] = await Promise.all([
-        env.ASSETS.fetch("https://assets.local/wedding/native-invitation-frame.jpg"),
-        env.ASSETS.fetch("https://assets.local/wedding/invitation-script.woff"),
-    ]);
+    const artworkResponse = await env.ASSETS.fetch("https://assets.local/wedding/native-invitation-frame.jpg");
     if (previews.some((preview) => preview.artwork === "native-botanicals") && !artworkResponse.ok)
         throw new Error("Invitation botanical artwork is missing; run the client build");
     const artwork = artworkResponse.ok ? await pdf.embedJpg(await artworkResponse.arrayBuffer()) : null;
-    if (!scriptResponse.ok) throw new Error("Invitation script font is missing; run the client build");
-    const script = await pdf.embedFont(await scriptResponse.arrayBuffer(), { subset: true });
     const serif = await pdf.embedFont(StandardFonts.TimesRoman);
     const serifBold = await pdf.embedFont(StandardFonts.TimesRomanBold);
     const serifItalic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
@@ -362,12 +355,12 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
     const sansBold = await pdf.embedFont(StandardFonts.HelveticaBold);
     const pageWidth = 419.53;
     const pageHeight = 595.28;
-    const espresso = rgb(0.235, 0.165, 0.137);
-    const ivory = rgb(0.969, 0.949, 0.918);
+    const espresso = rgb(73 / 255, 52 / 255, 45 / 255);
+    const ivory = rgb(245 / 255, 240 / 255, 231 / 255);
     const accentColours = {
-        burgundy: rgb(0.545, 0.184, 0.239),
-        rust: rgb(0.769, 0.42, 0.235),
-        eucalyptus: rgb(0.322, 0.439, 0.329),
+        burgundy: rgb(120 / 255, 59 / 255, 74 / 255),
+        rust: rgb(156 / 255, 118 / 255, 92 / 255),
+        eucalyptus: rgb(102 / 255, 116 / 255, 99 / 255),
     };
     for (const preview of previews) {
         const page = pdf.addPage([pageWidth, pageHeight]);
@@ -384,34 +377,44 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
             return y;
         };
 
-        // A soft ivory wash behind the heading keeps the script names readable where the banksia and
-        // wattle reach in, without hiding the artwork.
+        page.drawRectangle({ x: 18, y: 18, width: pageWidth - 36, height: pageHeight - 36, borderColor: accent, borderOpacity: 0.12, borderWidth: 0.5 });
+
+        // A restrained paper clearing protects the typographic hierarchy while retaining the
+        // fine-art edge detail. Layered low-opacity ellipses avoid a hard digital-looking panel.
         if (artwork && preview.artwork === "native-botanicals")
             for (const [xScale, yScale, opacity] of [
-                [188, 80, 0.28],
-                [168, 64, 0.32],
-                [146, 50, 0.36],
+                [178, 108, 0.22],
+                [154, 88, 0.28],
+                [132, 68, 0.34],
             ] as const)
-                page.drawEllipse({ x: pageWidth / 2, y: 488, xScale, yScale, color: ivory, opacity });
+                page.drawEllipse({ x: pageWidth / 2, y: 454, xScale, yScale, color: ivory, opacity });
 
         if (preview.sample) {
             page.drawRectangle({ x: 111, y: 572, width: 198, height: 15, color: ivory, opacity: 0.94 });
             centre("SAMPLE PREVIEW - NOT FOR DELIVERY", 577, 6.5, sansBold, accent);
         }
-        centre(preview.eyebrow.toUpperCase(), 532, 7.2, sansBold, espresso);
-        const scriptSize = Math.min(38, (350 / script.widthOfTextAtSize(preview.coupleNames, 38)) * 38);
-        centre(preview.coupleNames, 481, scriptSize, script, accent);
-        page.drawLine({ start: { x: 172, y: 468 }, end: { x: 248, y: 468 }, thickness: 0.8, color: rgb(0.784, 0.604, 0.204) });
-        const afterLine = centredLines(preview.invitationLine, 448, 12, serifItalic, 282, 15);
-        // One recipient line, never a separate heading plus a repeated list. Long lines step down a
-        // size rather than run into the date.
+        centre(preview.eyebrow.toUpperCase(), 535, 7, sansBold, espresso);
+        const [partnerOne, partnerTwo] = preview.coupleNames.split(/\s+&\s+/, 2);
+        const fitName = (name: string) => Math.min(36, (316 / serif.widthOfTextAtSize(name, 36)) * 36);
+        if (partnerTwo) {
+            centre(partnerOne, 487, fitName(partnerOne), serif, espresso);
+            centre("&", 456, 17, serifItalic, accent);
+            centre(partnerTwo, 420, fitName(partnerTwo), serif, espresso);
+        } else {
+            centre(preview.coupleNames, 450, fitName(preview.coupleNames), serif, espresso);
+        }
+        centredLines(preview.invitationLine, 392, 11.5, serifItalic, 282, 14, espresso);
+
+        page.drawLine({ start: { x: 94, y: 373 }, end: { x: 326, y: 373 }, thickness: 0.65, color: accent, opacity: 0.32 });
+        centre("WITH PLEASURE, FOR", 359, 6.5, sansBold, accent);
+        // One recipient line, never a separate heading plus a repeated list. Long lines step down.
         let recipientSize = 14;
         let recipientLines = wrap(preview.recipientLine, serifBold, recipientSize, 290);
         if (recipientLines.length > 2) {
             recipientSize = 12;
             recipientLines = wrap(preview.recipientLine, serifBold, recipientSize, 300).slice(0, 3);
         }
-        let recipientY = Math.min(414, afterLine - 5);
+        let recipientY = 338;
         for (const line of recipientLines) {
             centre(line, recipientY, recipientSize, serifBold, espresso);
             recipientY -= recipientSize + 3;
@@ -420,23 +423,27 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
         if (preview.namesLine)
             for (const [index, line] of wrap(preview.namesLine, sans, 8.5, 260).entries()) {
                 const y = recipientY - 1 - index * 11;
-                if (y < 362) break;
-                centre(line, y, 8.5, sans, rgb(0.365, 0.416, 0.337));
+                if (y < 295) break;
+                centre(line, y, 8.5, sans, rgb(79 / 255, 97 / 255, 77 / 255));
             }
 
-        centre(preview.weddingDate.toUpperCase(), 349, 13, serifBold, espresso);
-        centre(preview.location, 327, 11, serifItalic, accent);
-        let eventY = 300;
-        for (const event of preview.eventLines.slice(0, 3)) eventY = centredLines(event, eventY, 8.5, sans, 270, 12, espresso) - 2;
-        if (preview.deadline) centre(`Kindly reply by ${preview.deadline}`, Math.max(238, eventY - 5), 8.5, sansBold, accent);
+        page.drawLine({ start: { x: 94, y: 287 }, end: { x: 326, y: 287 }, thickness: 0.65, color: accent, opacity: 0.32 });
+        centre(preview.weddingDate.toUpperCase(), 267, 10.5, sansBold, accent);
+        centre(preview.location, 244, 15, serifBold, espresso);
+        let eventY = 224;
+        for (const event of preview.eventLines.slice(0, 3)) eventY = centredLines(event, eventY, 8, sans, 250, 11, espresso) - 1;
 
+        // The RSVP panel keeps the QR, signed-link fallback and code together as one clear action.
+        // Draw its ivory wash first so the QR modules remain fully opaque and reliably scannable.
+        page.drawRectangle({ x: 88, y: 39, width: 244, height: 124, color: ivory, opacity: 0.92 });
+        page.drawLine({ start: { x: 88, y: 164 }, end: { x: 332, y: 164 }, thickness: 0.65, color: accent, opacity: 0.32 });
         const qr = QRCode.create(preview.rsvpUrl, { errorCorrectionLevel: "M" });
         const modules = qr.modules.size;
         const quiet = 4;
-        const box = 112;
+        const box = 92;
         const cell = box / (modules + quiet * 2);
-        const x0 = (pageWidth - box) / 2;
-        const y0 = 92;
+        const x0 = 102;
+        const y0 = 55;
         page.drawRectangle({ x: x0, y: y0, width: box, height: box, color: rgb(1, 1, 1) });
         for (let row = 0; row < modules; row++) {
             for (let column = 0; column < modules; column++) {
@@ -450,14 +457,11 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
                 });
             }
         }
-        // The caption shares the ivory panel so it stays legible over the foliage. The typed fallback
-        // is only useful with a code; without one the QR code is the way in.
-        const panelBottom = preview.rsvpCode ? 39 : 69;
-        page.drawRectangle({ x: 96, y: panelBottom, width: 228, height: 86 - panelBottom, color: ivory, opacity: 0.94 });
-        centre("SCAN TO RSVP", 75, 7.5, sansBold, accent);
+        page.drawText("SCAN TO RSVP", { x: 213, y: 126, size: 7.5, font: sansBold, color: accent });
+        if (preview.deadline) page.drawText(`Reply by ${preview.deadline}`, { x: 213, y: 109, size: 8, font: sansBold, color: espresso });
         if (preview.rsvpCode) {
-            centre(preview.fallback, 56, 7.5, sans, espresso);
-            centre(`INVITATION CODE  ${preview.rsvpCode}`, 44, 7.2, sansBold, espresso);
+            page.drawText(preview.fallback, { x: 213, y: 88, size: 7, font: sans, color: espresso });
+            page.drawText(`CODE  ${preview.rsvpCode}`, { x: 213, y: 72, size: 7.2, font: sansBold, color: espresso });
         }
     }
     pdf.setTitle(`${previews[0]?.coupleNames ?? "Wedding"} - Wedding invitations`);

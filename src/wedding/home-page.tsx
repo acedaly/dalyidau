@@ -7,7 +7,7 @@ import { Button } from "@/components/base/buttons/button";
 import { formatDate, formatTime } from "@/portal/lib/format";
 import type { PublicEvent, WebsiteItem, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
-import { EucalyptusBranch, Sprig, Stamp } from "@/wedding/components/ornament";
+import { EucalyptusBranch, SignatureBotanicals, Sprig, Stamp } from "@/wedding/components/ornament";
 import { Eyebrow, Photo, Prose, SectionHeading, longDate, paragraphs, weddingButton } from "@/wedding/components/ui";
 import { type SiteLinks, rsvpLinkProps } from "@/wedding/site-chrome";
 
@@ -176,7 +176,9 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                             {title}
                         </h1>
                         {content.heroSubtitle && (
-                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem] lg:mt-5 lg:text-[1.375rem]">{content.heroSubtitle}</p>
+                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem] lg:mt-5 lg:text-[1.375rem]">
+                                {content.heroSubtitle}
+                            </p>
                         )}
                         <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12 lg:mt-4" />
                         <div className="text-charcoal mt-5 lg:mt-4">
@@ -260,7 +262,10 @@ const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     if (!date || left === null) return null;
     const totalDays = left ? Math.ceil((zonedTime(start.slice(0, 16), timeZone) - Date.now()) / 86_400_000) : null;
     return (
-        <section aria-label="Countdown to the wedding" className="border-sandstone bg-paper relative overflow-hidden border-y px-3 py-9 min-[360px]:px-5 sm:py-11">
+        <section
+            aria-label="Countdown to the wedding"
+            className="border-sandstone bg-paper relative overflow-hidden border-y px-3 py-9 min-[360px]:px-5 sm:py-11"
+        >
             {/* Gilt rules either side, at 8% or just outside the 56rem content when that is closer; they slide off-screen when there is no room. */}
             <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[min(8%,calc(50%-30rem))] w-px" />
             <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[min(8%,calc(50%-30rem))] w-px" />
@@ -781,10 +786,8 @@ const RsvpBand = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) 
         aria-labelledby="rsvp-heading"
         className="bg-sandstone relative isolate scroll-mt-16 overflow-hidden px-4 py-20 sm:px-8 sm:py-28 lg:py-36"
     >
-        <span aria-hidden="true" className="bg-tan/30 absolute -top-24 -left-20 -z-10 size-80 rounded-full blur-3xl" />
-        <span aria-hidden="true" className="bg-eucalypt/25 absolute -right-16 -bottom-20 -z-10 size-96 rounded-full blur-3xl" />
-        <div className="border-tan/50 bg-ivory relative mx-auto max-w-5xl border px-6 py-20 shadow-[0_24px_70px_-45px_rgb(60_42_35/0.5)] sm:px-12 sm:py-24 lg:px-20">
-            <span aria-hidden="true" className="border-sandstone absolute inset-3 border sm:inset-5" />
+        <SignatureBotanicals />
+        <div className="border-tan/40 bg-ivory relative z-10 mx-auto max-w-5xl border px-6 py-20 shadow-[0_24px_70px_-45px_rgb(60_42_35/0.35)] sm:px-12 sm:py-24 lg:px-20">
             <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-7 text-center">
                 <Eyebrow className="text-olive">RSVP</Eyebrow>
                 <h2 id="rsvp-heading" className="wedding-display text-forest text-[3.5rem] leading-[0.98] text-balance sm:text-[4.8rem] lg:text-[5.5rem]">
@@ -811,7 +814,7 @@ const RsvpBand = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) 
                 ) : (
                     <p className="text-tertiary">Online replies will open soon. We'll let you know when.</p>
                 )}
-                <EucalyptusBranch className="text-eucalypt/75 mt-2 w-44" />
+                <Sprig className="mt-2" />
             </div>
         </div>
     </section>
