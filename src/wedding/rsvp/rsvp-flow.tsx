@@ -72,7 +72,7 @@ const eventWhen = (event: RsvpHousehold["events"][number]) =>
 
 const ErrorNote = ({ message }: { message: string | null }) =>
     message ? (
-        <p role="alert" className="bg-clay-50 text-clay-700 ring-clay-200 rounded-[2px] px-4 py-3 text-[0.9375rem] ring-1 ring-inset">
+        <p role="alert" className="border-l-4 border-leaf bg-clay-50 px-4 py-3 text-[0.9375rem] font-medium text-clay-700">
             {message}
         </p>
     ) : null;
@@ -267,11 +267,11 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     const header = (title: string, intro?: string) => (
         <div className="flex flex-col items-center gap-5 text-center">
             {STEP_INDEX[step] !== undefined && !household.deadlinePassed && <StepIndicator steps={STEPS} current={STEP_INDEX[step]!} />}
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 pt-1">
                 <Eyebrow>Replying for</Eyebrow>
-                <p className="wedding-display text-clay-600 text-[1.375rem] italic">{household.householdName}</p>
+                <p className="wedding-display max-w-lg text-[2.15rem] leading-none text-leaf sm:text-[2.65rem]">{household.householdName}</p>
             </div>
-            <h2 data-step-heading tabIndex={-1} className="wedding-display text-forest text-[2rem] leading-tight outline-none sm:text-[2.5rem]">
+            <h2 data-step-heading tabIndex={-1} className="wedding-eyebrow text-forest text-[0.75rem] font-semibold outline-none sm:text-[0.8125rem]">
                 {title}
             </h2>
             {intro && <p className="wedding-prose text-charcoal max-w-md">{intro}</p>}
@@ -316,7 +316,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                             return (
                                 <li key={guest.id} className="flex flex-col gap-5 py-7">
                                     <div className="flex items-baseline justify-between gap-3">
-                                        <h3 className="wedding-display text-forest text-[1.75rem]">{fullName(guest)}</h3>
+                                        <h3 className="wedding-display text-forest text-[2rem] leading-none sm:text-[2.25rem]">{fullName(guest)}</h3>
                                         {ageLabel(guest) && <span className="wedding-eyebrow text-[0.625rem] text-olive-600">{ageLabel(guest)}</span>}
                                     </div>
                                     {events.map((event) => (
@@ -380,7 +380,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                         <Button
                             size="xl"
                             iconTrailing={ArrowRight}
-                            className={weddingButton.primary}
+                            className={cx(weddingButton.primary, "min-h-14")}
                             onClick={() => {
                                 if (unanswered.length) setShowErrors(true);
                                 else go("details");
@@ -411,7 +411,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                     {detailGuests.map((guest) => (
                         <section key={guest.id} aria-labelledby={`details-${guest.id}`} className="border-sandstone/70 flex flex-col gap-5 border-t pt-7">
                             <div className="flex items-baseline justify-between gap-3">
-                                <h3 id={`details-${guest.id}`} className="wedding-display text-forest text-[1.75rem]">
+                                <h3 id={`details-${guest.id}`} className="wedding-display text-forest text-[2rem] leading-none">
                                     {fullName(guest)}
                                 </h3>
                                 {ageLabel(guest) && <span className="wedding-eyebrow text-[0.625rem] text-olive-600">{ageLabel(guest)}</span>}
@@ -495,7 +495,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                         <Button
                             size="xl"
                             iconTrailing={ArrowRight}
-                            className={weddingButton.primary}
+                            className={cx(weddingButton.primary, "min-h-14")}
                             onClick={() => (detailErrors.length ? setShowErrors(true) : go("review"))}
                         >
                             Review my RSVP
@@ -630,7 +630,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                             <Button color="tertiary" iconLeading={ArrowLeft} className="justify-center text-tertiary" onClick={() => go("details")}>
                                 Back
                             </Button>
-                            <Button size="xl" className={weddingButton.primary} isLoading={busy} showTextWhileLoading onClick={() => void submit()}>
+                            <Button size="xl" className={cx(weddingButton.primary, "min-h-14")} isLoading={busy} showTextWhileLoading onClick={() => void submit()}>
                                 Send our RSVP
                             </Button>
                         </div>

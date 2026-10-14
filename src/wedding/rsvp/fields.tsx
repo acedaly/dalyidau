@@ -13,7 +13,7 @@ import { cx } from "@/utils/cx";
 /** Shared styling for Untitled UI text fields inside the RSVP flow. */
 export const fieldProps = {
     size: "lg" as const,
-    wrapperClassName: "rounded-[2px] bg-paper shadow-none ring-sandstone",
+    wrapperClassName: "rounded-none bg-paper shadow-none ring-sandstone focus-within:ring-forest",
     inputClassName: "text-[1.0625rem] text-charcoal placeholder:text-tertiary/70",
 };
 
@@ -70,7 +70,7 @@ export const ChoiceGroup = ({
                     value={choice.value}
                     className={({ isSelected, isFocusVisible, isHovered, isDisabled: disabled }) =>
                         cx(
-                            "relative flex min-h-14 cursor-pointer items-center gap-2.5 rounded-[2px] px-4 py-3 text-[1rem] ring-1 transition duration-100 ease-linear ring-inset sm:gap-3 sm:px-5",
+                            "relative flex min-h-16 cursor-pointer items-center gap-2.5 rounded-none px-4 py-3.5 text-[1rem] ring-1 transition duration-100 ease-linear ring-inset sm:gap-3 sm:px-5",
                             isSelected
                                 ? choice.tone === "decline"
                                     ? "bg-sandstone-light text-forest ring-clay ring-2"
@@ -86,7 +86,7 @@ export const ChoiceGroup = ({
                             <span
                                 aria-hidden="true"
                                 className={cx(
-                                    "flex size-6 shrink-0 items-center justify-center rounded-[2px] ring-1 ring-inset",
+                                    "flex size-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset",
                                     isSelected
                                         ? choice.tone === "decline"
                                             ? "bg-clay text-ivory ring-clay"
@@ -204,7 +204,7 @@ export const QuestionField = ({
 
 /** "1 · Who's coming  2 · Details  3 · Review" with the current step emphasised. */
 export const StepIndicator = ({ steps, current }: { steps: string[]; current: number }) => (
-    <ol className="flex items-center justify-center gap-2 sm:gap-4" aria-label="RSVP progress">
+    <ol className="flex w-full items-center justify-center gap-2 border-y border-sandstone/80 py-4 sm:gap-4" aria-label="RSVP progress">
         {steps.map((step, i) => {
             const state = i < current ? "done" : i === current ? "current" : "upcoming";
             return (
@@ -212,8 +212,8 @@ export const StepIndicator = ({ steps, current }: { steps: string[]; current: nu
                     <span className="flex items-center gap-2">
                         <span
                             className={cx(
-                                "flex size-7 items-center justify-center rounded-[2px] text-xs font-medium ring-1 ring-inset",
-                                state === "current" && "bg-forest text-ivory ring-forest",
+                                "flex size-7 items-center justify-center rounded-full text-xs font-medium ring-1 ring-inset",
+                                state === "current" && "bg-leaf text-ivory ring-leaf",
                                 state === "done" && "bg-eucalypt-light text-forest ring-eucalypt",
                                 state === "upcoming" && "ring-sandstone text-tertiary",
                             )}
@@ -234,7 +234,9 @@ export const StepIndicator = ({ steps, current }: { steps: string[]; current: nu
 
 /** A paper card with a fine double rule, used for each step of the flow. */
 export const Card = ({ children, className }: { children: ReactNode; className?: string }) => (
-    <div className={cx("bg-paper border-forest/15 border shadow-[0_28px_70px_-42px_rgb(82_32_38/0.42)]", className)}>
-        <div className="border-sandstone/80 m-1.5 flex flex-col gap-8 border px-5 py-8 sm:m-2 sm:px-10 sm:py-11">{children}</div>
+    <div className={cx("bg-paper border-forest/15 border shadow-[0_28px_70px_-42px_rgb(82_32_38/0.35)]", className)}>
+        <div className="border-sandstone/80 m-1.5 flex flex-col gap-8 border px-5 pt-8 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:m-2 sm:px-10 sm:py-11">
+            {children}
+        </div>
     </div>
 );

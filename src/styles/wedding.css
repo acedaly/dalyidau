@@ -1,9 +1,9 @@
 /*
  * The public wedding website (/wedding). It uses the same Untitled UI components as the rest of the
- * site, re-rooted on its own palette: warm ivory paper, chocolate ink, camel, waratah burgundy,
- * banksia orange, wattle and eucalyptus. Cormorant Garamond gives the invitation its editorial
- * character; Alex Brush is reserved for the couple's names; Jost handles practical copy and small
- * tracked labels. The palette is drawn from Amelia's Australian-native wedding references.
+ * site, re-rooted on its own palette: warm ivory paper, espresso ink, deep burgundy, muted clay and
+ * eucalyptus. Cormorant Garamond gives the invitation its editorial character; Jost handles
+ * practical copy and small tracked labels. The palette is drawn from Australian-native wedding
+ * references and intentionally avoids faux metallic and traditional cursive treatments.
  *
  * wedding-theme.generated.css re-declares every semantic token on .wedding-theme; the rules below
  * then swap the palette those tokens resolve to. Regenerate with `node scripts/build-wedding-theme.mjs`.
@@ -11,31 +11,30 @@
 @import "@fontsource-variable/cormorant-garamond";
 @import "@fontsource-variable/cormorant-garamond/wght-italic.css";
 @import "@fontsource-variable/jost";
-@import "@fontsource/alex-brush";
 @import "./wedding-theme.generated.css";
 
 @theme {
     --font-wedding-display: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
     --font-wedding-script: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
-    --font-wedding-calligraphy: "Alex Brush", "Segoe Script", "Snell Roundhand", cursive;
+    --font-wedding-calligraphy: "Cormorant Garamond Variable", "Cormorant Garamond", Garamond, "Times New Roman", serif;
     --font-wedding-body: "Jost Variable", Jost, "Futura", "Avenir Next", "Segoe UI", sans-serif;
 
     /* The wedding palette, used sparingly and only inside .wedding-theme. */
-    --color-ivory: rgb(247 242 234); /* #F7F2EA warm paper */
+    --color-ivory: rgb(245 240 231); /* #F5F0E7 warm paper */
     --color-paper: rgb(252 249 243); /* a lighter uncoated paper */
     --color-sandstone: rgb(234 225 211); /* #EAE1D3 parchment */
     --color-sandstone-light: rgb(245 239 230);
     --color-tan: rgb(181 150 114); /* #B59672 camel */
-    --color-eucalypt: rgb(123 141 120); /* #7B8D78 */
+    --color-eucalypt: rgb(121 134 118); /* #798676 */
     --color-eucalypt-light: rgb(232 236 229);
     --color-gumnut: rgb(162 166 146); /* #A2A692 */
-    --color-forest: rgb(75 52 43); /* #4B342B chocolate: primary ink */
-    --color-forest-deep: rgb(60 42 35); /* #3C2A23 espresso */
+    --color-forest: rgb(73 52 45); /* #49342D espresso: primary ink */
+    --color-forest-deep: rgb(58 40 35);
     --color-olive: rgb(93 106 86); /* #5D6A56 deep botanical */
-    --color-leaf: rgb(139 47 61); /* #8B2F3D waratah */
-    --color-clay: rgb(196 107 60); /* #C46B3C banksia */
-    --color-terracotta: rgb(167 97 73); /* #A76149 */
-    --color-gold: rgb(200 154 52); /* #C89A34 wattle */
+    --color-leaf: rgb(120 59 74); /* #783B4A deep burgundy */
+    --color-clay: rgb(156 118 92); /* #9C765C muted clay */
+    --color-terracotta: rgb(137 85 71);
+    --color-gold: rgb(156 118 92); /* deliberately matte: no faux metallic treatment */
     --color-charcoal: rgb(46 41 37); /* #2E2925 */
 
     /* Accent scales kept for the portal preview banner and RSVP alerts. */
@@ -45,8 +44,8 @@
     --color-clay-300: rgb(226 165 111);
     --color-clay-400: rgb(210 132 72);
     --color-clay-500: rgb(197 109 54);
-    --color-clay-600: rgb(164 82 40);
-    --color-clay-700: rgb(126 61 35);
+    --color-clay-600: rgb(128 82 62);
+    --color-clay-700: rgb(103 62 49);
 
     --color-olive-50: rgb(242 245 241);
     --color-olive-100: rgb(225 232 223);
@@ -68,8 +67,8 @@
     --color-brand-300: rgb(186 158 140);
     --color-brand-400: rgb(145 108 88);
     --color-brand-500: rgb(101 70 57);
-    --color-brand-600: rgb(75 52 43);
-    --color-brand-700: rgb(60 42 35);
+    --color-brand-600: rgb(73 52 45);
+    --color-brand-700: rgb(58 40 35);
     --color-brand-800: rgb(48 33 28);
     --color-brand-900: rgb(37 26 22);
     --color-brand-950: rgb(25 17 14);
@@ -137,10 +136,22 @@
 
 .wedding-names {
     font-family: var(--font-wedding-calligraphy);
-    font-weight: 400;
-    letter-spacing: 0;
-    line-height: 0.76;
+    font-weight: 500;
+    letter-spacing: -0.045em;
+    line-height: 0.82;
     font-feature-settings: "liga", "dlig", "kern";
+}
+
+/* RSVP controls are intentionally steady under a thumb and avoid Safari's text-field zoom. */
+.wedding-theme button,
+.wedding-theme [role="radio"] {
+    touch-action: manipulation;
+}
+
+.wedding-theme input,
+.wedding-theme textarea,
+.wedding-theme select {
+    font-size: max(1rem, 16px);
 }
 
 /* Delicate tracked capitals for labels: "TOGETHER WITH OUR FAMILIES". */

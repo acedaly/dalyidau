@@ -15,16 +15,17 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
     // The preview always shows the native form, so owners can test it before switching it on.
     const native = data.rsvp.mode === "native" || data.preview;
     return (
-        <section aria-labelledby="rsvp-title" className="bg-sandstone-light relative isolate overflow-hidden px-4 py-14 sm:px-6 sm:py-20 lg:py-24">
-            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
+        <section aria-labelledby="rsvp-title" className="relative isolate overflow-hidden bg-ivory px-4 py-12 sm:px-6 sm:py-20 lg:py-24">
+            <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-eucalypt/50 to-transparent" />
+            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
                 <aside className="relative flex flex-col items-start gap-5 lg:sticky lg:top-28 lg:self-start">
                     <Eyebrow>
                         {data.details.partnerOne} &amp; {data.details.partnerTwo}
                     </Eyebrow>
-                    <h1 id="rsvp-title" className="wedding-script text-forest text-[4.75rem] leading-[0.9] sm:text-[6.5rem]">
+                    <h1 id="rsvp-title" className="wedding-script text-forest text-[4.25rem] leading-[0.9] sm:text-[6.25rem]">
                         Your RSVP
                     </h1>
-                    {data.details.date && <p className="wedding-display text-clay-700 text-[1.4rem] italic">{longDate(data.details.date)}</p>}
+                    {data.details.date && <p className="wedding-eyebrow border-y border-sandstone py-3 text-leaf">{longDate(data.details.date)}</p>}
                     <p className="wedding-prose text-charcoal max-w-sm">
                         We’re so glad you’re here. Reply for everyone named on your invitation, and come back any time before the deadline if plans change.
                     </p>
