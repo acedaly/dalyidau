@@ -13,6 +13,7 @@ The wedding portal holds personal details about our guests. This page says what 
 | Dietary and accessibility needs, notes, custom fields                        | `guests`               | Catering and making the day work for everyone                       |
 | Online RSVP submissions (answers, optional message, optional email)          | `rsvp_submissions`     | A record of exactly what each household told us                     |
 | Configurable RSVP answers and the question wording/version used              | `rsvp_answers`         | Preserve and report answers even when a question is edited later    |
+| Courtesy bus choice, passenger counts and where a household is staying       | `rsvp_travel`          | Estimate bus numbers for the Dubbo RSL and plan possible pick-ups   |
 | Who was sent which message, delivery reports, SMS cost                       | `message_recipients`   | Delivery history and to avoid double-sending                        |
 | Text messages sent to and received from guests                               | `sms_messages`         | Text conversations and replies                                      |
 | Raw delivery reports and inbound texts from providers                        | `comm_webhook_events`  | Applying delivery status once, even when providers retry            |
@@ -45,7 +46,7 @@ There are two steps, on purpose.
 2. **Erase** (owners only, from the same list). Removes the record for good, and scrubs it from:
     - **message history**: the recipient row stays (so counts still add up) but becomes "[erased]" with no email or number;
     - **text conversations**: every text to or from the guest (matched by guest or by their number) is deleted, as are stored provider webhooks that mention their email or number;
-    - **stored RSVP submissions and custom answers**: the guest's part of each submission and their answer rows are removed (a household's submissions and answer rows are removed with the household);
+    - **stored RSVP submissions and custom answers**: the guest's part of each submission and their answer rows are removed (a household's submissions, answer rows and courtesy bus / accommodation answer are removed with the household);
     - **the audit log**: entries about the record lose their details, and its name, email, phone and RSVP code are replaced with "[erased]" wherever they appear.
 
     You must type the record's name to confirm. The audit log keeps a line saying an owner erased a record, and when, but not whose.

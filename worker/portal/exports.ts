@@ -2,6 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { needsSeat } from "../../src/shared/portal/seating";
+import { BUS_SHORT_LABELS, FOLLOW_UP_LABELS, STAY_LABELS } from "../../src/shared/portal/travel";
 import type { AuditEntry, BudgetItem, Guest, Household, Supplier, Task } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { cateringSummary } from "./catering";
@@ -12,6 +13,7 @@ import { listGuests } from "./guests";
 import { invitationsCsv } from "./households";
 import { seatingState } from "./seating";
 import { getSettings } from "./settings";
+import { travelOverview } from "./travel";
 
 const money = (cents: number | null) => (cents === null ? "" : (cents / 100).toFixed(2));
 
@@ -31,6 +33,7 @@ const PORTAL_EXPORT_TABLES = [
     "rsvp_submissions",
     "rsvp_questions",
     "rsvp_answers",
+    "rsvp_travel",
     "message_templates",
     "messages",
     "message_recipients",
@@ -137,6 +140,27 @@ export const EXPORTS: Record<string, ExportDef> = {
                 { header: "Source", value: (r) => r.event.source },
                 { header: "Responded at", value: (r) => r.event.respondedAt },
                 { header: "Dietary", value: (r) => r.guest.dietary },
+            ]);
+        },
+    },
+    transport: {
+        label: "Courtesy bus and accommodation",
+        permission: "wedding.export",
+        async build(db) {
+            const overview = await travelOverview(db);
+            return toCsv(overview.households, [
+                { header: "Household", value: (r) => r.householdName },
+                { header: "Guests attending", value: (r) => r.attending },
+                { header: "Email", value: (r) => r.email },
+                { header: "Phone", value: (r) => r.phone },
+                { header: "Courtesy bus", value: (r) => (r.travel?.bus ? BUS_SHORT_LABELS[r.travel.bus] : "Not answered") },
+                { header: "To Rhino Lodge (passengers)", value: (r) => r.outbound },
+                { header: "Home after (passengers)", value: (r) => r.return },
+                { header: "Staying", value: (r) => (r.travel?.stay ? STAY_LABELS[r.travel.stay] : "") },
+                { header: "Accommodation name or location", value: (r) => r.travel?.stayLocation },
+                { header: "Follow up", value: (r) => r.followUp.map((reason) => FOLLOW_UP_LABELS[reason]).join("; ") },
+                { header: "Answered", value: (r) => (r.source === "manual" ? "Entered by hand" : r.source === "native" ? "Online RSVP" : "") },
+                { header: "Updated at", value: (r) => r.updatedAt },
             ]);
         },
     },

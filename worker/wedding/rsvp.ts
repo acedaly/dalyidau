@@ -7,6 +7,7 @@ import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types"
 import { z } from "zod";
 import { invitationAddressing } from "../../src/shared/portal/invitation-names";
 import { questionApplies, validateAnswer } from "../../src/shared/portal/rsvp-questions";
+import { type RsvpTravel, validateTravel } from "../../src/shared/portal/travel";
 import type { AnswerValue, RsvpHousehold, RsvpQuestion, RsvpStatus } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { sendRsvpConfirmation } from "../portal/comms";
@@ -15,7 +16,11 @@ import { REDACTED } from "../portal/redact";
 import { listQuestions } from "../portal/rsvp-questions";
 import { getSettings } from "../portal/settings";
 import { todayIn } from "../portal/stats";
+import { auditTravel, loadTravelStatement, saveTravelStatement, travelFromRow } from "../portal/travel";
 import { type InvitationHousehold, householdForInvitation } from "./invitations";
+
+/** The built-in yes/no courtesy bus question from migration 0004. */
+export const BUS_QUESTION_ID = "q_bus";
 
 export class RsvpError extends Error {
     constructor(
@@ -82,7 +87,7 @@ async function deadlinePassed(db: D1Database) {
 }
 
 async function loadHousehold(db: D1Database, household: { id: string; name: string; highlightedGuestId?: string | null }): Promise<RsvpHousehold> {
-    const [guests, invitations, settings, passed, questions, storedAnswers, naming] = await Promise.all([
+    const [guests, invitations, settings, passed, questions, storedAnswers, naming, travel] = await Promise.all([
         db
             .prepare(
                 "SELECT id, first_name, last_name, age_group, dietary FROM guests WHERE household_id = ? AND deleted_at IS NULL ORDER BY is_plus_one, household_order IS NULL, household_order, age_group, created_at, rowid",
@@ -109,6 +114,7 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
             .prepare("SELECT invitation_name, invitation_list_names FROM households WHERE id = ?")
             .bind(household.id)
             .first<{ invitation_name: string | null; invitation_list_names: number }>(),
+        loadTravelStatement(db, household.id).first<Parameters<typeof travelFromRow>[0]>(),
     ]);
 
     const events = new Map<string, RsvpHousehold["events"][number]>();
@@ -144,7 +150,11 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
         responses,
         collectDietary: settings.collectDietary,
         collectMessage: settings.collectMessage,
-        questions,
+        collectTravel: settings.collectTravel,
+        travel: settings.collectTravel ? travelFromRow(travel) : null,
+        // The household-level travel step replaces the older per-guest "seat on the bus?" question, so
+        // nobody is asked twice. Its earlier answers stay in the Questions report.
+        questions: settings.collectTravel ? questions.filter((question) => question.id !== BUS_QUESTION_ID) : questions,
         answers,
     };
 }
@@ -193,6 +203,23 @@ const submitSchema = z
                 guests: z.record(z.string().max(40), z.record(z.string().max(40), z.unknown())).default({}),
             })
             .default({ household: {}, guests: {} }),
+        // Optional and household-level. Left out (an older form), the saved answer is kept as it is.
+        travel: z
+            .object({
+                bus: z.string().max(20).nullable().optional(),
+                outbound: z
+                    .union([z.number(), z.string().max(4)])
+                    .nullable()
+                    .optional(),
+                return: z
+                    .union([z.number(), z.string().max(4)])
+                    .nullable()
+                    .optional(),
+                stay: z.string().max(20).nullable().optional(),
+                stayLocation: z.string().max(400).nullable().optional(),
+            })
+            .nullable()
+            .optional(),
     })
     .refine((value) => !!value.code !== !!value.token);
 
@@ -310,6 +337,18 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
         }
     }
 
+    // Transport is asked once per household and only of households with someone coming. A household
+    // that now declines keeps its earlier answer (it's no longer counted) so nothing is lost if they
+    // change their mind again.
+    const comingCount = data.guests.filter((guest) => Object.values(guest.events).includes("attending")).length;
+    let travel: RsvpTravel | null = null;
+    if (current.collectTravel && data.travel !== undefined && comingCount > 0) {
+        const checked = validateTravel(data.travel ?? {}, comingCount);
+        if ("error" in checked) throw new RsvpError("invalid", checked.error, 400);
+        travel = checked.value;
+        statements.push(saveTravelStatement(db, household.id, travel, "native", `rsvp:${household.id}`, now));
+    }
+
     const message = current.collectMessage ? (data.message ?? null) : null;
     if (data.email) {
         statements.push(db.prepare("UPDATE households SET email = COALESCE(email, ?), updated_at = ? WHERE id = ?").bind(data.email, now, household.id));
@@ -323,7 +362,7 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
                 newId("rsv"),
                 household.id,
                 now,
-                JSON.stringify({ guests: summary, email: data.email ?? null, answers: questionPayload }),
+                JSON.stringify({ guests: summary, email: data.email ?? null, answers: questionPayload, ...(travel ? { travel } : {}) }),
                 message,
                 data.clientId ?? null,
             ),
@@ -335,7 +374,10 @@ export async function submitRsvp(env: Env, request: Request, input: unknown): Pr
             entityId: household.id,
             summary: `${household.name} responded online (${attendingCount} attending${unanswered ? `, ${unanswered} not answered yet` : ""})`,
             // Who answered what is kept; dietary notes stay in the submission and the guest record only.
-            changes: { guests: summary.map(({ dietary, ...g }) => ({ ...g, dietary: dietary ? REDACTED : null })) },
+            changes: {
+                guests: summary.map(({ dietary, ...g }) => ({ ...g, dietary: dietary ? REDACTED : null })),
+                ...(travel ? { travel: auditTravel(travel) } : {}),
+            },
         }),
     );
     try {

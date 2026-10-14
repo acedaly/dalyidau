@@ -2,8 +2,17 @@
 // to match the wedding stationery. Choice controls are React Aria radio groups, following the same
 // pattern as Untitled UI's radio-group cards; text fields are Untitled UI's Input and TextArea.
 import type { ReactNode } from "react";
-import { Check } from "@untitledui/icons";
-import { Label as AriaLabel, Radio as AriaRadio, RadioGroup as AriaRadioGroup, Text as AriaText } from "react-aria-components";
+import { Check, Minus, Plus } from "@untitledui/icons";
+import {
+    Button as AriaButton,
+    Group as AriaGroup,
+    Input as AriaInput,
+    Label as AriaLabel,
+    NumberField as AriaNumberField,
+    Radio as AriaRadio,
+    RadioGroup as AriaRadioGroup,
+    Text as AriaText,
+} from "react-aria-components";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
@@ -202,9 +211,63 @@ export const QuestionField = ({
     );
 };
 
+/** A whole-number stepper (e.g. bus passengers) with large −/+ buttons for phones. */
+export const CountField = ({
+    label,
+    description,
+    value,
+    min,
+    max,
+    onChange,
+}: {
+    label: string;
+    description?: ReactNode;
+    value: number;
+    min: number;
+    max: number;
+    onChange: (value: number) => void;
+}) => {
+    const step = cx(
+        "bg-paper text-forest ring-sandstone flex size-14 shrink-0 cursor-pointer items-center justify-center ring-1 transition duration-100 ease-linear ring-inset",
+        "hover:ring-forest/50 focus-visible:outline-forest focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+    );
+    return (
+        <AriaNumberField
+            value={value}
+            minValue={min}
+            maxValue={max}
+            step={1}
+            onChange={(next) => onChange(Number.isFinite(next) ? Math.round(next) : min)}
+            formatOptions={{ maximumFractionDigits: 0 }}
+            className="flex flex-col gap-3"
+        >
+            <div className="flex flex-col gap-0.5">
+                <AriaLabel className="text-charcoal text-[1.0625rem] font-medium">{label}</AriaLabel>
+                {description && (
+                    <AriaText slot="description" className="text-sm text-tertiary">
+                        {description}
+                    </AriaText>
+                )}
+            </div>
+            <AriaGroup className="flex items-stretch gap-2 self-start">
+                <AriaButton slot="decrement" className={step}>
+                    <Minus className="size-5" aria-hidden="true" />
+                </AriaButton>
+                <AriaInput
+                    inputMode="numeric"
+                    className="text-forest bg-paper ring-sandstone focus:ring-forest w-20 text-center text-[1.375rem] font-medium tabular-nums ring-1 outline-none ring-inset focus:ring-2"
+                />
+                <AriaButton slot="increment" className={step}>
+                    <Plus className="size-5" aria-hidden="true" />
+                </AriaButton>
+            </AriaGroup>
+        </AriaNumberField>
+    );
+};
+
 /** "1 · Who's coming  2 · Details  3 · Review" with the current step emphasised. */
 export const StepIndicator = ({ steps, current }: { steps: string[]; current: number }) => (
-    <ol className="flex w-full items-center justify-center gap-2 border-y border-sandstone/80 py-4 sm:gap-4" aria-label="RSVP progress">
+    <ol className="border-sandstone/80 flex w-full items-center justify-center gap-2 border-y py-4 sm:gap-4" aria-label="RSVP progress">
         {steps.map((step, i) => {
             const state = i < current ? "done" : i === current ? "current" : "upcoming";
             return (

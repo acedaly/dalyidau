@@ -128,6 +128,10 @@ test("a household opens its invitation link, replies in part, then finishes; the
         await page.getByRole("button", { name: "Continue" }).click();
         await expect(page.getByText("We still need an answer for Jo.")).toBeVisible();
         await page.getByRole("button", { name: "Reply now and answer for Jo later" }).click();
+        // Details, then the optional transport step: skipped entirely this time.
+        await page.getByRole("button", { name: "Continue" }).click();
+        await expect(page.getByRole("heading", { name: "Getting there and staying" })).toBeVisible();
+        await noOverflow(page, "travel");
         await page.getByRole("button", { name: "Review my RSVP" }).click();
 
         const summary = page.getByRole("region", { name: "Household summary" });
@@ -146,11 +150,29 @@ test("a household opens its invitation link, replies in part, then finishes; the
         await page.getByRole("button", { name: "Finish our RSVP" }).click();
         await choose(`Jo O'Partial ${tag}`, "accept");
         await page.getByRole("button", { name: "Continue" }).click();
+        await page.getByRole("button", { name: "Continue" }).click();
+        // Two of the family are coming: both can go home on the bus, only one needs it there.
+        await page.getByText("Yes — both ways", { exact: true }).click();
+        const outbound = page.getByRole("textbox", { name: "How many of you need the bus to the wedding?" });
+        await expect(outbound).toHaveValue("2");
+        await page.getByRole("button", { name: /^Decrease/ }).first().click();
+        await expect(outbound).toHaveValue("1");
+        await expect(page.getByRole("button", { name: /^Decrease/ }).first()).toBeDisabled();
+        await expect(page.getByRole("textbox", { name: "How many of you need the bus home after the reception?" })).toHaveValue("2");
+        await noOverflow(page, "travel counts");
         await page.getByRole("button", { name: "Review my RSVP" }).click();
+        await expect(page.getByText("1 passenger to the wedding, 2 passengers home")).toBeVisible();
         await page.getByRole("button", { name: "Send our RSVP" }).click();
         await expect(page.getByText(`celebrate with Alex and Jo`)).toBeVisible();
         rows = (await api(request, "get", "/api/portal/wedding/households/overview")).households;
         expect(rows.find((h: { id: string }) => h.id === household.id).response.status).toBe("complete");
+        const transport = await api(request, "get", "/api/portal/wedding/travel");
+        expect(transport.households.find((h: { householdId: string }) => h.householdId === household.id)).toMatchObject({
+            attending: 2,
+            outbound: 1,
+            return: 2,
+            travel: { bus: "both" },
+        });
         expect(errors).toEqual([]);
 
         // The dashboard: completion next to attendance, a copyable link, and generation without sending.

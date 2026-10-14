@@ -125,6 +125,7 @@ const PORTAL_TABLES = [
     "seating_tables",
     "seating_snapshots",
     "rsvp_answers",
+    "rsvp_travel",
     "website_media",
     "message_recipients",
     "messages",

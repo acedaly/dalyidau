@@ -268,9 +268,18 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await expect(accept).toBeChecked();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByLabel("Dietary requirements or allergies").fill("Vegetarian");
+    await page.getByRole("button", { name: "Continue" }).click();
+    // Transport and accommodation: optional, once per household. One guest, so no passenger count.
+    await expect(page.getByRole("heading", { name: "Getting there and staying" })).toBeVisible();
+    await page.getByText("Yes — both ways", { exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "How many of you need the bus to the wedding?" })).toHaveCount(0);
+    await page.getByText("Accommodation in Dubbo", { exact: true }).click();
+    await page.getByLabel("Accommodation name or location").fill(`Motel ${suffix}`);
     await page.getByRole("button", { name: "Review my RSVP" }).click();
     await expect(page.getByRole("heading", { name: "Does this look right?" })).toBeVisible();
     await expect(page.getByText("Dietary: Vegetarian")).toBeVisible();
+    await expect(page.getByText("Yes — both ways")).toBeVisible();
+    await expect(page.getByText(`Accommodation in Dubbo · Motel ${suffix}`)).toBeVisible();
     await page.getByRole("button", { name: "Send our RSVP" }).click();
     await expect(page.getByRole("heading", { name: "Thank you" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Add to calendar" })).toBeVisible();
@@ -282,6 +291,16 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await page.goto("/portal/wedding/guests");
     await page.getByRole("searchbox", { name: "Search guests" }).fill(`Taylor ${suffix}`);
     await expect(page.getByRole("row", { name: new RegExp(`Taylor ${suffix}`) }).getByText("Attending")).toBeVisible();
+
+    // …and on the planner's private transport overview, never on the public site.
+    await page.goto("/portal/wedding/rsvps");
+    await page.getByRole("tab", { name: /Transport/ }).click();
+    await page.getByRole("searchbox", { name: "Search households or accommodation" }).fill(`Motel ${suffix}`);
+    await expect(page.getByRole("row").filter({ hasText: `Motel ${suffix}` }).getByText("Both ways")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, "transport tab scrolls sideways").toBeLessThanOrEqual(0);
+    await page.goto("/wedding");
+    await expect(page.getByText(`Motel ${suffix}`)).toHaveCount(0);
 
     await api(request, "put", "/api/portal/flags/rsvp.native", { enabled: false });
     await api(request, "put", "/api/portal/flags/wedding.site.public", { enabled: false });

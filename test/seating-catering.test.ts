@@ -215,7 +215,7 @@ describe("website draft and publishing", () => {
         expect(live).toContain("Saturday 23 October 2027");
         expect(live).toContain("Rhino Lodge");
         // Content from the couple's Say I Do site.
-        expect(live).toContain("first come, first served basis");
+        expect(live).toContain("first-in, first-served basis");
         expect(live).toContain("The Westbury Dubbo");
         expect(live).toContain("Dubbo RSL courtesy bus");
         expect(live).toContain("Saturday 25 September 2027"); // the RSVP deadline
@@ -239,7 +239,7 @@ describe("website draft and publishing", () => {
         for (const text of ["14L Camp Rd, Dubbo NSW 2830", "Get directions", "Frequently asked questions", "We hope you&#x27;ll celebrate with us."])
             expect(preview).toContain(text);
         // **bold** in plain text becomes emphasis, never raw HTML.
-        expect(preview).toMatch(/<strong[^>]*>first come, first served basis<\/strong>/);
+        expect(preview).toMatch(/<strong[^>]*>first-in, first-served basis<\/strong>/);
     });
 
     it("only accepts real photos and keeps them private until the site is visible", async () => {

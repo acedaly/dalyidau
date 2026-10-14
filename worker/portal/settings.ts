@@ -3,6 +3,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { SECTION_KINDS, type SettingsDocuments, type SettingsKey, type WebsiteContent } from "../../src/shared/portal/types";
+import { ACCOMMODATION_BODY, COURTESY_BUS_ITEMS, ONSITE_FAQ, RHINO_LODGE_STAY } from "../../src/shared/portal/website-suggestions";
 import { auditStatement, diff, nowIso, parseJson } from "./db";
 
 const text = (max: number) => z.string().trim().max(max);
@@ -39,6 +40,7 @@ const item = z.object({
         .default(""),
     detail: text(80).default(""),
     imageId: z.string().max(40).nullable().default(null),
+    onSite: z.boolean().optional(),
 });
 
 const section = z.object({
@@ -126,6 +128,8 @@ export const SETTINGS_SCHEMAS = {
         linkExpiryDays: z.number().int().min(0).max(3650).default(60),
         /** Email a confirmation after an online reply (also needs email delivery switched on). */
         confirmationEmail: z.boolean().default(false),
+        /** Ask each household about the courtesy bus and where they're staying. */
+        collectTravel: z.boolean().default(true),
     }),
     budget: z.object({
         totalCents: z.number().int().min(0).max(100_000_000_00),
@@ -134,17 +138,19 @@ export const SETTINGS_SCHEMAS = {
 } satisfies { [K in SettingsKey]: z.ZodType<SettingsDocuments[K], unknown> };
 
 /** A website item with the optional fields filled in. */
-const entry = (title: string, body: string, url = "", detail = ""): WebsiteContent["sections"][number]["items"][number] => ({
+const entry = (title: string, body: string, url = "", detail = "", onSite?: boolean): WebsiteContent["sections"][number]["items"][number] => ({
     title,
     body,
     url,
     detail,
     imageId: null,
+    ...(onSite === undefined ? {} : { onSite }),
 });
 
 /**
  * Defaults, taken from the couple's Say I Do website (October 2026): ceremony at 2:00pm, smart
  * casual, RSVP by 25 September 2027, on-site glamping, The Westbury and the Dubbo RSL courtesy bus.
+ * Accommodation and bus wording was updated in October 2026 (src/shared/portal/website-suggestions.ts).
  * Anything not on that site (a story, travel details, gifts) starts hidden, so nothing is
  * published by assumption.
  */
@@ -183,15 +189,10 @@ const DEFAULT_WEBSITE: WebsiteContent = {
             id: "stay",
             kind: "accommodation",
             title: "Accommodation",
-            body: "For those travelling to celebrate with us, we've put together a list of recommended accommodation options nearby. You're also more than welcome to make your own arrangements.\n\nPlease note that accommodation at Rhino Lodge is limited and will be available on a **first come, first served basis**. We recommend getting in early if you'd like to stay on-site.\n\nIf Rhino Lodge is fully booked, there are plenty of other great accommodation options in and around Dubbo to choose from.",
+            body: ACCOMMODATION_BODY,
             items: [
-                entry(
-                    "Dubbo Rhino Lodge",
-                    "Beautiful on-site glamping, so you can stay right where the celebrations are happening. Spots are limited: contact Rhino Lodge directly to book.",
-                    "https://www.rhinolodge.com.au/accommodation/",
-                    "99 m from the ceremony",
-                ),
-                entry("The Westbury Dubbo", "A boutique hotel in the centre of Dubbo.", "https://westburydubbo.com.au/", "5.2 km from the ceremony"),
+                { ...RHINO_LODGE_STAY },
+                entry("The Westbury Dubbo", "A boutique hotel in the centre of Dubbo.", "https://westburydubbo.com.au/", "5.2 km from the ceremony", false),
             ],
             imageId: null,
             visible: true,
@@ -200,9 +201,9 @@ const DEFAULT_WEBSITE: WebsiteContent = {
         {
             id: "bus",
             kind: "transport",
-            title: "Getting home safely",
-            body: "For guests staying in Dubbo, the Dubbo RSL courtesy bus will be available to help you get home safely after the celebrations.\n\nWe'll share more information about transport arrangements closer to the big day.",
-            items: [],
+            title: "Courtesy bus",
+            body: "",
+            items: COURTESY_BUS_ITEMS.map((bus) => ({ ...bus })),
             imageId: null,
             visible: true,
         },
@@ -232,10 +233,7 @@ const DEFAULT_WEBSITE: WebsiteContent = {
                     "Please send through your RSVP by 25 September 2027 so we can finalise all the details for the day. We can't wait to celebrate with you!",
                 ),
                 entry("Are the wedding ceremony and the reception at the same venue?", "Yes, both the ceremony and reception will be held at the same venue."),
-                entry(
-                    "Is there accommodation onsite?",
-                    "Yes. Rhino Lodge has on-site glamping accommodation available. If you'd like to stay at the venue, please contact Rhino Lodge directly to arrange your booking.",
-                ),
+                { ...ONSITE_FAQ },
             ],
             imageId: null,
             visible: true,
@@ -281,6 +279,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         allowCodes: true,
         linkExpiryDays: 60,
         confirmationEmail: false,
+        collectTravel: true,
     },
     budget: { totalCents: 0, currency: "AUD" },
 };

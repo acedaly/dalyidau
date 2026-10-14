@@ -1,31 +1,58 @@
 // The native RSVP, step by step: find the invitation (signed link or code), say who's coming,
-// add details (dietary needs, configured questions, a note), review, send, and see a confirmation.
+// add details (dietary needs, configured questions, a note), say how they're getting there and
+// where they're staying (optional, once per household), review, send, and see a confirmation.
 // Each person can be accepted, declined or left unanswered to finish later with the same link.
 // The server re-validates everything; the checks here only make the form friendlier.
 // In the portal preview it talks to the owners-only test endpoints, so it can be tried before the
 // "rsvp.native" flag is turned on.
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarPlus01, Edit03 } from "@untitledui/icons";
+import { ArrowLeft, ArrowRight, Bus, CalendarPlus01, Edit03, Home02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { formatDate, formatTime } from "@/portal/lib/format";
 import { answerText, questionApplies, validateAnswer } from "@/shared/portal/rsvp-questions";
+import {
+    BUS_CHOICES,
+    BUS_LABELS,
+    type BusChoice,
+    EMPTY_TRAVEL,
+    type RsvpTravel,
+    STAY_CHOICES,
+    STAY_LABELS,
+    STAY_LOCATION_MAX,
+    type StayChoice,
+    needsOutbound,
+    needsReturn,
+} from "@/shared/portal/travel";
 import type { AnswerValue, RsvpHousehold, RsvpQuestion, WeddingDetails } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 import { EucalyptusBranch, Sprig } from "@/wedding/components/ornament";
 import { Eyebrow, longDate, weddingButton } from "@/wedding/components/ui";
 import { downloadCalendarFile, weddingCalendarFile } from "@/wedding/rsvp/calendar";
-import { Card, ChoiceGroup, QuestionField, StepIndicator, fieldProps } from "@/wedding/rsvp/fields";
+import { Card, ChoiceGroup, CountField, QuestionField, StepIndicator, fieldProps } from "@/wedding/rsvp/fields";
 
 type Status = "attending" | "declined";
 type Answers = Record<string, { events: Record<string, Status | undefined>; dietary: string }>;
 type QuestionAnswers = { household: Record<string, AnswerValue>; guests: Record<string, Record<string, AnswerValue>> };
 type Guest = RsvpHousehold["guests"][number];
-type Step = "find" | "attendance" | "details" | "review" | "done";
+type Step = "find" | "attendance" | "details" | "travel" | "review" | "done";
 
-const STEPS = ["Who's coming", "Details", "Review"];
-const STEP_INDEX: Partial<Record<Step, number>> = { attendance: 0, details: 1, review: 2 };
+/**
+ * The travel answer as it will be sent: counts only for the chosen direction, defaulting to everyone
+ * coming and never more than that, so changing attendance can't leave impossible numbers behind.
+ */
+const effectiveTravel = (travel: RsvpTravel, coming: number): RsvpTravel => {
+    const clamp = (n: number) => Math.min(Math.max(n || coming, 1), coming);
+    return {
+        ...travel,
+        outbound: needsOutbound(travel.bus) ? clamp(travel.outbound) : 0,
+        return: needsReturn(travel.bus) ? clamp(travel.return) : 0,
+        stayLocation: travel.stay === "dubbo" ? travel.stayLocation : null,
+    };
+};
+
+const passengers = (n: number) => `${n} ${n === 1 ? "passenger" : "passengers"}`;
 
 const answersFrom = (household: RsvpHousehold): Answers =>
     Object.fromEntries(
@@ -72,7 +99,7 @@ const eventWhen = (event: RsvpHousehold["events"][number]) =>
 
 const ErrorNote = ({ message }: { message: string | null }) =>
     message ? (
-        <p role="alert" className="border-l-4 border-leaf bg-clay-50 px-4 py-3 text-[0.9375rem] font-medium text-clay-700">
+        <p role="alert" className="border-leaf bg-clay-50 text-clay-700 border-l-4 px-4 py-3 text-[0.9375rem] font-medium">
             {message}
         </p>
     ) : null;
@@ -82,6 +109,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     const [household, setHousehold] = useState<RsvpHousehold | null>(null);
     const [answers, setAnswers] = useState<Answers>({});
     const [questionAnswers, setQuestionAnswers] = useState<QuestionAnswers>({ household: {}, guests: {} });
+    const [travel, setTravel] = useState<RsvpTravel>(EMPTY_TRAVEL);
     const [token, setToken] = useState<string | null>(null);
     const [clientId, setClientId] = useState(() => crypto.randomUUID());
     const [message, setMessage] = useState("");
@@ -114,6 +142,8 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
             setHousehold(found);
             setAnswers(answersFrom(found));
             setQuestionAnswers(found.answers);
+            // An edited reply starts from the household's saved transport answer.
+            setTravel(found.travel ?? EMPTY_TRAVEL);
             setReturning(Object.values(found.responses).some((events) => Object.values(events).some((s) => s !== "pending")));
             go(found.deadlinePassed ? "review" : "attendance");
         } catch (e) {
@@ -225,6 +255,12 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     const guestQuestions = (guest: Guest) => household.questions.filter((q) => q.scope === "guest" && appliesToGuest(q, guest));
     const householdQuestions = household.questions.filter((q) => q.scope === "household" && appliesToHousehold(q));
     const detailGuests = household.guests.filter((g) => (household.collectDietary && attendingAny(g)) || guestQuestions(g).length > 0);
+    const comingCount = household.guests.filter(attendingAny).length;
+    // Transport is only asked of households with someone coming, and is entirely optional.
+    const askTravel = household.collectTravel && comingCount > 0;
+    const sentTravel = effectiveTravel(travel, comingCount);
+    const steps = askTravel ? ["Who's coming", "Details", "Travel", "Review"] : ["Who's coming", "Details", "Review"];
+    const stepIndex: Partial<Record<Step, number>> = askTravel ? { attendance: 0, details: 1, travel: 2, review: 3 } : { attendance: 0, details: 1, review: 2 };
 
     const questionError = (question: RsvpQuestion, value: AnswerValue | undefined) => {
         const checked = validateAnswer(question, value);
@@ -252,6 +288,8 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                 message: household.collectMessage ? message : null,
                 email,
                 answers: questionAnswers,
+                // Left out entirely when not asked, so an earlier answer is kept as it is.
+                ...(askTravel ? { travel: sentTravel } : {}),
             });
             setHousehold(result.household);
             setConfirmationSent(!!result.confirmationSent);
@@ -266,10 +304,10 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
 
     const header = (title: string, intro?: string) => (
         <div className="flex flex-col items-center gap-5 text-center">
-            {STEP_INDEX[step] !== undefined && !household.deadlinePassed && <StepIndicator steps={STEPS} current={STEP_INDEX[step]!} />}
+            {stepIndex[step] !== undefined && !household.deadlinePassed && <StepIndicator steps={steps} current={stepIndex[step]!} />}
             <div className="flex flex-col items-center gap-2 pt-1">
                 <Eyebrow>Replying for</Eyebrow>
-                <p className="wedding-display max-w-lg text-[2.15rem] leading-none text-leaf sm:text-[2.65rem]">{household.householdName}</p>
+                <p className="wedding-display text-leaf max-w-lg text-[2.15rem] leading-none sm:text-[2.65rem]">{household.householdName}</p>
             </div>
             <h2 data-step-heading tabIndex={-1} className="wedding-eyebrow text-forest text-[0.75rem] font-semibold outline-none sm:text-[0.8125rem]">
                 {title}
@@ -496,8 +534,108 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                             size="xl"
                             iconTrailing={ArrowRight}
                             className={cx(weddingButton.primary, "min-h-14")}
-                            onClick={() => (detailErrors.length ? setShowErrors(true) : go("review"))}
+                            onClick={() => (detailErrors.length ? setShowErrors(true) : go(askTravel ? "travel" : "review"))}
                         >
+                            {askTravel ? "Continue" : "Review my RSVP"}
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+        );
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Step 3: getting there and staying (optional, once per household)
+
+    if (step === "travel" && askTravel) {
+        const several = comingCount > 1;
+        const clear = (patch: Partial<RsvpTravel>, label: string) => (
+            <Button color="link-gray" size="sm" className="self-start" onClick={() => setTravel((current) => ({ ...current, ...patch }))}>
+                {label}
+            </Button>
+        );
+        return (
+            <div ref={top} className="scroll-mt-24">
+                <Card>
+                    {header(
+                        "Getting there and staying",
+                        "Both questions are optional. Your answers help us plan the courtesy bus and accommodation; they don't book a seat or a room.",
+                    )}
+                    <section aria-labelledby="travel-bus" className="border-sandstone/70 flex flex-col gap-5 border-t pt-7">
+                        <div className="flex items-center gap-3">
+                            <Bus className="text-leaf size-6 shrink-0" aria-hidden="true" />
+                            <h3 id="travel-bus" className="wedding-display text-forest text-[1.75rem] leading-tight">
+                                Courtesy bus
+                            </h3>
+                        </div>
+                        <ChoiceGroup
+                            label="Will you need the courtesy bus?"
+                            description="It leaves from Dubbo RSL at a prearranged time. We'll share confirmed pick-up points and times closer to the wedding."
+                            value={travel.bus}
+                            onChange={(bus) => setTravel((current) => ({ ...current, bus: bus as BusChoice }))}
+                            choices={BUS_CHOICES.map((choice) => ({ value: choice, label: BUS_LABELS[choice] }))}
+                        />
+                        {several && needsOutbound(travel.bus) && (
+                            <CountField
+                                label="How many of you need the bus to the wedding?"
+                                description={`${comingCount} of you are coming.`}
+                                value={sentTravel.outbound}
+                                min={1}
+                                max={comingCount}
+                                onChange={(outbound) => setTravel((current) => ({ ...current, outbound }))}
+                            />
+                        )}
+                        {several && needsReturn(travel.bus) && (
+                            <CountField
+                                label="How many of you need the bus home after the reception?"
+                                description="Return trips may run at set times or be requested through the bar staff on the night, subject to the driver's availability."
+                                value={sentTravel.return}
+                                min={1}
+                                max={comingCount}
+                                onChange={(back) => setTravel((current) => ({ ...current, return: back }))}
+                            />
+                        )}
+                        {travel.bus && clear({ bus: null, outbound: 0, return: 0 }, "Clear this answer")}
+                    </section>
+
+                    <section aria-labelledby="travel-stay" className="border-sandstone/70 flex flex-col gap-5 border-t pt-7">
+                        <div className="flex items-center gap-3">
+                            <Home02 className="text-leaf size-6 shrink-0" aria-hidden="true" />
+                            <h3 id="travel-stay" className="wedding-display text-forest text-[1.75rem] leading-tight">
+                                Accommodation
+                            </h3>
+                        </div>
+                        <ChoiceGroup
+                            label="Where are you planning to stay?"
+                            value={travel.stay}
+                            onChange={(stay) => setTravel((current) => ({ ...current, stay: stay as StayChoice }))}
+                            choices={STAY_CHOICES.map((choice) => ({ value: choice, label: STAY_LABELS[choice] }))}
+                        />
+                        {travel.stay === "glamping" && (
+                            <p className="bg-eucalypt-light text-forest px-4 py-3 text-[0.9375rem]">
+                                Glamping at Rhino Lodge is limited and first-in, first-served. We're coordinating it with Rhino Lodge and will be in touch to
+                                point you in the right direction. Choosing it here doesn't reserve a place.
+                            </p>
+                        )}
+                        {travel.stay === "dubbo" && (
+                            <Input
+                                {...fieldProps}
+                                label="Accommodation name or location"
+                                placeholder="e.g. The Westbury Dubbo"
+                                hint="Optional. It helps us work out possible bus pick-up points, though we can't promise a pick-up from every hotel."
+                                maxLength={STAY_LOCATION_MAX}
+                                value={travel.stayLocation ?? ""}
+                                onChange={(stayLocation) => setTravel((current) => ({ ...current, stayLocation }))}
+                            />
+                        )}
+                        {travel.stay && clear({ stay: null, stayLocation: null }, "Clear this answer")}
+                    </section>
+
+                    <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <Button color="tertiary" iconLeading={ArrowLeft} className="justify-center text-tertiary" onClick={() => go("details")}>
+                            Back
+                        </Button>
+                        <Button size="xl" iconTrailing={ArrowRight} className={cx(weddingButton.primary, "min-h-14")} onClick={() => go("review")}>
                             Review my RSVP
                         </Button>
                     </div>
@@ -507,7 +645,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
     }
 
     // -----------------------------------------------------------------------------------------
-    // Step 3: review (also the read-only view after the deadline)
+    // Step 4: review (also the read-only view after the deadline)
 
     const coming = household.guests.filter((g) => invitedEvents(g).some((event) => answers[g.id]?.events[event.id] === "attending"));
     const notComing = household.guests.filter((g) => !coming.includes(g) && !unanswered.includes(g) && declinedAll(g));
@@ -577,6 +715,52 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                     ))}
                 </ul>
             </section>
+            {askTravel && (
+                <section aria-labelledby="summary-travel" className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 id="summary-travel" className="wedding-eyebrow text-olive-600">
+                            Getting there
+                        </h3>
+                        {editable && (
+                            <Button
+                                color="link-gray"
+                                size="sm"
+                                iconLeading={Edit03}
+                                onClick={() => go("travel")}
+                                aria-label="Change transport and accommodation"
+                            >
+                                Change
+                            </Button>
+                        )}
+                    </div>
+                    <dl className="flex flex-col gap-2 text-[0.9375rem]">
+                        <div>
+                            <dt className="inline text-tertiary">Courtesy bus: </dt>
+                            <dd className="text-charcoal inline">
+                                {sentTravel.bus ? BUS_LABELS[sentTravel.bus] : "Not answered"}
+                                {comingCount > 1 &&
+                                    sentTravel.bus === "both" &&
+                                    sentTravel.outbound === sentTravel.return &&
+                                    ` (${passengers(sentTravel.outbound)})`}
+                                {comingCount > 1 && sentTravel.bus === "to" && ` (${passengers(sentTravel.outbound)})`}
+                                {comingCount > 1 && sentTravel.bus === "home" && ` (${passengers(sentTravel.return)})`}
+                            </dd>
+                            {comingCount > 1 && sentTravel.bus === "both" && sentTravel.outbound !== sentTravel.return && (
+                                <dd className="text-charcoal">
+                                    {passengers(sentTravel.outbound)} to the wedding, {passengers(sentTravel.return)} home
+                                </dd>
+                            )}
+                        </div>
+                        <div>
+                            <dt className="inline text-tertiary">Staying: </dt>
+                            <dd className="text-charcoal inline">
+                                {sentTravel.stay ? STAY_LABELS[sentTravel.stay] : "Not answered"}
+                                {sentTravel.stayLocation?.trim() ? ` · ${sentTravel.stayLocation.trim()}` : ""}
+                            </dd>
+                        </div>
+                    </dl>
+                </section>
+            )}
             {(householdQuestions.some((q) => answerText(questionAnswers.household[q.id])) || message.trim() || email.trim()) && (
                 <section aria-labelledby="summary-household" className="flex flex-col gap-3">
                     <div className="flex items-center justify-between gap-3">
@@ -616,7 +800,7 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
         </div>
     );
 
-    if (step === "review") {
+    if (step === "review" || step === "travel") {
         return (
             <div ref={top} className="scroll-mt-24">
                 <Card>
@@ -627,10 +811,21 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                     <ErrorNote message={error} />
                     {!household.deadlinePassed && (
                         <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
-                            <Button color="tertiary" iconLeading={ArrowLeft} className="justify-center text-tertiary" onClick={() => go("details")}>
+                            <Button
+                                color="tertiary"
+                                iconLeading={ArrowLeft}
+                                className="justify-center text-tertiary"
+                                onClick={() => go(askTravel ? "travel" : "details")}
+                            >
                                 Back
                             </Button>
-                            <Button size="xl" className={cx(weddingButton.primary, "min-h-14")} isLoading={busy} showTextWhileLoading onClick={() => void submit()}>
+                            <Button
+                                size="xl"
+                                className={cx(weddingButton.primary, "min-h-14")}
+                                isLoading={busy}
+                                showTextWhileLoading
+                                onClick={() => void submit()}
+                            >
                                 Send our RSVP
                             </Button>
                         </div>

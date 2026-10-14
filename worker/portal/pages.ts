@@ -23,6 +23,7 @@ import { listQuestions, questionSummaries } from "./rsvp-questions";
 import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
 import { computeStats } from "./stats";
+import { travelOverview } from "./travel";
 import { listUsers } from "./users";
 
 export interface PortalPageResult {
@@ -129,7 +130,7 @@ const PAGES: PageDef[] = [
         permission: "wedding.view",
         application: "wedding",
         load: async ({ env, user, flags }) => {
-            const [events, stats, submissions, settings, households, questions, summaries] = await Promise.all([
+            const [events, stats, submissions, settings, households, questions, summaries, travel] = await Promise.all([
                 listEntities(env.DB, eventDef),
                 computeStats(env.DB, user, flags),
                 listSubmissions(env.DB),
@@ -137,8 +138,9 @@ const PAGES: PageDef[] = [
                 householdResponseCounts(env.DB),
                 listQuestions(env.DB),
                 questionSummaries(env.DB),
+                travelOverview(env.DB),
             ]);
-            return { route: "rsvps", events, stats, submissions, settings, households, questions, summaries };
+            return { route: "rsvps", events, stats, submissions, settings, households, questions, summaries, travel };
         },
     },
     {
