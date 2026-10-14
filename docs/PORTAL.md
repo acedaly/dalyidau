@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql` and `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For"). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For") and `0010_rsvp_travel.sql` (one new table for courtesy bus and accommodation answers; no existing row is changed). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -149,7 +149,35 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 - **Questions**: build household- or guest-level questions under RSVPs → Questions. Types are short text, long text, yes/no, single choice, multiple choice, number and date. Questions can depend on age, attendance at an event, or another answer. Publishing controls whether guests see a question. Meaningful edits create a new version; answers retain the question version and snapshot used when they were submitted.
 - **Switching over**: set `RSVP_LINK_SECRET`, copy each household's signed link or use the `{{rsvp_link}}` merge field, test rotation and revocation, then turn on Native RSVP. Consider disabling short codes. Turning Native RSVP off reverts every public button to the configured Say I Do URL immediately.
 - **How the native form is protected**: links carry a signed household id and invitation version; the secret never leaves the Worker. Rotation invalidates every older link and revocation disables the current one. Lookups are limited to 20 per 10 minutes per client and submissions to 10; clients are identified by a hash, not their IP. All invalid invitation states look identical. Only guests in that household and events they're invited to can be answered, and the whole household must be answered. Conditional answers are checked on the Worker. Each submission is stored verbatim and audited; retrying the same submission is idempotent.
-- **Courtesy bus**: create a published yes/no question and mark it as the courtesy bus interest question. The Questions report shows the live interested count; this is intentionally information gathering, not a transport booking system.
+- **Courtesy bus and accommodation**: see [Transport and accommodation](#transport-and-accommodation). The older per-guest "seat on the courtesy bus?" question (`q_bus`) is superseded by the household transport step while that step is on, so nobody is asked twice; its earlier answers stay in the Questions report.
+
+## Transport and accommodation
+
+Information gathering for booking the Dubbo RSL courtesy bus, not a booking system: nothing reserves a seat, a pick-up or a room. Rules live in `src/shared/portal/travel.ts`, shared by the form, the Worker and the planner.
+
+**On the RSVP** (RSVPs → Settings → "Ask about the courtesy bus and accommodation", on by default; the native RSVP itself stays off until you switch it on): after the details step, households with someone coming see one optional **Travel** step, answered once for the household:
+
+| Question                                                           | Choices                                                                                                                       | Notes                                                                                                                                                           |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Will you need the courtesy bus?                                    | Yes — to the wedding · Yes — home after the reception · Yes — both ways · No — we'll arrange our own transport · Not sure yet | For two or more guests coming, a −/+ count for each chosen direction (defaults to everyone coming; 1 to the number attending). One guest: the count is implied. |
+| Where are you planning to stay?                                    | Rhino Lodge glamping · Accommodation in Dubbo · Staying with family or friends · Travelling home · Not sure yet               | Glamping shows a note that it's limited and that choosing it doesn't reserve a place.                                                                           |
+| Accommodation name or location (only for "Accommodation in Dubbo") | Free text, 200 characters                                                                                                     | Used to find possible pick-up points; the form says pick-ups can't be promised.                                                                                 |
+
+- Every answer can be left blank or cleared. The Worker re-checks counts against the guests attending in that submission, zeroes counts for a direction that wasn't chosen, and drops the accommodation name for any other choice.
+- **Editing a reply** starts from the saved answer. A household that later declines everyone keeps its answer (so nothing is lost if they change their mind), but it stops counting and is flagged. A submission that doesn't include the travel step (an older form, or the step switched off) leaves the saved answer untouched.
+- Each answer is stored in the RSVP submission and audited; the accommodation name is redacted from the audit log because it can be an address.
+
+**In the Wedding Planner** (RSVPs → **Transport**; anyone with Wedding Planner access can view, editors and above can change):
+
+- Passengers to Rhino Lodge, passengers home, passengers travelling both ways, and households/guests not sure yet. Counts are capped at the guests attending **now**, so attendance changed in the portal can't inflate the estimate.
+- Where attending households are staying, and the Dubbo accommodation names they gave (grouped, as possible pick-up points).
+- A table of households with filters for **Needs follow-up** (not sure about the bus or accommodation, interested in glamping, more bus seats than guests now coming, or asked for the bus while nobody is coming) and **No answer yet**.
+- **Edit** (pencil) records an answer given by phone or message (`PUT /api/portal/wedding/households/:id/travel`, audited as `rsvp.travel.update`).
+- **Export for the RSL** (`/api/portal/export/transport.csv`, needs the export permission, audited as `export.transport`): household, guests attending, email and phone (the household's, else the first guest's), bus choice, passengers each way, where they're staying, accommodation name, follow-up reasons and when it was answered.
+
+Nothing from these answers is ever rendered on the public website.
+
+**Website wording** stays editable in Website → Sections. Accommodation places have an **On-site stay at the venue** switch (shown first as a framed card marked "Limited · first in, first served", with **Get in touch** when a contact email is set; other places appear under "Staying in town"). The courtesy bus section has editable parts ("Getting to the wedding", "Getting home"). **Use suggested wording** on the accommodation, courtesy bus and FAQ sections fills the draft with the agreed October 2026 wording (`src/shared/portal/website-suggestions.ts`) while keeping other places, links and photos; nothing changes publicly until you save and publish. Production already has saved website content, so the new wording appears there only once you do that.
 
 ## Importing guests
 
@@ -218,7 +246,7 @@ Providers (Fastmail JMAP preferred, authenticated TLS SMTP or SMTP2Go for email;
 | Households           | Invitation units with signed links, copy, rotation, revocation, optional legacy codes, contact/postal details and safeguarded bulk actions.                                                                                                                                                                       |
 | Invitation Studio    | One household invitation per household (individual invitations as an advanced option): email/SMS/print previews, signed links, real QR codes, printable PDFs and an idempotent generation ledger that never auto-sends.                                                                                           |
 | Events               | Ceremony, reception and anything else, with public/private and RSVP on/off per event.                                                                                                                                                                                                                             |
-| RSVPs                | Response metrics, attendance by event, replies per household, configurable conditional question builder, versioned answer reports, courtesy-bus count, online response log and settings.                                                                                                                          |
+| RSVPs                | Response metrics, attendance by event, replies per household, configurable conditional question builder, versioned answer reports, courtesy bus and accommodation overview with RSL export, online response log and settings.                                                                                     |
 | Communications       | Email and SMS, categories, templates, recipient filters, invitation deduplication, scheduling, per-guest preview, frozen recipient lists, delivery reports, retries, SMS cost, text conversations with replies, opt-outs and mail-merge export.                                                                   |
 | Seating              | Interactive table plan with capacities, unseated guests, drag/move workflow, warnings and print view.                                                                                                                                                                                                             |
 | Catering             | Event meal assignments, age-aware meal categories, dietary/accessibility roll-up and CSV export.                                                                                                                                                                                                                  |
@@ -247,7 +275,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0009`)
+## Data model (D1, migrations `0002`–`0010`)
 
 | Table                                                               | Contents                                                                                                |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -258,6 +286,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 | `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                                                     |
 | `guest_imports`, `guest_import_rows`                                | Applied guest imports and their per-row reports                                                         |
 | `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows                             |
+| `rsvp_travel`                                                       | One row per household: courtesy bus choice, passengers each way, where they're staying (migration 0010) |
 | `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled email/SMS communications with per-recipient delivery state, attempts and cost |
 | `sms_messages`, `comm_webhook_events`                               | Text conversations (outbound and inbound) and deduplicated provider webhooks                            |
 | `seating_tables`, `seat_assignments`, `catering_assignments`        | Table plan and catering choices                                                                         |

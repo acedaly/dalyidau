@@ -2,10 +2,11 @@
 // designed invitation rather than a stack of identical blocks. All copy comes from the portal
 // (Website editor) and event details from the Wedding Planner; nothing here invents facts.
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUpRight, Heart } from "@untitledui/icons";
+import { ArrowDown, ArrowUpRight, Building07, Bus, Heart, Mail01, Moon02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { formatDate, formatTime } from "@/portal/lib/format";
-import type { PublicEvent, WebsiteItem, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
+import type { PublicEvent, WebsiteItem, WebsiteMedia, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
+import { isOnSite } from "@/shared/portal/website-suggestions";
 import { cx } from "@/utils/cx";
 import { EucalyptusBranch, SignatureBotanicals, Sprig, Stamp } from "@/wedding/components/ornament";
 import { Eyebrow, Photo, Prose, SectionHeading, longDate, paragraphs, weddingButton } from "@/wedding/components/ui";
@@ -492,75 +493,129 @@ const Venue = ({ data, section }: { data: WeddingPageData; section: WebsiteSecti
 };
 
 // ---------------------------------------------------------------------------------------------
-// Accommodation
+// Accommodation: the on-site glamping first, set apart as a framed card, then places in town.
+
+const OnSiteStay = ({ data, item, image }: { data: WeddingPageData; item: WebsiteItem; image: WebsiteMedia | null }) => {
+    const contact = data.content.contactEmail.trim();
+    return (
+        <article className="bg-paper border-forest/15 border p-1.5 shadow-[0_28px_70px_-48px_rgb(82_32_38/0.4)] sm:p-2" data-testid="onsite-stay">
+            <div className="border-sandstone/80 flex flex-col border">
+                {image && <Photo image={image} shape="none" className="aspect-[16/9] rounded-none" sizes="(min-width: 1024px) 720px, 100vw" />}
+                <div className="flex flex-col gap-5 px-5 py-8 sm:px-10 sm:py-10">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                        {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
+                        <span className="wedding-eyebrow ring-leaf/40 text-leaf inline-flex items-center rounded-full px-3 py-1 text-[0.625rem] whitespace-nowrap ring-1 ring-inset max-sm:px-2.5 max-sm:tracking-[0.1em]">
+                            Limited · first in, first served
+                        </span>
+                    </div>
+                    <h3 className="wedding-display text-forest text-[2.4rem] leading-[1.02] sm:text-[3.1rem]">{item.title}</h3>
+                    {item.body && <Prose text={item.body} className="text-charcoal max-w-2xl text-[1.0625rem]" />}
+                    <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-7">
+                        {contact && (
+                            <Button
+                                href={`mailto:${contact}?subject=${encodeURIComponent("Staying at Rhino Lodge")}`}
+                                size="lg"
+                                iconLeading={Mail01}
+                                className={cx(weddingButton.primary, "w-full justify-center sm:w-auto")}
+                            >
+                                Get in touch
+                            </Button>
+                        )}
+                        <ItemLink item={item} label="About the glamping" />
+                    </div>
+                </div>
+            </div>
+        </article>
+    );
+};
 
 const Accommodation = ({ data, section }: { data: WeddingPageData; section: WebsiteSection }) => {
     const sectionImage = section.imageId ? data.sectionImages[section.imageId] : null;
     const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
+    const places = section.items.map((item, i) => ({ item, onSite: isOnSite(item, i, section.items) }));
+    const onSite = places.filter((p) => p.onSite).map((p) => p.item);
+    const inTown = places.filter((p) => !p.onSite).map((p) => p.item);
+    // The section photo belongs to the on-site stay unless it has its own.
+    const imageFor = (item: WebsiteItem, fallback: boolean) => (item.imageId && data.sectionImages[item.imageId]) || (fallback ? sectionImage : null);
     return (
         <section
             id={section.id}
             aria-labelledby={`${section.id}-heading`}
             className="wedding-reveal bg-sandstone-light scroll-mt-20 overflow-hidden py-24 lg:py-36"
         >
-            <div className={cx(container, "grid grid-cols-1 gap-16 lg:grid-cols-12 lg:gap-16")}>
+            <div className={cx(container, "grid grid-cols-1 gap-14 lg:grid-cols-12 lg:gap-16")}>
                 <div className="relative flex flex-col gap-8 lg:col-span-4">
-                    <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.accommodation} title={section.title} size="md" />
+                    <SectionHeading id={`${section.id}-heading`} eyebrow="Accommodation & transport" title={section.title} size="md" />
                     {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                    <Stamp text="Limited · first come, first served · " className="mt-4 size-32 rotate-[-8deg] max-lg:hidden">
-                        <text
-                            x="60"
-                            y="66"
-                            textAnchor="middle"
-                            fill="currentColor"
-                            fontSize="15"
-                            style={{ fontFamily: "var(--font-wedding-display)", fontStyle: "italic" }}
-                        >
-                            book early
-                        </text>
-                    </Stamp>
+                    {onSite.length > 0 && (
+                        <Stamp text="Limited · first in, first served · " className="mt-4 size-32 rotate-[-8deg] max-lg:hidden">
+                            <text
+                                x="60"
+                                y="66"
+                                textAnchor="middle"
+                                fill="currentColor"
+                                fontSize="15"
+                                style={{ fontFamily: "var(--font-wedding-display)", fontStyle: "italic" }}
+                            >
+                                book early
+                            </text>
+                        </Stamp>
+                    )}
                 </div>
 
-                {section.items.length > 0 && (
-                    <ul className="border-forest/25 flex flex-col border-t lg:col-span-8 lg:mt-4">
-                        {section.items.map((item, i) => {
-                            // The section photo belongs to the first place (Rhino Lodge) unless it has its own.
-                            const image = (item.imageId && data.sectionImages[item.imageId]) || (i === 0 ? sectionImage : null);
-                            return (
-                                <li key={i} className="border-forest/25 border-b py-8 sm:py-10">
-                                    <article
-                                        className={cx(
-                                            "grid h-full grid-cols-[2.5rem_1fr] gap-x-4 sm:grid-cols-[3.5rem_1fr] sm:gap-x-6",
-                                            image && "md:grid-cols-[3.5rem_12rem_1fr]",
-                                        )}
-                                    >
-                                        <span aria-hidden="true" className="wedding-display text-clay-700 pt-1 text-[1.1rem] italic">
-                                            0{i + 1}
-                                        </span>
-                                        {image && (
-                                            <Photo
-                                                image={image}
-                                                shape="none"
-                                                className="col-start-2 mb-6 aspect-[4/3] rounded-none md:col-start-2 md:mb-0 md:h-full md:min-h-44"
-                                                sizes="(min-width: 768px) 200px, 100vw"
-                                            />
-                                        )}
-                                        <div className={cx("col-start-2 flex flex-col gap-3", image && "md:col-start-3 md:pl-4")}>
-                                            {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
-                                            <h3 className="wedding-display text-forest text-[2.15rem] leading-tight sm:text-[2.75rem]">{item.title}</h3>
-                                            <p className="flex items-center gap-1.5 text-[0.82rem] text-olive-600">
-                                                <Heart className="size-4" aria-hidden="true" />
-                                                Recommended by {couple}
-                                            </p>
-                                            {item.body && <Prose text={item.body} className="text-charcoal max-w-xl text-[1rem]" />}
-                                            <ItemLink item={item} label={i === 0 ? "Book or enquire" : "Visit website"} />
-                                        </div>
-                                    </article>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                )}
+                <div className="flex flex-col gap-14 lg:col-span-8 lg:mt-4">
+                    {onSite.map((item, i) => (
+                        <OnSiteStay key={i} data={data} item={item} image={imageFor(item, i === 0)} />
+                    ))}
+
+                    {inTown.length > 0 && (
+                        <div className="flex flex-col gap-2" data-testid="town-stays">
+                            {onSite.length > 0 && (
+                                <div className="flex items-center gap-3">
+                                    <Building07 className="size-5 text-olive-600" aria-hidden="true" />
+                                    <h3 className="wedding-eyebrow text-[0.75rem] text-olive-600">Staying in town</h3>
+                                </div>
+                            )}
+                            <ul className="border-forest/25 flex flex-col border-t">
+                                {inTown.map((item, i) => {
+                                    const image = imageFor(item, onSite.length === 0 && i === 0);
+                                    return (
+                                        <li key={i} className="border-forest/25 border-b py-8 sm:py-10">
+                                            <article
+                                                className={cx(
+                                                    "grid h-full grid-cols-[2.5rem_1fr] gap-x-4 sm:grid-cols-[3.5rem_1fr] sm:gap-x-6",
+                                                    image && "md:grid-cols-[3.5rem_12rem_1fr]",
+                                                )}
+                                            >
+                                                <span aria-hidden="true" className="wedding-display text-clay-700 pt-1 text-[1.1rem] italic">
+                                                    0{i + 1}
+                                                </span>
+                                                {image && (
+                                                    <Photo
+                                                        image={image}
+                                                        shape="none"
+                                                        className="col-start-2 mb-6 aspect-[4/3] rounded-none md:col-start-2 md:mb-0 md:h-full md:min-h-44"
+                                                        sizes="(min-width: 768px) 200px, 100vw"
+                                                    />
+                                                )}
+                                                <div className={cx("col-start-2 flex flex-col gap-3", image && "md:col-start-3 md:pl-4")}>
+                                                    {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
+                                                    <h4 className="wedding-display text-forest text-[2rem] leading-tight sm:text-[2.5rem]">{item.title}</h4>
+                                                    <p className="flex items-center gap-1.5 text-[0.82rem] text-olive-600">
+                                                        <Heart className="size-4" aria-hidden="true" />
+                                                        Recommended by {couple}
+                                                    </p>
+                                                    {item.body && <Prose text={item.body} className="text-charcoal max-w-xl text-[1rem]" />}
+                                                    <ItemLink item={item} label="Visit website" />
+                                                </div>
+                                            </article>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+                    )}
+                </div>
             </div>
         </section>
     );
@@ -614,40 +669,58 @@ const Travel = ({ data, section, transport }: { data: WeddingPageData; section: 
     );
 };
 
-const TransportFeature = ({ section }: { section: WebsiteSection }) => (
+/** "Getting home" reads as the evening trip; anything else as the trip out. */
+const busIcon = (title: string) => (/home|return|back/i.test(title) ? Moon02 : Bus);
+
+const TransportFeature = ({ section, links }: { section: WebsiteSection; links: SiteLinks }) => (
     <section
         id={section.id}
         aria-labelledby={`${section.id}-heading`}
         className="wedding-reveal border-sandstone bg-eucalypt-light relative isolate scroll-mt-20 overflow-hidden border-y px-5 py-24 sm:px-8 lg:py-32"
     >
         <EucalyptusBranch className="text-eucalypt/35 absolute -right-32 -bottom-20 -z-10 w-[34rem] rotate-[-24deg] max-md:hidden" />
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-[.78fr_1.22fr] lg:gap-24">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
             <div className="flex flex-col items-start gap-6">
-                <Eyebrow className="text-olive">Getting home safely</Eyebrow>
-                <h2 id={`${section.id}-heading`} className="wedding-display text-forest text-[3.7rem] leading-[0.95] sm:text-[5rem] lg:text-[5.75rem]">
+                <Eyebrow className="text-olive">Accommodation &amp; transport</Eyebrow>
+                <h2 id={`${section.id}-heading`} className="wedding-display text-forest text-[3.5rem] leading-[0.95] sm:text-[4.75rem] lg:text-[5.25rem]">
                     {section.title}
                 </h2>
                 <span aria-hidden="true" className="bg-gold h-px w-20" />
-            </div>
-            <div className="flex flex-col gap-8 lg:pt-16">
-                {section.body && <Prose text={section.body} className="text-charcoal max-w-2xl" />}
-                {section.items.length > 0 && (
-                    <ul className="border-olive/25 flex flex-col border-t">
-                        {section.items.map((item, i) => (
-                            <li key={i} className="border-olive/25 flex flex-col gap-3 border-b py-6">
-                                <h3 className="wedding-display text-forest text-[1.65rem]">{item.title}</h3>
-                                {item.body && <Prose text={item.body} className="text-charcoal text-[1rem]" />}
-                                {item.url && (
-                                    <a href={item.url} {...external} className="wedding-eyebrow text-leaf mt-2 self-start underline underline-offset-4">
-                                        More information <span className="sr-only">(opens in a new tab)</span>
-                                    </a>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
+                {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
+                {/* Say I Do doesn't ask about the bus, so only point to the native RSVP. */}
+                {links.rsvp && !links.rsvpExternal && (
+                    <Button {...rsvpLinkProps(links)} size="lg" className={cx(weddingButton.outline, "mt-2")}>
+                        Let us know in your RSVP
+                    </Button>
                 )}
-                <p className="wedding-display text-leaf max-w-lg text-[1.35rem] italic">Please check back closer to the wedding for confirmed arrangements.</p>
             </div>
+            {section.items.length > 0 && (
+                <ul className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:pt-6">
+                    {section.items.map((item, i) => {
+                        const Icon = busIcon(item.title);
+                        return (
+                            <li key={i} className="bg-paper border-olive/20 flex flex-col border p-1.5">
+                                <div className="border-sandstone/70 flex h-full flex-col gap-4 border px-5 py-7 sm:px-7 sm:py-8">
+                                    <span className="bg-eucalypt-light text-leaf flex size-11 items-center justify-center rounded-full" aria-hidden="true">
+                                        <Icon className="size-5" />
+                                    </span>
+                                    <h3 className="wedding-display text-forest text-[1.85rem] leading-tight">{item.title}</h3>
+                                    {item.body && <Prose text={item.body} className="text-charcoal text-[1rem]" />}
+                                    {item.url && (
+                                        <a
+                                            href={item.url}
+                                            {...external}
+                                            className="wedding-eyebrow text-leaf mt-auto self-start pt-2 underline underline-offset-4"
+                                        >
+                                            More information <span className="sr-only">(opens in a new tab)</span>
+                                        </a>
+                                    )}
+                                </div>
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
         </div>
     </section>
 );
@@ -843,7 +916,7 @@ export const HomePage = ({ data, links }: { data: WeddingPageData; links: SiteLi
             case "travel":
                 return <Travel key={section.id} data={data} section={section} transport={transport} />;
             case "transport":
-                return <TransportFeature key={section.id} section={section} />;
+                return <TransportFeature key={section.id} section={section} links={links} />;
             case "faq":
                 return section.items.length > 0 ? (
                     <Faq key={section.id} data={data} section={section} />

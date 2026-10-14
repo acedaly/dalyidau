@@ -176,6 +176,8 @@ async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ s
     return {
         name: household.name,
         statements: [
+            // Transport answers can name where the household is staying. They cascade too; removed explicitly.
+            db.prepare("DELETE FROM rsvp_travel WHERE household_id = ?").bind(id),
             // Submissions cascade; linked guests are kept but unlinked (ON DELETE SET NULL).
             db.prepare("DELETE FROM households WHERE id = ?").bind(id),
             // RSVP confirmation emails are addressed to the household.

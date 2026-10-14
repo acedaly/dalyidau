@@ -246,6 +246,7 @@ describe("portal access control", () => {
             ["DELETE", "/api/portal/wedding/households/hh_x"],
             ["POST", "/api/portal/wedding/households/hh_x/code"],
             ["POST", "/api/portal/wedding/households/hh_x/invitation"],
+            ["PUT", "/api/portal/wedding/households/hh_x/travel"],
             ["POST", "/api/portal/wedding/events"],
             ["POST", "/api/portal/wedding/tasks"],
             ["POST", "/api/portal/wedding/timeline"],

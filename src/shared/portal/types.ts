@@ -3,6 +3,7 @@ import type { ApplicationId } from "./applications";
 import type { Flags } from "./flags";
 import type { ImportHistoryEntry } from "./guest-import";
 import type { Permission, Role } from "./permissions";
+import type { FollowUpReason, RsvpTravel } from "./travel";
 
 export interface PortalUser {
     email: string;
@@ -48,6 +49,11 @@ export interface WebsiteItem {
     detail: string;
     /** website_media id of a photo for this item (a place to stay), if any. */
     imageId: string | null;
+    /**
+     * Accommodation only: shown as the on-site stay (Rhino Lodge glamping) rather than a place in town.
+     * Absent on content saved before this existed, where the first place is treated as on-site.
+     */
+    onSite?: boolean;
 }
 
 export interface WebsiteSection {
@@ -126,6 +132,8 @@ export interface RsvpSettings {
     linkExpiryDays: number;
     /** Email a confirmation after an online RSVP. Also needs email delivery switched on. */
     confirmationEmail: boolean;
+    /** Ask each household about the courtesy bus and where they're staying. */
+    collectTravel: boolean;
 }
 
 export interface BudgetSettings {
@@ -673,6 +681,7 @@ export type PortalRoute =
           households: (Pick<Household, "id" | "name" | "rsvpCode"> & { guests: number; responded: number; status: HouseholdResponseStatus })[];
           questions: RsvpQuestion[];
           summaries: QuestionSummary[];
+          travel: TravelOverview;
       }
     | {
           route: "communications";
@@ -735,6 +744,10 @@ export interface RsvpHousehold {
     responses: Record<string, Record<string, RsvpStatus>>;
     collectDietary: boolean;
     collectMessage: boolean;
+    /** Ask about the courtesy bus and accommodation (once per household). */
+    collectTravel: boolean;
+    /** The household's saved travel answer, so an edited reply starts from it. */
+    travel: RsvpTravel | null;
     questions: RsvpQuestion[];
     answers: {
         household: Record<string, AnswerValue>;
@@ -888,4 +901,36 @@ export interface QuestionSummary {
     total: number | null;
     /** For text and date questions: the answers with who gave them. */
     responses: { who: string; value: string; version: number }[];
+}
+
+/** One household on the Wedding Planner's transport overview. */
+export interface TravelHouseholdRow {
+    householdId: string;
+    householdName: string;
+    /** Guests attending at least one event right now. */
+    attending: number;
+    email: string | null;
+    phone: string | null;
+    travel: RsvpTravel | null;
+    /** Passenger counts capped at the guests attending now; what the RSL estimate uses. */
+    outbound: number;
+    return: number;
+    followUp: FollowUpReason[];
+    source: "native" | "manual" | null;
+    updatedAt: string | null;
+}
+
+export interface TravelOverview {
+    /** Passengers to Rhino Lodge ("to the wedding" and "both ways"). */
+    outbound: number;
+    /** Passengers back to town ("home after" and "both ways"). */
+    return: number;
+    /** Passengers in households travelling both ways (counted once, by the smaller direction). */
+    bothWays: number;
+    /** Attending households and guests who are not sure about the bus yet. */
+    unsure: { households: number; guests: number };
+    /** Households with someone coming who haven't answered the travel questions. */
+    unanswered: number;
+    byStay: { stay: RsvpTravel["stay"]; households: number; guests: number }[];
+    households: TravelHouseholdRow[];
 }

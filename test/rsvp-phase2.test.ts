@@ -28,6 +28,18 @@ const publicPost = async (action: "lookup" | "submit", body: unknown) => {
     return { status: response.status, json: (await response.json()) as { household?: RsvpHousehold; error?: string; message?: string } };
 };
 
+const RSVP_SETTINGS = {
+    externalUrl: "https://sayi.do/aidanandamelia2258/",
+    deadline: "",
+    collectDietary: true,
+    collectMessage: true,
+    allowChangesAfterDeadline: false,
+    allowCodes: true,
+    linkExpiryDays: 60,
+    confirmationEmail: false,
+    collectTravel: true,
+};
+
 beforeEach(resetPortal);
 
 describe("signed RSVP invitations", () => {
@@ -96,6 +108,8 @@ describe("configurable RSVP questions", () => {
             (question) => question.id === "q_bus",
         )!;
         await apiCall("PATCH", `/api/portal/wedding/rsvp-questions/${bus.id}`, { ...bus, published: true });
+        // The per-guest bus question only runs while the household travel step is off.
+        expect((await apiCall("PUT", "/api/portal/settings/rsvp", { ...RSVP_SETTINGS, collectTravel: false })).status).toBe(200);
 
         const base = {
             token: f.token,

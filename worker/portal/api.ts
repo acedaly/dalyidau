@@ -44,6 +44,7 @@ import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from 
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
+import { saveTravelManually, travelOverview } from "./travel";
 import { listUsers, removeUser, saveUser } from "./users";
 
 interface Ctx {
@@ -312,6 +313,12 @@ add("DELETE", "/api/portal/wedding/guests/:id", "wedding.guests.edit", async ({ 
 });
 add("PUT", "/api/portal/wedding/guests/:id/rsvp", "wedding.rsvp.edit", async ({ env, request, user, params }) =>
     json({ guest: await setGuestRsvp(env.DB, params.id, await readJson(request), user.email) }),
+);
+
+// Courtesy bus and accommodation: the private overview, and a manual answer after a phone call.
+add("GET", "/api/portal/wedding/travel", "wedding.view", async ({ env }) => json(await travelOverview(env.DB)));
+add("PUT", "/api/portal/wedding/households/:id/travel", "wedding.rsvp.edit", async ({ env, request, user, params }) =>
+    json({ travel: await saveTravelManually(env.DB, params.id, await readJson(request), user.email) }),
 );
 
 // --- Households -----------------------------------------------------------------------------------

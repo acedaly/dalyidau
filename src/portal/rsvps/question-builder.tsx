@@ -41,11 +41,14 @@ export const QuestionBuilder = ({
     initialSummaries,
     events,
     canEdit,
+    travelStep = false,
 }: {
     initialQuestions: RsvpQuestion[];
     initialSummaries: QuestionSummary[];
     events: WeddingEvent[];
     canEdit: boolean;
+    /** The household transport step is on, which supersedes the per-guest bus question. */
+    travelStep?: boolean;
 }) => {
     const [questions, setQuestions] = useState(initialQuestions);
     const [summaries, setSummaries] = useState(initialSummaries);
@@ -115,9 +118,14 @@ export const QuestionBuilder = ({
 
             {bus && (
                 <div className="rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
-                    <p className="text-sm font-medium text-secondary">Courtesy bus interest</p>
+                    <p className="text-sm font-medium text-secondary">Courtesy bus interest (per-guest question)</p>
                     <p className="mt-1 text-display-xs font-semibold text-primary">{busSeats}</p>
-                    <p className="text-sm text-tertiary">guest{busSeats === 1 ? "" : "s"} would like a seat</p>
+                    <p className="text-sm text-tertiary">
+                        guest{busSeats === 1 ? "" : "s"} said yes to “{bus.question.label}”.
+                        {travelStep
+                            ? " The household transport step replaces this question while it's switched on, so guests aren't asked twice; see the Transport tab for passenger counts."
+                            : ""}
+                    </p>
                 </div>
             )}
 

@@ -19,6 +19,7 @@ import { formatDate, formatNumber, percent } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { QuestionBuilder } from "@/portal/rsvps/question-builder";
+import { TransportPanel } from "@/portal/rsvps/transport-panel";
 import type { RsvpSettings, RsvpSubmission } from "@/shared/portal/types";
 
 type HouseholdRow = PageData<"rsvps">["households"][number];
@@ -191,6 +192,9 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                     <Tabs.Item id="responses" badge={data.submissions.length || undefined}>
                         Online responses
                     </Tabs.Item>
+                    <Tabs.Item id="transport" badge={data.travel.households.filter((h) => h.followUp.length > 0).length || undefined}>
+                        Transport
+                    </Tabs.Item>
                     <Tabs.Item id="questions" badge={data.questions.filter((question) => question.published && !question.archived).length || undefined}>
                         Questions
                     </Tabs.Item>
@@ -234,12 +238,21 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                         }
                     />
                 </Tabs.Panel>
+                <Tabs.Panel id="transport" className="pt-6">
+                    <TransportPanel
+                        initial={data.travel}
+                        collecting={settings.collectTravel}
+                        canEdit={can("wedding.rsvp.edit")}
+                        canExport={can("wedding.export")}
+                    />
+                </Tabs.Panel>
                 <Tabs.Panel id="questions" className="pt-6">
                     <QuestionBuilder
                         initialQuestions={data.questions}
                         initialSummaries={data.summaries}
                         events={data.events}
                         canEdit={can("wedding.rsvp.edit")}
+                        travelStep={settings.collectTravel}
                     />
                 </Tabs.Panel>
                 <Tabs.Panel id="settings" className="pt-6">
@@ -281,6 +294,13 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                                     label="Allow a message to the couple"
                                     isSelected={draft.collectMessage}
                                     onChange={(v) => setDraft({ ...draft, collectMessage: v })}
+                                />
+                                <Toggle
+                                    className="w-full"
+                                    label="Ask about the courtesy bus and accommodation"
+                                    hint="Once per household, after the details step, and only when someone is coming. Every answer is optional. Replaces the older per-guest bus question so nobody is asked twice. Answers appear under Transport."
+                                    isSelected={draft.collectTravel}
+                                    onChange={(collectTravel) => setDraft({ ...draft, collectTravel })}
                                 />
                             </FormSection>
                             <FormSection title="Confirmation email" description="Sent after a guest replies online and gives an email address.">

@@ -90,3 +90,33 @@ describe("migration 0009", () => {
         expect(await read()).toEqual({ greetingPrefix: "Hello" });
     });
 });
+
+describe("migration 0010", () => {
+    it("only creates the rsvp_travel table, with constraints that reject impossible answers", async () => {
+        const { default: sql } = await import("../migrations/0010_rsvp_travel.sql?raw");
+        const statements = sql
+            .split("\n")
+            .filter((line: string) => !line.trim().startsWith("--"))
+            .join("\n")
+            .split(";")
+            .map((statement: string) => statement.trim())
+            .filter(Boolean);
+        // Additive: one CREATE TABLE, no ALTER, UPDATE, DELETE, DROP or INSERT of existing data.
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).toMatch(/^CREATE TABLE rsvp_travel/);
+        expect(statements[0]).not.toMatch(/\b(ALTER|UPDATE|DROP|INSERT)\b|(?<!ON )\bDELETE\b/);
+
+        const columns = (await db().prepare("PRAGMA table_info(rsvp_travel)").all<{ name: string }>()).results.map((column) => column.name);
+        expect(columns).toEqual(["household_id", "bus", "outbound_count", "return_count", "stay", "stay_location", "source", "updated_at", "updated_by"]);
+
+        await db().prepare("INSERT INTO households (id, name, rsvp_code, created_at, updated_at) VALUES ('hh_m', 'M', 'MMMMMMMM', 'now', 'now')").run();
+        const insert = (bus: string, outbound: number) =>
+            db()
+                .prepare("INSERT OR REPLACE INTO rsvp_travel (household_id, bus, outbound_count, updated_at) VALUES ('hh_m', ?, ?, 'now')")
+                .bind(bus, outbound)
+                .run();
+        await expect(insert("to", 2)).resolves.toBeTruthy();
+        await expect(insert("taxi", 1)).rejects.toThrow();
+        await expect(insert("to", -1)).rejects.toThrow();
+    });
+});

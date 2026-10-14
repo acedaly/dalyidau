@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, Eye, Globe02, Image01, Plus, RefreshCcw01, Trash01, UploadCloud02 } from "@untitledui/icons";
+import { ArrowDown, ArrowUp, ChevronDown, Eye, Globe02, Image01, Plus, RefreshCcw01, Stars02, Trash01, UploadCloud02 } from "@untitledui/icons";
 import { FileUploadDropZone } from "@/components/application/file-upload/file-upload-base";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -19,6 +19,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import type { Flags } from "@/shared/portal/flags";
 import type { SectionKind, WebsiteContent, WebsiteItem, WebsiteMedia, WebsiteSection } from "@/shared/portal/types";
+import { hasSuggestion, isOnSite, withSuggestedWording } from "@/shared/portal/website-suggestions";
 
 const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleLabel: string; bodyLabel: string; urlLabel?: string } }> = {
     story: { label: "Our story" },
@@ -26,7 +27,10 @@ const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleL
     venue: { label: "Venue", items: { noun: "detail", titleLabel: "Label (e.g. Address)", bodyLabel: "Details", urlLabel: "Map or directions link" } },
     accommodation: { label: "Accommodation", items: { noun: "place to stay", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Booking or website link" } },
     travel: { label: "Getting there", items: { noun: "travel tip", titleLabel: "Heading", bodyLabel: "Details", urlLabel: "Map link" } },
-    transport: { label: "Transport / courtesy bus" },
+    transport: {
+        label: "Transport / courtesy bus",
+        items: { noun: "part of the journey", titleLabel: "Heading (e.g. Getting home)", bodyLabel: "Details", urlLabel: "Link (optional)" },
+    },
     children: { label: "Children and families" },
     dress: { label: "Dress code" },
     registry: { label: "Gifts / registry", items: { noun: "registry", titleLabel: "Name", bodyLabel: "Details", urlLabel: "Link" } },
@@ -38,8 +42,15 @@ const KINDS: Record<SectionKind, { label: string; items?: { noun: string; titleL
 const PHOTO_KINDS: SectionKind[] = ["story", "venue", "accommodation", "travel", "transport", "children", "custom"];
 const PHOTO_HINTS: Partial<Record<SectionKind, string>> = {
     venue: "A wide landscape photo of Rhino Lodge works best; it fills the width of the page.",
-    accommodation: "Shown with the first place to stay (Rhino Lodge).",
+    accommodation: "Shown with the on-site stay (Rhino Lodge glamping).",
     story: "A portrait-shaped photo of the two of you works best.",
+};
+
+/** What "Use suggested wording" changes, per section kind. It only ever changes the draft. */
+const SUGGESTION_HINTS: Partial<Record<SectionKind, string>> = {
+    accommodation: "Rhino Lodge glamping wording (limited, first in, first served; get in touch with us). Other places and links are kept.",
+    transport: "Dubbo RSL courtesy bus wording: getting to the wedding and getting home. Nothing about times or seats is promised.",
+    faq: "Updates the “Is there accommodation onsite?” answer to match. Other questions are kept.",
 };
 
 const slug = (title: string, taken: string[]) => {
@@ -94,6 +105,14 @@ const ItemsEditor = ({
                     {spec.urlLabel && <Input label={spec.urlLabel} type="url" placeholder="https://" value={item.url} onChange={(v) => set(i, { url: v })} />}
                     {kind === "accommodation" && (
                         <>
+                            <Toggle
+                                size="sm"
+                                className="w-full"
+                                label="On-site stay at the venue"
+                                hint="Shown first, marked “Limited · first in, first served”, with a “Get in touch” button when a contact email is set. Other places appear under “Staying in town”."
+                                isSelected={isOnSite(item, i, items)}
+                                onChange={(onSite) => onChange(items.map((it, j) => ({ ...it, onSite: j === i ? onSite : isOnSite(it, j, items) })))}
+                            />
                             <Input
                                 label="Small label"
                                 placeholder="5.2 km from the ceremony"
@@ -433,6 +452,23 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                                         />
                                     </div>
                                 </div>
+                                {canEdit && hasSuggestion(section.kind) && (
+                                    <div className="flex flex-col gap-2 rounded-lg bg-primary p-3 ring-1 ring-secondary ring-inset sm:flex-row sm:items-center sm:justify-between">
+                                        <p className="text-sm text-tertiary">{SUGGESTION_HINTS[section.kind]}</p>
+                                        <Button
+                                            size="sm"
+                                            color="secondary"
+                                            iconLeading={Stars02}
+                                            className="shrink-0"
+                                            onClick={() => {
+                                                setSection(i, withSuggestedWording(section));
+                                                toast.success("Suggested wording added", "Review it, save the draft, then publish when you're happy.");
+                                            }}
+                                        >
+                                            Use suggested wording
+                                        </Button>
+                                    </div>
+                                )}
                                 <Input label="Heading" isRequired value={section.title} onChange={(v) => setSection(i, { title: v })} />
                                 <TextArea
                                     label="Text"
@@ -569,7 +605,10 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                             type="email"
                             value={content.contactEmail}
                             onChange={(v) => setContent({ ...content, contactEmail: v })}
-                            hint={saveDraft.fieldError("contactEmail") ?? "Shown at the bottom of the website for questions."}
+                            hint={
+                                saveDraft.fieldError("contactEmail") ??
+                                "Shown at the bottom of the website for questions, and on the Rhino Lodge stay's “Get in touch” button."
+                            }
                             isInvalid={!!saveDraft.fieldError("contactEmail")}
                         />
                         <Toggle
