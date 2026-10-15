@@ -934,3 +934,22 @@ export interface TravelOverview {
     byStay: { stay: RsvpTravel["stay"]; households: number; guests: number }[];
     households: TravelHouseholdRow[];
 }
+
+/** A stored guest or household number that isn't in E.164 yet (mobile number review). */
+export interface MobileReviewRow {
+    kind: "guest" | "household";
+    id: string;
+    name: string;
+    /** For guests, their household's name. */
+    household: string | null;
+    stored: string;
+    /** update: clear-cut; check: read with an assumption, so not ticked by default; invalid: fix by hand. */
+    status: "update" | "check" | "invalid";
+    proposed: string | null;
+    reason: string | null;
+}
+
+export interface MobileReview {
+    rows: MobileReviewRow[];
+    counts: { standard: number; update: number; check: number; invalid: number };
+}

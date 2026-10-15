@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { emailProvider, htmlForText, providerStatus, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
@@ -38,6 +39,7 @@ import { bulkUpdateHouseholds, generateInvitations, listHouseholdRows } from "./
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
 import { MAX_IMPORT_BYTES, commitImport, getImportReport, importReportCsv, listImports, planImport } from "./import";
 import { generateStudioInvitations, invitationPreviews, printableInvitations } from "./invitation-studio";
+import { applyMobileReview, mobileReview } from "./mobile-review";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
 import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
@@ -135,13 +137,14 @@ add("POST", "/api/portal/wedding/providers/test", "portal.settings.manage", asyn
             reference: `provider-test:${crypto.randomUUID()}`,
         });
     } else {
-        if (!/^\+61[2-478][0-9]{8}$/.test(body.to)) throw new HttpError(422, "validation", "Use an approved Australian number in +61 format");
+        const to = normaliseMobile(body.to);
+        if (!to?.startsWith("+614")) throw new HttpError(422, "validation", "Use an approved Australian mobile, e.g. 0412 345 678");
         const adapter = smsProvider(env);
         if (!adapter || !env.SMS_FROM || !env.COMMS_WEBHOOK_SECRET)
             throw new HttpError(503, "not_configured", "ClickSend credentials, an approved sender and webhook validation must be configured first");
         provider = adapter.name;
         await adapter.send({
-            to: body.to,
+            to,
             body: "Wedding Planner controlled SMS test. No invitation was sent.",
             reference: `provider-test:${crypto.randomUUID()}`,
         });
@@ -299,6 +302,11 @@ add("GET", "/api/portal/wedding/guests/imports/:id/report.csv", "wedding.export"
     });
     return csvResponse(`guest-import-${report.createdAt.slice(0, 10)}-${report.id}.csv`, importReportCsv(report));
 });
+// Legacy mobile numbers: a read-only preview, then only the ticked, confirmed changes.
+add("GET", "/api/portal/wedding/mobile-numbers", "wedding.guests.edit", async ({ env }) => json(await mobileReview(env.DB)));
+add("POST", "/api/portal/wedding/mobile-numbers", "wedding.guests.edit", async ({ env, request, user }) =>
+    json({ ...(await applyMobileReview(env.DB, await readJson(request), user.email)), review: await mobileReview(env.DB) }),
+);
 add("GET", "/api/portal/wedding/guests/:id", "wedding.view", async ({ env, params }) => {
     const guest = await getGuest(env.DB, params.id);
     if (!guest) throw new NotFoundError("Guest not found");
@@ -634,7 +642,7 @@ add(
             toCsv(rows, [
                 { header: "Name", value: (r) => r.name },
                 { header: "Email", value: (r) => r.email },
-                { header: "Mobile", value: (r) => r.phone },
+                { header: "Mobile", value: (r) => formatMobile(r.phone) },
                 { header: "Subject", value: (r) => r.subject },
                 { header: "Body", value: (r) => r.body },
                 { header: "RSVP code", value: (r) => r.rsvpCode },

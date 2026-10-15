@@ -19,6 +19,7 @@ import { Empty } from "@/portal/components/empty";
 import { EntityPanel } from "@/portal/components/entity-panel";
 import { FormGrid, FullWidth } from "@/portal/components/form";
 import { MetricCard } from "@/portal/components/metric-card";
+import { MobileInput } from "@/portal/components/mobile-input";
 import { PageHeader } from "@/portal/components/page-header";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
@@ -530,7 +531,12 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                                 />
                             </FullWidth>
                             {field("email", "Contact email", fieldError, { type: "email" })}
-                            {field("phone", "Phone", fieldError, { type: "tel" })}
+                            <MobileInput
+                                value={draft.phone}
+                                onChange={(v) => setDraft({ ...draft, phone: v })}
+                                savedValue={editing?.phone}
+                                error={fieldError("phone")}
+                            />
                             <FullWidth>{field("addressLine1", "Address", fieldError)}</FullWidth>
                             <FullWidth>{field("addressLine2", "Address line 2", fieldError)}</FullWidth>
                             {field("locality", "Suburb or town", fieldError)}

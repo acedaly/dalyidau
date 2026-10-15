@@ -7,7 +7,7 @@
 // run automatically.
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
-import { normaliseMobile } from "../../src/shared/portal/sms";
+import { normaliseMobile } from "../../src/shared/portal/phone";
 import type { DeletedRecord, RetentionPreview } from "../../src/shared/portal/types";
 import { auditStatement, nowIso, parseJson } from "./db";
 import { ConflictError, NotFoundError, ValidationError } from "./entities";

@@ -6,10 +6,10 @@ so the portal never depends on a particular service.
 
 **Nothing is sent today.** Sending needs, per channel, all of:
 
-| Channel | Worker setting                                | Secrets                                   | Switch (Wedding settings → Features) |
-| ------- | --------------------------------------------- | ----------------------------------------- | ------------------------------------ |
-| Email   | `EMAIL_DELIVERY = "fastmail"` and `EMAIL_FROM` | `FASTMAIL_API_TOKEN`                       | Email delivery                       |
-| SMS     | `SMS_DELIVERY = "clicksend"` and `SMS_FROM`   | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | SMS delivery                         |
+| Channel | Worker setting                                 | Secrets                                   | Switch (Wedding settings → Features) |
+| ------- | ---------------------------------------------- | ----------------------------------------- | ------------------------------------ |
+| Email   | `EMAIL_DELIVERY = "fastmail"` and `EMAIL_FROM` | `FASTMAIL_API_TOKEN`                      | Email delivery                       |
+| SMS     | `SMS_DELIVERY = "clicksend"` and `SMS_FROM`    | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | SMS delivery                         |
 
 Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes exist for tests and local development and are ignored in production.
 
@@ -28,7 +28,15 @@ Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes
 - **Audit**: preparing, sending, retrying, replying, reading replies and opt-outs are all audited.
 - **Privacy**: erasing a guest also deletes their text conversations and any stored webhook payloads that mention their email or number.
 
-Phone numbers are normalised to E.164. Australian mobiles can be entered locally (`0412 345 678`); landlines are never texted. The composer shows SMS length and parts: curly quotes and emoji switch a message to Unicode, which shortens each part from 160 to 70 characters.
+Guest and household mobile numbers are stored in E.164 (`+61412345678`), using one shared utility (`src/shared/portal/phone.ts`) for the guest and household forms, the APIs, CSV import, SMS recipients and the SMS provider:
+
+- Australian mobiles can be entered as `0412 345 678`, `+61 412 345 678` or `61412345678`, with spaces, dots, dashes or brackets. Overseas numbers must start with `+` and their country code and are kept as entered (never given `+61`).
+- Landlines, numbers with letters or extensions, several numbers in one cell and the wrong number of digits are refused with an explanation. CSV import leaves such a number out with a warning, still imports the guest, and never blanks a number a guest already has.
+- Every SMS provider refuses anything that isn't already a valid E.164 mobile, so a malformed number can't reach ClickSend. A guest whose saved number can't be texted is skipped with "Mobile number isn't valid".
+- CSV exports write Australian mobiles as `0412 345 678`, which re-imports to the same number.
+- **Numbers saved before this** keep working (they're normalised when a message is prepared) and are left exactly as they are until someone reviews them: **Guests → Review mobiles** previews every saved number that isn't in E.164 yet. Clear-cut ones are ticked, ones read with an assumption (nine digits, probably a lost leading 0) need ticking, and ones that can't be read must be fixed by hand. Opening the review changes nothing; only ticked numbers change, only if they still hold the previewed value, and each change is audited on the record without storing the number. An untouched legacy value doesn't block saving other changes to a guest.
+
+The composer shows SMS length and parts: curly quotes and emoji switch a message to Unicode, which shortens each part from 160 to 70 characters.
 
 ---
 

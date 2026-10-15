@@ -41,6 +41,7 @@ import {
     splitGuestName,
     suggestPartyName,
 } from "../../src/shared/portal/guest-import";
+import { normaliseMobile, parseMobile } from "../../src/shared/portal/phone";
 import type { AgeGroup, Guest, RsvpStatus, Side } from "../../src/shared/portal/types";
 import { parseCsvRows, toCsv } from "./csv";
 import { auditStatement, isGuardFailure, newId, newRsvpCode, nowIso, parseJson, requireChange } from "./db";
@@ -55,7 +56,7 @@ const ALIASES: Record<string, string[]> = {
     lastName: ["last name", "lastname", "last", "surname", "family name"],
     fullName: ["name", "full name", "guest", "guest name"],
     email: ["email", "email address", "e-mail"],
-    phone: ["phone", "mobile", "phone number", "mobile number"],
+    phone: ["phone", "mobile", "phone number", "mobile number", "mobile phone", "cell", "cell phone"],
     household: ["household", "party", "party name", "invitation", "family", "household name", "group name"],
     address: ["mailing address", "address", "postal address", "home address"],
     inviteLink: ["unique link", "invitation link", "rsvp link"],
@@ -76,7 +77,7 @@ export const FIELD_LABELS: Record<string, string> = {
     lastName: "Last name",
     household: "Household",
     email: "Email",
-    phone: "Phone",
+    phone: "Mobile",
     side: "Side",
     groupName: "Group",
     ageGroup: "Age group",
@@ -406,13 +407,27 @@ export async function planImport(db: D1Database, csv: string, decisionsInput: un
         if (linkRaw && !linkId) issues.push({ level: "warning", message: `“${linkRaw.slice(0, 80)}” isn't a Say I Do invitation link, so it was ignored.` });
         else if (source === "sayido" && !linkRaw) issues.push({ level: "warning", message: "No unique link, so this guest is grouped by party name only." });
         const addressRaw = get("address");
+        // Mobiles are stored in E.164. One that can't be read is left out (never blanking a number
+        // the guest already has) and pointed out, rather than stopping the whole row.
+        let phone: string | null = null;
+        const phoneRaw = get("phone");
+        if (phoneRaw) {
+            const mobile = parseMobile(phoneRaw);
+            if (mobile.ok) {
+                phone = mobile.e164;
+                if (mobile.assumed)
+                    issues.push({ level: "info", message: `Mobile “${phoneRaw.slice(0, 40)}” was missing its leading 0; saved as ${mobile.e164}.` });
+            } else {
+                issues.push({ level: "warning", message: `Mobile “${phoneRaw.slice(0, 40)}” wasn't imported. ${mobile.message}` });
+            }
+        }
 
         rows.push({
             line,
             rawName,
             split,
             email,
-            phone: get("phone").slice(0, 40) || null,
+            phone,
             side,
             ageGroup,
             groupName: get("groupName").slice(0, 80) || null,
@@ -874,6 +889,8 @@ export async function planImport(db: D1Database, csv: string, decisionsInput: un
                 if (value === null || value === undefined) continue;
                 const before = current[field as keyof Guest] as string | null;
                 if (before === value || (typeof before === "string" && typeof value === "string" && before.trim() === value.trim())) continue;
+                // The same mobile written differently isn't a change; the mobile number review tidies the stored format.
+                if (field === "phone" && normaliseMobile(before) === value) continue;
                 if (add(field, before ?? null, String(value), !!before)) columns[column] = value;
             }
             const newTags = row.tags.filter((t) => !current.tags.includes(t));

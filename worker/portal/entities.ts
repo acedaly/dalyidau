@@ -5,6 +5,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { FlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { parseMobile } from "../../src/shared/portal/phone";
 import { MESSAGE_CATEGORIES } from "../../src/shared/portal/types";
 import type { BudgetItem, CustomField, Household, MessageTemplate, Supplier, Task, TimelineItem, WeddingEvent } from "../../src/shared/portal/types";
 import { auditIfChanged, auditStatement, diff, newId, newRsvpCode, nowIso, parseJson } from "./db";
@@ -38,6 +39,11 @@ export interface EntityDef<T> {
     validate?: (merged: Record<string, unknown>) => { path: string; message: string } | null;
     /** Fields that can be set on create but never changed. */
     immutable?: string[];
+    /**
+     * Fields left alone when an update sends back exactly the stored value, so a legacy value that
+     * no longer passes validation doesn't block unrelated edits (and is never rewritten silently).
+     */
+    keepUnchanged?: string[];
     /** SQL condition (on alias "t") that hides rows from lists, e.g. soft-deleted ones. */
     listWhere?: string;
     /** Delete through a dedicated soft-delete route instead of the generic one. */
@@ -104,7 +110,29 @@ const httpUrl = z
     .nullable()
     .optional();
 
-export const fields = { opt, str, optStr, date, dateTime, cents, email, httpUrl };
+/** A mobile number for SMS, stored in E.164. Empty clears it; anything that isn't a mobile is refused with guidance. */
+const mobile = z
+    .string()
+    .trim()
+    .max(40, "That's too long for a mobile number")
+    .transform((v, ctx) => {
+        if (v === "") return null;
+        const result = parseMobile(v);
+        if (result.ok) return result.e164;
+        ctx.addIssue({ code: "custom", message: result.message });
+        return z.NEVER;
+    })
+    .nullable()
+    .optional();
+
+/** Drops fields whose sent value equals the stored one (see EntityDef.keepUnchanged). */
+export const dropUnchanged = (input: unknown, before: Record<string, unknown>, keys: string[] = []) => {
+    if (!input || typeof input !== "object") return;
+    const record = input as Record<string, unknown>;
+    for (const key of keys) if (key in record && record[key] === before[key] && before[key] !== null) delete record[key];
+};
+
+export const fields = { opt, str, optStr, date, dateTime, cents, email, httpUrl, mobile };
 
 export function toEntity<T>(def: EntityDef<T>, row: Record<string, unknown>): T {
     const out: Record<string, unknown> = { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at };
@@ -176,6 +204,7 @@ export async function updateEntity<T extends { id: string }>(db: D1Database, def
     const before = await getEntity(db, def, id);
     if (!before) throw new NotFoundError(`${def.noun} not found`);
     if (expected && expected !== (before as { updatedAt?: string }).updatedAt) throw new ConflictError(CONFLICT_MESSAGE);
+    dropUnchanged(input, before as Record<string, unknown>, def.keepUnchanged);
     // zod 4 applies defaults inside .partial(), so keep only the keys the client actually sent.
     const sent = new Set(input && typeof input === "object" ? Object.keys(input) : []);
     for (const field of def.immutable ?? []) sent.delete(field);
@@ -265,7 +294,7 @@ export const householdDef: EntityDef<Household> = {
     create: z.object({
         name: str(120).min(1, "Name is required"),
         email,
-        phone: optStr(40),
+        phone: mobile,
         addressLine1: optStr(200),
         addressLine2: optStr(200),
         locality: optStr(100),
@@ -279,6 +308,7 @@ export const householdDef: EntityDef<Household> = {
     select: "SELECT t.*, (SELECT COUNT(*) FROM guests g WHERE g.household_id = t.id AND g.deleted_at IS NULL) AS guest_count FROM households t",
     listWhere: "t.deleted_at IS NULL",
     softDelete: true,
+    keepUnchanged: ["phone"],
     extra: (row) => ({
         guestCount: Number(row.guest_count ?? 0),
         // Set by the importer and bulk invitation generation, never by the household form.

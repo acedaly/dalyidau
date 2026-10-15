@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { formatMobile } from "../../src/shared/portal/phone";
 import { needsSeat } from "../../src/shared/portal/seating";
 import { BUS_SHORT_LABELS, FOLLOW_UP_LABELS, STAY_LABELS } from "../../src/shared/portal/travel";
 import type { AuditEntry, BudgetItem, Guest, Household, Supplier, Task } from "../../src/shared/portal/types";
@@ -86,7 +87,7 @@ export const EXPORTS: Record<string, ExportDef> = {
                 { header: "First name", value: (g) => g.firstName },
                 { header: "Last name", value: (g) => g.lastName },
                 { header: "Email", value: (g) => g.email },
-                { header: "Phone", value: (g) => g.phone },
+                { header: "Phone", value: (g) => formatMobile(g.phone) },
                 { header: "Household", value: (g) => g.householdName },
                 { header: "Side", value: (g) => sideLabel[g.side] },
                 { header: "Group", value: (g) => g.groupName },
@@ -113,7 +114,7 @@ export const EXPORTS: Record<string, ExportDef> = {
                 { header: "RSVP code", value: (h) => h.rsvpCode },
                 { header: "Guests", value: (h) => h.guestCount },
                 { header: "Email", value: (h) => h.email },
-                { header: "Phone", value: (h) => h.phone },
+                { header: "Phone", value: (h) => formatMobile(h.phone) },
                 { header: "Address line 1", value: (h) => h.addressLine1 },
                 { header: "Address line 2", value: (h) => h.addressLine2 },
                 { header: "Suburb / town", value: (h) => h.locality },
@@ -152,7 +153,7 @@ export const EXPORTS: Record<string, ExportDef> = {
                 { header: "Household", value: (r) => r.householdName },
                 { header: "Guests attending", value: (r) => r.attending },
                 { header: "Email", value: (r) => r.email },
-                { header: "Phone", value: (r) => r.phone },
+                { header: "Phone", value: (r) => formatMobile(r.phone) },
                 { header: "Courtesy bus", value: (r) => (r.travel?.bus ? BUS_SHORT_LABELS[r.travel.bus] : "Not answered") },
                 { header: "To Rhino Lodge (passengers)", value: (r) => r.outbound },
                 { header: "Home after (passengers)", value: (r) => r.return },
