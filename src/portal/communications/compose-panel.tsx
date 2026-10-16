@@ -42,7 +42,13 @@ interface ComposePanelProps {
     initialTemplate: MessageTemplate | null;
 }
 
-type AudiencePreview = { total: number; withEmail: number; withMobile: number; sample: { id: string; name: string; email: string | null }[] };
+type AudiencePreview = {
+    total: number;
+    withEmail: number;
+    withMobile: number;
+    invalidMobile: number;
+    sample: { id: string; name: string; email: string | null }[];
+};
 
 const ANY = "any";
 const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
@@ -200,7 +206,11 @@ export const ComposePanel = ({ isOpen, onOpenChange, templates, events, groups, 
                                 {preview
                                     ? `${pluralise(preview.total, "guest")} match · ${
                                           channel === "sms"
-                                              ? `${pluralise(preview.withMobile, "has", "have")} a mobile number`
+                                              ? `${pluralise(preview.withMobile, "has", "have")} a mobile number${
+                                                    preview.invalidMobile
+                                                        ? ` · ${pluralise(preview.invalidMobile, "number")} can't be texted (fix in Guests)`
+                                                        : ""
+                                                }`
                                               : `${pluralise(preview.withEmail, "has", "have")} an email address`
                                       }`
                                     : "Counting…"}

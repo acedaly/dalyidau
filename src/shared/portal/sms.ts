@@ -1,22 +1,4 @@
-// Phone numbers and SMS length, shared by the worker and the portal so both agree on what can be texted.
-
-/**
- * Normalises a number for SMS to E.164 (+61412345678). Australian mobiles may be written locally
- * (0412 345 678); other countries need a leading +. Landlines and anything ambiguous return null.
- */
-export function normaliseMobile(raw: string | null | undefined): string | null {
-    if (!raw) return null;
-    const trimmed = raw.trim();
-    const digits = trimmed.replace(/[^\d]/g, "");
-    if (trimmed.startsWith("+")) {
-        if (digits.startsWith("61")) return /^614\d{8}$/.test(digits) ? `+${digits}` : null;
-        return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
-    }
-    if (/^04\d{8}$/.test(digits)) return `+61${digits.slice(1)}`;
-    if (/^614\d{8}$/.test(digits)) return `+${digits}`;
-    if (/^4\d{8}$/.test(digits)) return `+61${digits}`;
-    return null;
-}
+// SMS length and opt-out replies, shared by the worker and the portal. Mobile numbers live in phone.ts.
 
 // Characters in the GSM 03.38 default alphabet (plus its extension table, which costs two).
 const GSM = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";

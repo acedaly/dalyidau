@@ -207,6 +207,28 @@ test("shows field errors from the server next to the field", async ({ page }) =>
     await expect(panel).toBeVisible();
 });
 
+test("guides mobile number entry and saves it in international format", async ({ page }, info) => {
+    await page.goto("/portal/wedding/guests");
+    await page.getByRole("button", { name: "Add guest" }).first().click();
+    const panel = page.getByRole("dialog");
+    await panel.getByLabel("First name").fill("Mobi");
+    await panel.getByLabel("Last name").fill(info.project.name);
+    const mobile = panel.getByRole("textbox", { name: "Mobile number" });
+    await expect(panel.getByText("Australian mobile, e.g. 0412 345 678.")).toBeVisible();
+
+    await mobile.fill("02 6884 0000");
+    await mobile.blur();
+    await expect(panel.getByText(/That looks like a landline/)).toBeVisible();
+    // The server refuses it too, next to the field.
+    await panel.getByRole("button", { name: "Add guest" }).click();
+    await expect(panel.getByText(/That looks like a landline/)).toBeVisible();
+
+    await mobile.fill("0412 345 678");
+    await expect(panel.getByText("Will be saved as +61412345678.")).toBeVisible();
+    await panel.getByRole("button", { name: "Add guest" }).click();
+    await expect(page.getByText("Guest added")).toBeVisible();
+});
+
 test("customises the dashboard and keeps the layout", async ({ page }) => {
     await page.goto("/portal/wedding");
     await page.getByRole("button", { name: "Customise" }).click();
@@ -296,7 +318,12 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await page.goto("/portal/wedding/rsvps");
     await page.getByRole("tab", { name: /Transport/ }).click();
     await page.getByRole("searchbox", { name: "Search households or accommodation" }).fill(`Motel ${suffix}`);
-    await expect(page.getByRole("row").filter({ hasText: `Motel ${suffix}` }).getByText("Both ways")).toBeVisible();
+    await expect(
+        page
+            .getByRole("row")
+            .filter({ hasText: `Motel ${suffix}` })
+            .getByText("Both ways"),
+    ).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, "transport tab scrolls sideways").toBeLessThanOrEqual(0);
     await page.goto("/wedding");

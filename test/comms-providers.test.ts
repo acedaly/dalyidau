@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isOptOutReply, normaliseMobile, smsSegments } from "../src/shared/portal/sms";
+import { normaliseMobile } from "../src/shared/portal/phone";
+import { isOptOutReply, smsSegments } from "../src/shared/portal/sms";
 import type { Guest, Household, Message, RsvpHousehold, WeddingEvent } from "../src/shared/portal/types";
 import { emailProvider, mailbox, smsProvider } from "../worker/comms/providers";
 import type { Env } from "../worker/env";
@@ -35,10 +36,13 @@ async function guests() {
     const household = (await apiCall<{ item: Household }>("POST", "/api/portal/wedding/households", { name: "The Texters" })).json.item;
     const guest = async (body: Record<string, unknown>) =>
         (await apiCall<{ guest: Guest }>("POST", "/api/portal/wedding/guests", { householdId: household.id, ...body })).json.guest;
+    // The portal no longer accepts a landline, so this one stands in for a number saved before it checked.
+    const landline = await guest({ firstName: "Lan", lastName: "Dline" });
+    await db().prepare("UPDATE guests SET phone = '02 6884 0000' WHERE id = ?").bind(landline.id).run();
     return {
         household,
         mobile: await guest({ firstName: "Mo", lastName: "Bile", phone: "0412 345 678", email: "mo@example.com" }),
-        landline: await guest({ firstName: "Lan", lastName: "Dline", phone: "02 6884 0000" }),
+        landline,
         none: await guest({ firstName: "No", lastName: "Phone" }),
     };
 }
@@ -146,7 +150,7 @@ describe("SMS campaigns", () => {
             .all<{ guest_id: string; phone: string | null; status: string; error: string | null }>();
         const byGuest = Object.fromEntries(rows.results.map((r) => [r.guest_id, r]));
         expect(byGuest[people.mobile.id]).toMatchObject({ phone: "+61412345678", status: "pending" });
-        expect(byGuest[people.landline.id]).toMatchObject({ status: "skipped", error: "No mobile number" });
+        expect(byGuest[people.landline.id]).toMatchObject({ phone: null, status: "skipped", error: "Mobile number isn't valid" });
         expect(byGuest[people.none.id]).toMatchObject({ status: "skipped", error: "No mobile number" });
 
         const fetchMock = vi.spyOn(globalThis, "fetch");

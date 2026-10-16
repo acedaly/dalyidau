@@ -934,3 +934,29 @@ export interface TravelOverview {
     byStay: { stay: RsvpTravel["stay"]; households: number; guests: number }[];
     households: TravelHouseholdRow[];
 }
+
+/** A stored guest or household number that isn't in E.164 yet (mobile number review). */
+export interface MobileReviewRow {
+    kind: "guest" | "household";
+    id: string;
+    name: string;
+    /** For guests, their household's name. */
+    household: string | null;
+    stored: string;
+    /** update: clear-cut; check: read with an assumption, so not ticked by default; invalid: fix by hand. */
+    status: "update" | "check" | "invalid";
+    proposed: string | null;
+    reason: string | null;
+}
+
+export interface MobileReview {
+    rows: MobileReviewRow[];
+    counts: { standard: number; update: number; check: number; invalid: number };
+}
+
+/**
+ * Most changes one mobile review apply accepts. Each change is two D1 statements (the update and
+ * its audit entry), so this keeps a request well inside a Worker's query limit; the portal sends a
+ * larger selection in several requests.
+ */
+export const MOBILE_REVIEW_BATCH = 200;

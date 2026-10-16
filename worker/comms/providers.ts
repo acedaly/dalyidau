@@ -9,6 +9,7 @@
 // (see deliveryAvailable in worker/portal/comms.ts). Credentials never leave the Worker.
 import type { ReadableStreamDefaultReader as WorkerReader, WritableStreamDefaultWriter as WorkerWriter } from "@cloudflare/workers-types";
 import { type Socket, connect } from "cloudflare:sockets";
+import { isE164Mobile } from "../../src/shared/portal/phone";
 import type { Env } from "../env";
 
 export interface OutgoingEmail {
@@ -435,8 +436,25 @@ function clicksend(env: Env): SmsProvider | null {
     };
 }
 
+/**
+ * Every SMS provider only ever sees a valid mobile in E.164. Callers normalise first; anything
+ * else is refused here, before a request is made, and never retried.
+ */
+const guardRecipients = (provider: SmsProvider | null): SmsProvider | null =>
+    provider && {
+        ...provider,
+        async send(message) {
+            if (!isE164Mobile(message.to)) throw new ProviderError("SMS", "the recipient isn't a valid mobile number", false);
+            return provider.send(message);
+        },
+    };
+
 /** The configured SMS provider, or null. */
 export function smsProvider(env: Env): SmsProvider | null {
+    return guardRecipients(chooseSmsProvider(env));
+}
+
+function chooseSmsProvider(env: Env): SmsProvider | null {
     const chosen = mode(env.SMS_DELIVERY);
     if (chosen === "log" && isDevelopment(env)) {
         return {

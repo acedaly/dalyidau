@@ -2,7 +2,17 @@ import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types"
 import { z } from "zod";
 import type { CustomField, Guest, GuestEventStatus, RsvpSource, RsvpStatus } from "../../src/shared/portal/types";
 import { auditStatement, chunk, diff, isGuardFailure, newId, nowIso, parseJson, placeholders, requireChange } from "./db";
-import { CONFLICT_MESSAGE, ConflictError, NotFoundError, ValidationError, customFieldDef, fields, listEntities, takeExpectedVersion } from "./entities";
+import {
+    CONFLICT_MESSAGE,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+    customFieldDef,
+    dropUnchanged,
+    fields,
+    listEntities,
+    takeExpectedVersion,
+} from "./entities";
 import { redactChanges } from "./redact";
 import { getSettings } from "./settings";
 
@@ -10,7 +20,7 @@ const guestSchema = z.object({
     firstName: fields.str(80).min(1, "First name is required"),
     lastName: fields.str(80).default(""),
     email: fields.email,
-    phone: fields.optStr(40),
+    phone: fields.mobile,
     householdId: fields.opt(z.string().max(40)),
     side: z.enum(["partner_one", "partner_two", "shared"]).default("shared"),
     groupName: fields.optStr(80),
@@ -231,6 +241,8 @@ export async function updateGuest(db: D1Database, id: string, input: unknown, ac
     const before = await getGuest(db, id);
     if (!before) throw new NotFoundError("Guest not found");
     if (expected && expected !== before.updatedAt) throw new ConflictError(CONFLICT_MESSAGE);
+    // A legacy number the form sends back untouched stays as it is; the mobile number review fixes those.
+    dropUnchanged(input, before as unknown as Record<string, unknown>, ["phone"]);
     const sent = new Set(input && typeof input === "object" ? Object.keys(input) : []);
     const parsed = guestSchema.partial().parse(input);
     const patch = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.has(key))) as Partial<z.output<typeof guestSchema>>;

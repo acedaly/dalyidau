@@ -177,6 +177,7 @@ export const GuestPanel = ({
                                 selfId={guest.id}
                                 fieldError={save.fieldError}
                                 readOnly={!canEdit}
+                                savedPhone={guest.phone}
                             />
                         </Tabs.Panel>
                         {guest && (

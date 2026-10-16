@@ -6,6 +6,7 @@ import { TextArea } from "@/components/base/textarea/textarea";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { DateField } from "@/portal/components/date-field";
 import { FormGrid, FullWidth } from "@/portal/components/form";
+import { MobileInput } from "@/portal/components/mobile-input";
 import { usePortal } from "@/portal/portal-context";
 import type { AgeGroup, ContactPreference, CustomField, Guest, Household, MealCategory, Side, WeddingEvent } from "@/shared/portal/types";
 
@@ -74,9 +75,23 @@ interface GuestFormProps {
     selfId: string | null;
     fieldError: (field: string) => string | undefined;
     readOnly?: boolean;
+    /** The guest's stored mobile, so an untouched legacy value can be flagged. */
+    savedPhone?: string | null;
 }
 
-export const GuestForm = ({ draft, onChange, households, events, customFields, mealCategories, guests, selfId, fieldError, readOnly }: GuestFormProps) => {
+export const GuestForm = ({
+    draft,
+    onChange,
+    households,
+    events,
+    customFields,
+    mealCategories,
+    guests,
+    selfId,
+    fieldError,
+    readOnly,
+    savedPhone,
+}: GuestFormProps) => {
     const { sideLabel } = usePortal();
     const set = <K extends keyof GuestDraft>(key: K, value: GuestDraft[K]) => onChange({ ...draft, [key]: value });
     const setCustom = (key: string, value: string | number | boolean | null) => onChange({ ...draft, custom: { ...draft.custom, [key]: value } });
@@ -108,14 +123,7 @@ export const GuestForm = ({ draft, onChange, households, events, customFields, m
                     isInvalid={!!fieldError("email")}
                     hint={fieldError("email")}
                 />
-                <Input
-                    label="Phone"
-                    type="tel"
-                    value={draft.phone}
-                    onChange={(v) => set("phone", v)}
-                    isInvalid={!!fieldError("phone")}
-                    hint={fieldError("phone")}
-                />
+                <MobileInput value={draft.phone} onChange={(v) => set("phone", v)} savedValue={savedPhone} error={fieldError("phone")} />
                 <Select
                     label="Household"
                     items={[{ id: "none", label: "No household" }, ...households.map((h) => ({ id: h.id, label: h.name }))]}

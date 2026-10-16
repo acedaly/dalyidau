@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download01, Plus, Upload01, Users01 } from "@untitledui/icons";
+import { Download01, Phone01, Plus, Upload01, Users01 } from "@untitledui/icons";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -10,6 +10,8 @@ import { PageHeader } from "@/portal/components/page-header";
 import { RSVP_LABELS, RsvpBadge } from "@/portal/components/status";
 import { BulkActions } from "@/portal/guests/bulk-actions";
 import { GuestPanel } from "@/portal/guests/guest-panel";
+import { MobileReviewDialog } from "@/portal/guests/mobile-review-dialog";
+import { api } from "@/portal/lib/api";
 import { initials, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
@@ -32,6 +34,7 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [selected, setSelected] = useState<Guest | null>(null);
     const [panelOpen, setPanelOpen] = useState(false);
+    const [mobileReviewOpen, setMobileReviewOpen] = useState(false);
 
     const groups = useMemo(() => [...new Set(guests.map((g) => g.groupName).filter(Boolean) as string[])].sort(), [guests]);
     const tags = useMemo(() => [...new Set(guests.flatMap((g) => g.tags))].sort(), [guests]);
@@ -177,6 +180,9 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                         )}
                         {can("wedding.guests.edit") && (
                             <>
+                                <Button color="secondary" iconLeading={Phone01} onClick={() => setMobileReviewOpen(true)}>
+                                    Review mobiles
+                                </Button>
                                 <Button color="secondary" iconLeading={Upload01} href="/portal/wedding/guests/import">
                                     Import
                                 </Button>
@@ -276,6 +282,16 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
                     setSelected(guest);
                 }}
                 onDeleted={(id) => setGuests((list) => list.filter((g) => g.id !== id))}
+            />
+
+            <MobileReviewDialog
+                isOpen={mobileReviewOpen}
+                onOpenChange={setMobileReviewOpen}
+                onApplied={() => {
+                    api<{ guests: Guest[] }>("GET", "/api/portal/wedding/guests")
+                        .then(({ guests }) => setGuests(guests))
+                        .catch(() => {});
+                }}
             />
         </>
     );

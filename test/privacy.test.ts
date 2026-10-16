@@ -116,7 +116,7 @@ describe("permanent erasure", () => {
                 db().prepare("SELECT * FROM guest_events"),
             ]),
         );
-        for (const trace of ["Quinn", "quinn@example.com", "0400 000 000", "Peanut"]) expect(dump).not.toContain(trace);
+        for (const trace of ["Quinn", "quinn@example.com", "0400 000 000", "+61400000000", "Peanut"]) expect(dump).not.toContain(trace);
         // Accountability stays: the message still counts a recipient, and the erasure is recorded.
         const recipients = await db().prepare("SELECT name FROM message_recipients WHERE message_id = ?").bind(message.id).all();
         expect(recipients.results).toEqual([{ name: "[erased]" }]);

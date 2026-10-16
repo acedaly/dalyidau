@@ -8,7 +8,8 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { MERGE_FIELDS } from "../../src/shared/portal/merge-fields";
-import { isOptOutReply, normaliseMobile, smsSegments } from "../../src/shared/portal/sms";
+import { normaliseMobile } from "../../src/shared/portal/phone";
+import { isOptOutReply, smsSegments } from "../../src/shared/portal/sms";
 import { MESSAGE_CATEGORIES, MESSAGE_CHANNELS } from "../../src/shared/portal/types";
 import type {
     Audience,
@@ -155,6 +156,7 @@ export async function audiencePreview(db: D1Database, input: unknown) {
         total: guests.length,
         withEmail: guests.filter((g) => g.email).length,
         withMobile: guests.filter((g) => normaliseMobile(g.phone)).length,
+        invalidMobile: guests.filter((g) => g.phone && !normaliseMobile(g.phone)).length,
         sample: guests.slice(0, 8).map((g) => ({ id: g.id, name: `${g.firstName} ${g.lastName}`.trim(), email: g.email })),
     };
 }
@@ -240,8 +242,10 @@ async function optOuts(db: D1Database) {
 /** Whether a guest can receive this channel, and why not. */
 const reachability = (guest: Guest, channel: MessageChannel, optedOut: { email: boolean; sms: boolean } | undefined) => {
     if (channel === "sms") {
+        if (!guest.phone) return { phone: null, error: "No mobile number" };
         const phone = normaliseMobile(guest.phone);
-        if (!phone) return { phone: null, error: "No mobile number" };
+        // Never pass a malformed number on to the SMS provider; the mobile number review lists these.
+        if (!phone) return { phone: null, error: "Mobile number isn't valid" };
         if (optedOut?.sms) return { phone, error: "Opted out of texts" };
         return { phone, error: null };
     }
