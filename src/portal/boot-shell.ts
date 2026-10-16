@@ -1,6 +1,6 @@
 // What the server sends inside #root for a portal page. The portal is private and noindex, so it
-// renders in the browser rather than on the Worker: a full React render of a page like the
-// dashboard costs more CPU than a Worker request is allowed (see docs/PRODUCTION_READINESS.md).
+// renders in the browser rather than on the Worker, which keeps a full React render of pages like
+// the dashboard (and the portal's code) out of every request's CPU time (see docs/PORTAL.md).
 // This is plain HTML, kept in src/ so Tailwind sees its classes. Every value is escaped.
 const escape = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
