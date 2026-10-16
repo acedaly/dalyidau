@@ -2,6 +2,7 @@
 // row validated on write and merged over defaults on read, so adding a field never breaks old data.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
+import { normaliseMobile } from "../../src/shared/portal/phone";
 import { SECTION_KINDS, type SettingsDocuments, type SettingsKey, type WebsiteContent } from "../../src/shared/portal/types";
 import { ACCOMMODATION_BODY, COURTESY_BUS_ITEMS, ONSITE_FAQ, RHINO_LODGE_STAY } from "../../src/shared/portal/website-suggestions";
 import { auditStatement, diff, nowIso, parseJson } from "./db";
@@ -70,7 +71,45 @@ const website = z.object({
     noindex: z.boolean(),
 });
 
+const campaignCopy = z.object({
+    subject: text(200).min(1, "Add a subject"),
+    body: text(20_000).min(1, "Add the message"),
+    smsBody: text(918).min(1, "Add the text message"),
+});
+
+const testMobile = z
+    .string()
+    .trim()
+    .transform((value, ctx) => {
+        const e164 = normaliseMobile(value);
+        if (!e164) ctx.addIssue({ code: "custom", message: `${value} isn't a valid mobile number` });
+        return e164 ?? value;
+    });
+
 export const SETTINGS_SCHEMAS = {
+    studio: z.object({
+        accent: z.enum(["burgundy", "clay", "eucalyptus"]),
+        saveTheDate: z.object({ headline: text(80).min(1), followUp: text(120), showCalendarLink: z.boolean() }),
+        finalDetails: z.object({ notes: text(4000), includeTransport: z.boolean(), includeAccommodation: z.boolean() }),
+        thankYou: z.object({
+            headline: text(80).min(1),
+            message: text(2000).min(1, "Write the thank-you message"),
+            photoId: z.string().max(40).nullable(),
+            galleryUrl: httpsUrl,
+        }),
+        copy: z.object({
+            save_the_date: campaignCopy.optional(),
+            invitation: campaignCopy.optional(),
+            reminder: campaignCopy.optional(),
+            final_details: campaignCopy.optional(),
+            thank_you: campaignCopy.optional(),
+        }),
+    }),
+    comms: z.object({
+        testEmails: z.array(z.string().trim().toLowerCase().pipe(z.email("Enter valid email addresses"))).max(10),
+        testMobiles: z.array(testMobile).max(10),
+        smsCentsPerPart: z.number().min(0).max(1000).nullable(),
+    }),
     privacy: z.object({
         auditRetentionDays: z.number().int().min(0).max(3650),
         deletedRetentionDays: z.number().int().min(7).max(3650),
@@ -247,6 +286,19 @@ const DEFAULT_WEBSITE: WebsiteContent = {
 };
 
 export const SETTINGS_DEFAULTS: SettingsDocuments = {
+    studio: {
+        accent: "burgundy",
+        saveTheDate: { headline: "Save the date", followUp: "Formal invitation to follow", showCalendarLink: true },
+        finalDetails: { notes: "", includeTransport: true, includeAccommodation: true },
+        thankYou: {
+            headline: "Thank you",
+            message: "Thank you so much for celebrating with us. Having you there made our day, and we're so grateful for your love and generosity.",
+            photoId: null,
+            galleryUrl: "",
+        },
+        copy: {},
+    },
+    comms: { testEmails: [], testMobiles: [], smsCentsPerPart: null },
     privacy: { auditRetentionDays: 730, deletedRetentionDays: 90 },
     catering: {
         eventId: null,
@@ -285,6 +337,8 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
 };
 
 const SETTINGS_LABELS: Record<SettingsKey, string> = {
+    studio: "Communications Studio wording",
+    comms: "communications test recipients",
     privacy: "privacy and retention settings",
     catering: "catering settings",
     wedding: "wedding details",
