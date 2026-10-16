@@ -108,9 +108,14 @@ async function applySmtp2go(env: Env, payload: Payload) {
     )
         .bind(mapped.status, mapped.status, now, mapped.failed ? 1 : 0, mapped.failed ? `Email ${mapped.status}` : null, emailId)
         .all<{ guest_id: string }>();
+    // A message to a household's own address has the household's id as its recipient id, so the
+    // opt-out is recorded on whichever it was: the guest or the household.
     if (mapped.optOut)
         for (const row of updated.results)
-            await env.DB.prepare("UPDATE guests SET email_opt_out_at = COALESCE(email_opt_out_at, ?) WHERE id = ?").bind(now, row.guest_id).run();
+            await env.DB.batch([
+                env.DB.prepare("UPDATE guests SET email_opt_out_at = COALESCE(email_opt_out_at, ?) WHERE id = ?").bind(now, row.guest_id),
+                env.DB.prepare("UPDATE households SET email_opt_out_at = COALESCE(email_opt_out_at, ?) WHERE id = ?").bind(now, row.guest_id),
+            ]);
     if (updated.results.length) await markApplied(env, stored);
     return { applied: updated.results.length > 0 };
 }

@@ -499,7 +499,7 @@ export interface MessagePreflight {
     testRecipients: string[];
     tests: { channel: MessageChannel; recipient: string; status: "sent" | "failed"; error: string | null; by: string; at: string }[];
     /** Everyone it would be sent to now, with the address or number it goes to (up to 500). */
-    sending: { name: string; to: string; householdId: string | null }[];
+    sending: { name: string; to: string; householdId: string | null; guestId: string }[];
 }
 
 /** One line in a household's communications history. */

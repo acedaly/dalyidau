@@ -25,7 +25,7 @@ export const SendCheck = ({
     preflight: MessagePreflight;
     onRefresh: () => void;
     /** For invitations with the printable invitation attached: where to open one household's PDF. */
-    pdfHref?: (householdId: string) => string;
+    pdfHref?: (householdId: string, guestId: string) => string;
 }) => {
     const held = preflight.excluded.reduce((n, e) => n + e.count, 0);
     return (
@@ -84,7 +84,7 @@ export const SendCheck = ({
                                 <span className="flex items-center gap-3">
                                     <span className="font-mono text-xs break-all text-tertiary">{r.to}</span>
                                     {pdfHref && r.householdId && (
-                                        <Button size="sm" color="link-color" href={pdfHref(r.householdId)} target="_blank" rel="noopener">
+                                        <Button size="sm" color="link-color" href={pdfHref(r.householdId, r.guestId)} target="_blank" rel="noopener">
                                             PDF
                                         </Button>
                                     )}

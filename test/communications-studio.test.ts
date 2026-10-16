@@ -8,7 +8,7 @@ import type { Guest, Household, HouseholdRow, Message, MessagePreflight, Timelin
 import { stationeryEmailHtml } from "../worker/comms/stationery";
 import type { Env } from "../worker/env";
 import { processDueMessages } from "../worker/portal/comms";
-import { apiCall, db, portalEnv, resetPortal } from "./portal-helpers";
+import { apiCall, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
 
@@ -314,6 +314,110 @@ describe("sending safeguards", () => {
     });
 });
 
+describe("household contact details and consent", () => {
+    const SECRET = "webhook-secret-0123456789abcdef";
+    const webhook = async (provider: string, body: unknown) =>
+        call(`/api/comms/webhooks/${provider}/${SECRET}`, {
+            method: "POST",
+            env: await portalEnv({ COMMS_WEBHOOK_SECRET: SECRET, EMAIL_DELIVERY: "smtp2go", SMTP2GO_API_KEY: "k", EMAIL_FROM: "wedding@daly.id.au" }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+
+    /** A household reachable only through its own contact details. */
+    async function householdOnly() {
+        const event = (await apiCall<{ item: WeddingEvent }>("POST", "/api/portal/wedding/events", { name: "Ceremony" })).json.item;
+        const home = (
+            await apiCall<{ item: Household }>("POST", "/api/portal/wedding/households", {
+                name: "The Contact Household",
+                email: "home@example.com",
+                phone: "0412 000 111",
+            })
+        ).json.item;
+        const guest = (
+            await apiCall<{ guest: Guest }>("POST", "/api/portal/wedding/guests", {
+                firstName: "Hal",
+                lastName: "Contact",
+                householdId: home.id,
+                events: [event.id],
+            })
+        ).json.guest;
+        return { home, guest };
+    }
+
+    it("honours an email unsubscribe sent through the household's own address, at prepare and at send", async () => {
+        const { home } = await householdOnly();
+        // Nobody in the household has an email, so a household campaign uses the household's address.
+        const std = (await prepare({ category: "save_the_date", subject: "Save the date", body: "{{website_link}}" })).json.message;
+        const row = (await recipients(std.id)).find((r) => r.guest_id === home.id)!;
+        expect(row).toMatchObject({ household_id: home.id, email: "home@example.com", status: "pending" });
+        await db()
+            .prepare("UPDATE message_recipients SET status = 'sent', provider_id = 'em-home' WHERE message_id = ? AND guest_id = ?")
+            .bind(std.id, home.id)
+            .run();
+
+        expect((await webhook("smtp2go", { event: "unsubscribe", email_id: "em-home", rcpt: "home@example.com", time: "2027-01-01T00:00:00Z" })).status).toBe(
+            200,
+        );
+        expect(await db().prepare("SELECT email_opt_out_at IS NOT NULL AS out FROM households WHERE id = ?").bind(home.id).first()).toEqual({ out: 1 });
+
+        // New campaigns hold the household back from the start.
+        const thanks = (await prepare({ category: "thank_you", subject: "Thanks", body: "{{thank_you_message}}", audience: {} })).json.message;
+        expect((await recipients(thanks.id)).find((r) => r.household_id === home.id)).toMatchObject({ status: "skipped", error: "Opted out of email" });
+        const reminder = (
+            await prepare({ category: "reminder", subject: "Reminder", body: "{{rsvp_link}}", audience: { mode: "specific", householdIds: [home.id] } })
+        ).json.message;
+        expect((await recipients(reminder.id)).find((r) => r.household_id === home.id)?.error).toBe("Opted out of email");
+        // A draft from before the opt-out that still has the household pending is held back at the send check.
+        await db().prepare("DELETE FROM message_recipients WHERE message_id = ?").bind(reminder.id).run();
+        await db()
+            .prepare(
+                "INSERT INTO message_recipients (message_id, guest_id, household_id, name, email, status) VALUES (?, ?, ?, 'The Contact Household', 'home@example.com', 'pending')",
+            )
+            .bind(reminder.id, home.id, home.id)
+            .run();
+        expect((await check(reminder.id)).excluded).toContainEqual({ reason: "Opted out of email", count: 1, names: ["The Contact Household"] });
+        // Contact readiness shows it.
+        const rows = (await apiCall<{ households: HouseholdRow[] }>("GET", "/api/portal/wedding/households/overview")).json.households;
+        expect(rows.find((r) => r.id === home.id)?.contact.flags).toContain("opted_out");
+    });
+
+    it("honours STOP from a household's own number, and from a guest who shares it", async () => {
+        const { home } = await householdOnly();
+        const shared = (await apiCall<{ guest: Guest }>("POST", "/api/portal/wedding/guests", { firstName: "Sha", lastName: "Red", phone: "0412 000 111" }))
+            .json.guest;
+        expect(
+            (
+                await call(`/api/comms/webhooks/clicksend-inbound/${SECRET}`, {
+                    method: "POST",
+                    env: await portalEnv({ COMMS_WEBHOOK_SECRET: SECRET, SMS_DELIVERY: "clicksend", CLICKSEND_USERNAME: "u", CLICKSEND_API_KEY: "k" }),
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ from: "+61412000111", body: "STOP", message_id: "in-stop" }),
+                })
+            ).status,
+        ).toBe(200);
+        expect(await db().prepare("SELECT sms_opt_out_at IS NOT NULL AS out FROM households WHERE id = ?").bind(home.id).first()).toEqual({ out: 1 });
+        expect(await db().prepare("SELECT sms_opt_out_at IS NOT NULL AS out FROM guests WHERE id = ?").bind(shared.id).first()).toEqual({ out: 1 });
+        const sms = (await prepare({ channel: "sms", category: "save_the_date", subject: "Save the date", body: "{{website_link}}", audience: {} })).json
+            .message;
+        const rows = await recipients(sms.id);
+        expect(rows.find((r) => r.household_id === home.id)?.error).toBe("Opted out of texts");
+        expect(rows.find((r) => r.guest_id === shared.id)?.error).toBe("Opted out of texts");
+        // Manual replies to that number are refused too.
+        expect((await apiCall("POST", "/api/portal/wedding/sms", { phone: "0412 000 111", body: "Hi" })).status).toBe(422);
+    });
+
+    it("treats a household's opt-out as covering a guest who shares its email address", async () => {
+        const { home } = await householdOnly();
+        await db().prepare("UPDATE households SET email_opt_out_at = '2027-01-01T00:00:00.000Z' WHERE id = ?").bind(home.id).run();
+        const same = (
+            await apiCall<{ guest: Guest }>("POST", "/api/portal/wedding/guests", { firstName: "Sam", lastName: "Address", email: "HOME@example.com" })
+        ).json.guest;
+        const message = (await prepare({ category: "update", subject: "News", body: "Hi", audience: { mode: "specific", guestIds: [same.id] } })).json.message;
+        expect((await recipients(message.id))[0]).toMatchObject({ status: "skipped", error: "Opted out of email" });
+    });
+});
+
 describe("controlled test sends", () => {
     it("go only to approved test addresses, are labelled as tests and never count as contacting a household", async () => {
         const f = await setup();
@@ -502,6 +606,20 @@ describe("stationery email", () => {
         // Decorative artwork only; every word is live text.
         expect([...html.matchAll(/<img [^>]*alt="([^"]*)"/g)].map((m) => m[1])).toEqual(["", ""]);
         expect(html).toContain("Aidan<br>");
+    });
+});
+
+describe("migration 0012", () => {
+    it("only adds two empty consent columns to households", async () => {
+        const { default: sql } = await import("../migrations/0012_household_consent.sql?raw");
+        const statements = sql
+            .split("\n")
+            .filter((line: string) => !line.trim().startsWith("--"))
+            .join("\n")
+            .split(";")
+            .map((statement: string) => statement.trim())
+            .filter(Boolean);
+        expect(statements).toEqual(["ALTER TABLE households ADD COLUMN email_opt_out_at TEXT", "ALTER TABLE households ADD COLUMN sms_opt_out_at TEXT"]);
     });
 });
 

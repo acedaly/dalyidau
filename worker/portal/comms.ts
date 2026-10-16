@@ -576,9 +576,19 @@ async function planSend(env: Env, db: D1Database, found: { message: Message; rec
     return found.recipients.map((recipient) => {
         if (recipient.status !== "pending") return { recipient, action: "keep" as const, reason: recipient.error };
         const guest = ctx.guestsById.get(recipient.guestId);
-        // Consent can change between preparing and sending (a STOP reply, an unsubscribe).
-        const opted = consent.get(recipient.guestId);
-        const optedOut = message.channel === "sms" ? opted?.sms : opted?.email;
+        // Consent can change between preparing and sending (a STOP reply, an unsubscribe). A message to
+        // a household's own address or number (its recipient id is the household id) is checked
+        // against the household's consent and every guest with that address or number.
+        const householdContact = !guest && ctx.households.has(recipient.guestId);
+        const optedOut = householdContact
+            ? !!reachHousehold(ctx, recipient.guestId, message.channel, consent)?.error
+            : guest
+              ? reachGuest(
+                    { ...guest, email: recipient.email ?? guest.email, phone: recipient.phone ?? guest.phone },
+                    message.channel,
+                    consent,
+                ).error?.startsWith("Opted out")
+              : !!(message.channel === "sms" ? consent.get(recipient.guestId)?.sms : consent.get(recipient.guestId)?.email);
         const block =
             (optedOut && (message.channel === "sms" ? EXCLUSION_REASONS.optedOutSms : EXCLUSION_REASONS.optedOutEmail)) ||
             (recipient.householdId && sentElsewhere?.households.has(recipient.householdId) && EXCLUSION_REASONS.alreadySentElsewhere) ||
@@ -658,6 +668,7 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
             name: p.recipient.name,
             to: (message.channel === "sms" ? p.recipient.phone : p.recipient.email) ?? "",
             householdId: p.recipient.householdId,
+            guestId: p.recipient.guestId,
         })),
     };
 }
@@ -705,12 +716,18 @@ async function invitationPdf(env: Env, studio: StudioData, message: Message, hou
     return { filename: `Wedding invitation - ${household?.recipientLine ?? "household"}.pdf`, contentType: "application/pdf" as const, bytes };
 }
 
-/** One recipient's printable invitation, for previewing the attachment before sending. */
-export async function messageInvitationPdf(env: Env, db: D1Database, id: string, householdId: string) {
+/**
+ * One recipient's printable invitation, for previewing the attachment before sending. With
+ * individual delivery a household has several recipients, each with their own invitation and link,
+ * so the recipient is chosen by guest id when given.
+ */
+export async function messageInvitationPdf(env: Env, db: D1Database, id: string, householdId: string, guestId: string | null = null) {
     const found = await getMessage(db, id);
     if (!found) throw new NotFoundError("Message not found");
     if (found.message.category !== "invitation") throw new ValidationError("Only invitations have a printable invitation", "category");
-    const recipient = found.recipients.find((r) => r.householdId === householdId && !r.error?.startsWith("Included in the household"));
+    const recipient = found.recipients.find(
+        (r) => r.householdId === householdId && (!guestId || r.guestId === guestId) && !r.error?.startsWith("Included in the household"),
+    );
     if (!recipient) throw new NotFoundError("That household isn't a recipient of this message");
     const studio = await loadStudioData(env, found.message.options.invitation?.template);
     return invitationPdf(env, studio, found.message, householdId, recipient.guestId);
@@ -1151,6 +1168,19 @@ async function guestsByPhone(db: D1Database) {
     return map;
 }
 
+/** Households by their own normalised mobile number, for consent on household contact details. */
+async function householdsByPhone(db: D1Database) {
+    const rows = await db
+        .prepare("SELECT id, name, phone, sms_opt_out_at FROM households WHERE deleted_at IS NULL AND phone IS NOT NULL AND phone != ''")
+        .all<{ id: string; name: string; phone: string; sms_opt_out_at: string | null }>();
+    const map = new Map<string, typeof rows.results>();
+    for (const row of rows.results) {
+        const phone = normaliseMobile(row.phone);
+        if (phone) map.set(phone, [...(map.get(phone) ?? []), row]);
+    }
+    return map;
+}
+
 export async function listSmsThreads(db: D1Database): Promise<SmsThread[]> {
     const [rows, unread, people] = await Promise.all([
         db
@@ -1164,6 +1194,7 @@ export async function listSmsThreads(db: D1Database): Promise<SmsThread[]> {
             .all<{ phone: string; n: number }>(),
         guestsByPhone(db),
     ]);
+    const homes = await householdsByPhone(db);
     const unreadBy = new Map(unread.results.map((r) => [r.phone, Number(r.n)]));
     const seen = new Set<string>();
     return rows.results.flatMap((row) => {
@@ -1177,7 +1208,7 @@ export async function listSmsThreads(db: D1Database): Promise<SmsThread[]> {
                 guests: guests.map((g) => ({ id: g.id, name: `${g.first_name} ${g.last_name}`.trim(), householdName: g.household_name })),
                 last,
                 unread: unreadBy.get(last.phone) ?? 0,
-                optedOut: guests.some((g) => g.sms_opt_out_at),
+                optedOut: guests.some((g) => g.sms_opt_out_at) || (homes.get(last.phone) ?? []).some((h) => h.sms_opt_out_at),
             },
         ];
     });
@@ -1194,11 +1225,12 @@ export async function smsConversation(db: D1Database, rawPhone: string, actor: s
     if (marked.meta.changes)
         await auditStatement(db, { actor, action: "sms.read", entityType: "sms", entityId: phone.slice(0, -3) + "***", summary: "Read text replies" }).run();
     const guests = (await guestsByPhone(db)).get(phone) ?? [];
+    const homes = (await householdsByPhone(db)).get(phone) ?? [];
     return {
         phone,
         messages: rows.results.map(toSms),
         guests: guests.map((g) => ({ id: g.id, name: `${g.first_name} ${g.last_name}`.trim(), householdName: g.household_name })),
-        optedOut: guests.some((g) => g.sms_opt_out_at),
+        optedOut: guests.some((g) => g.sms_opt_out_at) || homes.some((h) => h.sms_opt_out_at),
     };
 }
 
@@ -1211,7 +1243,8 @@ export async function sendSmsReply(env: Env, db: D1Database, input: unknown, act
     if (!phone) throw new ValidationError("That isn't a mobile number", "phone");
     const provider = (await providerFor(env, db, "sms")) as SmsProvider;
     const guests = (await guestsByPhone(db)).get(phone) ?? [];
-    if (guests.some((g) => g.sms_opt_out_at)) throw new ValidationError("This number has opted out of texts", "phone");
+    const homes = (await householdsByPhone(db)).get(phone) ?? [];
+    if (guests.some((g) => g.sms_opt_out_at) || homes.some((h) => h.sms_opt_out_at)) throw new ValidationError("This number has opted out of texts", "phone");
     const id = newId("sms");
     let providerId: string | null = null;
     let costCents: number | null = null;
@@ -1257,12 +1290,14 @@ export async function sendSmsReply(env: Env, db: D1Database, input: unknown, act
 export async function receiveSms(db: D1Database, input: { from: string; body: string; providerId: string | null }) {
     const phone = normaliseMobile(input.from) ?? input.from.slice(0, 20);
     const guests = (await guestsByPhone(db)).get(phone) ?? [];
+    // Consent belongs to the number: households whose own contact number it is stop being texted too.
+    const homes = (await householdsByPhone(db)).get(phone) ?? [];
     const now = nowIso();
     const statements = [
         smsLogStatement(db, {
             phone,
             guestId: guests[0]?.id ?? null,
-            householdId: guests[0]?.household_id ?? null,
+            householdId: guests[0]?.household_id ?? homes[0]?.id ?? null,
             body: input.body.slice(0, 2000),
             status: "received",
             providerId: input.providerId,
@@ -1270,21 +1305,23 @@ export async function receiveSms(db: D1Database, input: { from: string; body: st
             direction: "inbound",
         }),
     ];
-    if (isOptOutReply(input.body) && guests.length) {
+    if (isOptOutReply(input.body) && (guests.length || homes.length)) {
         for (const guest of guests)
             statements.push(db.prepare("UPDATE guests SET sms_opt_out_at = COALESCE(sms_opt_out_at, ?) WHERE id = ?").bind(now, guest.id));
+        for (const home of homes)
+            statements.push(db.prepare("UPDATE households SET sms_opt_out_at = COALESCE(sms_opt_out_at, ?) WHERE id = ?").bind(now, home.id));
         statements.push(
             auditStatement(db, {
                 actor: "system:webhook",
                 action: "consent.sms_opt_out",
-                entityType: "guest",
-                entityId: guests[0].id,
-                summary: `${guests.map((g) => g.first_name).join(" and ")} opted out of texts`,
+                entityType: guests.length ? "guest" : "household",
+                entityId: guests[0]?.id ?? homes[0].id,
+                summary: `${[...guests.map((g) => g.first_name), ...homes.map((h) => `${h.name} (household number)`)].join(" and ")} opted out of texts`,
             }),
         );
     }
     await db.batch(statements);
-    return { matched: guests.length > 0 };
+    return { matched: guests.length > 0 || homes.length > 0 };
 }
 
 export async function cancelScheduledMessage(db: D1Database, id: string, actor: string) {

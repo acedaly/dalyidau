@@ -695,8 +695,8 @@ add(
     "/api/portal/wedding/messages/:id/invitation.pdf",
     "wedding.export",
     async ({ env, request, params }) => {
-        const householdId = new URL(request.url).searchParams.get("household") ?? "";
-        const pdf = await messageInvitationPdf(env, env.DB, params.id, householdId);
+        const query = new URL(request.url).searchParams;
+        const pdf = await messageInvitationPdf(env, env.DB, params.id, query.get("household") ?? "", query.get("guest"));
         return new Response(new Uint8Array(pdf.bytes).buffer, {
             headers: {
                 "Content-Type": "application/pdf",

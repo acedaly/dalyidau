@@ -39,7 +39,7 @@ const emptyContact = (): HouseholdContact => ({
  */
 export async function contactReadiness(db: D1Database): Promise<Map<string, HouseholdContact>> {
     const [homes, guests] = await db.batch([
-        db.prepare("SELECT id, email, phone FROM households WHERE deleted_at IS NULL"),
+        db.prepare("SELECT id, email, phone, email_opt_out_at, sms_opt_out_at FROM households WHERE deleted_at IS NULL"),
         db.prepare("SELECT household_id, email, phone, email_opt_out_at, sms_opt_out_at FROM guests WHERE deleted_at IS NULL AND household_id IS NOT NULL"),
     ]);
     const people = new Map<string, { email: string | null; phone: string | null; emailOut: boolean; smsOut: boolean }[]>();
@@ -55,10 +55,19 @@ export async function contactReadiness(db: D1Database): Promise<Map<string, Hous
             { email: g.email?.trim().toLowerCase() || null, phone: g.phone?.trim() || null, emailOut: !!g.email_opt_out_at, smsOut: !!g.sms_opt_out_at },
         ]);
     const out = new Map<string, HouseholdContact>();
-    for (const home of homes.results as { id: string; email: string | null; phone: string | null }[]) {
+    for (const home of homes.results as {
+        id: string;
+        email: string | null;
+        phone: string | null;
+        email_opt_out_at: string | null;
+        sms_opt_out_at: string | null;
+    }[]) {
         const members = people.get(home.id) ?? [];
         const optedEmails = new Set(members.filter((m) => m.emailOut && m.email).map((m) => m.email));
         const optedMobiles = new Set(members.filter((m) => m.smsOut && m.phone).map((m) => normaliseMobile(m.phone)));
+        // Consent belongs to the address or number, whoever it was recorded against.
+        if (home.email_opt_out_at && home.email) optedEmails.add(home.email.trim().toLowerCase());
+        if (home.sms_opt_out_at && home.phone) optedMobiles.add(normaliseMobile(home.phone));
         const emails = new Set<string>();
         const mobiles = new Set<string>();
         let anyEmail = false;
@@ -77,8 +86,8 @@ export async function contactReadiness(db: D1Database): Promise<Map<string, Hous
             }
         };
         for (const m of members) consider(m.email, m.phone, m.emailOut, m.smsOut);
-        consider(home.email?.trim().toLowerCase() || null, home.phone?.trim() || null, false, false);
-        const optedOut = members.filter((m) => m.emailOut || m.smsOut).length;
+        consider(home.email?.trim().toLowerCase() || null, home.phone?.trim() || null, !!home.email_opt_out_at, !!home.sms_opt_out_at);
+        const optedOut = members.filter((m) => m.emailOut || m.smsOut).length + (home.email_opt_out_at || home.sms_opt_out_at ? 1 : 0);
         const flags: ContactFlag[] = [];
         if (!anyEmail && !anyPhone) flags.push("no_contact");
         if (!emails.size && !mobiles.size) flags.push("unreachable");

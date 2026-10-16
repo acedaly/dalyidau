@@ -65,7 +65,7 @@ The critical guest journey (one household: Invitation Studio → Communications 
 
 ---
 
-## Database migration 0011
+## Database migrations 0011 and 0012
 
 `migrations/0011_communications_studio.sql`, additive:
 
@@ -73,6 +73,8 @@ The critical guest journey (one household: Invitation Studio → Communications 
 - `messages.options` (JSON, default `{}`): individual delivery, "send again", Studio source and the captured invitation template.
 - `message_tests`: controlled test sends, deleted with their message.
 - `thank_you_notes`: one personal note per household, deleted with the household.
+
+`migrations/0012_household_consent.sql`, additive: `households.email_opt_out_at` and `households.sms_opt_out_at` (empty). A campaign can fall back to a household's own email or mobile when none of its guests can be reached; an unsubscribe or STOP through that address or number is recorded on the household, and consent then belongs to the address or number wherever it's used (the household, and any guest who shares it).
 
 Upgrade compatibility: older Workers ignore the new columns and tables; the new Worker treats messages without `options` as household campaigns with no "send again", and recipients without `household_id` as unknown (which can only hold back, never add, a recipient).
 

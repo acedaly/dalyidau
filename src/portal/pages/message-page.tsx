@@ -226,7 +226,8 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                         onRefresh={refresh}
                         pdfHref={
                             message.options.invitation?.attachPdf && can("wedding.export")
-                                ? (householdId) => `/api/portal/wedding/messages/${message.id}/invitation.pdf?household=${encodeURIComponent(householdId)}`
+                                ? (householdId, guestId) =>
+                                      `/api/portal/wedding/messages/${message.id}/invitation.pdf?household=${encodeURIComponent(householdId)}&guest=${encodeURIComponent(guestId)}`
                                 : undefined
                         }
                     />

@@ -519,19 +519,45 @@ export function householdBlock(context: CampaignContext, input: EligibilityInput
     return null;
 }
 
-/** Opt-outs per guest, kept out of the Guest type so they never travel to pages that don't need them. */
+/**
+ * Opt-outs by id: guests, and households for their own contact details (a household's email or
+ * mobile is used when none of its guests can be reached). Guest and household ids never collide.
+ * Kept out of the Guest type so they never travel to pages that don't need them.
+ */
 export async function optOuts(db: D1Database) {
-    const rows = await db
-        .prepare("SELECT id, email_opt_out_at, sms_opt_out_at FROM guests WHERE email_opt_out_at IS NOT NULL OR sms_opt_out_at IS NOT NULL")
-        .all<{ id: string; email_opt_out_at: string | null; sms_opt_out_at: string | null }>();
-    return new Map(rows.results.map((r) => [r.id, { email: !!r.email_opt_out_at, sms: !!r.sms_opt_out_at }]));
+    const [guests, households] = await db.batch([
+        db.prepare("SELECT id, email_opt_out_at, sms_opt_out_at FROM guests WHERE email_opt_out_at IS NOT NULL OR sms_opt_out_at IS NOT NULL"),
+        db.prepare(
+            "SELECT id, email, phone, email_opt_out_at, sms_opt_out_at FROM households WHERE email_opt_out_at IS NOT NULL OR sms_opt_out_at IS NOT NULL",
+        ),
+    ]);
+    type Row = { id: string; email?: string | null; phone?: string | null; email_opt_out_at: string | null; sms_opt_out_at: string | null };
+    const map = new Map<string, { email: boolean; sms: boolean }>(
+        [...guests.results, ...households.results].map((r) => {
+            const row = r as Row;
+            return [row.id, { email: !!row.email_opt_out_at, sms: !!row.sms_opt_out_at }] as const;
+        }),
+    );
+    // A household's opt-out covers its address and number wherever they're used, e.g. a guest who
+    // shares the household's email. Keyed "email:<address>" and "sms:<E.164>".
+    for (const row of households.results as Row[]) {
+        if (row.email_opt_out_at && row.email) map.set(`email:${row.email.trim().toLowerCase()}`, { email: true, sms: false });
+        const phone = normaliseMobile(row.phone);
+        if (row.sms_opt_out_at && phone) map.set(`sms:${phone}`, { email: false, sms: true });
+    }
+    return map;
 }
 
 export type Consent = Awaited<ReturnType<typeof optOuts>>;
 
 /** Whether a guest can be reached on this channel, and why not. */
 export function reachGuest(guest: Pick<Guest, "id" | "email" | "phone">, channel: MessageChannel, consent: Consent) {
-    const opted = consent.get(guest.id);
+    const own = consent.get(guest.id);
+    const phoneKey = normaliseMobile(guest.phone);
+    const opted = {
+        email: !!own?.email || (!!guest.email && !!consent.get(`email:${guest.email.trim().toLowerCase()}`)?.email),
+        sms: !!own?.sms || (!!phoneKey && !!consent.get(`sms:${phoneKey}`)?.sms),
+    };
     if (channel === "sms") {
         if (!guest.phone) return { email: null, phone: null, error: EXCLUSION_REASONS.noMobile };
         const phone = normaliseMobile(guest.phone);
@@ -545,23 +571,22 @@ export function reachGuest(guest: Pick<Guest, "id" | "email" | "phone">, channel
     return { email: guest.email, phone: null, error: null };
 }
 
-/**
- * A household's own contact details, used when none of its guests can be reached. Anyone in the
- * household who opted out with the same address or number keeps it opted out.
- */
+/** A household's own contact details, used when none of its guests can be reached. */
 export function reachHousehold(context: CampaignContext, householdId: string, channel: MessageChannel, consent: Consent) {
     const household = context.households.get(householdId);
     if (!household) return null;
-    const members = context.guests.filter((g) => g.householdId === householdId);
+    // Consent belongs to the address or number: opted out if the household's own contact was (a STOP
+    // or unsubscribe through a household message), or any guest with the same address or number was.
+    const own = consent.get(householdId);
     if (channel === "sms") {
         const phone = normaliseMobile(household.phone);
         if (!phone) return null;
-        const opted = members.some((g) => consent.get(g.id)?.sms && normaliseMobile(g.phone) === phone);
+        const opted = !!own?.sms || context.guests.some((g) => consent.get(g.id)?.sms && normaliseMobile(g.phone) === phone);
         return { email: null, phone, error: opted ? EXCLUSION_REASONS.optedOutSms : null };
     }
     if (!household.email) return null;
     const email = household.email.toLowerCase();
-    const opted = members.some((g) => consent.get(g.id)?.email && g.email?.toLowerCase() === email);
+    const opted = !!own?.email || context.guests.some((g) => consent.get(g.id)?.email && g.email?.toLowerCase() === email);
     return { email: household.email, phone: null, error: opted ? EXCLUSION_REASONS.optedOutEmail : null };
 }
 

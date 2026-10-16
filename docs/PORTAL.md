@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For") `0010_rsvp_travel.sql` (one new table for courtesy bus and accommodation answers; no existing row is changed) and `0011_communications_studio.sql` (two new columns and two new tables for the Communications Studio; the only existing rows it touches are message recipients, which gain the household they were addressed to). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For") `0010_rsvp_travel.sql` (one new table for courtesy bus and accommodation answers; no existing row is changed) `0011_communications_studio.sql` (two new columns and two new tables for the Communications Studio; the only existing rows it touches are message recipients, which gain the household they were addressed to) and `0012_household_consent.sql` (two empty opt-out columns on households). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -285,7 +285,7 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0011`)
+## Data model (D1, migrations `0002`–`0012`)
 
 | Table                                                               | Contents                                                                                                                                                                               |
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

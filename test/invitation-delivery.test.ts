@@ -390,6 +390,38 @@ describe("the invitation email", () => {
     });
 });
 
+describe("individual invitations", () => {
+    it("preview each guest's own attachment, not the first guest's in the household", async () => {
+        const f = await setup();
+        await apiCall("PATCH", `/api/portal/wedding/guests/${f.ann.id}`, { email: "ann@example.com" });
+        const draft = (await prepareStudio({ householdIds: [f.couple.id], delivery: "individual", attachPdf: true })).json.drafts[0];
+        const check = await preflight(draft.id);
+        expect(check.sending.map((r) => [r.to, r.guestId])).toEqual([
+            ["ann@example.com", f.ann.id],
+            ["fred@example.com", f.fred.id],
+        ]);
+        const pdf = async (guestId: string) =>
+            new Uint8Array(
+                await (
+                    await call(`/api/portal/wedding/messages/${draft.id}/invitation.pdf?household=${f.couple.id}&guest=${guestId}`, {
+                        token: await accessToken(),
+                    })
+                ).arrayBuffer(),
+            );
+        const [fred, ann] = [await pdf(f.fred.id), await pdf(f.ann.id)];
+        expect(new TextDecoder().decode(fred.slice(0, 5))).toBe("%PDF-");
+        // Each is addressed to that guest alone, with their own signed link and QR code.
+        const text = (bytes: Uint8Array) => new TextDecoder("latin1").decode(bytes);
+        expect(Buffer.compare(Buffer.from(fred), Buffer.from(ann))).not.toBe(0);
+        expect(text(fred)).not.toEqual(text(ann));
+        // A guest who isn't a recipient of this message gets nothing.
+        const stranger = await call(`/api/portal/wedding/messages/${draft.id}/invitation.pdf?household=${f.couple.id}&guest=${f.sam.id}`, {
+            token: await accessToken(),
+        });
+        expect(stranger.status).toBe(404);
+    });
+});
+
 describe("MIME for SMTP providers", () => {
     it("wraps the text and HTML alternatives and a base64 PDF in multipart/mixed", () => {
         const mime = buildMime({
@@ -423,7 +455,7 @@ describe("one-household UAT, end to end", () => {
         for (const flag of ["wedding.site.public", "rsvp.native"]) await apiCall("PUT", `/api/portal/flags/${flag}`, { enabled: true });
         const draft = (await prepareStudio({ householdIds: [f.couple.id], attachPdf: true })).json.drafts[0];
         const check = await preflight(draft.id);
-        expect(check.sending).toEqual([{ name: "Fred & Ann Example", to: "fred@example.com", householdId: f.couple.id }]);
+        expect(check.sending).toEqual([{ name: "Fred & Ann Example", to: "fred@example.com", householdId: f.couple.id, guestId: f.fred.id }]);
         const { sent } = fastmail();
         await switchEmailOn();
         await apiCall("POST", `/api/portal/wedding/messages/${draft.id}/send`, {}, { env: await fastmailEnv() });
