@@ -95,17 +95,95 @@ export const WIDGETS: Record<WidgetType, WidgetDefinition> = {
         },
     },
     "invitation-readiness": {
-        title: "Invitation links",
-        description: "Secure household RSVP links.",
+        title: "Invitations",
+        description: "Households invited, invitations generated and sent, and their links.",
         defaultSize: "sm",
         available: () => true,
-        link: { href: "/portal/wedding/households", label: "Manage links" },
-        render: ({ stats }) => (
-            <div className="flex flex-col gap-4">
-                <Stat label="Active links" value={formatNumber(stats.invitations.active)} sub={`${formatNumber(stats.invitations.revoked)} revoked`} />
-                {stats.invitations.revoked > 0 && <p className="text-xs text-warning-primary">Revoked households need a restored link before native RSVP.</p>}
-            </div>
-        ),
+        link: { href: "/portal/wedding/invitations", label: "Invitation Studio" },
+        render: ({ stats }) => {
+            const { invitedHouseholds, generated, sent, active, revoked } = stats.invitations;
+            if (invitedHouseholds === 0) return <Quiet>No household is invited to an event yet.</Quiet>;
+            return (
+                <div className="flex flex-col gap-4">
+                    <ProgressBar
+                        labelPosition="bottom"
+                        value={percent(sent, invitedHouseholds)}
+                        valueFormatter={() => `${sent} of ${invitedHouseholds} invited households sent an invitation`}
+                    />
+                    <p className="text-xs text-tertiary">
+                        {generated} generated in Invitation Studio · {formatNumber(active)} active links
+                        {revoked ? ` · ${formatNumber(revoked)} revoked` : ""}
+                    </p>
+                    {revoked > 0 && <p className="text-xs text-warning-primary">Revoked households need a restored link before native RSVP.</p>}
+                </div>
+            );
+        },
+    },
+    "follow-up": {
+        title: "Needs follow-up",
+        description: "Households still to reply, or with travel answers to check.",
+        defaultSize: "sm",
+        available: () => true,
+        link: { href: "/portal/wedding/households", label: "Review replies" },
+        render: ({ stats }) => {
+            const { notStarted, partial, travel } = stats.followUp;
+            if (!notStarted && !partial && !travel) return <Quiet>Nothing to chase up right now.</Quiet>;
+            return (
+                <div className="grid grid-cols-3 gap-4">
+                    <Stat label="No reply" value={notStarted} />
+                    <Stat label="Partly" value={partial} />
+                    <Stat label="Travel" value={travel} />
+                </div>
+            );
+        },
+    },
+    "contact-readiness": {
+        title: "Contact details",
+        description: "How households can be reached by email or text.",
+        defaultSize: "sm",
+        available: () => true,
+        link: { href: "/portal/wedding/households", label: "Fix details" },
+        render: ({ stats }) => {
+            const c = stats.contacts;
+            if (!c.households) return <Quiet>No households yet.</Quiet>;
+            const reachable = c.households - c.unreachable;
+            return (
+                <div className="flex flex-col gap-4">
+                    <ProgressBar
+                        labelPosition="bottom"
+                        value={percent(reachable, c.households)}
+                        valueFormatter={() => `${reachable} of ${c.households} households can be reached`}
+                    />
+                    <p className="text-xs text-tertiary">
+                        {c.unreachable} no one reachable · {c.emailOnly} email only · {c.smsOnly} text only
+                        {c.invalidMobile ? ` · ${c.invalidMobile} with an invalid mobile` : ""}
+                        {c.optedOut ? ` · ${c.optedOut} with opt-outs` : ""}
+                    </p>
+                </div>
+            );
+        },
+    },
+    "courtesy-bus": {
+        title: "Courtesy bus",
+        description: "Seats requested each way, for the Dubbo RSL.",
+        defaultSize: "sm",
+        available: () => true,
+        link: { href: "/portal/wedding/rsvps", label: "Transport" },
+        render: ({ stats }) => {
+            const t = stats.transport;
+            if (!t || (!t.outbound && !t.return && !t.unsureHouseholds)) return <Quiet>No courtesy bus requests yet.</Quiet>;
+            return (
+                <div className="flex flex-col gap-3">
+                    <div className="grid grid-cols-2 gap-4">
+                        <Stat label="To the wedding" value={t.outbound} />
+                        <Stat label="Home" value={t.return} />
+                    </div>
+                    <p className="text-xs text-tertiary">
+                        {t.bothWays} both ways · {t.unsureHouseholds} households not sure · {t.unanswered} attending households yet to answer
+                    </p>
+                </div>
+            );
+        },
     },
     "event-attendance": {
         title: "Attendance by event",
@@ -336,12 +414,33 @@ export const WIDGETS: Record<WidgetType, WidgetDefinition> = {
         render: ({ stats }) => {
             const communications = stats.communications;
             if (!communications) return null;
+            const campaigns = stats.campaigns;
             return (
-                <div className="grid grid-cols-2 gap-4">
-                    <Stat label="Drafts" value={communications.drafts} />
-                    <Stat label="Scheduled" value={communications.queued} />
-                    <Stat label="Sent" value={communications.sent} />
-                    <Stat label="Failed" value={communications.failed} />
+                <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <Stat label="Drafts" value={communications.drafts} />
+                        <Stat label="Scheduled" value={communications.queued} />
+                        <Stat label="Sent" value={communications.sent} />
+                        <Stat label="Failed" value={communications.failed} />
+                    </div>
+                    {campaigns && (
+                        <ul className="flex flex-col gap-1 text-xs text-tertiary">
+                            {(
+                                [
+                                    ["save_the_date", "Save the date"],
+                                    ["invitation", "Invitation"],
+                                    ["reminder", "Reminder"],
+                                    ["final_details", "Final information"],
+                                    ["thank_you", "Thank you"],
+                                ] as const
+                            ).map(([key, label]) => (
+                                <li key={key} className="flex justify-between gap-2">
+                                    <span>{label}</span>
+                                    <span className="tabular-nums">{pluralise(campaigns[key], "household")}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                 </div>
             );
         },

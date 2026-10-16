@@ -1,10 +1,26 @@
 import { useState } from "react";
-import { FileHeart02, Mail01, MessageChatSquare, Plus, Send01 } from "@untitledui/icons";
+import {
+    Announcement02,
+    BellRinging01,
+    CalendarHeart01,
+    FileHeart02,
+    HeartHand,
+    Mail01,
+    MarkerPin01,
+    MessageChatSquare,
+    Palette,
+    Plus,
+    Printer,
+    Send01,
+} from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
+import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { ComposePanel } from "@/portal/communications/compose-panel";
 import { DeliveryStatus } from "@/portal/communications/delivery-status";
+import { StudioSettingsDialog } from "@/portal/communications/studio-settings-dialog";
 import { TemplateDialog } from "@/portal/communications/template-dialog";
+import { ThankYouNotesDialog } from "@/portal/communications/thank-you-notes-dialog";
 import { type DataColumn, DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
@@ -12,24 +28,38 @@ import { PageHeader } from "@/portal/components/page-header";
 import { MessageStatusBadge } from "@/portal/components/status";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useCollection } from "@/portal/hooks/use-collection";
-import { pluralise } from "@/portal/lib/format";
+import { displaySubject, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import { MESSAGE_CATEGORY_LABELS, type Message, type MessageTemplate } from "@/shared/portal/types";
+import { CAMPAIGNS, CAMPAIGN_KINDS, type CampaignKind } from "@/shared/portal/campaigns";
+import { MESSAGE_CATEGORY_LABELS, type Message, type MessageTemplate, type StudioSettings } from "@/shared/portal/types";
+
+const CAMPAIGN_ICONS = {
+    save_the_date: CalendarHeart01,
+    invitation: Mail01,
+    reminder: BellRinging01,
+    final_details: MarkerPin01,
+    thank_you: HeartHand,
+} as const;
 
 const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
 export const CommunicationsPage = ({ data }: { data: PageData<"communications"> }) => {
-    const { can } = usePortal();
+    const { can, wedding } = usePortal();
     const templates = useCollection<MessageTemplate>("templates", data.templates);
     const [composeOpen, setComposeOpen] = useState(false);
     const [composeFrom, setComposeFrom] = useState<MessageTemplate | null>(null);
     const [templateOpen, setTemplateOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null);
+    const [kind, setKind] = useState<CampaignKind | null>(null);
+    const [studio, setStudio] = useState<StudioSettings>(data.studio);
+    const [designing, setDesigning] = useState<CampaignKind | null>(null);
+    const [notesOpen, setNotesOpen] = useState(false);
     const canEdit = can("wedding.comms.edit");
 
-    const compose = (template: MessageTemplate | null) => {
+    const compose = (template: MessageTemplate | null, campaign: CampaignKind | null = null) => {
         setComposeFrom(template);
+        setKind(campaign);
         setComposeOpen(true);
     };
     const editTemplate = (template: MessageTemplate | null) => {
@@ -43,7 +73,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             label: "Subject",
             isRowHeader: true,
             sortValue: (m) => m.subject,
-            render: (m) => <span className="font-medium text-primary">{m.subject}</span>,
+            render: (m) => <span className="font-medium text-primary">{displaySubject(m.subject, wedding)}</span>,
         },
         { id: "channel", label: "Channel", sortValue: (m) => m.channel, render: (m) => (m.channel === "sms" ? "Text" : "Email"), className: "max-md:hidden" },
         { id: "status", label: "Status", sortValue: (m) => m.status, render: (m) => <MessageStatusBadge status={m.status} /> },
@@ -126,6 +156,74 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
                 </div>
             )}
 
+            <section aria-labelledby="studio-heading" className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
+                    <h2 id="studio-heading" className="text-lg font-semibold text-primary">
+                        Communications Studio
+                    </h2>
+                    <p className="text-sm text-tertiary">
+                        The guest journey, in order. Each goes to one person per household by default, in the wedding stationery design. Choose recipients,
+                        customise, preview and test before anything is sent.
+                    </p>
+                </div>
+                <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {CAMPAIGN_KINDS.map((key, index) => {
+                        const campaign = CAMPAIGNS[key];
+                        const sent = data.campaignProgress.sent[key];
+                        return (
+                            <li key={key} className="flex flex-col gap-4 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+                                <div className="flex items-start gap-3">
+                                    <FeaturedIcon icon={CAMPAIGN_ICONS[key]} color="brand" theme="light" size="md" />
+                                    <div className="flex min-w-0 flex-col gap-1">
+                                        <p className="text-xs font-semibold tracking-wide text-brand-secondary uppercase">Step {index + 1}</p>
+                                        <h3 className="text-md font-semibold text-primary">{campaign.label}</h3>
+                                        <p className="text-sm text-tertiary">{campaign.description}</p>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-secondary">
+                                    {sent ? `Sent to ${pluralise(sent, "household")}` : "Not sent yet"}
+                                    {key === "invitation" && data.campaignProgress.households ? ` of ${data.campaignProgress.households} invited` : ""}
+                                </p>
+                                {canEdit && (
+                                    <div className="mt-auto flex flex-wrap gap-2">
+                                        <Button size="sm" iconLeading={Plus} onClick={() => compose(null, key)}>
+                                            Create
+                                        </Button>
+                                        {key !== "invitation" && (
+                                            <Button size="sm" color="secondary" iconLeading={Palette} onClick={() => setDesigning(key)}>
+                                                Wording &amp; design
+                                            </Button>
+                                        )}
+                                        {key === "invitation" && (
+                                            <Button size="sm" color="secondary" iconLeading={Printer} href="/portal/wedding/invitations">
+                                                Invitation Studio
+                                            </Button>
+                                        )}
+                                        {key === "thank_you" && (
+                                            <Button size="sm" color="secondary" iconLeading={HeartHand} onClick={() => setNotesOpen(true)}>
+                                                Personal notes
+                                            </Button>
+                                        )}
+                                    </div>
+                                )}
+                            </li>
+                        );
+                    })}
+                    <li className="flex flex-col gap-3 rounded-xl border border-dashed border-primary p-5">
+                        <div className="flex items-start gap-3">
+                            <FeaturedIcon icon={Announcement02} color="gray" theme="modern" size="md" />
+                            <div className="flex flex-col gap-1">
+                                <h3 className="text-md font-semibold text-primary">RSVP confirmation</h3>
+                                <p className="text-sm text-tertiary">
+                                    Sent on its own after each online RSVP, when switched on in RSVPs → Settings and email delivery is on. Separate from the
+                                    campaigns above.
+                                </p>
+                            </div>
+                        </div>
+                    </li>
+                </ul>
+            </section>
+
             <Tabs defaultSelectedKey="messages">
                 <Tabs.List type="button-minimal" size="sm" className="w-max">
                     <Tabs.Item id="messages" badge={data.messages.length || undefined}>
@@ -194,7 +292,19 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
                 groups={data.groups}
                 tags={data.tags}
                 initialTemplate={composeFrom}
+                kind={kind}
+                studio={studio}
+                households={data.households}
+                guests={data.guests}
             />
+            <StudioSettingsDialog
+                kind={designing}
+                studio={studio}
+                photos={data.photos}
+                onOpenChange={(open) => !open && setDesigning(null)}
+                onSaved={setStudio}
+            />
+            <ThankYouNotesDialog isOpen={notesOpen} onOpenChange={setNotesOpen} households={data.households} />
             <TemplateDialog
                 template={editingTemplate}
                 isOpen={templateOpen}

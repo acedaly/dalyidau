@@ -280,7 +280,7 @@ describe("RSVP page and email invitations use the same addressing", () => {
         ]);
         expect(rows.find((row) => row.guest_id === f.couple.guests[1].id)).toMatchObject({
             status: "skipped",
-            error: "Included in the household invitation to Fred Daly",
+            error: "Included in the household invitation to Fred & Ann Daly",
         });
 
         const rendered = await apiCall<{ subject: string; body: string }>("POST", "/api/portal/wedding/messages/preview", {

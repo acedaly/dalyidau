@@ -3,6 +3,7 @@ import { CheckCircle, Mail01, MessageChatSquare } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Notice } from "@/portal/components/notice";
 import { PageHeader } from "@/portal/components/page-header";
 import { useToast } from "@/portal/components/toast";
@@ -24,6 +25,31 @@ export const ProviderSettingsPage = ({ data }: { data: PageData<"provider-settin
     const [testEmail, setTestEmail] = useState("");
     const [testPhone, setTestPhone] = useState("");
     const [busy, setBusy] = useState<string | null>(null);
+    const [testEmails, setTestEmails] = useState(data.comms.testEmails.join("\n"));
+    const [testMobiles, setTestMobiles] = useState(data.comms.testMobiles.join("\n"));
+    const [price, setPrice] = useState(data.comms.smsCentsPerPart === null ? "" : String(data.comms.smsCentsPerPart));
+    const list = (value: string) =>
+        value
+            .split(/[\n,;]+/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+    const saveTesting = async () => {
+        setBusy("testing");
+        try {
+            const result = await api<{ value: { testEmails: string[]; testMobiles: string[] } }>("PUT", "/api/portal/settings/comms", {
+                testEmails: list(testEmails),
+                testMobiles: list(testMobiles),
+                smsCentsPerPart: price.trim() === "" ? null : Number(price),
+            });
+            setTestEmails(result.value.testEmails.join("\n"));
+            setTestMobiles(result.value.testMobiles.join("\n"));
+            toast.success("Test recipients saved", "Campaign tests can only go to these.");
+        } catch (error) {
+            toast.error("Couldn't save the test recipients", errorMessage(error));
+        } finally {
+            setBusy(null);
+        }
+    };
     const validate = async (channel: "email" | "sms") => {
         setBusy(`${channel}-validate`);
         try {
@@ -57,6 +83,34 @@ export const ProviderSettingsPage = ({ data }: { data: PageData<"provider-settin
                 API tokens and app passwords are provisioned and rotated as Cloudflare Worker secrets. This page receives only provider names and validation
                 outcomes; secret values never enter D1, client code, audit logs or error responses.
             </Notice>
+            <section aria-labelledby="testing-heading" className="flex flex-col gap-4 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+                <div className="flex flex-col gap-1">
+                    <h2 id="testing-heading" className="text-md font-semibold text-primary">
+                        Campaign test recipients
+                    </h2>
+                    <p className="text-sm text-tertiary">
+                        The only addresses and mobiles a campaign test can be sent to. Use your own. Tests are marked as tests and never count as contacting a
+                        guest.
+                    </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <TextArea label="Test email addresses" rows={3} value={testEmails} onChange={setTestEmails} hint="One per line, up to 10." />
+                    <TextArea label="Test mobile numbers" rows={3} value={testMobiles} onChange={setTestMobiles} hint="One per line, e.g. 0412 345 678." />
+                </div>
+                <Input
+                    label="Price of one SMS part (cents)"
+                    type="number"
+                    value={price}
+                    onChange={setPrice}
+                    hint="Optional. Used for the cost estimate in the send check, e.g. your ClickSend rate."
+                    className="max-w-60"
+                />
+                <div>
+                    <Button color="secondary" onClick={saveTesting} isLoading={busy === "testing"} showTextWhileLoading>
+                        Save test recipients
+                    </Button>
+                </div>
+            </section>
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <section className="flex flex-col gap-5 rounded-xl bg-primary p-6 shadow-xs ring-1 ring-secondary ring-inset">
                     <div className="flex items-start justify-between gap-3">

@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { Download01, Eye, RefreshCcw01, Send01, Trash01, Users01 } from "@untitledui/icons";
+import { useCallback, useEffect, useState } from "react";
+import { Clock, Download01, Eye, Printer, RefreshCcw01, Send01, Trash01, Users01 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { PreviewDialog } from "@/portal/communications/preview-dialog";
+import { SendCheck, SendDialog, TestSend } from "@/portal/communications/send-check";
 import { type DataColumn, DataTable } from "@/portal/components/data-table";
 import { ConfirmDialog } from "@/portal/components/dialog";
 import { Empty } from "@/portal/components/empty";
@@ -13,10 +14,11 @@ import { MessageStatusBadge } from "@/portal/components/status";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
-import { formatNumber, pluralise } from "@/portal/lib/format";
+import { displaySubject, formatNumber, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import { MESSAGE_CATEGORY_LABELS, type Message, type MessageRecipient } from "@/shared/portal/types";
+import { CAMPAIGNS, isCampaignKind } from "@/shared/portal/campaigns";
+import { MESSAGE_CATEGORY_LABELS, type Message, type MessagePreflight, type MessageRecipient } from "@/shared/portal/types";
 
 const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
@@ -28,11 +30,29 @@ const RECIPIENT_STATUS: Record<MessageRecipient["status"], { label: string; colo
 };
 
 export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
-    const { can } = usePortal();
+    const { can, wedding } = usePortal();
     const toast = useToast();
     const [message, setMessage] = useState<Message>(data.message);
-    const [confirm, setConfirm] = useState<"send" | "delete" | "retry" | null>(null);
+    const [confirm, setConfirm] = useState<"delete" | "retry" | null>(null);
+    const [sendMode, setSendMode] = useState<"send" | "schedule" | null>(null);
     const [previewOpen, setPreviewOpen] = useState(false);
+    const [preflight, setPreflight] = useState<MessagePreflight | null>(null);
+    const [printing, setPrinting] = useState(false);
+    const refresh = useCallback(() => {
+        api<{ preflight: MessagePreflight }>("GET", `/api/portal/wedding/messages/${data.message.id}/preflight`)
+            .then((r) => setPreflight(r.preflight))
+            .catch((e) => toast.error("Couldn't run the send check", errorMessage(e)));
+    }, [data.message.id, toast]);
+    useEffect(refresh, [refresh]);
+    // The households this message is addressed to, for previews, tests and printing.
+    const households = [
+        ...new Map(
+            data.recipients
+                .filter((r) => r.householdId && !r.error?.startsWith("Included in the household"))
+                .map((r) => [r.householdId!, { id: r.householdId!, line: r.name }]),
+        ).values(),
+    ];
+    const printable = isCampaignKind(message.category) && CAMPAIGNS[message.category].printable;
     const sms = message.channel === "sms";
     const reachable = data.recipients.filter((r) => (sms ? r.phone : r.email));
     const retryable = data.recipients.filter((r) => r.status === "failed" && r.attempts < 3).length;
@@ -94,7 +114,7 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
     return (
         <>
             <PageHeader
-                title={message.subject}
+                title={displaySubject(message.subject, wedding)}
                 description={
                     <span className="flex flex-wrap items-center gap-2">
                         <MessageStatusBadge status={message.status} />
@@ -112,6 +132,37 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                         <Button color="secondary" iconLeading={Eye} onClick={() => setPreviewOpen(true)}>
                             Preview
                         </Button>
+                        {printable && can("wedding.export") && households.length > 0 && (
+                            <Button
+                                color="secondary"
+                                iconLeading={Printer}
+                                isLoading={printing}
+                                showTextWhileLoading
+                                onClick={async () => {
+                                    setPrinting(true);
+                                    try {
+                                        const response = await fetch("/api/portal/wedding/studio/cards.pdf", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ kind: message.category, householdIds: households.map((h) => h.id) }),
+                                        });
+                                        if (!response.ok) throw new Error((await response.json().catch(() => null))?.message ?? "The cards couldn't be made");
+                                        const url = URL.createObjectURL(await response.blob());
+                                        const link = document.createElement("a");
+                                        link.href = url;
+                                        link.download = `${message.category === "thank_you" ? "thank-you" : "save-the-date"}-cards.pdf`;
+                                        link.click();
+                                        URL.revokeObjectURL(url);
+                                    } catch (e) {
+                                        toast.error("Couldn't make the printable cards", errorMessage(e));
+                                    } finally {
+                                        setPrinting(false);
+                                    }
+                                }}
+                            >
+                                Printable cards
+                            </Button>
+                        )}
                         {can("wedding.export") && reachable.length > 0 && (
                             <Button color="secondary" iconLeading={Download01} href={`/api/portal/wedding/messages/${message.id}/merge.csv`} download>
                                 Mail-merge CSV
@@ -139,9 +190,14 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                                 Retry {pluralise(retryable, "failed recipient")}
                             </Button>
                         )}
+                        {isDraft && can("wedding.comms.send") && (
+                            <Button color="secondary" iconLeading={Clock} onClick={() => setSendMode("schedule")} isDisabled={!preflight?.recipients}>
+                                Schedule
+                            </Button>
+                        )}
                         {isEditable && can("wedding.comms.send") && (
-                            <Button iconLeading={Send01} onClick={() => setConfirm("send")} isDisabled={!data.deliveryAvailable || reachable.length === 0}>
-                                {isQueued ? "Send now" : `Send to ${pluralise(reachable.length, "guest")}`}
+                            <Button iconLeading={Send01} onClick={() => setSendMode("send")} isDisabled={!data.deliveryAvailable || !preflight?.recipients}>
+                                {isQueued ? "Send now" : preflight ? `Send to ${pluralise(preflight.households, "household")}` : "Send"}
                             </Button>
                         )}
                     </>
@@ -162,6 +218,22 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                 </Notice>
             )}
             {message.deliveryNote && <Notice title="Delivery">{message.deliveryNote}</Notice>}
+
+            {isEditable && preflight && (
+                <>
+                    <SendCheck
+                        preflight={preflight}
+                        onRefresh={refresh}
+                        pdfHref={
+                            message.options.invitation?.attachPdf && can("wedding.export")
+                                ? (householdId, guestId) =>
+                                      `/api/portal/wedding/messages/${message.id}/invitation.pdf?household=${encodeURIComponent(householdId)}&guest=${encodeURIComponent(guestId)}`
+                                : undefined
+                        }
+                    />
+                    <TestSend message={message} preflight={preflight} households={households} canSend={can("wedding.comms.send")} onSent={refresh} />
+                </>
+            )}
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <MetricCard label="Recipients" icon={Users01} value={formatNumber(data.recipients.length)} />
@@ -199,26 +271,24 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                 onOpenChange={setPreviewOpen}
                 subject={message.subject}
                 body={message.body}
-                guests={data.recipients.slice(0, 50).map((r) => ({ id: r.guestId, name: r.name, email: r.email }))}
+                category={message.category}
+                channel={message.channel}
+                individual={!isCampaignKind(message.category) || !!message.options.individualDelivery}
+                households={households}
             />
-
-            <ConfirmDialog
-                isOpen={confirm === "send"}
-                onOpenChange={(o) => !o && setConfirm(null)}
-                title={`Send to ${pluralise(reachable.length, "guest")}?`}
-                description="Each guest receives their own personalised copy. This can't be undone."
-                confirmLabel="Send now"
-                onConfirm={async () => {
-                    try {
-                        const result = await api<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/send`, {});
-                        setMessage(result.message);
-                        toast.success("Message sent", result.message.deliveryNote ?? undefined);
+            {preflight && (
+                <SendDialog
+                    mode={sendMode}
+                    message={message}
+                    preflight={preflight}
+                    onOpenChange={(open) => !open && setSendMode(null)}
+                    onDone={(next) => {
+                        setMessage(next);
                         window.location.reload();
-                    } catch (e) {
-                        toast.error("Couldn't send", errorMessage(e));
-                    }
-                }}
-            />
+                    }}
+                />
+            )}
+
             <ConfirmDialog
                 isOpen={confirm === "retry"}
                 onOpenChange={(o) => !o && setConfirm(null)}

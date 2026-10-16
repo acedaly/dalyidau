@@ -319,7 +319,15 @@ describe("SMS delivery", () => {
 
         await apiCall("PUT", "/api/portal/flags/communications.sms", { enabled: true });
         const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => json({ data: { messages: [{ status: "SUCCESS", message_id: "cs" }] } }));
-        const sent = await apiCall<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/send`, {}, { env: await clicksendEnv() });
+        // A bulk send needs the count confirmed in the send check.
+        expect((await apiCall("POST", `/api/portal/wedding/messages/${message.id}/send`, {}, { env: await clicksendEnv() })).status).toBe(409);
+        expect(fetchMock).not.toHaveBeenCalled();
+        const sent = await apiCall<{ message: Message }>(
+            "POST",
+            `/api/portal/wedding/messages/${message.id}/send`,
+            { confirmCount: 2 },
+            { env: await clicksendEnv() },
+        );
         expect(sent.json.message.status).toBe("sent");
         const recipients = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)).messages[0].to).sort();
         expect(recipients).toEqual(["+61412345678", "+64211234567"]);

@@ -6,11 +6,12 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
-import { emailProvider, htmlForText, providerStatus, smsProvider, validateProviderConnection } from "../comms/providers";
+import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
+import { printableCards } from "./cards";
 import { cateringSummary } from "./catering";
 import {
     audiencePreview,
@@ -21,11 +22,16 @@ import {
     listMessages,
     listSmsThreads,
     mergeRows,
+    messageInvitationPdf,
+    planPreview,
+    preflight,
     prepareMessage,
     previewMessage,
     retryFailed,
+    scheduleMessage,
     sendMessage,
     sendSmsReply,
+    sendTest,
     smsConversation,
 } from "./comms";
 import { csvResponse, toCsv } from "./csv";
@@ -46,6 +52,9 @@ import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from 
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
+import { prepareStudioDrafts } from "./studio-drafts";
+import { listThankYouNotes, saveThankYouNote } from "./thank-you";
+import { householdTimeline } from "./timeline";
 import { saveTravelManually, travelOverview } from "./travel";
 import { listUsers, removeUser, saveUser } from "./users";
 
@@ -82,6 +91,9 @@ const add = (method: string, path: string, permission: Route["permission"], hand
 };
 
 const SETTINGS_PERMISSIONS: Record<SettingsKey, Permission> = {
+    studio: "wedding.comms.edit",
+    // Who may receive test sends, so only owners and admins may change it.
+    comms: "portal.settings.manage",
     privacy: "portal.data.erase",
     catering: "wedding.planning.edit",
     website_draft: "wedding.website.edit",
@@ -380,6 +392,9 @@ add("POST", "/api/portal/wedding/households/:id/invitation", "wedding.guests.edi
     });
 });
 
+add("GET", "/api/portal/wedding/households/:id/timeline", "wedding.view", async ({ env, user, params }) =>
+    json({ entries: await householdTimeline(env.DB, params.id, { includeReplies: user.permissions.includes("wedding.comms.edit") }) }),
+);
 add("GET", "/api/portal/wedding/households/overview", "wedding.view", async ({ env }) => json({ households: await listHouseholdRows(env) }));
 
 // Bulk "generate invitations": marks the households' signed links ready. Sending is a separate,
@@ -399,6 +414,26 @@ add("POST", "/api/portal/wedding/invitations/preview", "wedding.view", async ({ 
 );
 add("POST", "/api/portal/wedding/invitations/generate", "wedding.guests.edit", async ({ env, request, user }) =>
     json(await generateStudioInvitations(env, await readJson(request), user.email), 201),
+);
+// Prepare reviewable Communications drafts for the households selected in the Studio. Never sends.
+add(
+    "POST",
+    "/api/portal/wedding/invitations/prepare",
+    "wedding.comms.edit",
+    async ({ env, request, user }) => {
+        const result = await prepareStudioDrafts(env, env.DB, await readJson(request), user.email);
+        if (result.conflicts.length)
+            return json(
+                {
+                    error: "conflict",
+                    message: "These households already have an unsent invitation draft. Open it, or replace it.",
+                    conflicts: result.conflicts,
+                },
+                409,
+            );
+        return json({ drafts: result.drafts }, 201);
+    },
+    "module.communications",
 );
 add("POST", "/api/portal/wedding/invitations/print.pdf", "wedding.export", async ({ env, request, user }) => {
     const pdf = await printableInvitations(env, await readJson(request));
@@ -532,26 +567,34 @@ add(
     "POST",
     "/api/portal/wedding/messages",
     "wedding.comms.edit",
-    async ({ env, request, user }) => json({ message: await prepareMessage(env.DB, await readJson(request), user.email) }, 201),
+    async ({ env, request, user }) => {
+        const body = await readJson(request);
+        // Scheduling is sending later, so it needs the send permission (editors prepare, they don't send).
+        if (body && typeof body === "object" && (body as { scheduledAt?: unknown }).scheduledAt && !user.permissions.includes("wedding.comms.send"))
+            throw new HttpError(403, "forbidden", "Only owners and admins can schedule messages");
+        return json({ message: await prepareMessage(env, env.DB, body, user.email) }, 201);
+    },
     "module.communications",
 );
 add(
     "POST",
     "/api/portal/wedding/messages/audience",
     "wedding.view",
-    async ({ env, request }) => json(await audiencePreview(env.DB, await readJson(request))),
+    async ({ env, request }) => json(await audiencePreview(env, env.DB, await readJson(request))),
+    "module.communications",
+);
+add(
+    "POST",
+    "/api/portal/wedding/messages/plan",
+    "wedding.view",
+    async ({ env, request }) => json(await planPreview(env, env.DB, await readJson(request))),
     "module.communications",
 );
 add(
     "POST",
     "/api/portal/wedding/messages/preview",
     "wedding.view",
-    async ({ env, request }) => {
-        const body = z
-            .object({ subject: z.string().max(200), body: z.string().max(20_000), guestId: z.string().max(40).nullable().optional() })
-            .parse(await readJson(request));
-        return json(await previewMessage(env, env.DB, body));
-    },
+    async ({ env, request }) => json(await previewMessage(env, env.DB, await readJson(request))),
     "module.communications",
 );
 add(
@@ -604,7 +647,87 @@ add(
     "POST",
     "/api/portal/wedding/messages/:id/send",
     "wedding.comms.send",
-    async ({ env, user, params }) => json({ message: await sendMessage(env, env.DB, params.id, user.email) }),
+    async ({ env, request, user, params }) => json({ message: await sendMessage(env, env.DB, params.id, user.email, false, await readJson(request)) }),
+    "module.communications",
+);
+// Printable Save the Date and Thank You cards: one A5 page per household. Printing isn't delivery.
+add(
+    "POST",
+    "/api/portal/wedding/studio/cards.pdf",
+    "wedding.export",
+    async ({ env, request, user }) => {
+        const body = await readJson(request);
+        const pdf = await printableCards(env, env.DB, body);
+        const kind = (body as { kind?: string }).kind === "thank_you" ? "thank-you" : "save-the-date";
+        await audit(env.DB, {
+            actor: user.email,
+            action: `export.cards.${kind}`,
+            entityType: "message",
+            summary: `Generated printable ${kind === "thank-you" ? "thank-you" : "save-the-date"} cards (PDF; nothing sent)`,
+        });
+        return new Response(new Uint8Array(pdf).buffer, {
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `attachment; filename="${kind}-cards.pdf"`,
+                "Cache-Control": "no-store",
+            },
+        });
+    },
+    "module.communications",
+);
+add(
+    "GET",
+    "/api/portal/wedding/thank-you-notes",
+    "wedding.comms.edit",
+    async ({ env }) => json({ notes: await listThankYouNotes(env.DB) }),
+    "module.communications",
+);
+add(
+    "PUT",
+    "/api/portal/wedding/thank-you-notes/:id",
+    "wedding.comms.edit",
+    async ({ env, request, user, params }) => json(await saveThankYouNote(env.DB, params.id, await readJson(request), user.email)),
+    "module.communications",
+);
+// The PDF a household's invitation email will carry, exactly as it will be attached.
+add(
+    "GET",
+    "/api/portal/wedding/messages/:id/invitation.pdf",
+    "wedding.export",
+    async ({ env, request, params }) => {
+        const query = new URL(request.url).searchParams;
+        const pdf = await messageInvitationPdf(env, env.DB, params.id, query.get("household") ?? "", query.get("guest"));
+        return new Response(new Uint8Array(pdf.bytes).buffer, {
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `inline; filename="${safeFilename(pdf.filename)}"`,
+                "Cache-Control": "no-store",
+            },
+        });
+    },
+    "module.communications",
+);
+// The send check: who a message would reach now, who's held back and why, and what to watch for.
+add(
+    "GET",
+    "/api/portal/wedding/messages/:id/preflight",
+    "wedding.view",
+    async ({ env, params }) => json({ preflight: await preflight(env, env.DB, params.id) }),
+    "module.communications",
+);
+add(
+    "POST",
+    "/api/portal/wedding/messages/:id/schedule",
+    "wedding.comms.send",
+    async ({ env, request, user, params }) => json({ message: await scheduleMessage(env, env.DB, params.id, await readJson(request), user.email) }),
+    "module.communications",
+);
+// A controlled test, only ever to the owner-approved test recipients.
+add(
+    "POST",
+    "/api/portal/wedding/messages/:id/test",
+    "wedding.comms.send",
+    async ({ env, request, user, params }) => json(await sendTest(env, env.DB, params.id, await readJson(request), user.email)),
     "module.communications",
 );
 add(

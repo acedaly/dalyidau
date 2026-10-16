@@ -23,7 +23,7 @@ Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes
 - **Schedule**: the existing 15-minute cron sends due messages, only on channels whose safeguards are on.
 - **Delivery reports** arrive by webhook and update each recipient: _delivered_, _bounced_, _complained_, _undelivered_.
 - **Text conversations** (Communications → Text conversations): every outbound and inbound SMS by mobile number, matched to guests, with manual replies. Reading conversations needs the communications permission (editors and up). Replying needs the send permission (admins and owners).
-- **Consent**: a reply of `STOP` (or `UNSUBSCRIBE`, `OPT OUT`…) marks the guest as opted out of texts; an SMTP2Go spam complaint or unsubscribe marks them opted out of email. Opted-out guests are skipped at prepare time _and_ re-checked at send time.
+- **Consent**: a reply of `STOP` (or `UNSUBSCRIBE`, `OPT OUT`…) marks the guest as opted out of texts; an SMTP2Go spam complaint or unsubscribe marks them opted out of email. When a message went to a household's own email or mobile (none of its guests could be reached), the opt-out is recorded on the household. Consent belongs to the address or number: a household's opt-out also covers any guest who shares that address or number, and a STOP from a number opts out every guest and household with it. Opted-out guests are skipped at prepare time _and_ re-checked at send time.
 - **RSVP confirmations**: with RSVPs → Settings → "Email a confirmation…" on, a guest who gives an email address in the native RSVP gets a confirmation listing everyone's answers. It is recorded in message history (category "RSVP confirmation"). A failed confirmation never fails the RSVP.
 - **Audit**: preparing, sending, retrying, replying, reading replies and opt-outs are all audited.
 - **Privacy**: erasing a guest also deletes their text conversations and any stored webhook payloads that mention their email or number.
@@ -37,6 +37,14 @@ Guest and household mobile numbers are stored in E.164 (`+61412345678`), using o
 - **Numbers saved before this** keep working (they're normalised when a message is prepared) and are left exactly as they are until someone reviews them: **Guests → Review mobiles** previews every saved number that isn't in E.164 yet. Clear-cut ones are ticked, ones read with an assumption (nine digits, probably a lost leading 0) need ticking, and ones that can't be read must be fixed by hand. Opening the review changes nothing; only ticked numbers change, only if they still hold the previewed value, and each change is audited on the record without storing the number. An untouched legacy value doesn't block saving other changes to a guest.
 
 The composer shows SMS length and parts: curly quotes and emoji switch a message to Unicode, which shortens each part from 160 to 70 characters.
+
+### Communications Studio, tests and attachments
+
+How to prepare, check, test and send each guest communication is in [WEDDING_COMMUNICATIONS_GUIDE.md](WEDDING_COMMUNICATIONS_GUIDE.md). For provider set-up, three things matter:
+
+- **Test recipients** (Communications → Email & SMS settings → Campaign test recipients, owners and admins): the only addresses and mobiles a campaign test can go to. A test needs a configured provider but not the delivery switch, because it can never reach a guest. Tests are stored in `message_tests`, not in delivery history.
+- **Bulk sends need confirmation**: `POST /api/portal/wedding/messages/:id/send` and `/schedule` take `confirmCount`, the number of recipients shown in the send check (`GET …/preflight`); a mismatch is a 409. Scheduling needs the send permission.
+- **PDF attachments** (formal invitations by email, optional): Fastmail uploads each household's PDF as a JMAP blob (`uploadUrl` from the session, then `attachments` on `Email/set`), authenticated SMTP sends `multipart/mixed`, and SMTP2Go sends `attachments`. Cloudflare Email Service is marked as unable to attach, so such a message is refused there rather than sent without its PDF. The Fastmail token needs Mail and Email Submission scopes; uploads use the same token.
 
 ---
 

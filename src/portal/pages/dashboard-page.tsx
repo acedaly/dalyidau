@@ -1,5 +1,18 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, LayoutAlt04, Plus, RefreshCcw01, Trash01 } from "@untitledui/icons";
+import {
+    ArrowDown,
+    ArrowUp,
+    Download01,
+    Eye,
+    LayoutAlt04,
+    Mail01,
+    MessageChatSquare,
+    Plus,
+    RefreshCcw01,
+    Trash01,
+    Upload01,
+    UserPlus01,
+} from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
@@ -91,6 +104,52 @@ export const DashboardPage = ({ data }: { data: PageData<"dashboard"> }) => {
                     )
                 }
             />
+
+            {!editing && (
+                <nav aria-label="Quick actions" className="flex flex-wrap gap-2">
+                    {portal.can("wedding.guests.edit") && (
+                        <>
+                            <Button size="sm" color="secondary" iconLeading={UserPlus01} href="/portal/wedding/guests?new=1">
+                                Add guest
+                            </Button>
+                            <Button size="sm" color="secondary" iconLeading={Upload01} href="/portal/wedding/guests/import">
+                                Import guests
+                            </Button>
+                            <Button size="sm" color="secondary" iconLeading={Mail01} href="/portal/wedding/invitations">
+                                Generate invitations
+                            </Button>
+                        </>
+                    )}
+                    {portal.can("portal.settings.manage") && portal.flags["module.communications"] && (
+                        <Button size="sm" color="secondary" iconLeading={MessageChatSquare} href="/portal/wedding/communications/providers">
+                            Send test email
+                        </Button>
+                    )}
+                    <Button size="sm" color="secondary" iconLeading={Eye} href="/portal/wedding/website/preview/rsvp">
+                        Preview RSVP
+                    </Button>
+                    <Button size="sm" color="secondary" href="/portal/wedding/households?status=not_started">
+                        Review outstanding replies
+                    </Button>
+                    {portal.can("wedding.export") && (
+                        <Dropdown.Root>
+                            <Button size="sm" color="secondary" iconLeading={Download01}>
+                                Export reports
+                            </Button>
+                            <Dropdown.Popover className="w-64">
+                                <Dropdown.Menu onAction={(key) => window.location.assign(`/api/portal/export/${String(key)}.csv`)}>
+                                    <Dropdown.Item id="guests" label="Guest list" />
+                                    <Dropdown.Item id="invitations" label="Households and invitations" />
+                                    <Dropdown.Item id="rsvps" label="RSVPs" />
+                                    {portal.flags["module.planning"] && <Dropdown.Item id="dietary" label="Dietary requirements (caterer)" />}
+                                    {portal.flags["module.planning"] && <Dropdown.Item id="catering" label="Catering list" />}
+                                    <Dropdown.Item id="transport" label="Courtesy bus (for the RSL)" />
+                                </Dropdown.Menu>
+                            </Dropdown.Popover>
+                        </Dropdown.Root>
+                    )}
+                </nav>
+            )}
 
             {editing && (
                 <div

@@ -127,6 +127,8 @@ const PORTAL_TABLES = [
     "rsvp_answers",
     "rsvp_travel",
     "website_media",
+    "message_tests",
+    "thank_you_notes",
     "message_recipients",
     "messages",
     "message_templates",
