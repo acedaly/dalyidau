@@ -1,6 +1,7 @@
 import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
-import { render, renderPortal, renderWedding } from "../src/entry-server";
+import { render, renderWedding } from "../src/entry-server";
+import { portalBootShell } from "../src/portal/boot-shell";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import type { PortalPageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
@@ -268,7 +269,7 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
         head: [`<title>${escapeHtml(result.title)} · Portal · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join(
             "\n        ",
         ),
-        body: renderPortal(data, path),
+        body: portalBootShell(result.title),
         data,
         path,
         status: result.status,
