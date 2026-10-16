@@ -408,6 +408,12 @@ export const MESSAGE_CHANNELS = ["email", "sms"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
 export interface Audience {
+    /**
+     * How recipients are chosen. "specific": exactly the guests and households listed, nothing else
+     * (filters are ignored and an empty list matches no one). "filtered": the filters below. "all":
+     * every guest. Absent on messages prepared before modes existed, which used the filters.
+     */
+    mode?: "specific" | "filtered" | "all";
     rsvp?: (RsvpStatus | "not_invited")[];
     eventId?: string | null;
     side?: Side[];
@@ -432,6 +438,10 @@ export interface MessageOptions {
     individualDelivery?: boolean;
     /** Send even to households that already have one of this kind (save the date, invitation…). */
     resend?: boolean;
+    /** Prepared from Invitation Studio, so the Studio can show and update it. */
+    source?: "invitation-studio";
+    /** Formal invitations: the Studio template captured when it was prepared, and whether to attach the PDF. */
+    invitation?: { template: InvitationTemplateSettings; templateUpdatedAt: string | null; attachPdf: boolean };
 }
 
 export interface Message {
@@ -488,6 +498,8 @@ export interface MessagePreflight {
     /** Where a test of this message may go. */
     testRecipients: string[];
     tests: { channel: MessageChannel; recipient: string; status: "sent" | "failed"; error: string | null; by: string; at: string }[];
+    /** Everyone it would be sent to now, with the address or number it goes to (up to 500). */
+    sending: { name: string; to: string; householdId: string | null }[];
 }
 
 /** One line in a household's communications history. */
@@ -549,8 +561,18 @@ export interface InvitationStudioHousehold {
     /** How the household invitation is addressed, e.g. "Fred & Ann Daly". */
     recipientLine: string;
     /** `invited` is false for guests with no RSVP-enabled event; they get no invitation of their own. */
-    guests: { id: string; name: string; firstName: string; lastName: string; invited: boolean }[];
+    guests: { id: string; name: string; firstName: string; lastName: string; invited: boolean; hasEmail: boolean; hasMobile: boolean }[];
     delivery: { channel: "email" | "sms" | "print"; status: string; updatedAt: string }[];
+    /** The latest Communications invitation for this household on each channel, if any. */
+    messages: {
+        messageId: string;
+        channel: "email" | "sms";
+        /** draft or scheduled (prepared, not sent), sent, failed, or held back with a reason. */
+        status: "draft" | "queued" | "sent" | "failed" | "skipped";
+        deliveryStatus: string | null;
+        error: string | null;
+        updatedAt: string;
+    }[];
 }
 
 export type InvitationDelivery = "household" | "individual";
@@ -825,6 +847,14 @@ export type PortalRoute =
           deliveryAvailable: boolean;
           comms: { status: CommsStatus; email: boolean; sms: boolean };
           unreadTexts: number;
+          studio: StudioSettings;
+          /** Households sent each campaign so far, and households invited to an event. */
+          campaignProgress: { sent: Record<"save_the_date" | "invitation" | "reminder" | "final_details" | "thank_you", number>; households: number };
+          /** For choosing households by hand, previews and printing. */
+          households: { id: string; name: string; line: string; status: HouseholdResponseStatus; attending: number }[];
+          photos: { id: string; url: string; alt: string }[];
+          /** For choosing specific guests. */
+          guests: { id: string; name: string; householdId: string | null }[];
       }
     | {
           route: "invitation-studio";
@@ -832,7 +862,7 @@ export type PortalRoute =
           canGenerateLinks: boolean;
           template: InvitationTemplateSettings;
       }
-    | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean }
+    | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean; comms: CommsSettings }
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
     | { route: "texts"; threads: SmsThread[]; status: CommsStatus; emailAvailable: boolean; smsAvailable: boolean }
     | { route: "tasks"; tasks: Task[]; assignees: { email: string; name: string | null }[] }

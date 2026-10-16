@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download01, Phone01, Plus, Upload01, Users01 } from "@untitledui/icons";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
@@ -61,6 +61,10 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
         setSelected(guest);
         setPanelOpen(true);
     };
+    // "Add guest" from the dashboard opens the form straight away.
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("new") === "1") openGuest(null);
+    }, []);
 
     const columns: DataColumn<Guest>[] = [
         {

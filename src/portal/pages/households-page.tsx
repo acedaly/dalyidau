@@ -2,9 +2,9 @@
 // guests' attendance, so partly answered households stand out, with its signed invitation link one
 // click from the clipboard. Invitations can be generated in bulk; sending them is a separate step
 // in Communications and stays off until delivery is approved and switched on.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building07, Download01, Link01, Mail01, Plus, RefreshCw01, Trash01 } from "@untitledui/icons";
-import { BadgeWithDot } from "@/components/base/badges/badges";
+import { Badge, BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
@@ -23,13 +23,25 @@ import { MobileInput } from "@/portal/components/mobile-input";
 import { PageHeader } from "@/portal/components/page-header";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
+import { HouseholdTimeline } from "@/portal/guests/household-timeline";
 import { useCollection } from "@/portal/hooks/use-collection";
 import { api, errorMessage } from "@/portal/lib/api";
 import { percent, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { toCsv } from "@/shared/portal/csv";
-import type { ContactPreference, Household, HouseholdResponseStatus, HouseholdRow } from "@/shared/portal/types";
+import {
+    CONTACT_FLAGS,
+    CONTACT_FLAG_LABELS,
+    type ContactFlag,
+    type ContactPreference,
+    type Household,
+    type HouseholdResponseStatus,
+    type HouseholdRow,
+} from "@/shared/portal/types";
+
+/** Flags that need attention, in the order they matter. "Email only" and "Text only" are informational. */
+const CONTACT_PROBLEMS: ContactFlag[] = ["unreachable", "invalid_mobile", "opted_out"];
 
 type TextField = "name" | "email" | "phone" | "addressLine1" | "addressLine2" | "locality" | "region" | "postcode" | "country" | "notes" | "invitationName";
 type Draft = Record<TextField, string> & { invitationListNames: boolean };
@@ -98,6 +110,15 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
     const [regenerate, setRegenerate] = useState<Household | null>(null);
     const [invitationAction, setInvitationAction] = useState<{ household: Household; action: "rotate" | "revoke" | "restore" } | null>(null);
     const [status, setStatus] = useState<HouseholdResponseStatus | "all">("all");
+    const [contact, setContact] = useState<ContactFlag | "all">("all");
+    // Links from the dashboard (e.g. "Review outstanding replies") arrive with a filter.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const wanted = params.get("status");
+        if (wanted && wanted in RESPONSE_LABELS) setStatus(wanted as HouseholdResponseStatus);
+        const flag = params.get("contact");
+        if (flag && (CONTACT_FLAGS as readonly string[]).includes(flag)) setContact(flag as ContactFlag);
+    }, []);
     const [generating, setGenerating] = useState(false);
     const [deleteGuests, setDeleteGuests] = useState<"unassign" | "delete">("unassign");
     const [bulk, setBulk] = useState<{ ids: string[]; kind: "guests" | "delete" } | null>(null);
@@ -187,7 +208,10 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
         return result;
     };
 
-    const rows = status === "all" ? households.items : households.items.filter((h) => h.response.status === status);
+    const rows = households.items.filter(
+        (h) => (status === "all" || h.response.status === status) && (contact === "all" || h.contact?.flags.includes(contact)),
+    );
+    const contactCount = (flag: ContactFlag) => households.items.filter((h) => h.contact?.flags.includes(flag)).length;
     const counts = (s: HouseholdResponseStatus) => households.items.filter((h) => h.response.status === s).length;
     const invitedHouseholds = households.items.filter((h) => h.response.invited > 0).length;
     const ready = households.items.filter((h) => h.invitationGeneratedAt && !h.inviteRevokedAt).length;
@@ -221,6 +245,33 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
             sortValue: (h) => h.response.attending,
             render: (h) => <AttendanceCell row={h} />,
             className: "max-md:hidden",
+        },
+        {
+            id: "contact",
+            label: "Contact",
+            tooltip: "Whether someone in the household can be emailed or texted.",
+            sortValue: (h) => (h.contact ? h.contact.emails + h.contact.mobiles : 0),
+            render: (h) => {
+                const problems = CONTACT_PROBLEMS.filter((flag) => h.contact?.flags.includes(flag));
+                if (problems.length)
+                    return (
+                        <span className="flex flex-wrap gap-1">
+                            {problems.map((flag) => (
+                                <Badge key={flag} size="sm" type="pill-color" color={flag === "unreachable" ? "error" : "warning"}>
+                                    {CONTACT_FLAG_LABELS[flag]}
+                                </Badge>
+                            ))}
+                        </span>
+                    );
+                return (
+                    <span className="text-sm text-tertiary">
+                        {[h.contact?.emails && pluralise(h.contact.emails, "email"), h.contact?.mobiles && pluralise(h.contact.mobiles, "mobile")]
+                            .filter(Boolean)
+                            .join(" · ")}
+                    </span>
+                );
+            },
+            className: "max-lg:hidden",
         },
         {
             id: "link",
@@ -300,26 +351,45 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                 initialSort={{ column: "name", direction: "ascending" }}
                 onRowAction={openPanel}
                 selectable={canEdit}
-                activeFilterCount={status === "all" ? 0 : 1}
-                onClearFilters={() => setStatus("all")}
+                activeFilterCount={(status === "all" ? 0 : 1) + (contact === "all" ? 0 : 1)}
+                onClearFilters={() => {
+                    setStatus("all");
+                    setContact("all");
+                }}
                 filters={
-                    <Select
-                        aria-label="Response"
-                        label="Response"
-                        size="sm"
-                        className="w-full sm:w-52"
-                        items={[
-                            { id: "all", label: "All" },
-                            ...(Object.keys(RESPONSE_LABELS) as HouseholdResponseStatus[]).map((id) => ({
-                                id,
-                                label: `${RESPONSE_LABELS[id]} (${counts(id)})`,
-                            })),
-                        ]}
-                        value={status}
-                        onChange={(v) => setStatus(v as typeof status)}
-                    >
-                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                    </Select>
+                    <>
+                        <Select
+                            aria-label="Response"
+                            label="Response"
+                            size="sm"
+                            className="w-full sm:w-52"
+                            items={[
+                                { id: "all", label: "All" },
+                                ...(Object.keys(RESPONSE_LABELS) as HouseholdResponseStatus[]).map((id) => ({
+                                    id,
+                                    label: `${RESPONSE_LABELS[id]} (${counts(id)})`,
+                                })),
+                            ]}
+                            value={status}
+                            onChange={(v) => setStatus(v as typeof status)}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                        <Select
+                            aria-label="Contact details"
+                            label="Contact details"
+                            size="sm"
+                            className="w-full sm:w-52"
+                            items={[
+                                { id: "all", label: "All" },
+                                ...CONTACT_FLAGS.map((id) => ({ id, label: `${CONTACT_FLAG_LABELS[id]} (${contactCount(id)})` })),
+                            ]}
+                            value={contact}
+                            onChange={(v) => setContact(v as typeof contact)}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                    </>
                 }
                 bulkActions={(ids, clear) => (
                     <>
@@ -433,6 +503,18 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
             >
                 {(fieldError) => (
                     <>
+                        {editing && editing.contact && editing.contact.flags.some((flag) => CONTACT_PROBLEMS.includes(flag) || flag === "no_contact") && (
+                            <div className="flex flex-col gap-1 rounded-xl bg-warning-primary p-4">
+                                <p className="text-sm font-semibold text-warning-primary">Contact details to check</p>
+                                <p className="text-sm text-secondary">
+                                    {editing.contact.flags
+                                        .filter((flag) => flag !== "email_only" && flag !== "sms_only")
+                                        .map((flag) => CONTACT_FLAG_LABELS[flag])
+                                        .join(" · ")}
+                                    . Fix the household's details below, or each guest's in Guests.
+                                </p>
+                            </div>
+                        )}
                         {editing && (
                             <div className="flex flex-col gap-2 rounded-xl bg-secondary p-4">
                                 <p className="text-sm font-semibold text-secondary">RSVP progress</p>
@@ -547,6 +629,7 @@ export const HouseholdsPage = ({ data }: { data: PageData<"households"> }) => {
                                 <TextArea label="Notes" rows={3} value={draft.notes} onChange={(v) => setDraft({ ...draft, notes: v })} />
                             </FullWidth>
                         </FormGrid>
+                        {editing && <HouseholdTimeline householdId={editing.id} />}
                     </>
                 )}
             </EntityPanel>

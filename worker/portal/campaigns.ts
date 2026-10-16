@@ -21,6 +21,7 @@ import type {
     Audience,
     Guest,
     HouseholdResponse,
+    InvitationTemplateSettings,
     MessageCategory,
     MessageChannel,
     MessageOptions,
@@ -28,9 +29,9 @@ import type {
     WebsiteContent,
     WeddingDetails,
 } from "../../src/shared/portal/types";
-import { type StationeryAccent, stationeryEmailHtml } from "../comms/stationery";
+import { CARD_MARKER, type InvitationCard, type StationeryAccent, invitationCardText, stationeryEmailHtml } from "../comms/stationery";
 import type { Env } from "../env";
-import { invitationLinksConfigured, invitationUrl, weddingOrigin } from "../wedding/invitations";
+import { invitationLinksConfigured, invitationUrl, typedRsvpAddress, weddingOrigin } from "../wedding/invitations";
 import { isEnabled } from "./flags";
 import { type HouseholdAddressing, householdAddressing } from "./invitation-studio";
 import { householdResponses } from "./queries";
@@ -113,27 +114,31 @@ export interface CampaignContext {
     guests: Guest[];
     guestsById: Map<string, Guest>;
     photo: { url: string; alt: string } | null;
+    /** The invitation template now; a prepared invitation uses the copy it captured instead. */
+    invitationTemplate: InvitationTemplateSettings;
+    allowCodes: boolean;
+    typedAddress: string;
+    /** Signed links that highlight one guest, for individual invitations. */
+    guestLinks: Map<string, string>;
 }
 
 export async function campaignContext(env: Env, db: D1Database, guests: Guest[]): Promise<CampaignContext> {
-    const [wedding, rsvp, studio, website, native, published, homes, addressing, responses, travel, notes, events] = await Promise.all([
+    const [wedding, rsvp, studio, website, native, published, homes, addressing, responses, travel, notes, events, invitationTemplate] = await Promise.all([
         getSettings(db, "wedding"),
         getSettings(db, "rsvp"),
         getSettings(db, "studio"),
         getSettings(db, "website"),
         isEnabled(db, "rsvp.native"),
         isEnabled(db, "wedding.site.public"),
-        db
-            .prepare("SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL")
-            .all<{
-                id: string;
-                name: string;
-                email: string | null;
-                phone: string | null;
-                rsvp_code: string;
-                invite_version: number;
-                invite_revoked_at: string | null;
-            }>(),
+        db.prepare("SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL").all<{
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            rsvp_code: string;
+            invite_version: number;
+            invite_revoked_at: string | null;
+        }>(),
         householdAddressing(db),
         householdResponses(db),
         loadAllTravel(db),
@@ -141,8 +146,17 @@ export async function campaignContext(env: Env, db: D1Database, guests: Guest[])
         db
             .prepare("SELECT name, starts_at, venue_name FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at")
             .all<{ name: string; starts_at: string | null; venue_name: string | null }>(),
+        getSettings(db, "invitation"),
     ]);
     const site = weddingOrigin(env);
+    const versions = new Map(homes.results.map((h) => [h.id, h]));
+    const guestLinks = new Map<string, string>();
+    for (const guest of guests) {
+        const home = guest.householdId ? versions.get(guest.householdId) : undefined;
+        if (!home || home.invite_revoked_at || !addressing.get(home.id)?.guestIds.includes(guest.id)) continue;
+        const link = await invitationUrl(env, home.id, home.invite_version, guest.id);
+        if (link) guestLinks.set(guest.id, link);
+    }
     let photo: CampaignContext["photo"] = null;
     if (studio.thankYou.photoId) {
         const media = await db
@@ -190,6 +204,10 @@ export async function campaignContext(env: Env, db: D1Database, guests: Guest[])
         guests,
         guestsById: new Map(guests.map((g) => [g.id, g])),
         photo,
+        invitationTemplate,
+        allowCodes: rsvp.allowCodes,
+        typedAddress: typedRsvpAddress(env),
+        guestLinks,
     };
 }
 
@@ -261,13 +279,75 @@ const rsvpProgress = (context: CampaignContext, householdId: string | null) => {
 
 export interface MergeTarget {
     householdId: string | null;
+    /** The guest's id, when the copy is for one known guest (for their own invitation link). */
+    guestId?: string | null;
+    /** The fictional sample used for previews and tests when no household is chosen. */
+    sample?: boolean;
     /** The guest this copy is for: the person it's sent to, or the guest named in an individual message. */
     guest: Pick<Guest, "firstName" | "lastName"> | null;
     /** Addressed to this guest alone (individual delivery or a guest without a household). */
     individual: boolean;
 }
 
-export function mergeValues(context: CampaignContext, target: MergeTarget): Record<string, string> {
+/** "Ceremony - 2:00 pm at Rhino Lodge", as on the printed invitation. */
+const invitationEventLines = (context: CampaignContext) =>
+    context.events.map((event) => {
+        const detail = [formatTime(event.startsAt), event.venue].filter(Boolean).join(" at ");
+        return [event.name, detail].filter(Boolean).join(" - ");
+    });
+
+/** The invitation card for one recipient: the printed invitation's content and their own link. */
+export function invitationCard(context: CampaignContext, target: MergeTarget, template = context.invitationTemplate): InvitationCard | null {
+    const household = target.householdId ? context.households.get(target.householdId) : undefined;
+    if (!household && target.sample)
+        // A fictional household with an unsigned link to the RSVP page: never anyone's real invitation.
+        return {
+            eyebrow: template.eyebrow,
+            coupleNames: `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`,
+            invitationLine: template.invitationLine,
+            recipientLine: "Alex & Sam Example",
+            namesLine: null,
+            weddingDate: formatLongDate(context.wedding.date),
+            location: displayLocation(context.wedding.location),
+            eventLines: invitationEventLines(context),
+            deadline: context.rsvpDeadline,
+            rsvpUrl: `${context.site}/rsvp`,
+            code: null,
+        };
+    if (!household) return null;
+    const addressing = context.addressing.get(household.id);
+    const guest = target.guestId ? context.guestsById.get(target.guestId) : undefined;
+    const individual = target.individual && !!guest;
+    const rsvpUrl = individual ? context.guestLinks.get(guest!.id) : household.link;
+    if (!rsvpUrl) return null;
+    const couple = `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`;
+    const values = {
+        couple_names: couple,
+        household_name: household.name,
+        guest_name: individual ? `${guest!.firstName} ${guest!.lastName}`.trim() : "",
+        invitation_names: individual ? `${guest!.firstName} ${guest!.lastName}`.trim() : (addressing?.recipientLine ?? household.name),
+        greeting_names: individual ? guest!.firstName : (addressing?.greetingNames ?? household.name),
+        wedding_date: formatLongDate(context.wedding.date),
+        wedding_location: displayLocation(context.wedding.location),
+        rsvp_deadline: context.rsvpDeadline,
+    };
+    const fill = (copy: string) => copy.replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => (values as Record<string, string>)[key] ?? token);
+    return {
+        eyebrow: fill(template.eyebrow),
+        coupleNames: couple,
+        invitationLine: fill(template.invitationLine),
+        recipientLine: values.invitation_names,
+        namesLine: individual ? null : (addressing?.namesLine ?? null),
+        weddingDate: values.wedding_date,
+        location: values.wedding_location,
+        eventLines: invitationEventLines(context),
+        deadline: context.rsvpDeadline,
+        rsvpUrl,
+        code: context.allowCodes ? { address: context.typedAddress, code: household.code } : null,
+    };
+}
+
+export function mergeValues(context: CampaignContext, target: MergeTarget, template = context.invitationTemplate): Record<string, string> {
     const household = target.householdId ? context.households.get(target.householdId) : undefined;
     const addressing = target.householdId ? context.addressing.get(target.householdId) : undefined;
     const fullName = target.guest ? `${target.guest.firstName} ${target.guest.lastName}`.trim() : (household?.name ?? "");
@@ -280,7 +360,9 @@ export function mergeValues(context: CampaignContext, target: MergeTarget): Reco
         invitation_names: (!target.individual && addressing?.recipientLine) || fullName,
         greeting_names: (!target.individual && addressing?.greetingNames) || target.guest?.firstName || household?.name || "",
         rsvp_code: household?.code ?? "",
-        rsvp_link: household ? (household.link ?? "") : context.fallbackRsvpLink,
+        rsvp_link: household
+            ? (target.individual && target.guestId && context.guestLinks.get(target.guestId)) || (household.link ?? "")
+            : context.fallbackRsvpLink,
         rsvp_deadline: context.rsvpDeadline,
         rsvp_progress: rsvpProgress(context, target.householdId),
         couple_names: `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`,
@@ -296,6 +378,10 @@ export function mergeValues(context: CampaignContext, target: MergeTarget): Reco
         thank_you_message: studio.thankYou.message,
         personal_note: (target.householdId && context.notes.get(target.householdId)) || "",
         gallery_link: studio.thankYou.galleryUrl,
+        invitation_card: (() => {
+            const card = invitationCard(context, target, template);
+            return card ? invitationCardText(card) : "";
+        })(),
     };
 }
 
@@ -323,14 +409,22 @@ export const ACTION_LABELS: Partial<Record<MessageCategory, (values: Record<stri
 
 export function renderCopy(
     context: CampaignContext,
-    message: { subject: string; body: string; category: MessageCategory; channel: MessageChannel },
+    message: { subject: string; body: string; category: MessageCategory; channel: MessageChannel; options?: MessageOptions },
     target: MergeTarget,
     test: { recipient: string } | null = null,
+    /** Where the artwork is loaded from; previews in the portal use the portal's own origin. */
+    assetOrigin = context.site,
 ): RenderedCopy {
-    const values = mergeValues(context, target);
+    // A prepared invitation keeps the template it was prepared with, so later edits can't change it.
+    const template = message.options?.invitation?.template ?? context.invitationTemplate;
+    const values = mergeValues(context, target, template);
     const subject = renderMergeFields(message.subject, values);
     const text = renderMergeFields(message.body, values);
-    const accent: StationeryAccent = context.studio.accent;
+    const card = values.invitation_card ? invitationCard(context, target, template) : null;
+    const accent: StationeryAccent =
+        message.category === "invitation"
+            ? ({ burgundy: "burgundy", rust: "clay", eucalyptus: "eucalyptus" } as const)[template.accent]
+            : context.studio.accent;
     const action = ACTION_LABELS[message.category]?.(values) ?? null;
     return {
         subject: test ? `[TEST] ${subject}` : subject,
@@ -339,10 +433,11 @@ export function renderCopy(
             message.channel === "email"
                 ? stationeryEmailHtml({
                       kind: isCampaignKind(message.category) ? message.category : message.category === "rsvp_confirmation" ? "rsvp_confirmation" : "update",
-                      text,
+                      text: card ? renderMergeFields(message.body, { ...values, invitation_card: CARD_MARKER }) : text,
+                      card,
                       coupleNames: values.couple_names,
                       weddingDate: values.wedding_date,
-                      assetOrigin: context.site,
+                      assetOrigin,
                       accent,
                       // A test is never an invitation to act, but the button still shows where it goes.
                       action,
@@ -361,12 +456,17 @@ export function renderCopy(
 export function copyProblems(category: MessageCategory, subject: string, body: string) {
     const used = usedMergeFields(`${subject}\n${body}`);
     const unknown = used.filter((key) => !KNOWN_FIELDS.has(key));
-    const forbidden = isCampaignKind(category)
-        ? used.flatMap((key) => {
-              const reason = CAMPAIGNS[category].forbiddenFields[key];
-              return reason ? [{ field: key, reason }] : [];
-          })
-        : [];
+    const forbidden = [
+        ...(isCampaignKind(category)
+            ? used.flatMap((key) => {
+                  const reason = CAMPAIGNS[category].forbiddenFields[key];
+                  return reason ? [{ field: key, reason }] : [];
+              })
+            : []),
+        ...(category !== "invitation" && used.includes("invitation_card")
+            ? [{ field: "invitation_card", reason: "Only a formal invitation can include the invitation itself." }]
+            : []),
+    ];
     return { unknown, forbidden };
 }
 

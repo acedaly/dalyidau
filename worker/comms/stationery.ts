@@ -41,6 +41,78 @@ const linkify = (text: string, accent: string) => {
     return html + escapeHtml(text.slice(last)).replace(/\n/g, "<br>");
 };
 
+/** The printed invitation's content, for showing the invitation itself in the email. */
+export interface InvitationCard {
+    eyebrow: string;
+    coupleNames: string;
+    invitationLine: string;
+    /** "Fred & Ann Daly", exactly as printed. */
+    recipientLine: string;
+    namesLine: string | null;
+    weddingDate: string;
+    location: string;
+    eventLines: string[];
+    deadline: string;
+    /** The household's own signed RSVP link. */
+    rsvpUrl: string;
+    /** "wedding.daly.id.au/rsvp" and the household code, when short codes are accepted. */
+    code: { address: string; code: string } | null;
+}
+
+/** Stands in for the card inside the text until the HTML is built. Can't occur in typed text. */
+export const CARD_MARKER = "\u0000invitation-card\u0000";
+
+/** The invitation as plain text, for the text part of the email and text-only clients. */
+export function invitationCardText(card: InvitationCard) {
+    return [
+        `${card.coupleNames}\n${card.invitationLine}`,
+        `This invitation is for ${card.recipientLine}${card.namesLine ? ` (${card.namesLine})` : ""}.`,
+        [card.weddingDate, card.location, ...card.eventLines].filter(Boolean).join("\n"),
+        `${card.deadline ? `Please reply by ${card.deadline}: ` : "RSVP: "}${card.rsvpUrl}`,
+        ...(card.code ? [`If the link doesn't open, visit ${card.code.address} and enter ${card.code.code}.`] : []),
+    ].join("\n\n");
+}
+
+/**
+ * The invitation card in the email body: the same content, order and hierarchy as the printed and
+ * Studio-previewed invitation, framed by the botanical artwork, with the household's RSVP button and
+ * its link written out in full for clients that block buttons or images.
+ */
+export function invitationCardHtml(card: InvitationCard, accent: string, assetOrigin: string) {
+    const font = "Georgia,'Times New Roman',Times,serif";
+    const sans = "'Helvetica Neue',Helvetica,Arial,sans-serif";
+    const [one, two] = card.coupleNames.split(/\s+&\s+/, 2);
+    const names = two
+        ? `${escapeHtml(one)}<br><span style="font-style:italic;font-size:26px;color:${accent}">&amp;</span><br>${escapeHtml(two)}`
+        : escapeHtml(card.coupleNames);
+    const rule = `<tr><td style="padding:0 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${accent}33;font-size:0;line-height:0;height:1px">&nbsp;</td></tr></table></td></tr>`;
+    const row = (html: string, style: string) => `<tr><td align="center" style="${style}">${html}</td></tr>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.ivory}" style="background:${PALETTE.ivory};border:1px solid ${accent}33;margin:4px 0 22px">
+<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(assetOrigin)}/wedding/email/botanical-header.jpg" width="518" alt="" role="presentation" style="display:block;width:100%;height:auto;border:0"></td></tr>
+${row(escapeHtml(card.eyebrow.toUpperCase()), `padding:6px 34px 2px;font-family:${sans};font-size:11px;font-weight:bold;letter-spacing:0.24em;color:${PALETTE.espresso}`)}
+${row(names, `padding:12px 34px 4px;font-family:${font};font-size:40px;line-height:1.12;color:${PALETTE.espresso}`)}
+${row(escapeHtml(card.invitationLine), `padding:8px 40px 20px;font-family:${font};font-size:17px;font-style:italic;line-height:1.45;color:${PALETTE.ink}`)}
+${rule}
+${row("WITH PLEASURE, FOR", `padding:16px 34px 4px;font-family:${sans};font-size:10px;font-weight:bold;letter-spacing:0.24em;color:${accent}`)}
+${row(escapeHtml(card.recipientLine), `padding:2px 34px ${card.namesLine ? "4px" : "16px"};font-family:${font};font-size:24px;font-weight:bold;line-height:1.25;color:${PALETTE.espresso}`)}
+${card.namesLine ? row(escapeHtml(card.namesLine), `padding:0 34px 16px;font-family:${sans};font-size:13px;line-height:1.5;color:#4F614D`) : ""}
+${rule}
+${row(escapeHtml(card.weddingDate.toUpperCase()), `padding:18px 34px 4px;font-family:${sans};font-size:13px;font-weight:bold;letter-spacing:0.14em;color:${accent}`)}
+${row(escapeHtml(card.location), `padding:2px 34px 6px;font-family:${font};font-size:22px;font-weight:bold;color:${PALETTE.espresso}`)}
+${card.eventLines.length ? row(card.eventLines.map(escapeHtml).join("<br>"), `padding:0 34px 14px;font-family:${sans};font-size:13px;line-height:1.6;color:${PALETTE.ink}`) : ""}
+${card.deadline ? row(`Kindly reply by ${escapeHtml(card.deadline)}`, `padding:8px 34px 12px;font-family:${sans};font-size:13px;font-weight:bold;color:${PALETTE.espresso}`) : ""}
+<tr><td align="center" style="padding:4px 34px 14px">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${accent}" style="border-radius:2px">
+<a href="${escapeHtml(card.rsvpUrl)}" style="display:inline-block;padding:15px 30px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:#FFFFFF;text-decoration:none">View Invitation &amp; RSVP</a>
+</td></tr></table></td></tr>
+${row(
+    `If the button doesn't open, copy this link into your browser:<br><a href="${escapeHtml(card.rsvpUrl)}" style="color:${accent};text-decoration:underline;word-break:break-all">${escapeHtml(card.rsvpUrl)}</a>${card.code ? `<br>Or visit ${escapeHtml(card.code.address)} and enter <strong>${escapeHtml(card.code.code)}</strong>.` : ""}`,
+    `padding:0 34px 12px;font-family:${sans};font-size:12px;line-height:1.6;color:${PALETTE.ink}`,
+)}
+<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(assetOrigin)}/wedding/email/botanical-footer.jpg" width="518" alt="" role="presentation" style="display:block;width:100%;height:auto;border:0"></td></tr>
+</table>`;
+}
+
 export interface StationeryEmail {
     kind: CampaignKind | "update" | "rsvp_confirmation";
     /** Plain-text body exactly as the guest's text part reads. */
@@ -56,6 +128,8 @@ export interface StationeryEmail {
     photo?: { url: string; alt: string } | null;
     /** A controlled test: a banner says so and names who it was sent to. */
     test?: { recipient: string } | null;
+    /** The invitation itself, shown where the text contains CARD_MARKER (formal invitations). */
+    card?: InvitationCard | null;
 }
 
 const EYEBROWS: Record<StationeryEmail["kind"], string> = {
@@ -76,19 +150,26 @@ export function stationeryEmailHtml(input: StationeryEmail): string {
         .split(/\n{2,}/)
         .map((p) => p.trim())
         .filter(Boolean)
-        .map((p) => `<p style="margin:0 0 18px;font-family:${font};font-size:17px;line-height:1.65;color:${PALETTE.ink}">${linkify(p, accent)}</p>`)
+        .map((p) =>
+            p === CARD_MARKER && input.card
+                ? invitationCardHtml(input.card, accent, input.assetOrigin)
+                : `<p style="margin:0 0 18px;font-family:${font};font-size:17px;line-height:1.65;color:${PALETTE.ink}">${linkify(p.replaceAll(CARD_MARKER, ""), accent)}</p>`,
+        )
         .join("");
+    // With the invitation card in the body, the card carries the names, date and RSVP button.
+    const withCard = !!input.card && input.text.includes(CARD_MARKER);
     const [one, two] = input.coupleNames.split(/\s+&\s+/, 2);
     const names = two
         ? `${escapeHtml(one)}<br><span style="font-style:italic;font-size:24px;color:${accent}">&amp;</span><br>${escapeHtml(two)}`
         : escapeHtml(input.coupleNames);
-    const preheader = escapeHtml(input.text.replace(/\s+/g, " ").slice(0, 110));
-    const button = input.action
-        ? `<tr><td align="center" style="padding:6px 40px 30px">
+    const preheader = escapeHtml(input.text.replaceAll(CARD_MARKER, " ").replace(/\s+/g, " ").slice(0, 110));
+    const button =
+        input.action && !withCard
+            ? `<tr><td align="center" style="padding:6px 40px 30px">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${accent}" style="border-radius:2px">
 <a href="${escapeHtml(input.action.url)}" style="display:inline-block;padding:14px 30px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:#FFFFFF;text-decoration:none">${escapeHtml(input.action.label)}</a>
 </td></tr></table></td></tr>`
-        : "";
+            : "";
     const photo = input.photo
         ? `<tr><td style="padding:0 40px 28px"><img src="${escapeHtml(input.photo.url)}" width="520" alt="${escapeHtml(input.photo.alt)}" style="display:block;width:100%;max-width:520px;height:auto;border:0"></td></tr>`
         : "";
@@ -110,7 +191,10 @@ export function stationeryEmailHtml(input: StationeryEmail): string {
 <tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.paper}" style="width:100%;max-width:600px;background:${PALETTE.paper};border:1px solid ${PALETTE.rule}">
 ${test}
-<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-header.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>
+${
+    withCard
+        ? `<tr><td style="padding:28px 40px 10px">${paragraphs}</td></tr>`
+        : `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-header.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>
 <tr><td align="center" style="padding:8px 40px 4px;font-family:${sans};font-size:12px;letter-spacing:0.22em;text-transform:uppercase;color:${accent}">${escapeHtml(EYEBROWS[input.kind])}</td></tr>
 <tr><td align="center" style="padding:10px 40px 6px;font-family:${font};font-size:38px;line-height:1.15;color:${PALETTE.espresso}">${names}</td></tr>
 ${input.weddingDate ? `<tr><td align="center" style="padding:6px 40px 26px;font-family:${sans};font-size:13px;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.clay}">${escapeHtml(input.weddingDate)}</td></tr>` : ""}
@@ -118,7 +202,8 @@ ${input.weddingDate ? `<tr><td align="center" style="padding:6px 40px 26px;font-
 ${photo ? photo.replace("padding:0 40px 28px", "padding:28px 40px 4px") : ""}
 <tr><td style="padding:28px 40px 6px">${paragraphs}</td></tr>
 ${button}
-<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-footer.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>
+<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-footer.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>`
+}
 </table>
 <p style="margin:16px 0 0;font-family:${sans};font-size:12px;line-height:1.5;color:${PALETTE.clay}">Sent with love by ${escapeHtml(input.coupleNames)}. Reply to this email to reach us.</p>
 </td></tr>

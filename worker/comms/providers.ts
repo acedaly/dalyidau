@@ -12,12 +12,20 @@ import { type Socket, connect } from "cloudflare:sockets";
 import { isE164Mobile } from "../../src/shared/portal/phone";
 import type { Env } from "../env";
 
+export interface EmailAttachment {
+    filename: string;
+    contentType: "application/pdf";
+    bytes: Uint8Array;
+}
+
 export interface OutgoingEmail {
     to: string;
     toName: string;
     subject: string;
     text: string;
     html: string;
+    /** Files to attach. A provider that can't attach refuses the message rather than dropping them. */
+    attachments?: EmailAttachment[];
     /** Our own reference, echoed back by some providers' webhooks. */
     reference?: string;
 }
@@ -32,6 +40,8 @@ export interface OutgoingSms {
 export interface EmailProvider {
     channel: "email";
     name: string;
+    /** Whether `attachments` are delivered. Messages with attachments are refused otherwise. */
+    supportsAttachments: boolean;
     send(message: OutgoingEmail): Promise<{ providerId: string | null }>;
 }
 
@@ -55,6 +65,25 @@ export class ProviderError extends Error {
 
 const mode = (value: string | undefined) => (value ?? "off").trim().toLowerCase();
 const isDevelopment = (env: Env) => env.ENVIRONMENT !== "production";
+
+/** Base64 of binary data, in chunks so large files don't overflow the call stack. */
+export const bytesToBase64 = (bytes: Uint8Array) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+};
+
+/** Wraps base64 at 76 characters, as MIME requires. */
+const mimeLines = (base64: string) => base64.replace(/.{1,76}/g, (line) => `${line}\r\n`).trimEnd();
+
+/** Only plain, safe characters in attachment filenames. */
+export const safeFilename = (name: string) =>
+    name
+        .normalize("NFKD")
+        .replace(/[^\w .&()-]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80) || "attachment.pdf";
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -94,6 +123,7 @@ function smtp2go(env: Env): EmailProvider | null {
     return {
         channel: "email",
         name: "smtp2go",
+        supportsAttachments: true,
         async send(message) {
             const replyTo = env.EMAIL_REPLY_TO ? addressOnly(env.EMAIL_REPLY_TO) : null;
             let response: Response;
@@ -107,6 +137,15 @@ function smtp2go(env: Env): EmailProvider | null {
                         subject: message.subject,
                         text_body: message.text,
                         html_body: message.html,
+                        ...(message.attachments?.length
+                            ? {
+                                  attachments: message.attachments.map((a) => ({
+                                      filename: safeFilename(a.filename),
+                                      fileblob: bytesToBase64(a.bytes),
+                                      mimetype: a.contentType,
+                                  })),
+                              }
+                            : {}),
                         custom_headers: [
                             ...(replyTo ? [{ header: "Reply-To", value: replyTo }] : []),
                             ...(message.reference ? [{ header: "X-Wedding-Reference", value: message.reference }] : []),
@@ -137,6 +176,8 @@ function smtp2go(env: Env): EmailProvider | null {
 
 interface FastmailSession {
     apiUrl: string;
+    /** e.g. https://api.fastmail.com/jmap/upload/{accountId}/ */
+    uploadUrl?: string;
     primaryAccounts: Record<string, string>;
     capabilities: Record<string, unknown>;
 }
@@ -193,6 +234,7 @@ function fastmail(env: Env): EmailProvider | null {
     return {
         channel: "email",
         name: "fastmail-jmap",
+        supportsAttachments: true,
         async send(message) {
             let checked: Awaited<ReturnType<typeof validateFastmail>>;
             try {
@@ -200,6 +242,26 @@ function fastmail(env: Env): EmailProvider | null {
             } catch (error) {
                 if (error instanceof ProviderError) throw error;
                 throw new ProviderError("Fastmail", "couldn't be reached", true);
+            }
+            // Attachments are uploaded as blobs first, then referenced by the email (RFC 8620 §6.1).
+            const attachments: { blobId: string; type: string; name: string; disposition: "attachment" }[] = [];
+            for (const attachment of message.attachments ?? []) {
+                if (!checked.session.uploadUrl) throw new ProviderError("Fastmail", "the session has no upload URL for attachments", false);
+                const url = checked.session.uploadUrl.replace("{accountId}", encodeURIComponent(checked.accountId));
+                let uploaded: Response;
+                try {
+                    uploaded = await fetch(url, {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${env.FASTMAIL_API_TOKEN}`, "Content-Type": attachment.contentType, Accept: "application/json" },
+                        body: new Uint8Array(attachment.bytes).buffer,
+                    });
+                } catch {
+                    throw new ProviderError("Fastmail", "couldn't upload the attachment", true);
+                }
+                if (!uploaded.ok) throw new ProviderError("Fastmail", `attachment upload failed (HTTP ${uploaded.status})`, uploaded.status >= 500);
+                const blob = (await readJson(uploaded)) as { blobId?: string };
+                if (!blob.blobId) throw new ProviderError("Fastmail", "attachment upload returned no blob", false);
+                attachments.push({ blobId: blob.blobId, type: attachment.contentType, name: safeFilename(attachment.filename), disposition: "attachment" });
             }
             const created = `email-${crypto.randomUUID()}`;
             const submitted = `submission-${crypto.randomUUID()}`;
@@ -221,6 +283,7 @@ function fastmail(env: Env): EmailProvider | null {
                                     textBody: [{ partId: "text", type: "text/plain" }],
                                     htmlBody: [{ partId: "html", type: "text/html" }],
                                     bodyValues: { text: { value: message.text }, html: { value: message.html } },
+                                    ...(attachments.length ? { attachments } : {}),
                                 },
                             },
                         },
@@ -252,6 +315,57 @@ const utf8Base64 = (value: string) => {
     for (const byte of new TextEncoder().encode(value)) binary += String.fromCharCode(byte);
     return btoa(binary);
 };
+
+/**
+ * A complete MIME message: multipart/alternative (text and HTML), wrapped in multipart/mixed when
+ * there are attachments. Every part is base64, so no line is ever too long or mis-encoded.
+ */
+export function buildMime(input: { from: string; to: string; replyTo: string | null; subject: string; text: string; html: string; attachments: EmailAttachment[] }) {
+    const alternative = `alt-${crypto.randomUUID()}`;
+    const mixed = `mixed-${crypto.randomUUID()}`;
+    const body = [
+        `--${alternative}`,
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        mimeLines(utf8Base64(input.text)),
+        `--${alternative}`,
+        "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        mimeLines(utf8Base64(input.html)),
+        `--${alternative}--`,
+    ];
+    const headers = [
+        `From: ${input.from}`,
+        `To: ${input.to}`,
+        ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
+        `Subject: =?UTF-8?B?${utf8Base64(input.subject)}?=`,
+        "MIME-Version: 1.0",
+    ];
+    if (!input.attachments.length) return [...headers, `Content-Type: multipart/alternative; boundary="${alternative}"`, "", ...body].join("\r\n");
+    return [
+        ...headers,
+        `Content-Type: multipart/mixed; boundary="${mixed}"`,
+        "",
+        `--${mixed}`,
+        `Content-Type: multipart/alternative; boundary="${alternative}"`,
+        "",
+        ...body,
+        ...input.attachments.flatMap((a) => {
+            const name = safeFilename(a.filename);
+            return [
+                `--${mixed}`,
+                `Content-Type: ${a.contentType}; name="${name}"`,
+                "Content-Transfer-Encoding: base64",
+                `Content-Disposition: attachment; filename="${name}"`,
+                "",
+                mimeLines(bytesToBase64(a.bytes)),
+            ];
+        }),
+        `--${mixed}--`,
+    ].join("\r\n");
+}
 
 class SmtpSession {
     private reader: WorkerReader;
@@ -305,6 +419,7 @@ function genericSmtp(env: Env): EmailProvider | null {
     return {
         channel: "email",
         name: "authenticated-smtp",
+        supportsAttachments: true,
         async send(message) {
             const socket = connect({ hostname: env.SMTP_HOST!, port }, { secureTransport: security === "tls" ? "on" : "starttls", allowHalfOpen: false });
             const smtp = new SmtpSession(socket);
@@ -322,27 +437,15 @@ function genericSmtp(env: Env): EmailProvider | null {
                 await smtp.command(`MAIL FROM:<${address}>`, 250);
                 await smtp.command(`RCPT TO:<${message.to}>`, 250);
                 await smtp.command("DATA", 354);
-                const boundary = `wedding-${crypto.randomUUID()}`;
-                const mime = [
-                    `From: ${env.EMAIL_FROM}`,
-                    `To: ${mailbox(message.to, message.toName)}`,
-                    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
-                    `Subject: =?UTF-8?B?${utf8Base64(message.subject)}?=`,
-                    "MIME-Version: 1.0",
-                    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-                    "",
-                    `--${boundary}`,
-                    "Content-Type: text/plain; charset=UTF-8",
-                    "Content-Transfer-Encoding: base64",
-                    "",
-                    utf8Base64(message.text),
-                    `--${boundary}`,
-                    "Content-Type: text/html; charset=UTF-8",
-                    "Content-Transfer-Encoding: base64",
-                    "",
-                    utf8Base64(message.html),
-                    `--${boundary}--`,
-                ].join("\r\n");
+                const mime = buildMime({
+                    from: env.EMAIL_FROM!,
+                    to: mailbox(message.to, message.toName),
+                    replyTo,
+                    subject: message.subject,
+                    text: message.text,
+                    html: message.html,
+                    attachments: message.attachments ?? [],
+                });
                 await smtp.command(`${mime.replace(/^\./gm, "..")}\r\n.`, 250);
                 await smtp.command("QUIT", 221);
                 return { providerId: null };
@@ -362,8 +465,9 @@ export function emailProvider(env: Env): EmailProvider | null {
         return {
             channel: "email",
             name: "log",
+            supportsAttachments: true,
             async send(message) {
-                console.log(JSON.stringify({ event: "email_logged", to: message.to, subject: message.subject }));
+                console.log(JSON.stringify({ event: "email_logged", to: message.to, subject: message.subject, attachments: message.attachments?.length ?? 0 }));
                 return { providerId: `log_${crypto.randomUUID()}` };
             },
         };
@@ -375,7 +479,10 @@ export function emailProvider(env: Env): EmailProvider | null {
         return {
             channel: "email",
             name: "cloudflare-email-service",
+            // Not wired up for this binding yet; invitations with a PDF are refused, never sent without it.
+            supportsAttachments: false,
             async send(message) {
+                if (message.attachments?.length) throw new ProviderError("Cloudflare Email", "attachments aren't supported by this provider", false);
                 const result = await env.EMAIL!.send({
                     to: { email: message.to, name: message.toName },
                     from: env.EMAIL_FROM!,

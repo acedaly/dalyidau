@@ -4,7 +4,7 @@
 //
 // Every campaign goes to one person per household by default, addressed to the whole household,
 // exactly like the printed invitation. Sending to each guest individually is an explicit option.
-import type { MessageCategory } from "./types";
+import type { InvitationTemplateSettings, MessageCategory } from "./types";
 
 export const CAMPAIGN_KINDS = ["save_the_date", "invitation", "reminder", "final_details", "thank_you"] as const;
 export type CampaignKind = (typeof CAMPAIGN_KINDS)[number];
@@ -63,16 +63,14 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         description: "The invitation itself, with each household's own RSVP link. Printed versions come from Invitation Studio.",
         oncePerHousehold: true,
         forbiddenFields: {},
-        expectedFields: ["rsvp_link"],
+        expectedFields: ["invitation_card"],
         printable: false,
         copy: {
             subject: "You're invited to {{couple_names}}'s wedding",
             body: [
                 "Dear {{greeting_names}},",
                 "We would love you to join us as we celebrate our wedding.",
-                "{{couple_names}}\n{{wedding_date}}\n{{venue}}",
-                "{{event_schedule}}",
-                "This invitation is for {{invitation_names}}. Please reply for everyone by {{rsvp_deadline}}: {{rsvp_link}}",
+                "{{invitation_card}}",
                 "With love,\n{{couple_names}}",
             ].join("\n\n"),
             smsBody: "{{couple_names}} here. You're invited to our wedding on {{wedding_date}}! Please RSVP by {{rsvp_deadline}}: {{rsvp_link}}",
@@ -140,6 +138,22 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         },
     },
 };
+
+/**
+ * The wording of an invitation prepared from Invitation Studio, from the Studio's own template: its
+ * greeting, introduction and sign-off around {{invitation_card}}, the designed invitation itself.
+ */
+export function studioInvitationCopy(template: InvitationTemplateSettings): CampaignCopy {
+    // The Studio's own merge fields, in Communications' names.
+    const map = (text: string) => text.replace(/\{\{\s*wedding_location\s*\}\}/g, "{{venue}}").replace(/\{\{\s*guest_name\s*\}\}/g, "{{full_name}}");
+    return {
+        subject: "You're invited to {{couple_names}}'s wedding",
+        body: [`${template.greetingPrefix} {{greeting_names}},`, map(template.emailIntroduction), "{{invitation_card}}", map(template.emailSignoff)].join(
+            "\n\n",
+        ),
+        smsBody: `${template.greetingPrefix} {{greeting_names}}, you're invited to {{couple_names}}'s wedding on {{wedding_date}}. Please RSVP by {{rsvp_deadline}}: {{rsvp_link}}`,
+    };
+}
 
 /** Who an RSVP reminder can be aimed at. Manual selection uses the audience's household list. */
 export const REMINDER_TARGETS = ["not_started", "partial", "follow_up"] as const;

@@ -16,6 +16,9 @@ export const MERGE_FIELDS = [
     { key: "rsvp_code", label: "RSVP code" },
     { key: "rsvp_link", label: "RSVP link" },
     { key: "rsvp_deadline", label: "RSVP deadline" },
+    // The whole invitation as designed in Invitation Studio: the botanical card in the email, with
+    // the household's own "View Invitation & RSVP" button and link. Formal invitations only.
+    { key: "invitation_card", label: "The invitation (as designed in Invitation Studio)" },
     // "We still need an answer for Tom and Lucy." Only for reminders.
     { key: "rsvp_progress", label: "Who still needs to reply" },
     { key: "couple_names", label: "Couple's names" },

@@ -25,7 +25,7 @@ import type {
     SmsMessage,
     SmsThread,
 } from "../../src/shared/portal/types";
-import { type EmailProvider, type SmsProvider, emailProvider, smsProvider } from "../comms/providers";
+import { type EmailAttachment, type EmailProvider, type SmsProvider, emailProvider, smsProvider } from "../comms/providers";
 import { stationeryEmailHtml } from "../comms/stationery";
 import type { Env } from "../env";
 import { weddingOrigin } from "../wedding/invitations";
@@ -51,6 +51,7 @@ import { auditStatement, newId, nowIso, parseJson } from "./db";
 import { ConflictError, NotFoundError, ValidationError } from "./entities";
 import { isEnabled } from "./flags";
 import { listGuests } from "./guests";
+import { type StudioData, loadStudioData, printableInvitations } from "./invitation-studio";
 import { getSettings } from "./settings";
 
 export { MERGE_FIELDS, renderMergeFields };
@@ -60,6 +61,7 @@ export const unknownMergeFields = (text: string) => usedMergeFields(text).filter
 const ids = z.array(z.string().max(40)).max(2000);
 
 export const audienceSchema = z.object({
+    mode: z.enum(["specific", "filtered", "all"]).optional(),
     rsvp: z
         .array(z.enum(["pending", "attending", "declined", "not_invited"]))
         .max(4)
@@ -89,8 +91,13 @@ export const audienceSchema = z.object({
 
 /** The guest-level filters. Household selection and reminder targets are applied in `audienceGuests`. */
 export const matchesAudience = (guest: Guest, audience: Audience) => {
-    if (audience.guestIds?.length && !audience.guestIds.includes(guest.id)) return false;
-    if (audience.householdIds?.length && !(guest.householdId && audience.householdIds.includes(guest.householdId))) return false;
+    if (audience.mode === "all") return true;
+    if (audience.mode === "specific")
+        return !!audience.guestIds?.includes(guest.id) || (!!guest.householdId && !!audience.householdIds?.includes(guest.householdId));
+    if (audience.mode !== "filtered") {
+        if (audience.guestIds?.length && !audience.guestIds.includes(guest.id)) return false;
+        if (audience.householdIds?.length && !(guest.householdId && audience.householdIds.includes(guest.householdId))) return false;
+    }
     if (audience.eventId && !guest.events.some((e) => e.eventId === audience.eventId)) return false;
     if (audience.rsvp?.length) {
         // With an event selected, RSVP filters apply to that event's response.
@@ -105,9 +112,14 @@ export const matchesAudience = (guest: Guest, audience: Audience) => {
     return true;
 };
 
-/** Guests a campaign is aimed at: the guest-level filters plus, for reminders, the households to remind. */
+/**
+ * Guests a campaign is aimed at. A specific selection is exactly what was chosen: no filter can add
+ * anyone to it, and choosing nobody matches nobody (never everyone). Reminder targets narrow a
+ * filtered group; a specific household that has replied is still held back by the eligibility check.
+ */
 const audienceGuests = (context: CampaignContext, audience: Audience) => {
-    const remind = audience.reminder?.length ? reminderHouseholds(context, audience.reminder) : null;
+    if (audience.mode === "specific") return context.guests.filter((guest) => matchesAudience(guest, audience));
+    const remind = audience.mode !== "all" && audience.reminder?.length ? reminderHouseholds(context, audience.reminder) : null;
     return context.guests.filter((guest) => matchesAudience(guest, audience) && (!remind || (!!guest.householdId && remind.has(guest.householdId))));
 };
 
@@ -154,6 +166,10 @@ const messageSchema = z.object({
     individualDelivery: z.boolean().default(false),
     /** Include households that already have one of this kind (save the date, invitation, final details, thank you). */
     resend: z.boolean().default(false),
+    /** Formal invitations by email: attach each household's printable invitation (PDF, with its QR code). */
+    attachPdf: z.boolean().default(false),
+    /** Set when prepared from Invitation Studio. */
+    source: z.literal("invitation-studio").optional(),
 });
 
 const toMessage = (row: Record<string, unknown>): Message => ({
@@ -324,12 +340,28 @@ export async function prepareMessage(env: Env, db: D1Database, input: unknown, a
     if (data.channel === "sms" && smsSegments(data.body).segments > 6)
         throw new ValidationError("Keep text messages to six SMS parts or fewer. Link to the website for longer details.", "body");
 
+    if (data.audience.mode === "specific" && !data.audience.guestIds?.length && !data.audience.householdIds?.length)
+        throw new ValidationError("Choose at least one guest or household", "audience");
     const context = await campaignContext(env, db, await listGuests(db));
     const guests = audienceGuests(context, data.audience);
     if (guests.length === 0) throw new ValidationError("No guests match this audience", "audience");
+    if (data.attachPdf && (data.category !== "invitation" || data.channel !== "email"))
+        throw new ValidationError("Only email invitations can carry the printable invitation", "attachPdf");
+    // An invitation keeps the Studio template it was prepared with: what was previewed is what's sent.
+    const template =
+        data.category === "invitation"
+            ? {
+                  template: await getSettings(db, "invitation"),
+                  templateUpdatedAt:
+                      (await db.prepare("SELECT updated_at FROM settings WHERE key = 'invitation'").first<{ updated_at: string }>())?.updated_at ?? null,
+                  attachPdf: data.attachPdf,
+              }
+            : null;
     const options: MessageOptions = {
         ...(data.individualDelivery ? { individualDelivery: true } : {}),
         ...(data.resend ? { resend: true } : {}),
+        ...(data.source ? { source: data.source } : {}),
+        ...(template ? { invitation: template } : {}),
     };
     const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, "prepared")]);
     const plan = planRecipients(context, { ...data, options }, guests, consent, contacted);
@@ -385,6 +417,33 @@ export async function prepareMessage(env: Env, db: D1Database, input: unknown, a
     return (await getMessage(db, id))!.message;
 }
 
+/**
+ * Exactly who a message would be prepared for, without preparing it: the households and guests the
+ * selection covers, and the people and addresses it would actually go to, with everyone held back
+ * and why. Uses the same planning as preparing.
+ */
+export async function planPreview(env: Env, db: D1Database, input: unknown) {
+    const data = messageSchema.parse({ subject: "x", body: "x", ...(input as object) });
+    if (data.audience.mode === "specific" && !data.audience.guestIds?.length && !data.audience.householdIds?.length)
+        return { households: 0, guests: 0, recipients: [], held: [] };
+    const context = await campaignContext(env, db, await listGuests(db));
+    const guests = audienceGuests(context, data.audience);
+    const options: MessageOptions = { ...(data.individualDelivery ? { individualDelivery: true } : {}), ...(data.resend ? { resend: true } : {}) };
+    const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, "prepared")]);
+    const plan = planRecipients(context, { ...data, options }, guests, consent, contacted);
+    const held = new Map<string, number>();
+    for (const p of plan) if (p.error && !p.error.startsWith("Included in the household")) held.set(p.error, (held.get(p.error) ?? 0) + 1);
+    return {
+        households: new Set(guests.flatMap((g) => (g.householdId ? [g.householdId] : []))).size,
+        guests: guests.length,
+        recipients: plan
+            .filter((p) => !p.error)
+            .slice(0, 500)
+            .map((p) => ({ name: p.name, to: (data.channel === "sms" ? p.phone : p.email) ?? "", householdId: p.householdId })),
+        held: [...held].map(([reason, count]) => ({ reason, count })),
+    };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Previews
 
@@ -411,11 +470,13 @@ export async function previewMessage(env: Env, db: D1Database, input: unknown) {
     const target = household
         ? {
               householdId: household.id,
+              guestId: guest?.id ?? null,
               guest: guest ?? context.guestsById.get(context.addressing.get(household.id)?.guestIds[0] ?? "") ?? null,
               individual: data.individual,
           }
-        : { householdId: null, guest: guest ?? SAMPLE_GUEST, individual: true };
-    const rendered = renderCopy(context, { ...data }, target);
+        : { householdId: null, guest: guest ?? SAMPLE_GUEST, individual: true, sample: !guest };
+    // In the portal the artwork loads from this site, so previews work before the wedding site is live.
+    const rendered = renderCopy(context, { ...data }, target, null, env.SITE_URL.replace(/\/+$/, ""));
     return {
         guest: guest ? { id: guest.id, name: `${guest.firstName} ${guest.lastName}`.trim(), email: guest.email } : null,
         household: household ? { id: household.id, name: context.addressing.get(household.id)?.recipientLine || household.name } : null,
@@ -438,6 +499,7 @@ const targetFor = (context: CampaignContext, message: Message, recipient: Pick<M
     const named = guest ?? (household ? (context.guestsById.get(context.addressing.get(household.id)?.guestIds[0] ?? "") ?? null) : null);
     return {
         householdId: recipient.householdId,
+        guestId: guest?.id ?? null,
         guest: named ?? { firstName: recipient.name, lastName: "" },
         individual: !isHouseholdCampaign(message.category, message.options),
     };
@@ -563,6 +625,12 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
         warnings.push("The wedding photo can only be shown once the website is published, so it's left out for now.");
     if (message.category === "final_details" && context.events.some((e) => !e.startsAt))
         warnings.push("Some events have no time yet; they'll say “time to be confirmed”.");
+    if (wantsPdf(message)) {
+        const provider = emailProvider(env);
+        if (provider && !provider.supportsAttachments)
+            warnings.push(`${provider.name} can't attach the printable invitation, so sending will be refused. Use Fastmail, or prepare it without the PDF.`);
+        else warnings.push("Each household's printable invitation (PDF, with its own QR code) will be attached.");
+    }
     if (message.options.resend) warnings.push("“Send again” is on: households that already received one will get another.");
     const parts = sending.reduce((total, p) => total + (message.channel === "sms" ? p.copy.sms.segments : 0), 0);
     const maxParts = Math.max(0, ...sending.map((p) => (message.channel === "sms" ? p.copy.sms.segments : 0)));
@@ -586,6 +654,11 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
         deliveryAvailable: available,
         testRecipients: message.channel === "sms" ? comms.testMobiles : comms.testEmails,
         tests: tests.results.map((t) => ({ channel: t.channel, recipient: t.recipient, status: t.status, error: t.error, by: t.created_by, at: t.created_at })),
+        sending: sending.slice(0, 500).map((p) => ({
+            name: p.recipient.name,
+            to: (message.channel === "sms" ? p.recipient.phone : p.recipient.email) ?? "",
+            householdId: p.recipient.householdId,
+        })),
     };
 }
 
@@ -594,10 +667,40 @@ async function deliver(
     row: { email: string | null; phone: string | null; name: string },
     copy: { subject: string; text: string; html: string },
     reference: string,
+    attachments: EmailAttachment[] = [],
 ) {
     if (provider.channel === "sms") return provider.send({ to: row.phone ?? "", body: copy.text, reference });
-    const result = await provider.send({ to: row.email ?? "", toName: row.name, subject: copy.subject, text: copy.text, html: copy.html, reference });
+    const result = await provider.send({ to: row.email ?? "", toName: row.name, subject: copy.subject, text: copy.text, html: copy.html, reference, attachments });
     return { ...result, costCents: null };
+}
+
+const wantsPdf = (message: Message) => message.category === "invitation" && message.channel === "email" && !!message.options.invitation?.attachPdf;
+
+/**
+ * The household's own printable invitation from Invitation Studio, with its QR code and signed link,
+ * built with the template captured when the message was prepared. Throws rather than return nothing.
+ */
+async function invitationPdf(env: Env, studio: StudioData, message: Message, householdId: string | null, guestId: string | null) {
+    if (!householdId) throw new ValidationError("The printable invitation needs a household", "attachPdf");
+    const individual = !!message.options.individualDelivery && !!guestId;
+    const bytes = await printableInvitations(
+        env,
+        { householdIds: [householdId], delivery: individual ? "individual" : "household", channels: ["print"], ...(individual ? { onlyGuestId: guestId } : {}) },
+        studio,
+    );
+    const household = studio.households.find((h) => h.id === householdId);
+    return { filename: `Wedding invitation - ${household?.recipientLine ?? "household"}.pdf`, contentType: "application/pdf" as const, bytes };
+}
+
+/** One recipient's printable invitation, for previewing the attachment before sending. */
+export async function messageInvitationPdf(env: Env, db: D1Database, id: string, householdId: string) {
+    const found = await getMessage(db, id);
+    if (!found) throw new NotFoundError("Message not found");
+    if (found.message.category !== "invitation") throw new ValidationError("Only invitations have a printable invitation", "category");
+    const recipient = found.recipients.find((r) => r.householdId === householdId && !r.error?.startsWith("Included in the household"));
+    if (!recipient) throw new NotFoundError("That household isn't a recipient of this message");
+    const studio = await loadStudioData(env, found.message.options.invitation?.template);
+    return invitationPdf(env, studio, found.message, householdId, recipient.guestId);
 }
 
 const MAX_ATTEMPTS = 3;
@@ -617,9 +720,12 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
     if (scheduledOnly && (!found.message.scheduledAt || Date.parse(found.message.scheduledAt) > Date.now()))
         throw new ValidationError("This message is not due yet", "scheduledAt");
 
+    if (wantsPdf(found.message) && provider.channel === "email" && !provider.supportsAttachments)
+        throw new ValidationError(`${provider.name} can't attach the printable invitation. Prepare it again without the PDF, or use Fastmail.`, "attachPdf");
     const context = await campaignContext(env, db, await listGuests(db));
     const plan = await planSend(env, db, found, context);
     const toSend = plan.filter((p) => p.action === "send");
+    const studio = wantsPdf(found.message) ? await loadStudioData(env, found.message.options.invitation?.template) : null;
     // Bulk sends need the count the person saw in the send check; anything else means the list changed.
     if (!scheduledOnly && toSend.length > 1 && confirmCount !== toSend.length)
         throw new ConflictError(
@@ -656,7 +762,8 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
         if (!mine) continue;
         const now = nowIso();
         try {
-            const result = await deliver(provider, p.recipient, p.copy, `${id}:${p.recipient.guestId}`);
+            const attachments = studio ? [await invitationPdf(env, studio, found.message, p.recipient.householdId, p.recipient.guestId)] : [];
+            const result = await deliver(provider, p.recipient, p.copy, `${id}:${p.recipient.guestId}`, attachments);
             sent++;
             const statements = [
                 db
@@ -799,13 +906,20 @@ export async function sendTest(env: Env, db: D1Database, id: string, input: unkn
     if (data.householdId && !household) throw new NotFoundError("Household not found");
     const target = household
         ? { householdId: household.id, guest: context.guestsById.get(context.addressing.get(household.id)?.guestIds[0] ?? "") ?? null, individual: false }
-        : { householdId: null, guest: SAMPLE_GUEST, individual: true };
+        : { householdId: null, guest: SAMPLE_GUEST, individual: true, sample: true };
     const copy = renderCopy(context, message, target, { recipient: to });
+    if (wantsPdf(message) && !household) throw new ValidationError("Choose a household to test the attached invitation; a fictional one has no RSVP link.", "householdId");
+    if (wantsPdf(message) && provider.channel === "email" && !provider.supportsAttachments)
+        throw new ValidationError(`${provider.name} can't attach the printable invitation`, "to");
     const testId = newId("tst");
     let providerId: string | null = null;
     let error: string | null = null;
     try {
-        ({ providerId } = await deliver(provider, { email: to, phone: to, name: "Wedding Planner test" }, copy, `test:${testId}`));
+        const attachments =
+            wantsPdf(message) && household
+                ? [await invitationPdf(env, await loadStudioData(env, message.options.invitation?.template), message, household.id, null)]
+                : [];
+        ({ providerId } = await deliver(provider, { email: to, phone: to, name: "Wedding Planner test" }, copy, `test:${testId}`, attachments));
     } catch (e) {
         error = String((e as Error).message).slice(0, 300);
     }

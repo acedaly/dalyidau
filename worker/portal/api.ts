@@ -6,7 +6,7 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
-import { emailProvider, htmlForText, providerStatus, smsProvider, validateProviderConnection } from "../comms/providers";
+import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
@@ -22,6 +22,8 @@ import {
     listMessages,
     listSmsThreads,
     mergeRows,
+    messageInvitationPdf,
+    planPreview,
     preflight,
     prepareMessage,
     previewMessage,
@@ -51,6 +53,7 @@ import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapsh
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
 import { listThankYouNotes, saveThankYouNote } from "./thank-you";
+import { prepareStudioDrafts } from "./studio-drafts";
 import { householdTimeline } from "./timeline";
 import { saveTravelManually, travelOverview } from "./travel";
 import { listUsers, removeUser, saveUser } from "./users";
@@ -412,6 +415,22 @@ add("POST", "/api/portal/wedding/invitations/preview", "wedding.view", async ({ 
 add("POST", "/api/portal/wedding/invitations/generate", "wedding.guests.edit", async ({ env, request, user }) =>
     json(await generateStudioInvitations(env, await readJson(request), user.email), 201),
 );
+// Prepare reviewable Communications drafts for the households selected in the Studio. Never sends.
+add(
+    "POST",
+    "/api/portal/wedding/invitations/prepare",
+    "wedding.comms.edit",
+    async ({ env, request, user }) => {
+        const result = await prepareStudioDrafts(env, env.DB, await readJson(request), user.email);
+        if (result.conflicts.length)
+            return json(
+                { error: "conflict", message: "These households already have an unsent invitation draft. Open it, or replace it.", conflicts: result.conflicts },
+                409,
+            );
+        return json({ drafts: result.drafts }, 201);
+    },
+    "module.communications",
+);
 add("POST", "/api/portal/wedding/invitations/print.pdf", "wedding.export", async ({ env, request, user }) => {
     const pdf = await printableInvitations(env, await readJson(request));
     await audit(env.DB, {
@@ -562,6 +581,13 @@ add(
 );
 add(
     "POST",
+    "/api/portal/wedding/messages/plan",
+    "wedding.view",
+    async ({ env, request }) => json(await planPreview(env, env.DB, await readJson(request))),
+    "module.communications",
+);
+add(
+    "POST",
     "/api/portal/wedding/messages/preview",
     "wedding.view",
     async ({ env, request }) => json(await previewMessage(env, env.DB, await readJson(request))),
@@ -657,6 +683,24 @@ add(
     "/api/portal/wedding/thank-you-notes/:id",
     "wedding.comms.edit",
     async ({ env, request, user, params }) => json(await saveThankYouNote(env.DB, params.id, await readJson(request), user.email)),
+    "module.communications",
+);
+// The PDF a household's invitation email will carry, exactly as it will be attached.
+add(
+    "GET",
+    "/api/portal/wedding/messages/:id/invitation.pdf",
+    "wedding.export",
+    async ({ env, request, params }) => {
+        const householdId = new URL(request.url).searchParams.get("household") ?? "";
+        const pdf = await messageInvitationPdf(env, env.DB, params.id, householdId);
+        return new Response(new Uint8Array(pdf.bytes).buffer, {
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `inline; filename="${safeFilename(pdf.filename)}"`,
+                "Cache-Control": "no-store",
+            },
+        });
+    },
     "module.communications",
 );
 // The send check: who a message would reach now, who's held back and why, and what to watch for.
