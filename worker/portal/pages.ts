@@ -16,9 +16,9 @@ import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, su
 import { listGuests } from "./guests";
 import { listHouseholdRows } from "./households";
 import { listImports } from "./import";
-import { listStudioHouseholds } from "./invitation-studio";
+import { householdAddressing, listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
-import { distinctGuestValues, householdResponseCounts, listAudit, listSubmissions } from "./queries";
+import { distinctGuestValues, householdResponseCounts, householdResponses, listAudit, listSubmissions } from "./queries";
 import { listQuestions, questionSummaries } from "./rsvp-questions";
 import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
@@ -164,6 +164,7 @@ const PAGES: PageDef[] = [
             status: providerStatus(env),
             emailEnabled: await deliveryAvailable(env, env.DB, "email"),
             smsEnabled: await deliveryAvailable(env, env.DB, "sms"),
+            comms: await getSettings(env.DB, "comms"),
         }),
     },
     {
@@ -173,7 +174,7 @@ const PAGES: PageDef[] = [
         application: "wedding",
         flag: "module.communications",
         load: async ({ env }) => {
-            const [templates, messages, events, values, available, sms, unread] = await Promise.all([
+            const [templates, messages, events, values, available, sms, unread, studio, homes, addressing, responses, sentBy, media] = await Promise.all([
                 listEntities(env.DB, templateDef),
                 listMessages(env.DB),
                 listEntities(env.DB, eventDef),
@@ -181,7 +182,17 @@ const PAGES: PageDef[] = [
                 deliveryAvailable(env, env.DB),
                 deliveryAvailable(env, env.DB, "sms"),
                 env.DB.prepare("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'inbound' AND read_at IS NULL").first<{ n: number }>(),
+                getSettings(env.DB, "studio"),
+                env.DB.prepare("SELECT id, name FROM households WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE").all<{ id: string; name: string }>(),
+                householdAddressing(env.DB),
+                householdResponses(env.DB),
+                env.DB.prepare(
+                    `SELECT m.category, COUNT(DISTINCT mr.household_id) AS n FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+                     WHERE mr.status = 'sent' AND mr.household_id IS NOT NULL GROUP BY m.category`,
+                ).all<{ category: string; n: number }>(),
+                listMedia(env.DB),
             ]);
+            const sent = new Map(sentBy.results.map((r) => [r.category, Number(r.n)]));
             return {
                 route: "communications",
                 templates,
@@ -192,6 +203,30 @@ const PAGES: PageDef[] = [
                 deliveryAvailable: available,
                 comms: { status: providerStatus(env), email: available, sms },
                 unreadTexts: Number(unread?.n ?? 0),
+                studio,
+                campaignProgress: {
+                    sent: {
+                        save_the_date: sent.get("save_the_date") ?? 0,
+                        invitation: sent.get("invitation") ?? 0,
+                        reminder: sent.get("reminder") ?? 0,
+                        final_details: sent.get("final_details") ?? 0,
+                        thank_you: sent.get("thank_you") ?? 0,
+                    },
+                    households: [...responses.values()].filter((r) => r.status !== "not_invited").length,
+                },
+                households: homes.results.map((h) => ({
+                    id: h.id,
+                    name: h.name,
+                    line: addressing.get(h.id)?.recipientLine || h.name,
+                    status: responses.get(h.id)?.status ?? "not_invited",
+                    attending: responses.get(h.id)?.attending ?? 0,
+                })),
+                photos: media.map((m) => ({ id: m.id, url: m.url, alt: m.alt })),
+                guests: (
+                    await env.DB.prepare(
+                        "SELECT id, TRIM(first_name || ' ' || COALESCE(last_name, '')) AS name, household_id FROM guests WHERE deleted_at IS NULL ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE",
+                    ).all<{ id: string; name: string; household_id: string | null }>()
+                ).results.map((g) => ({ id: g.id, name: g.name, householdId: g.household_id })),
             };
         },
     },

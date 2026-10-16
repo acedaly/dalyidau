@@ -213,6 +213,29 @@ export const EXPORTS: Record<string, ExportDef> = {
             ]);
         },
     },
+    dietary: {
+        label: "Dietary requirements (for the caterer)",
+        permission: "wedding.export",
+        flag: "module.planning",
+        async build(db) {
+            // Only guests who are coming (or may come) and have something the caterer needs to know.
+            const summary = await cateringSummary(db);
+            const label = new Map(summary.settings.categories.map((c) => [c.id, c.label]));
+            const rows = summary.guests
+                .filter((g) => g.dietary?.trim() || g.allergies?.trim())
+                .sort((a, b) => Number(b.status === "attending") - Number(a.status === "attending") || a.name.localeCompare(b.name));
+            return toCsv(rows, [
+                { header: "Guest", value: (g) => g.name },
+                { header: "Household", value: (g) => g.householdName },
+                { header: "Coming", value: (g) => (g.status === "attending" ? "Yes" : "Not replied yet") },
+                { header: "Age group", value: (g) => g.ageGroup },
+                { header: "Meal", value: (g) => (g.category ? label.get(g.category) : "Needs a decision") },
+                { header: "Allergies", value: (g) => g.allergies },
+                { header: "Dietary requirements", value: (g) => g.dietary },
+                { header: "Table", value: (g) => g.tableName },
+            ]);
+        },
+    },
     tasks: {
         label: "Tasks",
         permission: "wedding.export",

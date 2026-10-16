@@ -148,7 +148,45 @@ export interface PrivacySettings {
     deletedRetentionDays: number;
 }
 
+/** Wording and options for the Communications Studio's stationery (Save the Date, Final information, Thank You). */
+export interface StudioSettings {
+    accent: "burgundy" | "clay" | "eucalyptus";
+    saveTheDate: {
+        headline: string;
+        /** e.g. "Formal invitation to follow". */
+        followUp: string;
+        showCalendarLink: boolean;
+    };
+    finalDetails: {
+        /** Anything else guests need to know on the day. Plain text. */
+        notes: string;
+        includeTransport: boolean;
+        includeAccommodation: boolean;
+    };
+    thankYou: {
+        headline: string;
+        message: string;
+        /** website_media id of a wedding photograph, if any. */
+        photoId: string | null;
+        galleryUrl: string;
+    };
+    /** Default wording for each campaign; empty means the built-in wording. */
+    copy: Partial<Record<"save_the_date" | "invitation" | "reminder" | "final_details" | "thank_you", { subject: string; body: string; smsBody: string }>>;
+}
+
+/** Owner-controlled communications safety settings. */
+export interface CommsSettings {
+    /** The only addresses a test send can go to. */
+    testEmails: string[];
+    /** The only mobiles a test send can go to (E.164). */
+    testMobiles: string[];
+    /** Price of one SMS part in cents, for the cost estimate in the send check; null when unknown. */
+    smsCentsPerPart: number | null;
+}
+
 export interface SettingsDocuments {
+    studio: StudioSettings;
+    comms: CommsSettings;
     privacy: PrivacySettings;
     catering: CateringSettings;
     /** What the portal edits; the public site shows `website` until changes are published. */
@@ -263,7 +301,32 @@ export interface HouseholdResponse {
     guestNames: string[];
 }
 
-export type HouseholdRow = Household & { response: HouseholdResponse };
+/** Contact-readiness flags for a household, from its guests' and its own contact details. */
+export const CONTACT_FLAGS = ["no_contact", "unreachable", "no_email", "no_mobile", "invalid_mobile", "email_only", "sms_only", "opted_out"] as const;
+export type ContactFlag = (typeof CONTACT_FLAGS)[number];
+export const CONTACT_FLAG_LABELS: Record<ContactFlag, string> = {
+    no_contact: "No contact details",
+    unreachable: "No one reachable",
+    no_email: "No email",
+    no_mobile: "No mobile",
+    invalid_mobile: "Invalid mobile",
+    email_only: "Email only",
+    sms_only: "Text only",
+    opted_out: "Opted out",
+};
+
+export interface HouseholdContact {
+    /** Email addresses that can be used (not opted out). */
+    emails: number;
+    /** Valid mobile numbers that can be texted (not opted out). */
+    mobiles: number;
+    invalidMobiles: number;
+    /** Guests who opted out of email or texts. */
+    optedOut: number;
+    flags: ContactFlag[];
+}
+
+export type HouseholdRow = Household & { response: HouseholdResponse; contact: HouseholdContact };
 
 export interface WeddingEvent {
     id: string;
@@ -328,14 +391,15 @@ export interface MessageTemplate {
 
 export type MessageStatus = "draft" | "queued" | "sending" | "sent" | "partial" | "failed";
 /** Categories the couple can choose when preparing a message. */
-export const MESSAGE_CATEGORIES = ["save_the_date", "invitation", "reminder", "update", "thank_you"] as const;
+export const MESSAGE_CATEGORIES = ["save_the_date", "invitation", "reminder", "final_details", "update", "thank_you"] as const;
 /** Categories only the system uses, e.g. the automatic email after an online RSVP. */
 export const SYSTEM_MESSAGE_CATEGORIES = ["rsvp_confirmation"] as const;
 export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number] | (typeof SYSTEM_MESSAGE_CATEGORIES)[number];
 export const MESSAGE_CATEGORY_LABELS: Record<MessageCategory, string> = {
     save_the_date: "Save the date",
     invitation: "Invitation",
-    reminder: "Reminder",
+    reminder: "RSVP reminder",
+    final_details: "Final information",
     update: "Update",
     thank_you: "Thank you",
     rsvp_confirmation: "RSVP confirmation",
@@ -344,6 +408,12 @@ export const MESSAGE_CHANNELS = ["email", "sms"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
 export interface Audience {
+    /**
+     * How recipients are chosen. "specific": exactly the guests and households listed, nothing else
+     * (filters are ignored and an empty list matches no one). "filtered": the filters below. "all":
+     * every guest. Absent on messages prepared before modes existed, which used the filters.
+     */
+    mode?: "specific" | "filtered" | "all";
     rsvp?: (RsvpStatus | "not_invited")[];
     eventId?: string | null;
     side?: Side[];
@@ -353,6 +423,25 @@ export interface Audience {
     guestIds?: string[];
     ageGroup?: AgeGroup[];
     contactPreference?: ContactPreference[];
+    /** When set, only guests in these households (manual household selection in the Studio). */
+    householdIds?: string[];
+    /**
+     * RSVP reminders: households to remind, by RSVP progress or follow-up. Households that have
+     * replied for everyone never match, however the other filters are set.
+     */
+    reminder?: ("not_started" | "partial" | "follow_up")[];
+}
+
+/** How a campaign is delivered, chosen when it's prepared. */
+export interface MessageOptions {
+    /** One message per guest instead of one per household. */
+    individualDelivery?: boolean;
+    /** Send even to households that already have one of this kind (save the date, invitation…). */
+    resend?: boolean;
+    /** Prepared from Invitation Studio, so the Studio can show and update it. */
+    source?: "invitation-studio";
+    /** Formal invitations: the Studio template captured when it was prepared, and whether to attach the PDF. */
+    invitation?: { template: InvitationTemplateSettings; templateUpdatedAt: string | null; attachPdf: boolean };
 }
 
 export interface Message {
@@ -370,10 +459,13 @@ export interface Message {
     createdAt: string;
     scheduledAt: string | null;
     sentAt: string | null;
+    options: MessageOptions;
 }
 
 export interface MessageRecipient {
     guestId: string;
+    /** The household this message was addressed to, if any. */
+    householdId: string | null;
     name: string;
     email: string | null;
     phone: string | null;
@@ -386,6 +478,38 @@ export interface MessageRecipient {
     deliveryStatus: string | null;
     deliveredAt: string | null;
     costCents: number | null;
+}
+
+/** The send check shown before a message is sent or scheduled. Worked out the same way sending is. */
+export interface MessagePreflight {
+    messageId: string;
+    category: MessageCategory;
+    channel: MessageChannel;
+    status: MessageStatus;
+    /** Households (or guests without one) that would receive it now. */
+    households: number;
+    /** Messages that would actually be sent now. */
+    recipients: number;
+    /** Everyone held back, grouped by reason, with up to 12 names each. */
+    excluded: { reason: string; count: number; names: string[] }[];
+    warnings: string[];
+    sms: { parts: number; maxParts: number; estimatedCents: number | null } | null;
+    deliveryAvailable: boolean;
+    /** Where a test of this message may go. */
+    testRecipients: string[];
+    tests: { channel: MessageChannel; recipient: string; status: "sent" | "failed"; error: string | null; by: string; at: string }[];
+    /** Everyone it would be sent to now, with the address or number it goes to (up to 500). */
+    sending: { name: string; to: string; householdId: string | null }[];
+}
+
+/** One line in a household's communications history. */
+export interface TimelineEntry {
+    at: string;
+    kind: "message" | "rsvp_confirmation" | "invitation" | "rsvp" | "reply" | "text";
+    title: string;
+    detail: string;
+    outcome: "sent" | "prepared" | "held" | "failed" | "received";
+    href: string | null;
 }
 
 export interface SmsMessage {
@@ -437,8 +561,18 @@ export interface InvitationStudioHousehold {
     /** How the household invitation is addressed, e.g. "Fred & Ann Daly". */
     recipientLine: string;
     /** `invited` is false for guests with no RSVP-enabled event; they get no invitation of their own. */
-    guests: { id: string; name: string; firstName: string; lastName: string; invited: boolean }[];
+    guests: { id: string; name: string; firstName: string; lastName: string; invited: boolean; hasEmail: boolean; hasMobile: boolean }[];
     delivery: { channel: "email" | "sms" | "print"; status: string; updatedAt: string }[];
+    /** The latest Communications invitation for this household on each channel, if any. */
+    messages: {
+        messageId: string;
+        channel: "email" | "sms";
+        /** draft or scheduled (prepared, not sent), sent, failed, or held back with a reason. */
+        status: "draft" | "queued" | "sent" | "failed" | "skipped";
+        deliveryStatus: string | null;
+        error: string | null;
+        updatedAt: string;
+    }[];
 }
 
 export type InvitationDelivery = "household" | "individual";
@@ -597,6 +731,9 @@ export const WIDGET_TYPES = [
     "invitation-readiness",
     "seating-readiness",
     "communications-status",
+    "follow-up",
+    "contact-readiness",
+    "courtesy-bus",
 ] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 export type WidgetSize = "sm" | "md" | "lg";
@@ -619,7 +756,24 @@ export interface DashboardStats {
     recentResponses: { householdName: string; submittedAt: string; attending: number; declined: number }[];
     /** Cumulative count of guests who have answered at least one invitation, by day (wedding time zone not applied; UTC days). */
     responseTrend: { date: string; responded: number }[];
-    invitations: { active: number; revoked: number };
+    invitations: {
+        active: number;
+        revoked: number;
+        /** Households invited to an event with RSVPs open. */
+        invitedHouseholds: number;
+        /** Households with an invitation generated in Invitation Studio (not necessarily sent). */
+        generated: number;
+        /** Households sent a formal invitation by email or text from the portal. */
+        sent: number;
+    };
+    /** Households that need a nudge or a check. */
+    followUp: { notStarted: number; partial: number; travel: number };
+    /** How households can be reached. */
+    contacts: { households: number; unreachable: number; noContact: number; emailOnly: number; smsOnly: number; invalidMobile: number; optedOut: number };
+    /** Households sent each campaign from the portal. */
+    campaigns: Record<"save_the_date" | "invitation" | "reminder" | "final_details" | "thank_you", number> | null;
+    /** Courtesy bus requests, capped at the guests now coming. */
+    transport: { outbound: number; return: number; bothWays: number; unsureHouseholds: number; unanswered: number } | null;
     seating: { attending: number; seated: number; unseated: number; mealsUndecided: number } | null;
     communications: { drafts: number; queued: number; sent: number; failed: number } | null;
 }
@@ -693,6 +847,14 @@ export type PortalRoute =
           deliveryAvailable: boolean;
           comms: { status: CommsStatus; email: boolean; sms: boolean };
           unreadTexts: number;
+          studio: StudioSettings;
+          /** Households sent each campaign so far, and households invited to an event. */
+          campaignProgress: { sent: Record<"save_the_date" | "invitation" | "reminder" | "final_details" | "thank_you", number>; households: number };
+          /** For choosing households by hand, previews and printing. */
+          households: { id: string; name: string; line: string; status: HouseholdResponseStatus; attending: number }[];
+          photos: { id: string; url: string; alt: string }[];
+          /** For choosing specific guests. */
+          guests: { id: string; name: string; householdId: string | null }[];
       }
     | {
           route: "invitation-studio";
@@ -700,7 +862,7 @@ export type PortalRoute =
           canGenerateLinks: boolean;
           template: InvitationTemplateSettings;
       }
-    | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean }
+    | { route: "provider-settings"; status: CommsStatus; emailEnabled: boolean; smsEnabled: boolean; comms: CommsSettings }
     | { route: "message"; message: Message; recipients: MessageRecipient[]; deliveryAvailable: boolean }
     | { route: "texts"; threads: SmsThread[]; status: CommsStatus; emailAvailable: boolean; smsAvailable: boolean }
     | { route: "tasks"; tasks: Task[]; assignees: { email: string; name: string | null }[] }

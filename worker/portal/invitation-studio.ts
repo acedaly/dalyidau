@@ -3,7 +3,8 @@ import { PDFDocument, type PDFFont, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { type InvitationAddressing, invitationAddressing, salutation } from "../../src/shared/portal/invitation-names";
-import type { InvitationPreview, InvitationStudioHousehold } from "../../src/shared/portal/types";
+import { normaliseMobile } from "../../src/shared/portal/phone";
+import type { InvitationPreview, InvitationStudioHousehold, InvitationTemplateSettings } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { invitationUrl, typedRsvpAddress } from "../wedding/invitations";
 import { auditStatement, newId, nowIso, placeholders } from "./db";
@@ -25,6 +26,8 @@ const requestSchema = z.object({
         .default(["print"]),
     /** Used only for fixture/documentation output. Normal Studio previews are never labelled sample. */
     sample: z.boolean().default(false),
+    /** Individual delivery: only this guest's invitation (for one email's attachment). */
+    onlyGuestId: z.string().max(40).optional(),
 });
 
 /** One version per household (or per person for individual delivery); generation stores one row per version and channel. */
@@ -72,7 +75,7 @@ export async function householdAddressing(db: D1Database): Promise<Map<string, H
 }
 
 export async function listStudioHouseholds(db: D1Database): Promise<InvitationStudioHousehold[]> {
-    const [homes, guests, deliveries] = await db.batch([
+    const [homes, guests, deliveries, messages] = await db.batch([
         db.prepare(
             `SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at, invitation_generated_at,
                     invitation_name, invitation_list_names
@@ -80,7 +83,7 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
         ),
         db.prepare(
             // `invited` mirrors the RSVP form, which only shows guests invited to an event with RSVPs open.
-            `SELECT g.id, g.household_id, g.first_name, g.last_name,
+            `SELECT g.id, g.household_id, g.first_name, g.last_name, g.email, g.phone,
                     EXISTS (SELECT 1 FROM guest_events ge JOIN events e ON e.id = ge.event_id
                             WHERE ge.guest_id = g.id AND e.rsvp_enabled = 1) AS invited
              FROM guests g WHERE g.deleted_at IS NULL AND g.household_id IS NOT NULL
@@ -93,6 +96,21 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
                  FROM invitation_artifacts
              ) WHERE position = 1 ORDER BY updated_at DESC`,
         ),
+        // The latest Communications invitation per household and channel: one row per household
+        // (the person it was addressed to, or the reason it was held back).
+        db.prepare(
+            `SELECT household_id, message_id, channel, message_status, status, delivery_status, error, updated_at FROM (
+                 SELECT mr.household_id, m.id AS message_id, m.channel, m.status AS message_status, mr.status, mr.delivery_status, mr.error,
+                        COALESCE(mr.sent_at, m.created_at) AS updated_at,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY mr.household_id, m.channel
+                            ORDER BY m.created_at DESC, CASE mr.status WHEN 'sent' THEN 0 WHEN 'failed' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END,
+                                     (mr.error LIKE 'Included in the household%')
+                        ) AS position
+                 FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+                 WHERE m.category = 'invitation' AND mr.household_id IS NOT NULL
+             ) WHERE position = 1`,
+        ),
     ]);
     return (homes.results as Record<string, unknown>[]).map((home) => {
         const members = (guests.results as Record<string, unknown>[])
@@ -100,7 +118,15 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
             .map((guest) => {
                 const firstName = String(guest.first_name);
                 const lastName = String(guest.last_name ?? "");
-                return { id: String(guest.id), name: `${firstName} ${lastName}`.trim(), firstName, lastName, invited: Boolean(guest.invited) };
+                return {
+                    id: String(guest.id),
+                    name: `${firstName} ${lastName}`.trim(),
+                    firstName,
+                    lastName,
+                    invited: Boolean(guest.invited),
+                    hasEmail: !!String(guest.email ?? "").trim(),
+                    hasMobile: !!normaliseMobile(guest.phone as string | null),
+                };
             });
         const invitationName = (home.invitation_name as string | null) ?? null;
         const invitationListNames = Boolean(home.invitation_list_names);
@@ -127,6 +153,21 @@ export async function listStudioHouseholds(db: D1Database): Promise<InvitationSt
                     channel: delivery.channel as "email" | "sms" | "print",
                     status: String(delivery.status),
                     updatedAt: String(delivery.updated_at),
+                })),
+            messages: (messages.results as Record<string, string | null>[])
+                .filter((row) => row.household_id === home.id)
+                .map((row) => ({
+                    messageId: String(row.message_id),
+                    channel: row.channel as "email" | "sms",
+                    status:
+                        row.status === "pending"
+                            ? row.message_status === "queued"
+                                ? ("queued" as const)
+                                : ("draft" as const)
+                            : (row.status as "sent" | "failed" | "skipped"),
+                    deliveryStatus: row.delivery_status,
+                    error: row.error,
+                    updatedAt: String(row.updated_at),
                 })),
         };
     });
@@ -167,22 +208,31 @@ const svgDataUrl = async (value: string) => {
     return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
-export async function invitationPreviews(env: Env, input: unknown): Promise<InvitationPreview[]> {
-    const request = requestSchema.parse(input);
-    const households = await listStudioHouseholds(env.DB);
-    const selected = households.filter((household) => request.householdIds.includes(household.id));
-    if (selected.length !== new Set(request.householdIds).size) throw new ValidationError("One of those households no longer exists", "householdIds");
-    const [wedding, rsvp, template, events] = await Promise.all([
+/** Everything a preview or printable invitation needs, loaded once (e.g. for a whole send). */
+export async function loadStudioData(env: Env, template?: InvitationTemplateSettings) {
+    const [households, wedding, rsvp, current, events] = await Promise.all([
+        listStudioHouseholds(env.DB),
         getSettings(env.DB, "wedding"),
         getSettings(env.DB, "rsvp"),
         getSettings(env.DB, "invitation"),
-        env.DB.prepare("SELECT name, starts_at, venue_name, address FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at").all<{
+        env.DB.prepare(
+            "SELECT name, starts_at, venue_name, address FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at",
+        ).all<{
             name: string;
             starts_at: string | null;
             venue_name: string | null;
             address: string | null;
         }>(),
     ]);
+    return { households, wedding, rsvp, template: template ?? current, events };
+}
+export type StudioData = Awaited<ReturnType<typeof loadStudioData>>;
+
+export async function invitationPreviews(env: Env, input: unknown, preloaded?: StudioData): Promise<InvitationPreview[]> {
+    const request = requestSchema.parse(input);
+    const { households, wedding, rsvp, template, events } = preloaded ?? (await loadStudioData(env));
+    const selected = households.filter((household) => request.householdIds.includes(household.id));
+    if (selected.length !== new Set(request.householdIds).size) throw new ValidationError("One of those households no longer exists", "householdIds");
     const eventLines = events.results.map((event) => {
         const time = formatTime(event.starts_at);
         const detail = [time, event.venue_name].filter(Boolean).join(" at ");
@@ -199,7 +249,7 @@ export async function invitationPreviews(env: Env, input: unknown): Promise<Invi
     const individual = request.delivery === "individual";
     const recipients = selected.map((household) => {
         const invited = household.guests.filter((guest) => guest.invited);
-        return { household, invited, targets: individual ? invited : [null] };
+        return { household, invited, targets: individual ? invited.filter((guest) => !request.onlyGuestId || guest.id === request.onlyGuestId) : [null] };
     });
     if (recipients.reduce((total, { targets }) => total + targets.length, 0) > MAX_RECIPIENTS)
         throw new ValidationError(`That is more than ${MAX_RECIPIENTS} invitations. Choose fewer households.`, "householdIds");
@@ -340,14 +390,24 @@ const wrap = (text: string, font: PDFFont, size: number, maxWidth: number) => {
     return lines;
 };
 
-export async function printableInvitations(env: Env, input: unknown): Promise<Uint8Array> {
+/** The botanical frame, fetched once per isolate. */
+let frameBytes: ArrayBuffer | null = null;
+const invitationFrame = async (env: Env) => {
+    if (frameBytes) return frameBytes;
+    const response = await env.ASSETS.fetch("https://assets.local/wedding/native-invitation-frame.jpg");
+    if (!response.ok) return null;
+    frameBytes = await response.arrayBuffer();
+    return frameBytes;
+};
+
+export async function printableInvitations(env: Env, input: unknown, preloaded?: StudioData): Promise<Uint8Array> {
     const request = requestSchema.parse(input);
-    const previews = await invitationPreviews(env, request);
+    const previews = await invitationPreviews(env, request, preloaded);
     const pdf = await PDFDocument.create();
-    const artworkResponse = await env.ASSETS.fetch("https://assets.local/wedding/native-invitation-frame.jpg");
-    if (previews.some((preview) => preview.artwork === "native-botanicals") && !artworkResponse.ok)
+    const frame = await invitationFrame(env);
+    if (previews.some((preview) => preview.artwork === "native-botanicals") && !frame)
         throw new Error("Invitation botanical artwork is missing; run the client build");
-    const artwork = artworkResponse.ok ? await pdf.embedJpg(await artworkResponse.arrayBuffer()) : null;
+    const artwork = frame ? await pdf.embedJpg(frame) : null;
     const serif = await pdf.embedFont(StandardFonts.TimesRoman);
     const serifBold = await pdf.embedFont(StandardFonts.TimesRomanBold);
     const serifItalic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
@@ -458,10 +518,13 @@ export async function printableInvitations(env: Env, input: unknown): Promise<Ui
             }
         }
         page.drawText("SCAN TO RSVP", { x: 213, y: 126, size: 7.5, font: sansBold, color: accent });
-        if (preview.deadline) page.drawText(`Reply by ${preview.deadline}`, { x: 213, y: 109, size: 8, font: sansBold, color: espresso });
+        // The deadline wraps inside the RSVP panel (x 213–324) so it never runs into the artwork.
+        if (preview.deadline)
+            for (const [index, line] of wrap(`Reply by ${preview.deadline}`, sansBold, 8, 110).slice(0, 2).entries())
+                page.drawText(line, { x: 213, y: 112 - index * 10, size: 8, font: sansBold, color: espresso });
         if (preview.rsvpCode) {
-            page.drawText(preview.fallback, { x: 213, y: 88, size: 7, font: sans, color: espresso });
-            page.drawText(`CODE  ${preview.rsvpCode}`, { x: 213, y: 72, size: 7.2, font: sansBold, color: espresso });
+            page.drawText(preview.fallback, { x: 213, y: 84, size: 7, font: sans, color: espresso, maxWidth: 112 });
+            page.drawText(`CODE  ${preview.rsvpCode}`, { x: 213, y: 70, size: 7.2, font: sansBold, color: espresso });
         }
     }
     pdf.setTitle(`${previews[0]?.coupleNames ?? "Wedding"} - Wedding invitations`);

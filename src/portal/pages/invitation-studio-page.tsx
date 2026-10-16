@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download01, Eye, Link01, Printer } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -14,7 +14,8 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import type { InvitationDelivery, InvitationPreview, InvitationStudioHousehold, InvitationTemplateSettings } from "@/shared/portal/types";
+import { studioInvitationCopy } from "@/shared/portal/campaigns";
+import type { InvitationDelivery, InvitationPreview, InvitationStudioHousehold, InvitationTemplateSettings, Message } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 
 const ACCENTS: Record<InvitationTemplateSettings["accent"], string> = {
@@ -152,32 +153,101 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
     );
 };
 
-const PreviewPanel = ({ invitation, mode }: { invitation: InvitationPreview; mode: PreviewMode }) => {
-    if (mode === "email")
-        return (
-            <div className="mx-auto max-w-[34rem] overflow-hidden rounded-xl border border-secondary bg-secondary">
-                <div className="border-b border-secondary bg-primary px-4 py-3 text-left">
-                    <p className="text-xs text-tertiary">To: {invitation.greeting.replace(/^Dear\s+/i, "")}</p>
-                    <p className="mt-1 text-sm font-semibold text-primary">{invitation.emailSubject}</p>
-                </div>
-                <div className="p-3 sm:p-5">
-                    <InvitationCard invitation={invitation} label="Email invitation preview" compact />
-                </div>
-            </div>
-        );
-    if (mode === "mobile")
-        return (
-            <div className="mx-auto max-w-[23rem] rounded-[2rem] bg-[#2f2926] p-2 shadow-xl">
-                <div className="overflow-hidden rounded-[1.55rem] bg-[#F5F0E7]">
-                    <div className="flex items-center justify-center border-b border-[#d8cdbc] py-2">
-                        <span className="h-1.5 w-16 rounded-full bg-[#49342D]/30" />
-                    </div>
-                    <div className="p-2.5">
-                        <InvitationCard invitation={invitation} label="Mobile invitation preview" compact />
-                    </div>
-                </div>
-            </div>
-        );
+/**
+ * The email exactly as Communications will send it to this household: the same copy, the invitation
+ * card with the household's own link, and the plain-text part. Uses the saved template.
+ */
+const SentEmailPreview = ({
+    invitation,
+    template,
+    width,
+}: {
+    invitation: InvitationPreview;
+    template: InvitationTemplateSettings;
+    width: "desktop" | "mobile";
+}) => {
+    const [email, setEmail] = useState<{ subject: string; html: string; body: string } | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    useEffect(() => {
+        const copy = studioInvitationCopy(template);
+        api<{ subject: string; html: string; body: string }>("POST", "/api/portal/wedding/messages/preview", {
+            subject: copy.subject,
+            body: copy.body,
+            category: "invitation",
+            channel: "email",
+            householdId: invitation.householdId,
+            guestId: invitation.guestId,
+            individual: invitation.delivery === "individual",
+        })
+            .then(setEmail)
+            .catch((e) => setError(errorMessage(e)));
+    }, [invitation.householdId, invitation.guestId, invitation.delivery, template]);
+    if (error) return <p className="text-sm text-error-primary">{error}</p>;
+    if (!email) return <p className="text-sm text-tertiary">Building the email…</p>;
+    return (
+        <div className="mx-auto flex max-w-[40rem] flex-col gap-2">
+            <p className="text-sm text-tertiary">
+                To: {invitation.recipientLine} · <span className="font-semibold text-primary">{email.subject}</span>
+            </p>
+            <iframe
+                title={`Email to ${invitation.recipientLine}`}
+                srcDoc={email.html}
+                sandbox=""
+                className="h-[70vh] w-full rounded-lg bg-primary ring-1 ring-secondary"
+                style={{ maxWidth: width === "mobile" ? 375 : "100%", margin: "0 auto" }}
+            />
+            <details className="rounded-lg bg-secondary p-4 text-left text-sm">
+                <summary className="cursor-pointer font-semibold">Plain-text version</summary>
+                <p className="mt-2 text-xs leading-5 whitespace-pre-line">{email.body}</p>
+            </details>
+        </div>
+    );
+};
+
+/** Where each household's invitation is up to, from Studio generation through Communications delivery. */
+const invitationStatus = (household: InvitationStudioHousehold) => {
+    const latest = [...household.messages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const parts = latest.map((m) => {
+        const channel = m.channel === "sms" ? "Text" : "Email";
+        const label =
+            m.status === "draft"
+                ? "draft"
+                : m.status === "queued"
+                  ? "scheduled"
+                  : m.status === "sent"
+                    ? m.deliveryStatus === "delivered"
+                        ? "delivered"
+                        : m.deliveryStatus && m.deliveryStatus !== "sent"
+                          ? m.deliveryStatus
+                          : "sent"
+                    : m.status === "failed"
+                      ? "failed"
+                      : "held back";
+        const color: "gray" | "brand" | "success" | "error" | "warning" =
+            m.status === "draft" || m.status === "queued"
+                ? "brand"
+                : m.status === "sent"
+                  ? label === "delivered" || label === "sent"
+                      ? "success"
+                      : "warning"
+                  : m.status === "failed"
+                    ? "error"
+                    : "warning";
+        return {
+            key: `${m.channel}-${m.messageId}`,
+            text: `${channel} ${label}`,
+            color: color as "gray" | "brand" | "success" | "error" | "warning",
+            href: `/portal/wedding/communications/${m.messageId}`,
+            error: m.error,
+        };
+    });
+    if (!parts.length && household.invitationGeneratedAt) parts.push({ key: "generated", text: "Generated", color: "gray" as const, href: "", error: null });
+    return parts;
+};
+
+const PreviewPanel = ({ invitation, mode, template }: { invitation: InvitationPreview; mode: PreviewMode; template: InvitationTemplateSettings }) => {
+    if (mode === "email") return <SentEmailPreview invitation={invitation} template={template} width="desktop" />;
+    if (mode === "mobile") return <SentEmailPreview invitation={invitation} template={template} width="mobile" />;
     return <InvitationCard invitation={invitation} label="Print invitation preview" />;
 };
 
@@ -192,15 +262,22 @@ const recipientIssuesFor = (household: InvitationStudioHousehold, channels: Chan
         });
     if (household.inviteRevoked)
         issues.push({ key: `${household.id}-revoked`, householdId: household.id, kind: "link", message: "The household RSVP link has been revoked." });
-    if (channels.includes("email") && !household.email)
+    // The household's own address, or any invited guest's: Communications sends to the first reachable one.
+    const invited = household.guests.filter((guest) => guest.invited);
+    if (channels.includes("email") && !household.email && !invited.some((guest) => guest.hasEmail))
         issues.push({
             key: `${household.id}-email`,
             householdId: household.id,
             kind: "contact",
-            message: "Email is selected, but no email address is recorded.",
+            message: "Email is selected, but neither the household nor an invited guest has an email address.",
         });
-    if (channels.includes("sms") && !household.phone)
-        issues.push({ key: `${household.id}-sms`, householdId: household.id, kind: "contact", message: "SMS is selected, but no mobile number is recorded." });
+    if (channels.includes("sms") && !household.phone && !invited.some((guest) => guest.hasMobile))
+        issues.push({
+            key: `${household.id}-sms`,
+            householdId: household.id,
+            kind: "contact",
+            message: "SMS is selected, but neither the household nor an invited guest has a mobile number.",
+        });
     return issues;
 };
 
@@ -216,6 +293,34 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
     const [template, setTemplate] = useState(data.template);
     const [savingTemplate, setSavingTemplate] = useState(false);
     const [previewMode, setPreviewMode] = useState<PreviewMode>("print");
+    const [prepareDrafts, setPrepareDrafts] = useState(true);
+    const [attachPdf, setAttachPdf] = useState(true);
+    const [drafts, setDrafts] = useState<Message[]>([]);
+    const [conflicts, setConflicts] = useState<{ messageId: string; channel: "email" | "sms"; subject: string; households: number; others: number }[]>([]);
+    const digital = chosenChannels.filter((channel): channel is "email" | "sms" => channel !== "print");
+
+    /** Creates (or, with `replace`, swaps) the Communications drafts for the selected households. Never sends. */
+    const prepare = async (replace = false) => {
+        setConflicts([]);
+        const response = await fetch("/api/portal/wedding/invitations/prepare", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ householdIds: selected, delivery, channels: digital, attachPdf: digital.includes("email") && attachPdf, replace }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { drafts?: Message[]; conflicts?: typeof conflicts; message?: string };
+        if (response.status === 409 && body.conflicts) {
+            setConflicts(body.conflicts);
+            toast.error("Unsent drafts already exist", "Open them, or replace them with new drafts.");
+            return;
+        }
+        if (!response.ok) throw new Error(body.message ?? "The drafts couldn't be prepared");
+        setDrafts(body.drafts ?? []);
+        toast.success(
+            `${body.drafts?.length ?? 0} draft${body.drafts?.length === 1 ? "" : "s"} ready in Communications`,
+            "Nothing has been sent. Review, test and send from each draft.",
+        );
+    };
     const request = { householdIds: selected, delivery, channels: chosenChannels };
     const selectedHouseholds = useMemo(() => data.households.filter((household) => selected.includes(household.id)), [data.households, selected]);
     const issues = useMemo(() => {
@@ -345,13 +450,31 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                         </div>
                         <div className="mt-4 max-h-80 space-y-3 overflow-auto pr-1">
                             {data.households.map((household) => (
-                                <Checkbox
-                                    key={household.id}
-                                    isSelected={selected.includes(household.id)}
-                                    onChange={(on) => toggleHousehold(household.id, on)}
-                                    label={household.name}
-                                    hint={`${household.recipientLine} · ${household.guests.filter((guest) => guest.invited).length} invited${household.email ? " · email" : ""}${household.phone ? " · mobile" : ""}`}
-                                />
+                                <div key={household.id} className="flex flex-col gap-1.5">
+                                    <Checkbox
+                                        isSelected={selected.includes(household.id)}
+                                        onChange={(on) => toggleHousehold(household.id, on)}
+                                        label={household.name}
+                                        hint={`${household.recipientLine} · ${household.guests.filter((guest) => guest.invited).length} invited${household.email ? " · email" : ""}${household.phone ? " · mobile" : ""}`}
+                                    />
+                                    {invitationStatus(household).length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1.5 pl-6">
+                                            {invitationStatus(household).map((status) =>
+                                                status.href ? (
+                                                    <a key={status.key} href={status.href} title={status.error ?? "Review and send"}>
+                                                        <Badge size="sm" color={status.color}>
+                                                            {status.text}
+                                                        </Badge>
+                                                    </a>
+                                                ) : (
+                                                    <Badge key={status.key} size="sm" color={status.color}>
+                                                        {status.text}
+                                                    </Badge>
+                                                ),
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             ))}
                         </div>
                         <p className="mt-4 border-t border-secondary pt-4 text-sm text-tertiary">
@@ -569,7 +692,7 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                             key={invitation.key}
                                             className="rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset sm:p-5 print:break-after-page"
                                         >
-                                            <PreviewPanel invitation={invitation} mode={previewMode} />
+                                            <PreviewPanel invitation={invitation} mode={previewMode} template={template} />
                                             <div className="mt-4 flex justify-center gap-2">
                                                 {chosenChannels.map((channel) => (
                                                     <Badge key={channel} size="sm" color="gray">
@@ -577,12 +700,6 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                                     </Badge>
                                                 ))}
                                             </div>
-                                            {previewMode === "email" && (
-                                                <details className="mt-4 rounded-lg bg-secondary p-4 text-left text-sm">
-                                                    <summary className="cursor-pointer font-semibold">Plain-text email fallback</summary>
-                                                    <p className="mt-2 text-xs leading-5 whitespace-pre-line">{invitation.emailBody}</p>
-                                                </details>
-                                            )}
                                             {chosenChannels.includes("sms") && (
                                                 <div className="mt-3 rounded-lg bg-secondary p-4 text-left text-xs leading-5 ring-1 ring-secondary ring-inset">
                                                     <p className="mb-1 font-semibold">SMS preview</p>
@@ -616,10 +733,8 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                                             "/api/portal/wedding/invitations/generate",
                                                             request,
                                                         );
-                                                        toast.success(
-                                                            `${result.generated} invitations generated`,
-                                                            `${result.sent} sent. Review delivery in Communications.`,
-                                                        );
+                                                        toast.success(`${result.generated} invitations generated`, "Nothing has been sent.");
+                                                        if (prepareDrafts && digital.length && can("wedding.comms.edit")) await prepare();
                                                     } catch (error) {
                                                         toast.error("Couldn't generate invitations", errorMessage(error));
                                                     } finally {
@@ -636,6 +751,76 @@ export const InvitationStudioPage = ({ data }: { data: PageData<"invitation-stud
                                         </Button>
                                     </div>
                                 </div>
+                                {digital.length > 0 && can("wedding.comms.edit") && (
+                                    <div className="flex flex-col gap-3 rounded-xl border border-secondary bg-primary p-4 shadow-xs">
+                                        <p className="text-sm font-semibold text-primary">Prepare for sending</p>
+                                        <Checkbox
+                                            label={`Also prepare ${digital.map((c) => (c === "sms" ? "SMS" : "email")).join(" and ")} drafts in Communications when generating`}
+                                            hint="One draft per channel, addressed to exactly these households with their own RSVP links. Nothing is sent until you review it and choose Send."
+                                            isSelected={prepareDrafts}
+                                            onChange={setPrepareDrafts}
+                                        />
+                                        {digital.includes("email") && (
+                                            <Checkbox
+                                                label="Attach each household's printable invitation (PDF with its QR code) to the email"
+                                                hint="The same PDF as Download printable PDF, one per household. Needs Fastmail (or SMTP); other providers refuse rather than send without it."
+                                                isSelected={attachPdf}
+                                                onChange={setAttachPdf}
+                                            />
+                                        )}
+                                        <div>
+                                            <Button
+                                                color="secondary"
+                                                isDisabled={issues.length > 0}
+                                                onClick={() => prepare().catch((e) => toast.error("Couldn't prepare the drafts", errorMessage(e)))}
+                                            >
+                                                Prepare drafts now
+                                            </Button>
+                                        </div>
+                                        {conflicts.length > 0 && (
+                                            <Notice color="warning" title="These households already have unsent invitation drafts">
+                                                <ul className="mt-1 flex flex-col gap-1">
+                                                    {conflicts.map((c) => (
+                                                        <li key={c.messageId}>
+                                                            <a className="underline" href={`/portal/wedding/communications/${c.messageId}`}>
+                                                                {c.channel === "sms" ? "Text" : "Email"} draft “{c.subject}”
+                                                            </a>{" "}
+                                                            · {c.households} household{c.households === 1 ? "" : "s"}
+                                                            {c.others ? ` (${c.others} not selected here, so it can't be replaced from here)` : ""}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                                {conflicts.every((c) => !c.others) && (
+                                                    <Button
+                                                        size="sm"
+                                                        className="mt-3"
+                                                        onClick={() => prepare(true).catch((e) => toast.error("Couldn't replace the drafts", errorMessage(e)))}
+                                                    >
+                                                        Replace with new drafts
+                                                    </Button>
+                                                )}
+                                            </Notice>
+                                        )}
+                                        {drafts.length > 0 && (
+                                            <ul className="flex flex-col gap-2">
+                                                {drafts.map((draft) => (
+                                                    <li
+                                                        key={draft.id}
+                                                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-secondary px-3 py-2"
+                                                    >
+                                                        <span className="text-sm text-secondary">
+                                                            {draft.channel === "sms" ? "Text" : "Email"} draft · {draft.recipientCount} guests
+                                                            {draft.options.invitation?.attachPdf ? " · PDF attached" : ""}
+                                                        </span>
+                                                        <Button size="sm" href={`/portal/wedding/communications/${draft.id}`}>
+                                                            Review and send
+                                                        </Button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                )}
                             </>
                         )}
                     </section>

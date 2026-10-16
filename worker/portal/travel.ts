@@ -39,6 +39,12 @@ export const loadTravelStatement = (db: D1Database, householdId: string) => db.p
 
 export const travelFromRow = (row: TravelRow | null): RsvpTravel | null => (row ? fromRow(row) : null);
 
+/** Every household's saved answer, for personalising messages. */
+export async function loadAllTravel(db: D1Database): Promise<Map<string, RsvpTravel>> {
+    const rows = await db.prepare("SELECT * FROM rsvp_travel").all<TravelRow>();
+    return new Map(rows.results.map((row) => [row.household_id, fromRow(row)]));
+}
+
 /** Upsert for the same batch as the RSVP (or manual edit) it belongs to. */
 export const saveTravelStatement = (db: D1Database, householdId: string, travel: RsvpTravel, source: "native" | "manual", actor: string, now = nowIso()) =>
     db

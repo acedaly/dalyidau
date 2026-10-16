@@ -38,6 +38,14 @@ Guest and household mobile numbers are stored in E.164 (`+61412345678`), using o
 
 The composer shows SMS length and parts: curly quotes and emoji switch a message to Unicode, which shortens each part from 160 to 70 characters.
 
+### Communications Studio, tests and attachments
+
+How to prepare, check, test and send each guest communication is in [WEDDING_COMMUNICATIONS_GUIDE.md](WEDDING_COMMUNICATIONS_GUIDE.md). For provider set-up, three things matter:
+
+- **Test recipients** (Communications → Email & SMS settings → Campaign test recipients, owners and admins): the only addresses and mobiles a campaign test can go to. A test needs a configured provider but not the delivery switch, because it can never reach a guest. Tests are stored in `message_tests`, not in delivery history.
+- **Bulk sends need confirmation**: `POST /api/portal/wedding/messages/:id/send` and `/schedule` take `confirmCount`, the number of recipients shown in the send check (`GET …/preflight`); a mismatch is a 409. Scheduling needs the send permission.
+- **PDF attachments** (formal invitations by email, optional): Fastmail uploads each household's PDF as a JMAP blob (`uploadUrl` from the session, then `attachments` on `Email/set`), authenticated SMTP sends `multipart/mixed`, and SMTP2Go sends `attachments`. Cloudflare Email Service is marked as unable to attach, so such a message is refused there rather than sent without its PDF. The Fastmail token needs Mail and Email Submission scopes; uploads use the same token.
+
 ---
 
 ## Email: Fastmail JMAP (preferred)

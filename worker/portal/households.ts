@@ -3,7 +3,8 @@
 // households ready; it never sends anything (sending stays in Communications, behind its switch).
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
-import type { HouseholdRow } from "../../src/shared/portal/types";
+import { normaliseMobile } from "../../src/shared/portal/phone";
+import type { ContactFlag, HouseholdContact, HouseholdRow } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { type CsvColumn, toCsv } from "./csv";
@@ -13,14 +14,83 @@ import { householdAddressing } from "./invitation-studio";
 import { householdResponses } from "./queries";
 
 export async function listHouseholdRows(env: Env): Promise<HouseholdRow[]> {
-    const [households, responses] = await Promise.all([listEntities(env.DB, householdDef), householdResponses(env.DB)]);
+    const [households, responses, contacts] = await Promise.all([listEntities(env.DB, householdDef), householdResponses(env.DB), contactReadiness(env.DB)]);
     return Promise.all(
         households.map(async (household) => ({
             ...household,
             invitationUrl: household.inviteRevokedAt ? null : await invitationUrl(env, household.id, household.inviteVersion),
             response: responses.get(household.id)!,
+            contact: contacts.get(household.id) ?? emptyContact(),
         })),
     );
+}
+
+const emptyContact = (): HouseholdContact => ({
+    emails: 0,
+    mobiles: 0,
+    invalidMobiles: 0,
+    optedOut: 0,
+    flags: ["no_contact", "unreachable", "no_email", "no_mobile"],
+});
+
+/**
+ * How each household can be reached: its guests' and its own email addresses and mobiles, minus
+ * opt-outs and numbers that can't be texted. One query; used by the Households page and dashboard.
+ */
+export async function contactReadiness(db: D1Database): Promise<Map<string, HouseholdContact>> {
+    const [homes, guests] = await db.batch([
+        db.prepare("SELECT id, email, phone FROM households WHERE deleted_at IS NULL"),
+        db.prepare("SELECT household_id, email, phone, email_opt_out_at, sms_opt_out_at FROM guests WHERE deleted_at IS NULL AND household_id IS NOT NULL"),
+    ]);
+    const people = new Map<string, { email: string | null; phone: string | null; emailOut: boolean; smsOut: boolean }[]>();
+    for (const g of guests.results as {
+        household_id: string;
+        email: string | null;
+        phone: string | null;
+        email_opt_out_at: string | null;
+        sms_opt_out_at: string | null;
+    }[])
+        people.set(g.household_id, [
+            ...(people.get(g.household_id) ?? []),
+            { email: g.email?.trim().toLowerCase() || null, phone: g.phone?.trim() || null, emailOut: !!g.email_opt_out_at, smsOut: !!g.sms_opt_out_at },
+        ]);
+    const out = new Map<string, HouseholdContact>();
+    for (const home of homes.results as { id: string; email: string | null; phone: string | null }[]) {
+        const members = people.get(home.id) ?? [];
+        const optedEmails = new Set(members.filter((m) => m.emailOut && m.email).map((m) => m.email));
+        const optedMobiles = new Set(members.filter((m) => m.smsOut && m.phone).map((m) => normaliseMobile(m.phone)));
+        const emails = new Set<string>();
+        const mobiles = new Set<string>();
+        let anyEmail = false;
+        let anyPhone = false;
+        let invalid = 0;
+        const consider = (email: string | null, phone: string | null, emailOut: boolean, smsOut: boolean) => {
+            if (email) {
+                anyEmail = true;
+                if (!emailOut && !optedEmails.has(email)) emails.add(email);
+            }
+            if (phone) {
+                anyPhone = true;
+                const e164 = normaliseMobile(phone);
+                if (!e164) invalid++;
+                else if (!smsOut && !optedMobiles.has(e164)) mobiles.add(e164);
+            }
+        };
+        for (const m of members) consider(m.email, m.phone, m.emailOut, m.smsOut);
+        consider(home.email?.trim().toLowerCase() || null, home.phone?.trim() || null, false, false);
+        const optedOut = members.filter((m) => m.emailOut || m.smsOut).length;
+        const flags: ContactFlag[] = [];
+        if (!anyEmail && !anyPhone) flags.push("no_contact");
+        if (!emails.size && !mobiles.size) flags.push("unreachable");
+        if (!anyEmail) flags.push("no_email");
+        if (!anyPhone) flags.push("no_mobile");
+        if (invalid) flags.push("invalid_mobile");
+        if (emails.size && !mobiles.size) flags.push("email_only");
+        if (mobiles.size && !emails.size) flags.push("sms_only");
+        if (optedOut) flags.push("opted_out");
+        out.set(home.id, { emails: emails.size, mobiles: mobiles.size, invalidMobiles: invalid, optedOut, flags });
+    }
+    return out;
 }
 
 const generateSchema = z.object({ ids: z.array(z.string().max(40)).min(1).max(1000) });

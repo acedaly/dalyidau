@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For") and `0010_rsvp_travel.sql` (one new table for courtesy bus and accommodation answers; no existing row is changed). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql` (two new household columns; it changes the invitation greeting only if it is still the old default "For") `0010_rsvp_travel.sql` (one new table for courtesy bus and accommodation answers; no existing row is changed) and `0011_communications_studio.sql` (two new columns and two new tables for the Communications Studio; the only existing rows it touches are message recipients, which gain the household they were addressed to). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -221,6 +221,8 @@ One set of rules (`src/shared/portal/invitation-names.ts`) addresses printed inv
 
 Studio → Advanced delivery → **Individual invitations** makes one invitation per invited person, addressed to that person, each with its own signed link and QR code. Every individual link still opens the whole household's RSVP and only highlights that guest; normal signature, version, expiry, revocation and rate-limit checks still apply. Use it only when people in a household need separate invitations.
 
+**From the Studio to Communications**: when email or SMS is chosen, **Generate (do not send)** also prepares one Communications draft per channel for exactly the selected households (switch off "Also prepare … drafts" to skip it, or use **Prepare drafts now**). Each draft uses the Studio's wording and, for email, the invitation itself (`{{invitation_card}}`) with each household's own signed link, and can attach each household's printable PDF. Preparing again for households that already have an unsent Studio draft is refused; **Replace with new drafts** swaps them, and only ever an unsent draft covering no other households. Each household in the Studio shows where its invitation is up to (Generated, Email draft, scheduled, sent, delivered, failed, held back) and links to **Review and send**. See [WEDDING_COMMUNICATIONS_GUIDE.md](WEDDING_COMMUNICATIONS_GUIDE.md).
+
 In Communications, an **Invitation** message goes to one reachable person per household (in RSVP order), named with the household's invitation line; the rest of the household is recorded as "Included in the household invitation to …". Households that already have an invitation prepared or sent are skipped. **Send to each guest individually** is the explicit exception.
 
 Sample: [`docs/design/assets/wedding-enhancement/household-invitations-sample.pdf`](design/assets/wedding-enhancement/household-invitations-sample.pdf) (a couple and a family, fictional names).
@@ -283,23 +285,24 @@ The blog, the portal and the wedding site are three HTML shells. `npm run build:
 
 ---
 
-## Data model (D1, migrations `0002`–`0010`)
+## Data model (D1, migrations `0002`–`0011`)
 
-| Table                                                               | Contents                                                                                                |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `portal_users`                                                      | Email, name, role, active, last seen                                                                    |
-| `audit_log`                                                         | Append-only change history                                                                              |
-| `feature_flags`, `settings`, `dashboard_layouts`                    | Switches, settings documents (JSON), personal layouts                                                   |
-| `households`, `guests`, `events`, `guest_events`                    | The guest list; a `guest_events` row means "invited", its status is the RSVP                            |
-| `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                                                     |
-| `guest_imports`, `guest_import_rows`                                | Applied guest imports and their per-row reports                                                         |
-| `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows                             |
-| `rsvp_travel`                                                       | One row per household: courtesy bus choice, passengers each way, where they're staying (migration 0010) |
-| `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled email/SMS communications with per-recipient delivery state, attempts and cost |
-| `sms_messages`, `comm_webhook_events`                               | Text conversations (outbound and inbound) and deduplicated provider webhooks                            |
-| `seating_tables`, `seat_assignments`, `catering_assignments`        | Table plan and catering choices                                                                         |
-| `website_media`                                                     | R2 gallery/photo metadata                                                                               |
-| `tasks`, `timeline_items`, `suppliers`, `budget_items`              | Planning and budget (money in cents)                                                                    |
+| Table                                                               | Contents                                                                                                                                                                               |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `portal_users`                                                      | Email, name, role, active, last seen                                                                                                                                                   |
+| `audit_log`                                                         | Append-only change history                                                                                                                                                             |
+| `feature_flags`, `settings`, `dashboard_layouts`                    | Switches, settings documents (JSON), personal layouts                                                                                                                                  |
+| `households`, `guests`, `events`, `guest_events`                    | The guest list; a `guest_events` row means "invited", its status is the RSVP                                                                                                           |
+| `custom_fields`                                                     | Extra guest fields (values live in `guests.custom`)                                                                                                                                    |
+| `guest_imports`, `guest_import_rows`                                | Applied guest imports and their per-row reports                                                                                                                                        |
+| `rsvp_submissions`, `rsvp_questions`, `rsvp_answers`, `rate_limits` | Native RSVP history, versioned custom questions/answers and limiter windows                                                                                                            |
+| `rsvp_travel`                                                       | One row per household: courtesy bus choice, passengers each way, where they're staying (migration 0010)                                                                                |
+| `message_templates`, `messages`, `message_recipients`               | Categorised and scheduled email/SMS communications with per-recipient delivery state, attempts and cost; recipients record their household and messages their options (migration 0011) |
+| `message_tests`, `thank_you_notes`                                  | Controlled test sends (kept apart from delivery history) and personal thank-you notes (migration 0011)                                                                                 |
+| `sms_messages`, `comm_webhook_events`                               | Text conversations (outbound and inbound) and deduplicated provider webhooks                                                                                                           |
+| `seating_tables`, `seat_assignments`, `catering_assignments`        | Table plan and catering choices                                                                                                                                                        |
+| `website_media`                                                     | R2 gallery/photo metadata                                                                                                                                                              |
+| `tasks`, `timeline_items`, `suppliers`, `budget_items`              | Planning and budget (money in cents)                                                                                                                                                   |
 
 Applications are registered in `src/shared/portal/applications.ts`; the registry drives the launcher, application permission gate and application sidebar. Adding a wedding module usually means: a table in a new migration, an `EntityDef` in `worker/portal/entities.ts` (that alone gives validated, audited CRUD at `/api/portal/wedding/<name>`), a loader in `worker/portal/pages.ts`, a page in `src/portal/pages`, and a registry navigation entry. Adding a dashboard widget: its type in `WIDGET_TYPES`, its data in `computeStats`, and its renderer in `src/portal/dashboard/widgets.tsx`.
 

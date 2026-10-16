@@ -5,6 +5,7 @@ import { processDueMessages } from "../worker/portal/comms";
 import { apiCall, db, portalEnv, resetPortal } from "./portal-helpers";
 
 async function recipients() {
+    const event = (await apiCall<{ item: { id: string } }>("POST", "/api/portal/wedding/events", { name: "Ceremony" })).json.item;
     const household = (await apiCall<{ item: Household }>("POST", "/api/portal/wedding/households", { name: "The Message Family" })).json.item;
     const guest = (
         await apiCall<{ guest: Guest }>("POST", "/api/portal/wedding/guests", {
@@ -12,6 +13,7 @@ async function recipients() {
             lastName: "Message",
             email: "jo@example.com",
             householdId: household.id,
+            events: [event.id],
         })
     ).json.guest;
     return { household, guest };
@@ -39,7 +41,7 @@ describe("communication safeguards", () => {
             .prepare("SELECT status, error FROM message_recipients WHERE message_id = ?")
             .bind(second.json.message.id)
             .all<{ status: string; error: string }>();
-        expect(rows.results).toEqual([{ status: "skipped", error: "Invitation already prepared or sent" }]);
+        expect(rows.results).toEqual([{ status: "skipped", error: "Already prepared or sent to this household" }]);
     });
 
     it("queues scheduled messages but never processes them while delivery is disabled", async () => {

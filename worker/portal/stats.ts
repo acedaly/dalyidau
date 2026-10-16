@@ -4,7 +4,10 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { DashboardStats, PortalUser, Side } from "../../src/shared/portal/types";
 import { parseJson } from "./db";
+import { contactReadiness } from "./households";
+import { householdResponses } from "./queries";
 import { getSettings } from "./settings";
+import { travelOverview } from "./travel";
 
 /** Today's date (YYYY-MM-DD) in the wedding's time zone. */
 export const todayIn = (timeZone: string, now = new Date()) => {
@@ -101,6 +104,33 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
         ),
     ]);
 
+    const [responses2, contacts, travel, invitationProgress, campaigns] = await Promise.all([
+        householdResponses(db),
+        contactReadiness(db),
+        travelOverview(db),
+        db
+            .prepare(
+                `SELECT
+                    (SELECT COUNT(*) FROM households WHERE deleted_at IS NULL AND invitation_generated_at IS NOT NULL) AS generated,
+                    (SELECT COUNT(DISTINCT mr.household_id) FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+                     JOIN households h ON h.id = mr.household_id AND h.deleted_at IS NULL
+                     WHERE m.category = 'invitation' AND mr.status = 'sent') AS sent`,
+            )
+            .first<{ generated: number | null; sent: number | null }>(),
+        flags["module.communications"]
+            ? db
+                  .prepare(
+                      `SELECT m.category, COUNT(DISTINCT mr.household_id) AS n FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+                       WHERE mr.status = 'sent' AND mr.household_id IS NOT NULL GROUP BY m.category`,
+                  )
+                  .all<{ category: string; n: number }>()
+            : null,
+    ]);
+    const live = [...responses2.values()];
+    const contactRows = [...contacts.values()];
+    const flagged = (flag: (typeof contactRows)[number]["flags"][number]) => contactRows.filter((c) => c.flags.includes(flag)).length;
+    const sentBy = new Map((campaigns?.results ?? []).map((r) => [r.category, Number(r.n)]));
+
     const g = (guestTotals.results[0] ?? {}) as Record<string, number | null>;
     const r = (rsvpTotals.results[0] ?? {}) as Record<string, number | null>;
 
@@ -145,7 +175,42 @@ export async function computeStats(db: D1Database, user: PortalUser, flags: Flag
         invitations: {
             active: Number((invitations.results[0] as Record<string, number | null> | undefined)?.active ?? 0),
             revoked: Number((invitations.results[0] as Record<string, number | null> | undefined)?.revoked ?? 0),
+            invitedHouseholds: live.filter((r) => r.status !== "not_invited").length,
+            generated: Number(invitationProgress?.generated ?? 0),
+            sent: Number(invitationProgress?.sent ?? 0),
         },
+        followUp: {
+            notStarted: live.filter((r) => r.status === "not_started").length,
+            partial: live.filter((r) => r.status === "partial").length,
+            travel: travel ? travel.households.filter((h) => h.followUp.length > 0).length : 0,
+        },
+        contacts: {
+            households: contactRows.length,
+            unreachable: flagged("unreachable"),
+            noContact: flagged("no_contact"),
+            emailOnly: flagged("email_only"),
+            smsOnly: flagged("sms_only"),
+            invalidMobile: flagged("invalid_mobile"),
+            optedOut: flagged("opted_out"),
+        },
+        campaigns: flags["module.communications"]
+            ? {
+                  save_the_date: sentBy.get("save_the_date") ?? 0,
+                  invitation: sentBy.get("invitation") ?? 0,
+                  reminder: sentBy.get("reminder") ?? 0,
+                  final_details: sentBy.get("final_details") ?? 0,
+                  thank_you: sentBy.get("thank_you") ?? 0,
+              }
+            : null,
+        transport: travel
+            ? {
+                  outbound: travel.outbound,
+                  return: travel.return,
+                  bothWays: travel.bothWays,
+                  unsureHouseholds: travel.unsure.households,
+                  unanswered: travel.unanswered,
+              }
+            : null,
         seating: flags["module.planning"]
             ? {
                   attending: Number((seating.results[0] as Record<string, number | null> | undefined)?.attending ?? 0),
