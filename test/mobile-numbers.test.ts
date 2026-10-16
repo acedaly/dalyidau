@@ -363,6 +363,19 @@ describe("permanent erasure", () => {
         const left = await db().batch([db().prepare("SELECT id FROM sms_messages"), db().prepare("SELECT id FROM comm_webhook_events")]);
         expect(left.map((r) => r.results)).toEqual([[], []]);
     });
+
+    it("scrubs webhooks that carry a household's number", async () => {
+        const home = (await apiCall<{ item: Household }>("POST", "/api/portal/wedding/households", { name: "Hook Home", phone: "0412 345 679" })).json.item;
+        await db()
+            .prepare(
+                "INSERT INTO comm_webhook_events (id, provider, kind, dedupe_key, payload, received_at) VALUES ('hook', 'clicksend', 'inbound', 'k2', '{\"from\":\"+61412345679\"}', ?)",
+            )
+            .bind(new Date().toISOString())
+            .run();
+        await apiCall("DELETE", `/api/portal/wedding/households/${home.id}`);
+        expect((await apiCall("POST", "/api/portal/privacy/erase", { type: "household", id: home.id, confirm: "Hook Home" })).status).toBe(200);
+        expect((await db().prepare("SELECT id FROM comm_webhook_events").all()).results).toEqual([]);
+    });
 });
 
 describe("mobile number review", () => {
@@ -398,9 +411,10 @@ describe("mobile number review", () => {
 
     it("previews without changing anything, and only offers clear-cut numbers by default", async () => {
         const { home, guests } = await legacyGuests();
-        const before = await db().prepare("SELECT id, phone, updated_at FROM guests ORDER BY id").all();
+        const rows = async () => (await db().prepare("SELECT id, phone, updated_at FROM guests ORDER BY id").all()).results;
+        const before = await rows();
         const result = await review();
-        expect(await db().prepare("SELECT id, phone, updated_at FROM guests ORDER BY id").all()).toEqual(before);
+        expect(await rows()).toEqual(before);
 
         expect(result.counts).toEqual({ standard: 1, update: 3, check: 1, invalid: 2 });
         const row = (id: string) => result.rows.find((r) => r.id === id)!;

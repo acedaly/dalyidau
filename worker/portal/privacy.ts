@@ -204,7 +204,7 @@ async function eraseHouseholdStatements(db: D1Database, id: string): Promise<{ s
             db.prepare("UPDATE message_recipients SET name = ?, email = NULL, phone = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
             db.prepare("DELETE FROM sms_messages WHERE household_id = ?").bind(id),
             db.prepare("UPDATE guest_import_rows SET household_name = ?, address = NULL, notes = '[]' WHERE household_id = ?").bind(ERASED, id),
-            ...webhookScrub(db, [household.email]),
+            ...webhookScrub(db, [household.email, ...erasureMobiles(household.phone).map((phone) => phone.slice(1))]),
             ...scrubAudit(db, id, [
                 household.name,
                 household.email ?? "",
