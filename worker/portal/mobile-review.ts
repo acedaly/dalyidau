@@ -8,7 +8,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { isE164Mobile, parseMobile } from "../../src/shared/portal/phone";
-import type { MobileReview, MobileReviewRow } from "../../src/shared/portal/types";
+import { MOBILE_REVIEW_BATCH, type MobileReview, type MobileReviewRow } from "../../src/shared/portal/types";
 import { auditIfChanged, nowIso } from "./db";
 import { ValidationError } from "./entities";
 import { redactChanges } from "./redact";
@@ -59,7 +59,7 @@ const applySchema = z.object({
     changes: z
         .array(z.object({ kind: z.enum(["guest", "household"]), id: z.string().max(40), from: z.string().max(200), to: z.string().max(20) }))
         .min(1, "Choose at least one number")
-        .max(500),
+        .max(MOBILE_REVIEW_BATCH),
     confirmed: z.literal(true),
 });
 

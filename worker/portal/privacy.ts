@@ -123,6 +123,25 @@ const scrubAudit = (db: D1Database, id: string, strings: string[]): D1PreparedSt
 const webhookScrub = (db: D1Database, values: (string | null | undefined)[]) =>
     values.filter((v): v is string => !!v && v.length >= 6).map((v) => db.prepare("DELETE FROM comm_webhook_events WHERE instr(payload, ?) > 0").bind(v));
 
+/**
+ * Every E.164 form a stored number may have been texted or matched under. Erasure has to find
+ * data saved before numbers were standardised, so alongside today's strict reading this keeps the
+ * looser one SMS sending used then (any separators, e.g. "0412/345/678"). Lookup only: never
+ * used to store or send.
+ */
+export function erasureMobiles(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    const digits = raw.replace(/\D/g, "");
+    let legacy: string | null = null;
+    if (raw.trim().startsWith("+")) {
+        if (digits.startsWith("61")) legacy = /^614\d{8}$/.test(digits) ? `+${digits}` : null;
+        else legacy = digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+    } else if (/^04\d{8}$/.test(digits)) legacy = `+61${digits.slice(1)}`;
+    else if (/^614\d{8}$/.test(digits)) legacy = `+${digits}`;
+    else if (/^4\d{8}$/.test(digits)) legacy = `+61${digits}`;
+    return [...new Set([normaliseMobile(raw), legacy].filter((v): v is string => !!v))];
+}
+
 async function eraseGuestStatements(db: D1Database, id: string): Promise<{ statements: D1PreparedStatement[]; name: string }> {
     const guest = await db
         .prepare("SELECT first_name, last_name, email, phone, household_id FROM guests WHERE id = ?")
@@ -130,6 +149,7 @@ async function eraseGuestStatements(db: D1Database, id: string): Promise<{ state
         .first<{ first_name: string; last_name: string; email: string | null; phone: string | null; household_id: string | null }>();
     if (!guest) throw new NotFoundError("Guest not found");
     const name = `${guest.first_name} ${guest.last_name ?? ""}`.trim();
+    const mobiles = erasureMobiles(guest.phone);
 
     const statements: D1PreparedStatement[] = [
         // guest_events cascade with the row.
@@ -138,9 +158,9 @@ async function eraseGuestStatements(db: D1Database, id: string): Promise<{ state
         db.prepare("UPDATE message_recipients SET name = ?, email = NULL, phone = NULL, error = NULL WHERE guest_id = ?").bind(ERASED, id),
         // Text conversations are personal content: remove them, including replies matched by number.
         db.prepare("DELETE FROM sms_messages WHERE guest_id = ?").bind(id),
-        ...(normaliseMobile(guest.phone) ? [db.prepare("DELETE FROM sms_messages WHERE phone = ?").bind(normaliseMobile(guest.phone))] : []),
-        // Raw provider webhooks carry addresses and numbers.
-        ...webhookScrub(db, [guest.email, normaliseMobile(guest.phone)]),
+        ...mobiles.map((phone) => db.prepare("DELETE FROM sms_messages WHERE phone = ?").bind(phone)),
+        // Raw provider webhooks carry addresses and numbers, with or without the + (so match without it).
+        ...webhookScrub(db, [guest.email, ...mobiles.map((phone) => phone.slice(1))]),
         // Import reports keep that a row was imported, not who it was.
         db.prepare("UPDATE guest_import_rows SET name = ?, address = NULL, notes = '[]' WHERE guest_id = ?").bind(ERASED, id),
     ];

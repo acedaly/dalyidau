@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportPlan } from "../src/shared/portal/guest-import";
 import { formatMobile, isE164Mobile, normaliseMobile, parseMobile } from "../src/shared/portal/phone";
-import type { Guest, Household, Message, MobileReview, WeddingEvent } from "../src/shared/portal/types";
+import { type Guest, type Household, MOBILE_REVIEW_BATCH, type Message, type MobileReview, type WeddingEvent } from "../src/shared/portal/types";
 import { smsProvider } from "../worker/comms/providers";
 import { apiCall, db, portalEnv, resetPortal } from "./portal-helpers";
 
@@ -338,6 +338,33 @@ describe("SMS delivery", () => {
     });
 });
 
+describe("permanent erasure", () => {
+    it("finds texts and webhooks for a legacy number the stricter parser no longer reads", async () => {
+        const guest = (await createGuest({ firstName: "Slash", lastName: "Number" })).json.guest;
+        // Accepted by the old normaliser, so texts and replies were stored as +61412345678.
+        await legacy("guests", guest.id, "0412/345/678");
+        expect(normaliseMobile("0412/345/678")).toBeNull();
+        const now = new Date().toISOString();
+        await db().batch([
+            db()
+                .prepare(
+                    "INSERT INTO sms_messages (id, direction, phone, body, status, created_by, created_at) VALUES ('reply', 'inbound', '+61412345678', 'See you there', 'received', 'clicksend', ?)",
+                )
+                .bind(now),
+            db()
+                .prepare(
+                    "INSERT INTO comm_webhook_events (id, provider, kind, dedupe_key, payload, received_at) VALUES ('hook', 'clicksend', 'inbound', 'k1', '{\"from\":\"61412345678\"}', ?)",
+                )
+                .bind(now),
+        ]);
+
+        await apiCall("DELETE", `/api/portal/wedding/guests/${guest.id}`);
+        expect((await apiCall("POST", "/api/portal/privacy/erase", { type: "guest", id: guest.id, confirm: "Slash Number" })).status).toBe(200);
+        const left = await db().batch([db().prepare("SELECT id FROM sms_messages"), db().prepare("SELECT id FROM comm_webhook_events")]);
+        expect(left.map((r) => r.results)).toEqual([[], []]);
+    });
+});
+
 describe("mobile number review", () => {
     const review = async () => (await apiCall<MobileReview>("GET", "/api/portal/wedding/mobile-numbers")).json;
     const apply = (changes: { kind: string; id: string; from: string; to: string }[], options: { email?: string } = {}) =>
@@ -429,6 +456,9 @@ describe("mobile number review", () => {
         expect((await apply([{ kind: "guest", id: guests.local.id, from: "0412 345 678", to: "+61499999999" }])).status).toBe(422);
         expect((await apply([{ kind: "guest", id: guests.landline.id, from: "(02) 6884 0000", to: "+61268840000" }])).status).toBe(422);
         expect((await apply([])).status).toBe(422);
+        // Larger selections are sent in batches by the portal; one oversized request is refused whole.
+        const tooMany = Array.from({ length: MOBILE_REVIEW_BATCH + 1 }, (_, i) => ({ kind: "guest", id: `g${i}`, from: "0412 345 678", to: "+61412345678" }));
+        expect((await apply(tooMany)).status).toBe(422);
         expect(
             (
                 await apiCall("POST", "/api/portal/wedding/mobile-numbers", {

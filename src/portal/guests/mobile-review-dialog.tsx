@@ -10,7 +10,7 @@ import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import { pluralise } from "@/portal/lib/format";
-import type { MobileReview, MobileReviewRow } from "@/shared/portal/types";
+import { MOBILE_REVIEW_BATCH, type MobileReview, type MobileReviewRow } from "@/shared/portal/types";
 
 const keyOf = (row: MobileReviewRow) => `${row.kind}:${row.id}`;
 
@@ -56,21 +56,36 @@ export const MobileReviewDialog = ({ isOpen, onOpenChange, onApplied }: { isOpen
         if (!review) return;
         const changes = review.rows.filter((r) => r.proposed && chosen.has(keyOf(r))).map((r) => ({ kind: r.kind, id: r.id, from: r.stored, to: r.proposed! }));
         setBusy(true);
+        // The server takes a limited number per request, so a large selection goes in batches. Each
+        // batch is applied on its own; if one fails, the ones before it have still been saved.
+        let updated = 0;
+        let skipped = 0;
         try {
-            const result = await api<{ updated: number; skipped: number; review: MobileReview }>("POST", "/api/portal/wedding/mobile-numbers", {
-                changes,
-                confirmed: true,
-            });
-            load(result.review);
+            for (let start = 0; start < changes.length; start += MOBILE_REVIEW_BATCH) {
+                const result = await api<{ updated: number; skipped: number; review: MobileReview }>("POST", "/api/portal/wedding/mobile-numbers", {
+                    changes: changes.slice(start, start + MOBILE_REVIEW_BATCH),
+                    confirmed: true,
+                });
+                updated += result.updated;
+                skipped += result.skipped;
+                if (start + MOBILE_REVIEW_BATCH >= changes.length) load(result.review);
+            }
             toast.success(
-                `Standardised ${pluralise(result.updated, "number")}`,
-                result.skipped
-                    ? `${pluralise(result.skipped, "number")} changed since the preview and ${result.skipped === 1 ? "was" : "were"} left alone.`
-                    : undefined,
+                `Standardised ${pluralise(updated, "number")}`,
+                skipped ? `${pluralise(skipped, "number")} changed since the preview and ${skipped === 1 ? "was" : "were"} left alone.` : undefined,
             );
             onApplied();
         } catch (e) {
-            toast.error("Couldn't standardise the numbers", errorMessage(e));
+            toast.error(
+                "Couldn't standardise the numbers",
+                updated ? `${pluralise(updated, "number")} saved before this. ${errorMessage(e)}` : errorMessage(e),
+            );
+            if (updated) {
+                api<MobileReview>("GET", "/api/portal/wedding/mobile-numbers")
+                    .then(load)
+                    .catch(() => undefined);
+                onApplied();
+            }
         } finally {
             setBusy(false);
         }

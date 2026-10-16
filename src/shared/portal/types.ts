@@ -953,3 +953,10 @@ export interface MobileReview {
     rows: MobileReviewRow[];
     counts: { standard: number; update: number; check: number; invalid: number };
 }
+
+/**
+ * Most changes one mobile review apply accepts. Each change is two D1 statements (the update and
+ * its audit entry), so this keeps a request well inside a Worker's query limit; the portal sends a
+ * larger selection in several requests.
+ */
+export const MOBILE_REVIEW_BATCH = 200;
