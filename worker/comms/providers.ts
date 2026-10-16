@@ -320,7 +320,15 @@ const utf8Base64 = (value: string) => {
  * A complete MIME message: multipart/alternative (text and HTML), wrapped in multipart/mixed when
  * there are attachments. Every part is base64, so no line is ever too long or mis-encoded.
  */
-export function buildMime(input: { from: string; to: string; replyTo: string | null; subject: string; text: string; html: string; attachments: EmailAttachment[] }) {
+export function buildMime(input: {
+    from: string;
+    to: string;
+    replyTo: string | null;
+    subject: string;
+    text: string;
+    html: string;
+    attachments: EmailAttachment[];
+}) {
     const alternative = `alt-${crypto.randomUUID()}`;
     const mixed = `mixed-${crypto.randomUUID()}`;
     const body = [

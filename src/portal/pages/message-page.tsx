@@ -14,7 +14,7 @@ import { MessageStatusBadge } from "@/portal/components/status";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
-import { formatNumber, pluralise } from "@/portal/lib/format";
+import { displaySubject, formatNumber, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { CAMPAIGNS, isCampaignKind } from "@/shared/portal/campaigns";
@@ -30,7 +30,7 @@ const RECIPIENT_STATUS: Record<MessageRecipient["status"], { label: string; colo
 };
 
 export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
-    const { can } = usePortal();
+    const { can, wedding } = usePortal();
     const toast = useToast();
     const [message, setMessage] = useState<Message>(data.message);
     const [confirm, setConfirm] = useState<"delete" | "retry" | null>(null);
@@ -114,7 +114,7 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
     return (
         <>
             <PageHeader
-                title={message.subject}
+                title={displaySubject(message.subject, wedding)}
                 description={
                     <span className="flex flex-wrap items-center gap-2">
                         <MessageStatusBadge status={message.status} />

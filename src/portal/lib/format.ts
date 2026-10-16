@@ -92,3 +92,7 @@ export const todayIso = (timeZone: string) => {
         return new Date().toISOString().slice(0, 10);
     }
 };
+
+/** A message subject for lists and headings: the couple's names filled in, other fields kept as written. */
+export const displaySubject = (subject: string, wedding: { partnerOne: string; partnerTwo: string }) =>
+    subject.replace(/\{\{\s*couple_names\s*\}\}/g, `${wedding.partnerOne} & ${wedding.partnerTwo}`);

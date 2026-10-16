@@ -11,7 +11,10 @@ import type { CampaignKind } from "../../src/shared/portal/campaigns";
 
 export const PALETTE = {
     ivory: "#F5F0E7",
-    paper: "#FBF8F2",
+    // The artwork's own paper tone, so the botanical bands sit seamlessly on the page.
+    paper: "#F6F0E5",
+    // The surround: a deeper ivory, like a card on a linen table.
+    table: "#EDE5D8",
     espresso: "#49342D",
     burgundy: "#783B4A",
     clay: "#9C765C",
@@ -86,7 +89,7 @@ export function invitationCardHtml(card: InvitationCard, accent: string, assetOr
         ? `${escapeHtml(one)}<br><span style="font-style:italic;font-size:26px;color:${accent}">&amp;</span><br>${escapeHtml(two)}`
         : escapeHtml(card.coupleNames);
     const rule = `<tr><td style="padding:0 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${accent}33;font-size:0;line-height:0;height:1px">&nbsp;</td></tr></table></td></tr>`;
-    const row = (html: string, style: string) => `<tr><td align="center" style="${style}">${html}</td></tr>`;
+    const row = (html: string, style: string) => `<tr><td align="center" class="card-pad" style="${style}">${html}</td></tr>`;
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.ivory}" style="background:${PALETTE.ivory};border:1px solid ${accent}33;margin:4px 0 22px">
 <tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(assetOrigin)}/wedding/email/botanical-header.jpg" width="518" alt="" role="presentation" style="display:block;width:100%;height:auto;border:0"></td></tr>
 ${row(escapeHtml(card.eyebrow.toUpperCase()), `padding:6px 34px 2px;font-family:${sans};font-size:11px;font-weight:bold;letter-spacing:0.24em;color:${PALETTE.espresso}`)}
@@ -101,7 +104,7 @@ ${row(escapeHtml(card.weddingDate.toUpperCase()), `padding:18px 34px 4px;font-fa
 ${row(escapeHtml(card.location), `padding:2px 34px 6px;font-family:${font};font-size:22px;font-weight:bold;color:${PALETTE.espresso}`)}
 ${card.eventLines.length ? row(card.eventLines.map(escapeHtml).join("<br>"), `padding:0 34px 14px;font-family:${sans};font-size:13px;line-height:1.6;color:${PALETTE.ink}`) : ""}
 ${card.deadline ? row(`Kindly reply by ${escapeHtml(card.deadline)}`, `padding:8px 34px 12px;font-family:${sans};font-size:13px;font-weight:bold;color:${PALETTE.espresso}`) : ""}
-<tr><td align="center" style="padding:4px 34px 14px">
+<tr><td align="center" class="card-pad" style="padding:4px 34px 14px">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${accent}" style="border-radius:2px">
 <a href="${escapeHtml(card.rsvpUrl)}" style="display:inline-block;padding:15px 30px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:#FFFFFF;text-decoration:none">View Invitation &amp; RSVP</a>
 </td></tr></table></td></tr>
@@ -184,23 +187,31 @@ export function stationeryEmailHtml(input: StationeryEmail): string {
 <meta name="color-scheme" content="light only">
 <meta name="supported-color-schemes" content="light">
 <title>${escapeHtml(EYEBROWS[input.kind])} · ${escapeHtml(input.coupleNames)}</title>
+<style>
+/* Phones: give the words the width. Clients that ignore this keep the desktop spacing. */
+@media only screen and (max-width: 520px) {
+  .outer { padding: 12px 6px !important; }
+  .pad { padding-left: 20px !important; padding-right: 20px !important; }
+  .card-pad { padding-left: 14px !important; padding-right: 14px !important; }
+}
+</style>
 </head>
-<body style="margin:0;padding:0;background:${PALETTE.ivory}">
+<body style="margin:0;padding:0;background:${PALETTE.table}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${preheader}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.ivory}" style="background:${PALETTE.ivory}">
-<tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.table}" style="background:${PALETTE.table}">
+<tr><td align="center" class="outer" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.paper}" style="width:100%;max-width:600px;background:${PALETTE.paper};border:1px solid ${PALETTE.rule}">
 ${test}
 ${
     withCard
-        ? `<tr><td style="padding:28px 40px 10px">${paragraphs}</td></tr>`
+        ? `<tr><td class="pad" style="padding:28px 40px 10px">${paragraphs}</td></tr>`
         : `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-header.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>
 <tr><td align="center" style="padding:8px 40px 4px;font-family:${sans};font-size:12px;letter-spacing:0.22em;text-transform:uppercase;color:${accent}">${escapeHtml(EYEBROWS[input.kind])}</td></tr>
 <tr><td align="center" style="padding:10px 40px 6px;font-family:${font};font-size:38px;line-height:1.15;color:${PALETTE.espresso}">${names}</td></tr>
 ${input.weddingDate ? `<tr><td align="center" style="padding:6px 40px 26px;font-family:${sans};font-size:13px;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.clay}">${escapeHtml(input.weddingDate)}</td></tr>` : ""}
 <tr><td style="padding:0 40px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${PALETTE.rule};font-size:0;line-height:0;height:1px">&nbsp;</td></tr></table></td></tr>
 ${photo ? photo.replace("padding:0 40px 28px", "padding:28px 40px 4px") : ""}
-<tr><td style="padding:28px 40px 6px">${paragraphs}</td></tr>
+<tr><td class="pad" style="padding:28px 40px 6px">${paragraphs}</td></tr>
 ${button}
 <tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(input.assetOrigin)}/wedding/email/botanical-footer.jpg" width="600" alt="" role="presentation" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>`
 }

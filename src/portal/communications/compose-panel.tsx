@@ -317,11 +317,17 @@ export const ComposePanel = ({
                                 if (next === "filtered" && kind && !Object.keys(audience).length) setAudience(DEFAULT_AUDIENCE[kind]);
                             }}
                             aria-label="How to choose recipients"
-                            className="max-w-full flex-wrap"
+                            className="w-full sm:w-max"
                         >
-                            <ButtonGroupItem id="specific">Specific guests or households</ButtonGroupItem>
-                            <ButtonGroupItem id="filtered">Filtered group</ButtonGroupItem>
-                            <ButtonGroupItem id="all">All eligible guests</ButtonGroupItem>
+                            <ButtonGroupItem id="specific" className="flex-1 justify-center px-2 sm:flex-none sm:px-3.5">
+                                Specific people
+                            </ButtonGroupItem>
+                            <ButtonGroupItem id="filtered" className="flex-1 justify-center px-2 sm:flex-none sm:px-3.5">
+                                Filtered group
+                            </ButtonGroupItem>
+                            <ButtonGroupItem id="all" className="flex-1 justify-center px-2 sm:flex-none sm:px-3.5">
+                                All eligible
+                            </ButtonGroupItem>
                         </ButtonGroup>
 
                         {mode === "specific" && (
@@ -351,7 +357,7 @@ export const ComposePanel = ({
                                     placeholder="Search guests"
                                     hint={
                                         campaign && !individualDelivery
-                                            ? "A guest chosen on their own still gets their household's invitation-style message, addressed to the household."
+                                            ? "A guest chosen on their own gets one message for their household, addressed to the whole household."
                                             : undefined
                                     }
                                     items={guests.map((g) => ({ id: g.id, label: g.name, supportingText: householdName(g.householdId) || "No household" }))}

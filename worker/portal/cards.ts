@@ -126,10 +126,6 @@ export async function printableCards(env: Env, db: D1Database, input: unknown): 
         const page = pdf.addPage([PAGE.width, PAGE.height]);
         const d = drawing(page);
         page.drawRectangle({ x: 0, y: 0, width: PAGE.width, height: PAGE.height, color: COLOURS.ivory });
-        if (request.sample) {
-            page.drawRectangle({ x: 111, y: PAGE.height - 34, width: 198, height: 15, color: COLOURS.ivory, opacity: 0.94 });
-            d.centre("SAMPLE PREVIEW - NOT FOR DELIVERY", PAGE.height - 29, 6.5, sansBold, accent);
-        }
         const [one, two] = values.couple_names.split(/\s+&\s+/, 2);
         const fit = (name: string, max: number) => Math.min(max, (300 / serif.widthOfTextAtSize(printable(name), max)) * max);
 
@@ -141,7 +137,7 @@ export async function printableCards(env: Env, db: D1Database, input: unknown): 
                 [150, 124, 0.36],
             ] as const)
                 page.drawEllipse({ x: PAGE.width / 2, y: 318, xScale: x, yScale: y, color: COLOURS.ivory, opacity });
-            d.centre(context.studio.saveTheDate.headline.toUpperCase(), 452, 9, sansBold, accent);
+            d.centre(context.studio.saveTheDate.headline.toUpperCase(), 440, 9, sansBold, accent);
             if (two) {
                 d.centre(one, 404, fit(one, 40), serif);
                 d.centre("&", 372, 19, serifItalic, accent);
@@ -166,16 +162,23 @@ export async function printableCards(env: Env, db: D1Database, input: unknown): 
                 top = PAGE.height - SAFE - height - 34;
             } else {
                 page.drawImage(frame, { x: 0, y: 0, width: PAGE.width, height: PAGE.height });
-                page.drawEllipse({ x: PAGE.width / 2, y: 330, xScale: 168, yScale: 170, color: COLOURS.ivory, opacity: 0.34 });
-                top = 470;
+                // The frame's clear centre runs from about 110pt to 430pt from the top.
+                page.drawEllipse({ x: PAGE.width / 2, y: 300, xScale: 150, yScale: 150, color: COLOURS.ivory, opacity: 0.4 });
+                top = 420;
             }
             d.centre(context.studio.thankYou.headline.toUpperCase(), top, 9, sansBold, accent);
             const greeting = `Dear ${values.greeting_names},`;
-            let y = d.lines(greeting, top - 34, 15, serifItalic, 280, 18, COLOURS.espresso);
-            y = d.lines(values.thank_you_message, y - 8, 11, serif, 270, 15, COLOURS.ink, photo ? 120 : 150);
-            if (values.personal_note) y = d.lines(values.personal_note, y - 8, 11, serifItalic, 270, 15, COLOURS.ink, photo ? 110 : 140);
+            const measure = photo ? 290 : 230;
+            let y = d.lines(greeting, top - 34, 15, serifItalic, measure, 18, COLOURS.espresso);
+            y = d.lines(values.thank_you_message, y - 8, 11, serif, measure, 15, COLOURS.ink, photo ? 120 : 170);
+            if (values.personal_note) y = d.lines(values.personal_note, y - 8, 11, serifItalic, measure, 15, COLOURS.ink, photo ? 110 : 160);
             d.centre("With love,", y - 14, 10, serif, COLOURS.ink);
             d.centre(values.couple_names, y - 32, 15, serif, COLOURS.espresso);
+        }
+        // Drawn last, so no artwork can cover it.
+        if (request.sample) {
+            page.drawRectangle({ x: 111, y: PAGE.height - SAFE - 12, width: 198, height: 15, color: COLOURS.ivory, opacity: 0.94 });
+            d.centre("SAMPLE PREVIEW - NOT FOR DELIVERY", PAGE.height - SAFE - 7, 6.5, sansBold, accent);
         }
     }
     if (!pdf.getPageCount()) throw new ValidationError("Choose at least one household", "householdIds");

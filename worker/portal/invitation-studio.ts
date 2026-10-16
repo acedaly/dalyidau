@@ -215,7 +215,9 @@ export async function loadStudioData(env: Env, template?: InvitationTemplateSett
         getSettings(env.DB, "wedding"),
         getSettings(env.DB, "rsvp"),
         getSettings(env.DB, "invitation"),
-        env.DB.prepare("SELECT name, starts_at, venue_name, address FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at").all<{
+        env.DB.prepare(
+            "SELECT name, starts_at, venue_name, address FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at",
+        ).all<{
             name: string;
             starts_at: string | null;
             venue_name: string | null;
@@ -516,10 +518,13 @@ export async function printableInvitations(env: Env, input: unknown, preloaded?:
             }
         }
         page.drawText("SCAN TO RSVP", { x: 213, y: 126, size: 7.5, font: sansBold, color: accent });
-        if (preview.deadline) page.drawText(`Reply by ${preview.deadline}`, { x: 213, y: 109, size: 8, font: sansBold, color: espresso });
+        // The deadline wraps inside the RSVP panel (x 213–324) so it never runs into the artwork.
+        if (preview.deadline)
+            for (const [index, line] of wrap(`Reply by ${preview.deadline}`, sansBold, 8, 110).slice(0, 2).entries())
+                page.drawText(line, { x: 213, y: 112 - index * 10, size: 8, font: sansBold, color: espresso });
         if (preview.rsvpCode) {
-            page.drawText(preview.fallback, { x: 213, y: 88, size: 7, font: sans, color: espresso });
-            page.drawText(`CODE  ${preview.rsvpCode}`, { x: 213, y: 72, size: 7.2, font: sansBold, color: espresso });
+            page.drawText(preview.fallback, { x: 213, y: 84, size: 7, font: sans, color: espresso, maxWidth: 112 });
+            page.drawText(`CODE  ${preview.rsvpCode}`, { x: 213, y: 70, size: 7.2, font: sansBold, color: espresso });
         }
     }
     pdf.setTitle(`${previews[0]?.coupleNames ?? "Wedding"} - Wedding invitations`);

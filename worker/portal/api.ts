@@ -52,8 +52,8 @@ import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from 
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
 import { computeStats } from "./stats";
-import { listThankYouNotes, saveThankYouNote } from "./thank-you";
 import { prepareStudioDrafts } from "./studio-drafts";
+import { listThankYouNotes, saveThankYouNote } from "./thank-you";
 import { householdTimeline } from "./timeline";
 import { saveTravelManually, travelOverview } from "./travel";
 import { listUsers, removeUser, saveUser } from "./users";
@@ -424,7 +424,11 @@ add(
         const result = await prepareStudioDrafts(env, env.DB, await readJson(request), user.email);
         if (result.conflicts.length)
             return json(
-                { error: "conflict", message: "These households already have an unsent invitation draft. Open it, or replace it.", conflicts: result.conflicts },
+                {
+                    error: "conflict",
+                    message: "These households already have an unsent invitation draft. Open it, or replace it.",
+                    conflicts: result.conflicts,
+                },
                 409,
             );
         return json({ drafts: result.drafts }, 201);

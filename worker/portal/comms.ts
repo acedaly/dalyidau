@@ -670,7 +670,15 @@ async function deliver(
     attachments: EmailAttachment[] = [],
 ) {
     if (provider.channel === "sms") return provider.send({ to: row.phone ?? "", body: copy.text, reference });
-    const result = await provider.send({ to: row.email ?? "", toName: row.name, subject: copy.subject, text: copy.text, html: copy.html, reference, attachments });
+    const result = await provider.send({
+        to: row.email ?? "",
+        toName: row.name,
+        subject: copy.subject,
+        text: copy.text,
+        html: copy.html,
+        reference,
+        attachments,
+    });
     return { ...result, costCents: null };
 }
 
@@ -685,7 +693,12 @@ async function invitationPdf(env: Env, studio: StudioData, message: Message, hou
     const individual = !!message.options.individualDelivery && !!guestId;
     const bytes = await printableInvitations(
         env,
-        { householdIds: [householdId], delivery: individual ? "individual" : "household", channels: ["print"], ...(individual ? { onlyGuestId: guestId } : {}) },
+        {
+            householdIds: [householdId],
+            delivery: individual ? "individual" : "household",
+            channels: ["print"],
+            ...(individual ? { onlyGuestId: guestId } : {}),
+        },
         studio,
     );
     const household = studio.households.find((h) => h.id === householdId);
@@ -908,7 +921,8 @@ export async function sendTest(env: Env, db: D1Database, id: string, input: unkn
         ? { householdId: household.id, guest: context.guestsById.get(context.addressing.get(household.id)?.guestIds[0] ?? "") ?? null, individual: false }
         : { householdId: null, guest: SAMPLE_GUEST, individual: true, sample: true };
     const copy = renderCopy(context, message, target, { recipient: to });
-    if (wantsPdf(message) && !household) throw new ValidationError("Choose a household to test the attached invitation; a fictional one has no RSVP link.", "householdId");
+    if (wantsPdf(message) && !household)
+        throw new ValidationError("Choose a household to test the attached invitation; a fictional one has no RSVP link.", "householdId");
     if (wantsPdf(message) && provider.channel === "email" && !provider.supportsAttachments)
         throw new ValidationError(`${provider.name} can't attach the printable invitation`, "to");
     const testId = newId("tst");

@@ -28,7 +28,7 @@ import { PageHeader } from "@/portal/components/page-header";
 import { MessageStatusBadge } from "@/portal/components/status";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useCollection } from "@/portal/hooks/use-collection";
-import { pluralise } from "@/portal/lib/format";
+import { displaySubject, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { CAMPAIGNS, CAMPAIGN_KINDS, type CampaignKind } from "@/shared/portal/campaigns";
@@ -45,7 +45,7 @@ const CAMPAIGN_ICONS = {
 const CATEGORY_LABELS = MESSAGE_CATEGORY_LABELS;
 
 export const CommunicationsPage = ({ data }: { data: PageData<"communications"> }) => {
-    const { can } = usePortal();
+    const { can, wedding } = usePortal();
     const templates = useCollection<MessageTemplate>("templates", data.templates);
     const [composeOpen, setComposeOpen] = useState(false);
     const [composeFrom, setComposeFrom] = useState<MessageTemplate | null>(null);
@@ -73,7 +73,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             label: "Subject",
             isRowHeader: true,
             sortValue: (m) => m.subject,
-            render: (m) => <span className="font-medium text-primary">{m.subject}</span>,
+            render: (m) => <span className="font-medium text-primary">{displaySubject(m.subject, wedding)}</span>,
         },
         { id: "channel", label: "Channel", sortValue: (m) => m.channel, render: (m) => (m.channel === "sms" ? "Text" : "Email"), className: "max-md:hidden" },
         { id: "status", label: "Status", sortValue: (m) => m.status, render: (m) => <MessageStatusBadge status={m.status} /> },
