@@ -98,6 +98,9 @@ describe("portal access control", () => {
             expect(html).toContain('<script type="application/json" id="page-data">');
             expect(html).toContain("Dashboard");
             expect(html).toContain("/assets/portal-");
+            // The Worker sends a loading shell, never a React render of the page (CPU budget).
+            expect(html).toContain("data-portal-boot");
+            expect(html).not.toContain("<aside");
         }
         const me = await apiCall<{ user: { role: string; permissions: string[] } }>("GET", "/api/portal/me");
         expect(me.json.user.role).toBe("owner");

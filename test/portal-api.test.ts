@@ -1,6 +1,9 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
+import { PortalApp } from "../src/portal/portal-app";
 import type { ImportPlan } from "../src/shared/portal/guest-import";
-import type { Guest, Household, Message, Task, WeddingEvent } from "../src/shared/portal/types";
+import type { Guest, Household, Message, PortalPageData, Task, WeddingEvent } from "../src/shared/portal/types";
 import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 const makeEvent = async (name: string) =>
@@ -13,6 +16,16 @@ const makeGuest = async (body: Record<string, unknown>) => {
 };
 
 beforeEach(resetPortal);
+
+/**
+ * Portal pages render in the browser (the Worker sends a loading shell and the page data), so the
+ * page is rendered here from the exact data the Worker sent, to catch a page that would crash.
+ */
+const renderPortalPage = (html: string) => {
+    const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
+    const payload = JSON.parse(json!) as { area: string; data: PortalPageData; path: string };
+    return payload.area === "portal" ? renderToString(createElement(PortalApp, { data: payload.data, path: payload.path })) : html;
+};
 
 describe("guests", () => {
     it("creates, updates and deletes guests, auditing each change", async () => {
@@ -326,7 +339,7 @@ describe("portal pages", () => {
         "/portal/audit",
         "/portal/wedding/website/preview",
         "/portal/wedding/website/preview/rsvp",
-    ])("server-renders %s", async (path) => {
+    ])("renders %s", async (path) => {
         // Some data so tables, charts and lists render rows rather than empty states.
         const event = await makeEvent("Ceremony");
         const household = await makeHousehold("The Smiths");
@@ -338,14 +351,14 @@ describe("portal pages", () => {
         expect(response.status).toBe(200);
         const html = await response.text();
         expect(html).toContain('id="page-data"');
-        expect(html).toMatch(/<h1[^>]*>/);
+        expect(renderPortalPage(html)).toMatch(/<h1[^>]*>/);
     });
 
     it("serves the application launcher and 404s unknown pages", async () => {
         const token = await accessToken();
         const root = await call("/portal", { token });
         expect(root.status).toBe(200);
-        const html = await root.text();
+        const html = renderPortalPage(await root.text());
         expect(html).toContain("Applications");
         expect(html).toContain("Wedding Planner");
         expect(html).toContain('href="/portal/wedding"');
