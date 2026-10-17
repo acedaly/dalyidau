@@ -590,18 +590,41 @@ export function reachHousehold(context: CampaignContext, householdId: string, ch
     return { email: household.email, phone: null, error: opted ? EXCLUSION_REASONS.optedOutEmail : null };
 }
 
-/** Households (or guests without one) that already have a live message of this kind, other than `exceptMessageId`. */
-export async function alreadyContacted(db: D1Database, category: MessageCategory, status: "prepared" | "sent", exceptMessageId: string | null = null) {
+/** Whether a household (or guest) already has one: sent to them, or waiting in an unsent draft. */
+export type ContactState = "sent" | "drafted";
+
+/**
+ * Households and guests that already have a message of this kind on this channel, sent or (with
+ * "prepared") waiting in an unsent draft. Sent wins over drafted. An email invitation doesn't hold
+ * back a text one: the Studio prepares one of each, and each channel is sent and tracked separately.
+ */
+export async function alreadyContacted(
+    db: D1Database,
+    category: MessageCategory,
+    channel: MessageChannel,
+    status: "prepared" | "sent",
+    exceptMessageId: string | null = null,
+) {
     const rows = await db
         .prepare(
-            `SELECT DISTINCT mr.household_id, mr.guest_id FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
-             WHERE m.category = ?1 AND m.id != ?2
+            `SELECT DISTINCT mr.household_id, mr.guest_id, mr.status FROM message_recipients mr JOIN messages m ON m.id = mr.message_id
+             WHERE m.category = ?1 AND m.channel = ?2 AND m.id != ?3
                AND ${status === "sent" ? "mr.status = 'sent'" : "m.status IN ('draft', 'queued', 'sending', 'sent', 'partial') AND mr.status IN ('pending', 'sent')"}`,
         )
-        .bind(category, exceptMessageId ?? "")
-        .all<{ household_id: string | null; guest_id: string }>();
-    return { households: new Set(rows.results.flatMap((r) => (r.household_id ? [r.household_id] : []))), guests: new Set(rows.results.map((r) => r.guest_id)) };
+        .bind(category, channel, exceptMessageId ?? "")
+        .all<{ household_id: string | null; guest_id: string; status: "pending" | "sent" }>();
+    const households = new Map<string, ContactState>();
+    const guests = new Map<string, ContactState>();
+    for (const row of rows.results) {
+        const state: ContactState = row.status === "sent" ? "sent" : "drafted";
+        if (row.household_id && households.get(row.household_id) !== "sent") households.set(row.household_id, state);
+        if (guests.get(row.guest_id) !== "sent") guests.set(row.guest_id, state);
+    }
+    return { households, guests };
 }
+
+export const contactedReason = (state: ContactState | undefined) =>
+    state === "sent" ? EXCLUSION_REASONS.alreadySent : state === "drafted" ? EXCLUSION_REASONS.alreadyDrafted : null;
 
 /** Households sent a reminder in the last day by another message. */
 export async function recentlyReminded(db: D1Database, exceptMessageId: string, now = Date.now()) {

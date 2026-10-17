@@ -59,7 +59,7 @@ type RecipientMode = "specific" | "filtered" | "all";
 type RecipientPlan = {
     households: number;
     guests: number;
-    recipients: { name: string; to: string; householdId: string | null }[];
+    recipients: { name: string; to: string; householdId: string | null; again: "sent" | "drafted" | null }[];
     held: { reason: string; count: number }[];
 };
 
@@ -520,7 +520,14 @@ export const ComposePanel = ({
                                         <ul className="flex max-h-48 flex-col divide-y divide-secondary overflow-y-auto text-sm">
                                             {plan.recipients.map((r, index) => (
                                                 <li key={`${r.to}-${index}`} className="flex flex-col py-1.5 sm:flex-row sm:justify-between sm:gap-3">
-                                                    <span className="text-primary">{r.name}</span>
+                                                    <span className="flex items-center gap-2 text-primary">
+                                                        {r.name}
+                                                        {r.again && (
+                                                            <Badge size="sm" color="warning">
+                                                                {r.again === "sent" ? "Already sent one" : "Already in a draft"}
+                                                            </Badge>
+                                                        )}
+                                                    </span>
                                                     <span className="font-mono text-xs break-all text-tertiary">{r.to}</span>
                                                 </li>
                                             ))}
@@ -563,8 +570,12 @@ export const ComposePanel = ({
                             />
                             {campaign.oncePerHousehold && (
                                 <Toggle
-                                    label="Send again to households that already have one"
-                                    hint={`Off by default: a household is only sent one ${campaign.label.toLowerCase()}.`}
+                                    label={
+                                        kind === "invitation"
+                                            ? "Prepare another invitation for households that already have one"
+                                            : "Prepare another for households that already have one"
+                                    }
+                                    hint="Off by default. This prepares a draft only; the final send check will clearly mark anyone who was already sent one and require confirmation."
                                     isSelected={resend}
                                     onChange={setResend}
                                 />

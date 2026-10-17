@@ -436,7 +436,7 @@ export interface Audience {
 export interface MessageOptions {
     /** One message per guest instead of one per household. */
     individualDelivery?: boolean;
-    /** Send even to households that already have one of this kind (save the date, invitation…). */
+    /** "Send another": include households that already have one of this kind on this channel (sent or drafted). */
     resend?: boolean;
     /** Prepared from Invitation Studio, so the Studio can show and update it. */
     source?: "invitation-studio";
@@ -498,8 +498,11 @@ export interface MessagePreflight {
     /** Where a test of this message may go. */
     testRecipients: string[];
     tests: { channel: MessageChannel; recipient: string; status: "sent" | "failed"; error: string | null; by: string; at: string }[];
-    /** Everyone it would be sent to now, with the address or number it goes to (up to 500). */
-    sending: { name: string; to: string; householdId: string | null; guestId: string }[];
+    /** Everyone it would be sent to now, with the exact address or number it goes to. */
+    /** "Send another": who already received one of these on this channel and would get another. */
+    sending: { name: string; to: string; householdId: string | null; guestId: string; sentBefore: boolean }[];
+    /** Households that would get another because "send another" is on. */
+    again: number;
 }
 
 /** One line in a household's communications history. */

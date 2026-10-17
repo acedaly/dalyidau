@@ -3,16 +3,18 @@
 // Studio selection (a "specific" audience, so nothing else can be added), keeps the Studio's
 // template, wording and household addressing, and uses each household's own signed RSVP link.
 //
-// Preparing again for households that already have an unsent Studio draft is refused, so drafts
-// can't pile up; "replace" swaps the old draft for a new one, and only ever an unsent draft that
-// covers no other households. Sent invitations are history and are never touched.
+// Preparing again for households that already have any unsent invitation draft is refused, so
+// drafts can't pile up; "replace" swaps the old draft for a new one, and only ever an unsent draft
+// that covers no other households. Sent invitations are history and are never touched. A resend is
+// a separate, explicit choice and remains a draft until the send check is confirmed.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { studioInvitationCopy } from "../../src/shared/portal/campaigns";
 import type { Message } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { alreadyContacted } from "./campaigns";
 import { prepareMessage } from "./comms";
-import { auditStatement, parseJson, placeholders } from "./db";
+import { auditStatement, placeholders } from "./db";
 import { ValidationError } from "./entities";
 import { invitationPreviews } from "./invitation-studio";
 import { getSettings } from "./settings";
@@ -26,6 +28,8 @@ const schema = z.object({
         .max(2),
     /** Attach each household's printable invitation to the email. */
     attachPdf: z.boolean().default(false),
+    /** Deliberately prepare another invitation after one was already sent on this channel. */
+    resend: z.boolean().default(false),
     replace: z.boolean().default(false),
 });
 
@@ -38,20 +42,24 @@ export interface StudioDraftConflict {
     others: number;
 }
 
-/** Unsent Studio drafts that include any of these households. */
+export interface StudioSentConflict {
+    channel: "email" | "sms";
+    householdIds: string[];
+}
+
+/** Unsent invitation drafts that include any of these households. */
 async function pendingStudioDrafts(db: D1Database, householdIds: string[], channels: string[]): Promise<StudioDraftConflict[]> {
     const rows = await db
         .prepare(
-            `SELECT m.id, m.channel, m.subject, m.options, mr.household_id FROM messages m JOIN message_recipients mr ON mr.message_id = m.id
+            `SELECT m.id, m.channel, m.subject, mr.household_id FROM messages m JOIN message_recipients mr ON mr.message_id = m.id
              WHERE m.category = 'invitation' AND m.status IN ('draft', 'queued') AND m.channel IN (${placeholders(channels.length)})
                AND mr.household_id IS NOT NULL`,
         )
         .bind(...channels)
-        .all<{ id: string; channel: "email" | "sms"; subject: string; options: string; household_id: string }>();
+        .all<{ id: string; channel: "email" | "sms"; subject: string; household_id: string }>();
     const wanted = new Set(householdIds);
     const byMessage = new Map<string, { channel: "email" | "sms"; subject: string; households: Set<string> }>();
     for (const row of rows.results) {
-        if (parseJson<{ source?: string }>(row.options, {}).source !== "invitation-studio") continue;
         const entry = byMessage.get(row.id) ?? { channel: row.channel, subject: row.subject, households: new Set<string>() };
         entry.households.add(row.household_id);
         byMessage.set(row.id, entry);
@@ -67,19 +75,33 @@ async function pendingStudioDrafts(db: D1Database, householdIds: string[], chann
         }));
 }
 
+/** Selected households that have actually been sent an invitation on each selected channel. */
+async function previouslySent(db: D1Database, householdIds: string[], channels: ("email" | "sms")[]): Promise<StudioSentConflict[]> {
+    const conflicts: StudioSentConflict[] = [];
+    for (const channel of channels) {
+        const contacted = await alreadyContacted(db, "invitation", channel, "sent");
+        const sent = householdIds.filter((id) => contacted.households.has(id));
+        if (sent.length) conflicts.push({ channel, householdIds: sent });
+    }
+    return conflicts;
+}
+
 export async function prepareStudioDrafts(
     env: Env,
     db: D1Database,
     input: unknown,
     actor: string,
-): Promise<{ drafts: Message[]; conflicts: StudioDraftConflict[] }> {
+): Promise<{ drafts: Message[]; conflicts: StudioDraftConflict[]; sent: StudioSentConflict[] }> {
     const data = schema.parse(input);
     const householdIds = [...new Set(data.householdIds)];
     // The same checks as generating: every household exists, has someone invited and a working link.
     const previews = await invitationPreviews(env, { householdIds, delivery: data.delivery, channels: ["print"] });
 
-    const conflicts = await pendingStudioDrafts(db, householdIds, data.channels);
-    if (conflicts.length && !data.replace) return { drafts: [], conflicts };
+    const [conflicts, sent] = await Promise.all([pendingStudioDrafts(db, householdIds, data.channels), previouslySent(db, householdIds, data.channels)]);
+    if (conflicts.length && !data.replace) return { drafts: [], conflicts, sent };
+    // Do not delete an existing draft until the person has also explicitly chosen to prepare a
+    // resend. This matters when a household has both sent history and a newer unsent draft.
+    if (sent.length && !data.resend) return { drafts: [], conflicts, sent };
     const blocked = conflicts.filter((c) => c.others > 0);
     if (blocked.length)
         throw new ValidationError(
@@ -101,7 +123,7 @@ export async function prepareStudioDrafts(
             action: "message.delete",
             entityType: "message",
             entityId: conflict.messageId,
-            summary: `Replaced the Invitation Studio ${conflict.channel === "sms" ? "text" : "email"} draft “${conflict.subject}” with a new one`,
+            summary: `Replaced the unsent ${conflict.channel === "sms" ? "text" : "email"} invitation draft “${conflict.subject}” with a new one from Invitation Studio`,
         }).run();
     }
 
@@ -124,9 +146,10 @@ export async function prepareStudioDrafts(
                     individualDelivery: data.delivery === "individual",
                     attachPdf: channel === "email" && data.attachPdf,
                     source: "invitation-studio",
+                    resend: data.resend,
                 },
                 actor,
             ),
         );
-    return { drafts, conflicts: [] };
+    return { drafts, conflicts: [], sent: [] };
 }

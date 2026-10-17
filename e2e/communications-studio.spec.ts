@@ -38,6 +38,7 @@ const shot = async (page: Page, name: string) => {
 };
 
 test("a single household goes from Invitation Studio to a reviewable draft addressed to them alone", async ({ page, request }, info) => {
+    test.setTimeout(60_000);
     const errors = watchErrors(page);
     const suffix = info.project.name;
     const event = await api<{ item: { id: string } }>(request, "post", "/api/portal/wedding/events", {
@@ -79,22 +80,73 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
     await expect(sendingTo.first()).toBeVisible();
     await expect(page.getByText(`sam.${suffix}@example.com`)).toHaveCount(0);
     await expect(page.getByText("Email delivery is off", { exact: true })).toBeVisible();
+    await expect(page.getByText("Prepared by")).toBeVisible();
     await shot(page, `message-send-check-${suffix}`);
+
+    // Invitation Studio has its own preparation workflow. It exposes a held-back draft and an
+    // explicit replacement action here, rather than relying on Communications' compose toggle.
+    await page.goto("/portal/wedding/invitations");
+    await page.getByRole("checkbox", { name: `The Example Household ${suffix}` }).check({ force: true });
+    await page.getByRole("checkbox", { name: "Email", exact: true }).check({ force: true });
+    await expect(page.getByRole("link", { name: "Email prepared (not sent)" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Preview every version" }).click();
+    await page.getByRole("button", { name: "Prepare drafts now" }).click();
+    await expect(page.getByText("These households already have unsent invitation drafts")).toBeVisible();
+    await page.getByRole("button", { name: "Replace draft", exact: true }).evaluate((element: HTMLButtonElement) => element.click());
+    await expect(page.getByRole("heading", { name: "Replace the existing draft?" })).toBeVisible();
+    await expect(page.getByText(/No guest will be contacted/)).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
 
     await page.goto("/portal/wedding/communications");
     await expect(page.getByRole("heading", { name: "Communications Studio" })).toBeVisible();
     await shot(page, `communications-studio-${suffix}`);
-    await page.getByRole("button", { name: "Create" }).first().click();
+    const invitationCampaign = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Formal invitation", exact: true }) });
+    await invitationCampaign.getByRole("button", { name: "Create" }).click();
     await expect(page.getByRole("radio", { name: "Specific people" })).toBeChecked();
+    await expect(page.getByText("Prepare another invitation for households that already have one")).toBeVisible();
     await expect(page.getByText("Choose at least one household or guest.")).toBeVisible();
     // Choose the one household, then capture the panel once its slide-in has finished.
     await page.getByRole("button", { name: "Search households" }).click();
     await page.getByRole("option", { name: new RegExp(`Fred & Ann Example-${suffix}`) }).click();
     await expect(page.getByText(/^1 household selected/)).toBeVisible();
+    await expect(page.getByText(/Already in an unsent draft for this household/)).toBeVisible();
+    const prepareAnother = page.getByRole("switch", { name: /Prepare another invitation for households that already have one/ });
+    await prepareAnother.evaluate((element: HTMLInputElement) => element.click());
+    await expect(prepareAnother).toBeChecked();
     await page.getByRole("heading", { name: "1. Recipients" }).click({ force: true });
     await expect(page.getByText(`fred.${suffix}@example.com`)).toBeVisible();
+    await expect(page.getByText("Already in a draft")).toBeVisible();
     await page.waitForTimeout(400);
     if (CAPTURE) await page.screenshot({ path: `${ASSETS}/compose-specific-${suffix}.jpg`, type: "jpeg", quality: 72 });
+
+    // Exercise the final Communications review for an intentional resend. Delivery is disabled in
+    // this browser environment, so the preflight response is marked as previously sent without
+    // calling a provider; this verifies the real recipient list, labels and confirmation dialog.
+    const repeat = await api<{ message: { id: string } }>(request, "post", "/api/portal/wedding/messages", {
+        category: "invitation",
+        channel: "email",
+        subject: "Another invitation",
+        body: "{{invitation_card}}",
+        audience: { mode: "specific", householdIds: [home.item.id] },
+        resend: true,
+    });
+    await page.route(`**/api/portal/wedding/messages/${repeat.message.id}/preflight`, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as {
+            preflight: { again: number; warnings: string[]; sending: { sentBefore: boolean }[] };
+        };
+        body.preflight.again = 1;
+        body.preflight.sending = body.preflight.sending.map((recipient) => ({ ...recipient, sentBefore: true }));
+        body.preflight.warnings.push("“Send another” is on: 1 household that was already sent one will get another. They're marked below.");
+        await route.fulfill({ response, json: body });
+    });
+    await page.goto(`/portal/wedding/communications/${repeat.message.id}`);
+    await expect(page.getByText("Already sent one", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send another invitation", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Schedule another invitation" }).click();
+    await expect(page.getByRole("heading", { name: "Schedule another invitation?" })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: /already received an invitation and should receive another/ })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
 
     await page.goto("/portal/wedding");
     await expect(page.getByRole("heading", { name: "Contact details" })).toBeVisible();

@@ -32,9 +32,11 @@ import { weddingOrigin } from "../wedding/invitations";
 import {
     type CampaignContext,
     type Consent,
+    type ContactState,
     KNOWN_FIELDS,
     alreadyContacted,
     campaignContext,
+    contactedReason,
     copyProblems,
     formatLongDate,
     householdBlock,
@@ -246,7 +248,7 @@ function planRecipients(
     data: { category: Message["category"]; channel: MessageChannel; subject: string; body: string; options: MessageOptions },
     guests: Guest[],
     consent: Consent,
-    contacted: { households: Set<string>; guests: Set<string> },
+    contacted: { households: Map<string, ContactState>; guests: Map<string, ContactState> },
 ): PlannedRecipient[] {
     const once = oncePerHousehold(data.category, data.options);
     const eligibility = (householdId: string | null) => householdBlock(context, { ...data, householdId }, "prepare");
@@ -256,14 +258,15 @@ function planRecipients(
     if (!isHouseholdCampaign(data.category, data.options))
         return guests.map((guest) => {
             const reach = reachGuest(guest, data.channel, consent);
-            const duplicate = once && (contacted.guests.has(guest.id) || (!!guest.householdId && contacted.households.has(guest.householdId)));
+            const duplicate =
+                once && contactedReason(contacted.guests.get(guest.id) ?? (guest.householdId ? contacted.households.get(guest.householdId) : undefined));
             return {
                 guestId: guest.id,
                 householdId: guest.householdId,
                 name: person(guest),
                 email: data.channel === "email" ? reach.email : null,
                 phone: reach.phone,
-                error: (duplicate && EXCLUSION_REASONS.alreadySent) || eligibility(guest.householdId) || reach.error,
+                error: duplicate || eligibility(guest.householdId) || reach.error,
             };
         });
 
@@ -281,7 +284,7 @@ function planRecipients(
                     name: person(guest),
                     email: data.channel === "email" ? reach.email : null,
                     phone: reach.phone,
-                    error: (once && contacted.guests.has(guest.id) && EXCLUSION_REASONS.alreadySent) || eligibility(null) || reach.error,
+                    error: (once && contactedReason(contacted.guests.get(guest.id))) || eligibility(null) || reach.error,
                 });
             }
             continue;
@@ -292,7 +295,7 @@ function planRecipients(
             return index === -1 ? Number.MAX_SAFE_INTEGER : index;
         };
         const sorted = [...members].sort((a, b) => order(a) - order(b));
-        const blocked = (once && contacted.households.has(householdId) && EXCLUSION_REASONS.alreadySent) || eligibility(householdId);
+        const blocked = (once && contactedReason(contacted.households.get(householdId))) || eligibility(householdId);
         const reaches = sorted.map((guest) => ({ guest, reach: reachGuest(guest, data.channel, consent) }));
         const line = addressing?.recipientLine || context.households.get(householdId)?.name || person(sorted[0]);
         if (blocked) {
@@ -363,7 +366,7 @@ export async function prepareMessage(env: Env, db: D1Database, input: unknown, a
         ...(data.source ? { source: data.source } : {}),
         ...(template ? { invitation: template } : {}),
     };
-    const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, "prepared")]);
+    const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, data.channel, "prepared")]);
     const plan = planRecipients(context, { ...data, options }, guests, consent, contacted);
     const households = new Set(plan.filter((p) => !p.error && p.householdId).map((p) => p.householdId)).size;
 
@@ -407,7 +410,7 @@ export async function prepareMessage(env: Env, db: D1Database, input: unknown, a
                 channel: data.channel,
                 category: data.category,
                 scheduledAt: data.scheduledAt ?? null,
-                duplicates: plan.filter((p) => p.error === EXCLUSION_REASONS.alreadySent).length,
+                duplicates: plan.filter((p) => p.error === EXCLUSION_REASONS.alreadySent || p.error === EXCLUSION_REASONS.alreadyDrafted).length,
                 ...(isCampaignKind(data.category) ? { delivery: options.individualDelivery ? "individual" : "household", households } : {}),
                 ...(options.resend ? { resend: true } : {}),
             },
@@ -429,7 +432,7 @@ export async function planPreview(env: Env, db: D1Database, input: unknown) {
     const context = await campaignContext(env, db, await listGuests(db));
     const guests = audienceGuests(context, data.audience);
     const options: MessageOptions = { ...(data.individualDelivery ? { individualDelivery: true } : {}), ...(data.resend ? { resend: true } : {}) };
-    const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, "prepared")]);
+    const [consent, contacted] = await Promise.all([optOuts(db), alreadyContacted(db, data.category, data.channel, "prepared")]);
     const plan = planRecipients(context, { ...data, options }, guests, consent, contacted);
     const held = new Map<string, number>();
     for (const p of plan) if (p.error && !p.error.startsWith("Included in the household")) held.set(p.error, (held.get(p.error) ?? 0) + 1);
@@ -439,7 +442,13 @@ export async function planPreview(env: Env, db: D1Database, input: unknown) {
         recipients: plan
             .filter((p) => !p.error)
             .slice(0, 500)
-            .map((p) => ({ name: p.name, to: (data.channel === "sms" ? p.phone : p.email) ?? "", householdId: p.householdId })),
+            .map((p) => ({
+                name: p.name,
+                to: (data.channel === "sms" ? p.phone : p.email) ?? "",
+                householdId: p.householdId,
+                // Included only because "send another" is on: they already have one (sent, or in an unsent draft).
+                again: data.resend ? ((p.householdId ? contacted.households.get(p.householdId) : contacted.guests.get(p.guestId)) ?? null) : null,
+            })),
         held: [...held].map(([reason, count]) => ({ reason, count })),
     };
 }
@@ -570,7 +579,7 @@ async function planSend(env: Env, db: D1Database, found: { message: Message; rec
     const ctx = context ?? (await campaignContext(env, db, await listGuests(db)));
     const [consent, sentElsewhere, reminded] = await Promise.all([
         optOuts(db),
-        oncePerHousehold(message.category, message.options) ? alreadyContacted(db, message.category, "sent", message.id) : null,
+        oncePerHousehold(message.category, message.options) ? alreadyContacted(db, message.category, message.channel, "sent", message.id) : null,
         message.category === "reminder" ? recentlyReminded(db, message.id) : null,
     ]);
     return found.recipients.map((recipient) => {
@@ -610,12 +619,16 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
     if (!found) throw new NotFoundError("Message not found");
     const { message } = found;
     const context = await campaignContext(env, db, await listGuests(db));
-    const [plan, available, comms] = await Promise.all([
+    const [plan, available, comms, sentBefore] = await Promise.all([
         planSend(env, db, found, context),
         deliveryAvailable(env, db, message.channel),
         getSettings(db, "comms"),
+        // "Send another": who already received one, so the check and the confirmation can say so.
+        message.options.resend ? alreadyContacted(db, message.category, message.channel, "sent", message.id) : null,
     ]);
     const sending = plan.filter((p) => p.action === "send");
+    const isRepeat = (r: MessageRecipient) => !!sentBefore && (r.householdId ? sentBefore.households.has(r.householdId) : sentBefore.guests.has(r.guestId));
+    const again = new Set(sending.filter((p) => isRepeat(p.recipient)).map((p) => p.recipient.householdId ?? p.recipient.guestId)).size;
     const excluded = new Map<string, string[]>();
     for (const p of plan)
         if (p.action !== "send" && p.reason && !p.reason.startsWith("Included in the household"))
@@ -641,7 +654,12 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
             warnings.push(`${provider.name} can't attach the printable invitation, so sending will be refused. Use Fastmail, or prepare it without the PDF.`);
         else warnings.push("Each household's printable invitation (PDF, with its own QR code) will be attached.");
     }
-    if (message.options.resend) warnings.push("“Send again” is on: households that already received one will get another.");
+    if (message.options.resend)
+        warnings.push(
+            again
+                ? `“Send another” is on: ${again} household${again === 1 ? " that was" : "s that were"} already sent one will get another. They're marked below.`
+                : "“Send another” is on, but nobody here has been sent one yet.",
+        );
     const parts = sending.reduce((total, p) => total + (message.channel === "sms" ? p.copy.sms.segments : 0), 0);
     const maxParts = Math.max(0, ...sending.map((p) => (message.channel === "sms" ? p.copy.sms.segments : 0)));
     const tests = await db
@@ -655,6 +673,7 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
         status: message.status,
         households: new Set(sending.map((p) => p.recipient.householdId ?? p.recipient.guestId)).size,
         recipients: sending.length,
+        again,
         excluded: [...excluded].map(([reason, names]) => ({ reason, count: names.length, names: names.slice(0, 12) })).sort((a, b) => b.count - a.count),
         warnings,
         sms:
@@ -669,6 +688,7 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
             to: (message.channel === "sms" ? p.recipient.phone : p.recipient.email) ?? "",
             householdId: p.recipient.householdId,
             guestId: p.recipient.guestId,
+            sentBefore: isRepeat(p.recipient),
         })),
     };
 }
@@ -738,10 +758,21 @@ const MAX_ATTEMPTS = 3;
 const sendSchema = z.object({
     /** The number of recipients the person confirmed in the send check. Required for more than one. */
     confirmCount: z.number().int().min(0).optional(),
+    /** "Send another": the person confirmed that households already sent one will get another. */
+    confirmAgain: z.boolean().default(false),
 });
 
+/** "Send another" needs its own confirmation whenever it would reach someone who was already sent one, even one household. */
+async function requireAgainConfirmed(db: D1Database, message: Message, toSend: { recipient: MessageRecipient }[], confirmed: boolean) {
+    if (!message.options.resend || confirmed || !toSend.length) return;
+    const sent = await alreadyContacted(db, message.category, message.channel, "sent", message.id);
+    const again = toSend.filter(({ recipient: r }) => (r.householdId ? sent.households.has(r.householdId) : sent.guests.has(r.guestId))).length;
+    if (again)
+        throw new ConflictError(`${again} recipient${again === 1 ? " was" : "s were"} already sent one. Confirm that they should get another before sending.`);
+}
+
 export async function sendMessage(env: Env, db: D1Database, id: string, actor: string, scheduledOnly = false, input: unknown = {}): Promise<Message> {
-    const { confirmCount } = sendSchema.parse(input ?? {});
+    const { confirmCount, confirmAgain } = sendSchema.parse(input ?? {});
     const found = await getMessage(db, id);
     if (!found) throw new NotFoundError("Message not found");
     const provider = await providerFor(env, db, found.message.channel);
@@ -763,6 +794,8 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
                 ? `Confirm the send check first: this will go to ${toSend.length} recipients.`
                 : `The recipient list has changed since you checked it (now ${toSend.length}). Review the send check again.`,
         );
+    // A scheduled message was confirmed when it was scheduled.
+    if (!scheduledOnly) await requireAgainConfirmed(db, found.message, toSend, confirmAgain);
 
     // Claim the message so a double click, a second tab or a cron retry cannot send twice.
     const claimed = await db
@@ -864,15 +897,17 @@ export async function retryFailed(env: Env, db: D1Database, id: string, actor: s
             summary: `Retrying ${retry.length} failed recipient${retry.length === 1 ? "" : "s"} of “${found.message.subject}”`,
         }),
     ]);
-    // The person asked for exactly these; they've seen who failed.
+    // The person asked for exactly these; they've seen who failed (and confirmed any "send another" when first sending).
     return sendMessage(env, db, id, actor, false, {
         confirmCount: (await planSend(env, db, (await getMessage(db, id))!)).filter((p) => p.action === "send").length,
+        confirmAgain: true,
     });
 }
 
 const scheduleSchema = z.object({
     scheduledAt: z.string().refine((value) => Number.isFinite(Date.parse(value)), "Choose a valid date and time"),
     confirmCount: z.number().int().min(0),
+    confirmAgain: z.boolean().default(false),
 });
 
 /** Schedules a checked draft. The scheduler re-checks consent and eligibility when it sends. */
@@ -882,9 +917,11 @@ export async function scheduleMessage(env: Env, db: D1Database, id: string, inpu
     const found = await getMessage(db, id);
     if (!found) throw new NotFoundError("Message not found");
     if (found.message.status !== "draft") throw new ValidationError("Only drafts can be scheduled", "status");
-    const count = (await planSend(env, db, found)).filter((p) => p.action === "send").length;
+    const toSend = (await planSend(env, db, found)).filter((p) => p.action === "send");
+    const count = toSend.length;
     if (data.confirmCount !== count)
         throw new ConflictError(`The recipient list has changed since you checked it (now ${count}). Review the send check again.`);
+    await requireAgainConfirmed(db, found.message, toSend, data.confirmAgain);
     const scheduledAt = new Date(data.scheduledAt).toISOString();
     const updated = await db
         .prepare("UPDATE messages SET status = 'queued', scheduled_at = ? WHERE id = ? AND status = 'draft' RETURNING id")

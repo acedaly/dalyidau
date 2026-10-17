@@ -192,12 +192,20 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                         )}
                         {isDraft && can("wedding.comms.send") && (
                             <Button color="secondary" iconLeading={Clock} onClick={() => setSendMode("schedule")} isDisabled={!preflight?.recipients}>
-                                Schedule
+                                {preflight?.again && message.category === "invitation" ? "Schedule another invitation" : "Schedule"}
                             </Button>
                         )}
                         {isEditable && can("wedding.comms.send") && (
                             <Button iconLeading={Send01} onClick={() => setSendMode("send")} isDisabled={!data.deliveryAvailable || !preflight?.recipients}>
-                                {isQueued ? "Send now" : preflight ? `Send to ${pluralise(preflight.households, "household")}` : "Send"}
+                                {preflight?.again && message.category === "invitation"
+                                    ? isQueued
+                                        ? "Send another invitation now"
+                                        : "Send another invitation"
+                                    : isQueued
+                                      ? "Send now"
+                                      : preflight
+                                        ? `Send to ${pluralise(preflight.households, "household")}`
+                                        : "Send"}
                             </Button>
                         )}
                     </>

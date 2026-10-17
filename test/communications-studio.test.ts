@@ -123,16 +123,28 @@ describe("save the date", () => {
         expect(refused.text).toContain("formal invitation");
     });
 
-    it("holds back households that already have one, unless “send again” is chosen", async () => {
+    it("describes an existing unsent draft accurately and includes it only when preparing another is deliberate", async () => {
         await setup();
         const body = { category: "save_the_date", subject: "Save the date", body: "Dear {{greeting_names}}" };
         await prepare(body);
         const second = await prepare(body);
         expect((await recipients(second.json.message.id)).every((r) => r.status === "skipped")).toBe(true);
-        expect((await recipients(second.json.message.id)).find((r) => r.name === "Kate Replied")?.error).toBe("Already prepared or sent to this household");
+        expect((await recipients(second.json.message.id)).find((r) => r.name === "Kate Replied")?.error).toBe(
+            "Already in an unsent draft for this household (nothing sent yet)",
+        );
         const again = await prepare({ ...body, resend: true });
         expect((await recipients(again.json.message.id)).filter((r) => r.status === "pending")).toHaveLength(3);
         expect(again.json.message.options).toEqual({ resend: true });
+    });
+
+    it("deduplicates only the same campaign and channel", async () => {
+        await setup();
+        const body = { category: "invitation", subject: "Invitation", body: "{{rsvp_link}}" };
+        await prepare({ ...body, channel: "email" });
+        const text = await prepare({ ...body, channel: "sms" });
+        const rows = await recipients(text.json.message.id);
+        expect(rows.some((recipient) => recipient.error?.includes("unsent draft"))).toBe(false);
+        expect(rows.filter((recipient) => recipient.error === "No mobile number")).toHaveLength(5);
     });
 });
 
@@ -260,7 +272,7 @@ describe("sending safeguards", () => {
         const body = { category: "save_the_date", subject: "Save the date", body: "{{website_link}}" };
         const first = (await prepare(body)).json.message;
         const second = (await prepare({ ...body, resend: true })).json.message;
-        // As if the second had been prepared without "send again" (e.g. before the first existed).
+        // As if the second had been prepared without "send another" (e.g. before the first existed).
         await db().prepare("UPDATE messages SET options = '{}' WHERE id = ?").bind(second.id).run();
         const { env, send: provider } = await emailEnv();
         await switchEmailOn();
