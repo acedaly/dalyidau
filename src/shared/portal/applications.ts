@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding";
+export type ApplicationId = "wedding" | "knowledge";
 
-export type ApplicationIcon = "wedding";
+export type ApplicationIcon = "wedding" | "knowledge";
 
 export type NavigationIcon =
     | "dashboard"
@@ -20,7 +20,14 @@ export type NavigationIcon =
     | "timeline"
     | "budget"
     | "suppliers"
-    | "settings";
+    | "settings"
+    | "home"
+    | "inbox"
+    | "knowledge"
+    | "search"
+    | "types"
+    | "archive"
+    | "trash";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -119,6 +126,38 @@ export const APPLICATIONS = [
             {
                 label: "Application",
                 items: [{ label: "Wedding settings", href: "/portal/wedding/settings", icon: "settings", active: "prefix" }],
+            },
+        ],
+    },
+    {
+        id: "knowledge",
+        name: "Daly Knowledge",
+        description: "Notes, people, projects, meetings and decisions, linked together and searchable. Private to you unless you share a space.",
+        icon: "knowledge",
+        baseRoute: "/portal/knowledge",
+        requiredPermission: "knowledge.use",
+        enabled: true,
+        navigation: [
+            {
+                label: "Knowledge",
+                items: [
+                    { label: "Home", href: "/portal/knowledge", icon: "home" },
+                    { label: "Inbox", href: "/portal/knowledge/inbox", icon: "inbox" },
+                    { label: "All knowledge", href: "/portal/knowledge/all", icon: "knowledge" },
+                    { label: "Search", href: "/portal/knowledge/search", icon: "search" },
+                ],
+            },
+            {
+                label: "Organise",
+                items: [
+                    { label: "Object types", href: "/portal/knowledge/types", icon: "types" },
+                    { label: "Archive", href: "/portal/knowledge/archive", icon: "archive" },
+                    { label: "Trash", href: "/portal/knowledge/trash", icon: "trash" },
+                ],
+            },
+            {
+                label: "Application",
+                items: [{ label: "Space settings", href: "/portal/knowledge/settings", icon: "settings" }],
             },
         ],
     },

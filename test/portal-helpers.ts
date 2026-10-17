@@ -117,6 +117,16 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "knowledge_fts",
+    "knowledge_audit",
+    "knowledge_object_tags",
+    "knowledge_tags",
+    "knowledge_relations",
+    "knowledge_revisions",
+    "knowledge_objects",
+    "knowledge_object_types",
+    "knowledge_memberships",
+    "knowledge_spaces",
     "communication_provider_checks",
     "comm_webhook_events",
     "sms_messages",

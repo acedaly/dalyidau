@@ -8,6 +8,7 @@ import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
+import { handleKnowledgeApi } from "../knowledge/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -839,6 +840,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
     try {
         checkCrossSite(request);
         checkMutation(request, env);
+        // Knowledge has its own router: access there is by space membership, and its responses hold no RSVP credentials.
+        if (url.pathname.startsWith("/api/portal/knowledge/")) return await handleKnowledgeApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;
         let pathMatched = false;
         for (const route of routes) {

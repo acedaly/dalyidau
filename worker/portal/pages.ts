@@ -6,6 +6,7 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
+import { loadKnowledgePage } from "../knowledge/pages";
 import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -355,6 +356,31 @@ const PAGES: PageDef[] = [
             const tab = (requested === "people" && !users) || (requested === "privacy" && !deleted) ? "general" : requested;
             return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null };
         },
+    },
+    // Daly Knowledge. The application's permission is checked here; space membership in the loaders.
+    {
+        pattern: /^\/portal\/knowledge$/,
+        title: "Knowledge",
+        application: "knowledge",
+        load: ({ env, user, url }) => loadKnowledgePage(env, user, url, "home"),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/(inbox|all|archive|trash)$/,
+        title: "Knowledge",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "list", match[1]),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/o\/(kob_[a-z0-9]{14})$/,
+        title: "Knowledge",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "object", match[1]),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/(search|types|settings)$/,
+        title: "Knowledge",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, match[1] as "search" | "types" | "settings"),
     },
     {
         pattern: /^\/portal\/audit$/,

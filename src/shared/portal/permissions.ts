@@ -16,6 +16,8 @@ export const PERMISSIONS = [
     "wedding.budget.edit",
     "wedding.website.edit",
     "wedding.export",
+    /** Opening Daly Knowledge. What each person can see inside it is decided by space membership, not by this. */
+    "knowledge.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

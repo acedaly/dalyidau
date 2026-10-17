@@ -1,4 +1,5 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
+import type { KnowledgeRoute } from "../knowledge/types";
 import type { ApplicationId } from "./applications";
 import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
@@ -895,6 +896,7 @@ export type PortalRoute =
           privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
+    | KnowledgeRoute
     | { route: "forbidden"; message: string }
     | { route: "not-found"; path: string };
 
