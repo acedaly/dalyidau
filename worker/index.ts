@@ -3,7 +3,7 @@ import { site } from "../src/content/site";
 import { render, renderWedding } from "../src/entry-server";
 import { portalBootShell } from "../src/portal/boot-shell";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
-import { icsFilename } from "../src/shared/portal/calendar";
+import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
 import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { handleCommsWebhook } from "./comms/webhooks";
@@ -415,7 +415,9 @@ function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, st
     });
 }
 
-const GUEST_PATHS = new Set(["/invitation", "/invitation.pdf", "/save-the-date", "/save-the-date.ics"]);
+// "/save-the-date.ics" stays for links in messages already sent; new messages link SAVE_THE_DATE_CALENDAR_PATH.
+const SAVE_THE_DATE_CALENDARS = new Set([SAVE_THE_DATE_CALENDAR_PATH, "/save-the-date.ics"]);
+const GUEST_PATHS = new Set(["/invitation", "/invitation.pdf", "/save-the-date", ...SAVE_THE_DATE_CALENDARS]);
 
 const GUEST_NOT_FOUND = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...PRIVATE_HEADERS } });
 
@@ -426,16 +428,18 @@ const GUEST_NOT_FOUND = () => new Response("Not found", { status: 404, headers: 
  */
 async function guestPage(request: Request, env: Env, url: URL, path: string): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-    if (path === "/save-the-date" || path === "/save-the-date.ics") {
+    if (path === "/save-the-date" || SAVE_THE_DATE_CALENDARS.has(path)) {
         if (!(await saveTheDateAvailable(env))) return GUEST_NOT_FOUND();
-        if (path === "/save-the-date.ics") {
+        if (SAVE_THE_DATE_CALENDARS.has(path)) {
             const calendar = await saveTheDateCalendar(env);
             if (!calendar) return GUEST_NOT_FOUND();
             const wedding = await getSettings(env.DB, "wedding");
             return new Response(calendar, {
                 headers: {
                     "Content-Type": "text/calendar; charset=utf-8",
-                    "Content-Disposition": `attachment; filename="${icsFilename(wedding)}"`,
+                    // Inline, so iPhone Safari shows its "Add to Calendar" sheet for the one event instead of
+                    // saving a file to Downloads. Desktop browsers can't display it and save it under this name.
+                    "Content-Disposition": `inline; filename="${icsFilename(wedding)}"`,
                     "Cache-Control": "public, max-age=300",
                     "X-Robots-Tag": "noindex",
                 },

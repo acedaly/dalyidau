@@ -12,7 +12,7 @@
 // immediately before each recipient is sent (consent, replies and links can change in between, and
 // a scheduled message may be sent days later).
 import type { D1Database } from "@cloudflare/workers-types";
-import { calendarLinks, googleCalendarUrl, weddingCalendarEvent } from "../../src/shared/portal/calendar";
+import { SAVE_THE_DATE_CALENDAR_PATH, calendarLinks, googleCalendarUrl, weddingCalendarEvent } from "../../src/shared/portal/calendar";
 import { CAMPAIGNS, type CampaignKind, EXCLUSION_REASONS, isCampaignKind } from "../../src/shared/portal/campaigns";
 import { invitationEventLines as sharedInvitationEventLines, sharedVenue } from "../../src/shared/portal/invitation-events";
 import { MERGE_FIELDS, OPTIONAL_MERGE_FIELDS, renderMergeFields, usedMergeFields } from "../../src/shared/portal/merge-fields";
@@ -376,7 +376,7 @@ export function saveTheDateCard(context: Pick<CampaignContext, "wedding" | "stud
         location: displayLocation(context.wedding.location),
         followUp: followUp && !/[.!?]$/.test(followUp) ? `${followUp}.` : followUp,
         calendar: context.studio.saveTheDate.showCalendarLink
-            ? calendarLinks(event, context.saveTheDatePublic ? `${context.site}/save-the-date.ics` : null)
+            ? calendarLinks(event, context.saveTheDatePublic ? `${context.site}${SAVE_THE_DATE_CALENDAR_PATH}` : null)
             : null,
         pageUrl: context.saveTheDatePublic ? `${context.site}/save-the-date` : null,
     };

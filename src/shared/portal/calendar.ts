@@ -31,6 +31,9 @@ export const weddingLocation = (location: string) =>
         .replace(/,\s*(NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b/g, " $1")
         .trim();
 
+/** What the Save the Date's calendar event says: nothing more is decided yet. */
+export const SAVE_THE_DATE_DESCRIPTION = "Formal invitation and further details to follow.";
+
 const LOCAL = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
 
 /** The UTC instant of a wall-clock time ("2027-10-23T15:30") in an IANA time zone. */
@@ -75,6 +78,8 @@ export function weddingCalendarEvent(input: {
     events: { startsAt: string | null; endsAt: string | null }[];
     /** The wedding website, e.g. https://wedding.daly.id.au. */
     site: string;
+    /** Defaults to the Save the Date wording; the RSVP confirmation passes its own. */
+    description?: string;
 }): CalendarEvent | null {
     const { details, site } = input;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(details.date)) return null;
@@ -102,7 +107,7 @@ export function weddingCalendarEvent(input: {
         uid: `wedding-${details.date}@${host}`,
         title: `${couple}'s Wedding`,
         location,
-        description: [`${couple} are getting married${location ? ` at ${location}` : ""}.`, site ? `Details: ${site}` : ""].filter(Boolean).join("\n\n"),
+        description: input.description ?? SAVE_THE_DATE_DESCRIPTION,
         url: site,
         date: details.date,
         timeZone,
@@ -213,6 +218,13 @@ export function outlookCalendarUrl(event: CalendarEvent, service: "live" | "offi
     });
     return `https://outlook.${service === "live" ? "live" : "office"}.com/calendar/0/action/compose?${params.toString()}`;
 }
+
+/**
+ * The Save the Date's calendar file. Deliberately not "….ics": iOS Mail and Messages hand a link ending
+ * in .ics to Calendar as a calendar to *subscribe* to. A plain https link opens in Safari, which reads
+ * the text/calendar response and offers to add the one event.
+ */
+export const SAVE_THE_DATE_CALENDAR_PATH = "/save-the-date/calendar";
 
 /** Every way to save the wedding: the .ics file serves Apple Calendar and anything else that imports it. */
 export interface CalendarLinks {

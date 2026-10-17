@@ -140,11 +140,12 @@ export const SaveTheDatePage = ({ data }: { data: SaveTheDatePageData }) => {
     const accent = ACCENTS[card.accent];
     const choices = card.calendar
         ? [
-              card.calendar.ics && { label: "Apple Calendar", href: card.calendar.ics, download: true },
-              { label: "Google Calendar", href: card.calendar.google, download: false },
-              { label: "Outlook", href: card.calendar.outlook, download: false },
-              { label: "Microsoft 365", href: card.calendar.office365, download: false },
-          ].filter((choice): choice is { label: string; href: string; download: boolean } => !!choice)
+              // Opened in place: iPhone Safari shows "Add to Calendar" for the one event.
+              card.calendar.ics && { label: "Apple Calendar", href: card.calendar.ics, newTab: false },
+              { label: "Google Calendar", href: card.calendar.google, newTab: true },
+              { label: "Outlook", href: card.calendar.outlook, newTab: true },
+              { label: "Microsoft 365", href: card.calendar.office365, newTab: true },
+          ].filter((choice): choice is { label: string; href: string; newTab: boolean } => !!choice)
         : [];
     return (
         <Page websiteUrl={data.websiteUrl} coupleNames={card.coupleNames}>
@@ -177,7 +178,7 @@ export const SaveTheDatePage = ({ data }: { data: SaveTheDatePageData }) => {
                                         href={choice.href}
                                         size="lg"
                                         className={cx(weddingButton.outline, "w-full justify-center px-3 tracking-[0.12em]")}
-                                        {...(choice.download ? { download: true } : { target: "_blank", rel: "noreferrer noopener" })}
+                                        {...(choice.newTab ? { target: "_blank", rel: "noreferrer noopener" } : {})}
                                     >
                                         {choice.label}
                                     </Button>
@@ -189,7 +190,6 @@ export const SaveTheDatePage = ({ data }: { data: SaveTheDatePageData }) => {
                                 Using another calendar app?{" "}
                                 <a
                                     href={card.calendar.ics}
-                                    download
                                     className="text-forest decoration-forest/30 hover:decoration-forest rounded-sm font-medium underline underline-offset-4 outline-focus-ring focus-visible:outline-2"
                                 >
                                     Download the calendar event (.ics)
