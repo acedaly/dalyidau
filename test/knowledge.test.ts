@@ -529,6 +529,17 @@ describe("properties and types", () => {
         // The cuisine value stays on the object even though the type no longer shows it.
         expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${curry.object.id}`)).json.object.properties).toEqual({ serves: 4, cuisine: "thai" });
         expect((await apiCall("PATCH", `${K}/types/${recipe.id}`, { version: 1, name: "Stale" })).status).toBe(409);
+        // The removed key still holds values, so it can't return as a different kind of property.
+        const reused = await apiCall("PATCH", `${K}/types/${recipe.id}`, {
+            version: 2,
+            schema: {
+                properties: [
+                    { key: "serves", label: "Serves", type: "number" },
+                    { key: "cuisine", label: "Cuisine", type: "url" },
+                ],
+            },
+        });
+        expect(reused.status).toBe(422);
 
         const theirType = await typeId((await personal(SECOND_OWNER)).id, "person", SECOND_OWNER);
         const crossSpace = await apiCall("POST", `${K}/spaces/${space.id}/types`, {

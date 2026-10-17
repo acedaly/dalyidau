@@ -133,6 +133,19 @@ export async function updateType(db: D1Database, user: PortalUser, typeId: strin
             const old = before.schema.properties.find((p) => p.key === def.key);
             if (old && old.type !== def.type)
                 throw new HttpError(422, "validation", `“${def.label}” already holds ${old.type} values. Add a new property instead of changing its type.`);
+            // A removed property's values stay on objects, so its key can't come back meaning something else.
+            if (!old) {
+                const stored = await db
+                    .prepare("SELECT 1 FROM knowledge_objects WHERE type_id = ? AND json_extract(properties_json, ?) IS NOT NULL LIMIT 1")
+                    .bind(typeId, `$."${def.key}"`)
+                    .first();
+                if (stored)
+                    throw new HttpError(
+                        422,
+                        "validation",
+                        `Objects still hold values for a removed property called “${def.key}”. Give the new property another name.`,
+                    );
+            }
         }
         await checkTargets(db, row.space_id, body.schema, typeId);
     }
