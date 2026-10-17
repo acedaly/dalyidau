@@ -21,7 +21,9 @@ export interface KnowledgeAuditInput {
  */
 export const knowledgeAudit = (db: D1Database, entry: KnowledgeAuditInput, condition = "", conditionBinds: unknown[] = []): D1PreparedStatement =>
     db
-        .prepare(`INSERT INTO knowledge_audit (space_id, at, actor, action, entity_type, entity_id, summary, changes) SELECT ?, ?, ?, ?, ?, ?, ?, ? ${condition}`)
+        .prepare(
+            `INSERT INTO knowledge_audit (space_id, at, actor, action, entity_type, entity_id, summary, changes) SELECT ?, ?, ?, ?, ?, ?, ?, ? ${condition}`,
+        )
         .bind(
             entry.spaceId,
             nowIso(),
@@ -39,5 +41,13 @@ export async function listKnowledgeAudit(db: D1Database, spaceId: string, limit 
         .prepare("SELECT id, at, actor, action, entity_type, entity_id, summary FROM knowledge_audit WHERE space_id = ? ORDER BY id DESC LIMIT ?")
         .bind(spaceId, limit)
         .all<{ id: number; at: string; actor: string; action: string; entity_type: string; entity_id: string | null; summary: string }>();
-    return rows.results.map((r) => ({ id: r.id, at: r.at, actor: r.actor, action: r.action, entityType: r.entity_type, entityId: r.entity_id, summary: r.summary }));
+    return rows.results.map((r) => ({
+        id: r.id,
+        at: r.at,
+        actor: r.actor,
+        action: r.action,
+        entityType: r.entity_type,
+        entityId: r.entity_id,
+        summary: r.summary,
+    }));
 }

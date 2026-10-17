@@ -128,7 +128,9 @@ add("GET", "/spaces/:space/objects", async ({ env, url, user, params }) => {
 add("POST", "/spaces/:space/objects", async ({ env, request, user, params }) =>
     json(await createObject(env.DB, user, params.space, await readJson(request, MAX_OBJECT_BYTES)), 201),
 );
-add("POST", "/spaces/:space/objects/bulk", async ({ env, request, user, params }) => json(await bulkAction(env.DB, user, params.space, await readJson(request))));
+add("POST", "/spaces/:space/objects/bulk", async ({ env, request, user, params }) =>
+    json(await bulkAction(env.DB, user, params.space, await readJson(request))),
+);
 add("GET", "/spaces/:space/lookup", async ({ env, url, user, params }) => {
     await requireSpace(env.DB, user, params.space);
     return json({ results: await lookupObjects(env.DB, params.space, url.searchParams.get("q") ?? "") });
@@ -154,7 +156,9 @@ add("POST", "/objects/:id/delete", async ({ env, request, user, params }) => {
     return json({ ok: true });
 });
 add("GET", "/objects/:id/revisions", async ({ env, user, params }) => json({ revisions: await listRevisions(env.DB, user, params.id) }));
-add("GET", "/objects/:id/revisions/:revision", async ({ env, user, params }) => json({ revision: await getRevision(env.DB, user, params.id, params.revision) }));
+add("GET", "/objects/:id/revisions/:revision", async ({ env, user, params }) =>
+    json({ revision: await getRevision(env.DB, user, params.id, params.revision) }),
+);
 add("POST", "/objects/:id/revisions/:revision/restore", async ({ env, request, user, params }) =>
     json(await restoreRevision(env.DB, user, params.id, params.revision, await readJson(request))),
 );

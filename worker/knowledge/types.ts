@@ -137,7 +137,10 @@ export async function updateType(db: D1Database, user: PortalUser, typeId: strin
         await checkTargets(db, row.space_id, body.schema, typeId);
     }
     if (body.archived === true && !row.archived_at) {
-        const live = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_object_types WHERE space_id = ? AND archived_at IS NULL").bind(row.space_id).first<{ n: number }>();
+        const live = await db
+            .prepare("SELECT COUNT(*) AS n FROM knowledge_object_types WHERE space_id = ? AND archived_at IS NULL")
+            .bind(row.space_id)
+            .first<{ n: number }>();
         if ((live?.n ?? 0) <= 1) throw new HttpError(422, "validation", "A space needs at least one type that isn't archived");
     }
 

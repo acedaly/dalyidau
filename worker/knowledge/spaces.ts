@@ -2,7 +2,7 @@
 // be shared. Shared spaces are managed by their owners and always keep at least one owner.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
-import { SPACE_ROLES, type KnowledgeMember } from "../../src/shared/knowledge/types";
+import { type KnowledgeMember, SPACE_ROLES } from "../../src/shared/knowledge/types";
 import { isRole, permissionsFor } from "../../src/shared/portal/permissions";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
@@ -96,7 +96,9 @@ export async function addMember(env: Env, db: D1Database, user: PortalUser, spac
 
 /** Removing or demoting the last owner would leave a space nobody can manage. */
 const keepsAnOwner = (db: D1Database, spaceId: string) =>
-    db.prepare("INSERT INTO batch_guard (ok) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM knowledge_memberships WHERE space_id = ? AND role = 'owner')").bind(spaceId);
+    db
+        .prepare("INSERT INTO batch_guard (ok) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM knowledge_memberships WHERE space_id = ? AND role = 'owner')")
+        .bind(spaceId);
 
 export async function updateMember(db: D1Database, user: PortalUser, spaceId: string, email: string, input: unknown) {
     await sharedSpace(db, user, spaceId);
@@ -106,7 +108,14 @@ export async function updateMember(db: D1Database, user: PortalUser, spaceId: st
             db.prepare("UPDATE knowledge_memberships SET role = ?, updated_at = ? WHERE space_id = ? AND email = ?").bind(role, nowIso(), spaceId, email),
             requireChange(db),
             keepsAnOwner(db, spaceId),
-            knowledgeAudit(db, { spaceId, actor: user.email, action: "member.role", entityType: "member", entityId: email, summary: `Changed a member's role to ${role}` }),
+            knowledgeAudit(db, {
+                spaceId,
+                actor: user.email,
+                action: "member.role",
+                entityType: "member",
+                entityId: email,
+                summary: `Changed a member's role to ${role}`,
+            }),
         ]);
     } catch (error) {
         if (isGuardFailure(error)) {

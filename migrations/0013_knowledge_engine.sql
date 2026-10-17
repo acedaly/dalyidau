@@ -91,8 +91,9 @@ CREATE INDEX knowledge_objects_space_type ON knowledge_objects(space_id, type_id
 CREATE INDEX knowledge_objects_inbox ON knowledge_objects(space_id, in_inbox) WHERE in_inbox = 1;
 CREATE UNIQUE INDEX knowledge_objects_source ON knowledge_objects(space_id, source_system, source_id) WHERE source_id IS NOT NULL;
 
--- Snapshots of an object after each saved change. Consecutive autosaves by one person within a
--- few minutes update the latest snapshot rather than adding one per keystroke pause.
+-- Snapshots of an object after each saved change. Consecutive autosaves from one editing session
+-- (one open page) within a few minutes update the latest snapshot rather than adding one per
+-- keystroke pause. Another session, even the same person's other tab, always adds its own.
 CREATE TABLE knowledge_revisions (
     id TEXT PRIMARY KEY,
     space_id TEXT NOT NULL,
@@ -105,6 +106,8 @@ CREATE TABLE knowledge_revisions (
     content_format TEXT NOT NULL,
     properties_json TEXT NOT NULL CHECK (json_valid(properties_json)),
     changed_by TEXT NOT NULL,
+    -- The editing session that made it (a random id per open page); NULL never coalesces.
+    session_id TEXT,
     started_at TEXT NOT NULL,
     changed_at TEXT NOT NULL,
     UNIQUE (object_id, version),

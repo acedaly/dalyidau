@@ -7,13 +7,7 @@
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { CONTENT_FORMAT, DocumentError, normaliseDocument } from "../../src/shared/knowledge/content";
-import {
-    PERSON_TYPE_SLUG,
-    type PropertyDef,
-    type PropertyValues,
-    applyPropertyChanges,
-    referencedIds,
-} from "../../src/shared/knowledge/properties";
+import { PERSON_TYPE_SLUG, type PropertyDef, type PropertyValues, applyPropertyChanges, referencedIds } from "../../src/shared/knowledge/properties";
 import type {
     KnowledgeLink,
     KnowledgeObjectDetail,
@@ -116,7 +110,9 @@ const tagStatements = (db: D1Database, spaceId: string, objectId: string, tags: 
     ...tags.flatMap((name) => [
         db.prepare("INSERT OR IGNORE INTO knowledge_tags (id, space_id, name, created_at) VALUES (?, ?, ?, ?)").bind(newId("ktg"), spaceId, name, now),
         db
-            .prepare("INSERT OR IGNORE INTO knowledge_object_tags (space_id, object_id, tag_id) SELECT ?, ?, id FROM knowledge_tags WHERE space_id = ? AND name = ?")
+            .prepare(
+                "INSERT OR IGNORE INTO knowledge_object_tags (space_id, object_id, tag_id) SELECT ?, ?, id FROM knowledge_tags WHERE space_id = ? AND name = ?",
+            )
             .bind(spaceId, objectId, spaceId, name),
     ]),
 ];
@@ -164,7 +160,21 @@ const revisionInsert = (db: D1Database, row: { id: string; space_id: string }, v
             `INSERT INTO knowledge_revisions (id, space_id, object_id, version, kind, type_id, title, content_json, content_format, properties_json, changed_by, started_at, changed_at)
              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`,
         )
-        .bind(newId("krv"), row.space_id, row.id, version, kind, snap.typeId, snap.title, snap.contentJson, CONTENT_FORMAT, snap.propertiesJson, actor, now, now);
+        .bind(
+            newId("krv"),
+            row.space_id,
+            row.id,
+            version,
+            kind,
+            snap.typeId,
+            snap.title,
+            snap.contentJson,
+            CONTENT_FORMAT,
+            snap.propertiesJson,
+            actor,
+            now,
+            now,
+        );
 
 // --- Reading -------------------------------------------------------------------------------------
 
@@ -235,7 +245,15 @@ const loadRow = async (db: D1Database, objectId: string) => {
     return row;
 };
 
-type LinkRow = { relation_id: string; relation_type: string; origin: KnowledgeLink["origin"]; id: string; title: string; type_id: string; status: ObjectStatus };
+type LinkRow = {
+    relation_id: string;
+    relation_type: string;
+    origin: KnowledgeLink["origin"];
+    id: string;
+    title: string;
+    type_id: string;
+    status: ObjectStatus;
+};
 const toLink = (r: LinkRow): KnowledgeLink => ({
     relationId: r.relation_id,
     relationType: r.relation_type,
@@ -321,7 +339,21 @@ export async function createObject(db: D1Database, user: PortalUser, spaceId: st
                     created_by, updated_by, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(search_rowid), 0) + 1 FROM knowledge_objects), ?, ?, ?, ?)`,
             )
-            .bind(id, spaceId, type.id, title, snap.contentJson, CONTENT_FORMAT, content.text, snap.propertiesJson, body.inInbox ? 1 : 0, user.email, user.email, now, now),
+            .bind(
+                id,
+                spaceId,
+                type.id,
+                title,
+                snap.contentJson,
+                CONTENT_FORMAT,
+                content.text,
+                snap.propertiesJson,
+                body.inInbox ? 1 : 0,
+                user.email,
+                user.email,
+                now,
+                now,
+            ),
         revisionInsert(db, { id, space_id: spaceId }, 1, "create", snap, user.email, now),
         ...tagStatements(db, spaceId, id, tags, now),
         ...relationStatements(db, spaceId, id, "content", contentLinks(content.links), user.email, now),
@@ -343,6 +375,11 @@ const updateInput = z
         typeId: z.string().max(40).optional(),
         tags: z.array(z.string().max(100)).max(100).optional(),
         inInbox: z.boolean().optional(),
+        /** The editor's session id: saves from one session within a few minutes share a revision. */
+        session: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]{8,64}$/)
+            .optional(),
     })
     .strict();
 
@@ -396,6 +433,7 @@ export async function updateObject(db: D1Database, user: PortalUser, objectId: s
         propertyLinks: changed.properties || typeChanged ? propertyLinks(type.schema.properties, values) : null,
         revision: changed.title || changed.content || changed.properties || changed.type,
         fields,
+        session: body.session ?? null,
     });
     return objectDetail(db, objectId);
 }
@@ -411,6 +449,7 @@ interface UpdatePlan {
     /** Whether the change is worth a revision (title, content, properties or type). */
     revision: boolean;
     fields: string[];
+    session: string | null;
 }
 
 async function writeUpdate(db: D1Database, user: PortalUser, row: ObjectRow, plan: UpdatePlan) {
@@ -447,15 +486,15 @@ async function writeUpdate(db: D1Database, user: PortalUser, row: ObjectRow, pla
             ),
         requireChange(db),
     ];
-    if (plan.revision && plan.kind === "edit") {
-        // One revision per editing session: extend this person's latest edit revision if it started
-        // recently; otherwise add a new one (and only then an audit entry).
+    if (plan.revision && plan.kind === "edit" && plan.session) {
+        // One revision per editing session: extend this session's latest edit revision if it started
+        // recently and nobody saved in between; otherwise add a new one (and only then an audit entry).
         statements.push(
             db
                 .prepare(
                     `UPDATE knowledge_revisions SET version = ?, type_id = ?, title = ?, content_json = ?, content_format = ?, properties_json = ?, changed_at = ?
                      WHERE id = (SELECT id FROM knowledge_revisions WHERE object_id = ? ORDER BY version DESC LIMIT 1)
-                       AND changed_by = ? AND kind = 'edit' AND started_at > ?`,
+                       AND changed_by = ? AND session_id = ? AND kind = 'edit' AND started_at > ?`,
                 )
                 .bind(
                     version,
@@ -467,14 +506,29 @@ async function writeUpdate(db: D1Database, user: PortalUser, row: ObjectRow, pla
                     now,
                     row.id,
                     user.email,
+                    plan.session,
                     new Date(Date.now() - REVISION_WINDOW_MS).toISOString(),
                 ),
             db
                 .prepare(
-                    `INSERT INTO knowledge_revisions (id, space_id, object_id, version, kind, type_id, title, content_json, content_format, properties_json, changed_by, started_at, changed_at)
-                     SELECT ?, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 0`,
+                    `INSERT INTO knowledge_revisions (id, space_id, object_id, version, kind, type_id, title, content_json, content_format, properties_json, changed_by, session_id, started_at, changed_at)
+                     SELECT ?, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 0`,
                 )
-                .bind(newId("krv"), row.space_id, row.id, version, plan.snap.typeId, plan.snap.title, plan.snap.contentJson, CONTENT_FORMAT, plan.snap.propertiesJson, user.email, now, now),
+                .bind(
+                    newId("krv"),
+                    row.space_id,
+                    row.id,
+                    version,
+                    plan.snap.typeId,
+                    plan.snap.title,
+                    plan.snap.contentJson,
+                    CONTENT_FORMAT,
+                    plan.snap.propertiesJson,
+                    user.email,
+                    plan.session,
+                    now,
+                    now,
+                ),
             knowledgeAudit(db, audit, "WHERE changes() > 0"),
         );
     } else if (plan.revision) {
@@ -520,10 +574,19 @@ export async function changeStatus(db: D1Database, user: PortalUser, objectId: s
     try {
         await db.batch([
             db
-                .prepare(`UPDATE knowledge_objects SET ${statusSet(spec.to)}, version = version + 1 WHERE id = ?3 AND status IN (${spec.from.map((s) => `'${s}'`).join(", ")})`)
+                .prepare(
+                    `UPDATE knowledge_objects SET ${statusSet(spec.to)}, version = version + 1 WHERE id = ?3 AND status IN (${spec.from.map((s) => `'${s}'`).join(", ")})`,
+                )
                 .bind(now, user.email, objectId),
             requireChange(db),
-            knowledgeAudit(db, { spaceId: access.space_id, actor: user.email, action: spec.audit, entityType: "object", entityId: objectId, summary: spec.summary }),
+            knowledgeAudit(db, {
+                spaceId: access.space_id,
+                actor: user.email,
+                action: spec.audit,
+                entityType: "object",
+                entityId: objectId,
+                summary: spec.summary,
+            }),
         ]);
     } catch (error) {
         if (isGuardFailure(error)) throw new HttpError(409, "conflict", "This object changed in the meantime. Reload and try again.");
@@ -547,7 +610,9 @@ export async function bulkAction(db: D1Database, user: PortalUser, spaceId: stri
     if (body.action === "file") {
         // "File" takes objects out of the inbox.
         update = db
-            .prepare(`UPDATE knowledge_objects SET in_inbox = 0, version = version + 1 WHERE space_id = ? AND in_inbox = 1 AND id IN (${placeholders(ids.length)})`)
+            .prepare(
+                `UPDATE knowledge_objects SET in_inbox = 0, version = version + 1 WHERE space_id = ? AND in_inbox = 1 AND id IN (${placeholders(ids.length)})`,
+            )
             .bind(spaceId, ...ids);
     } else {
         const spec = STATUS_ACTIONS[body.action];
@@ -628,7 +693,9 @@ const toRevision = (r: RevisionRow): KnowledgeRevision => ({
 export async function listRevisions(db: D1Database, user: PortalUser, objectId: string): Promise<KnowledgeRevision[]> {
     await requireObject(db, user, objectId);
     const rows = await db
-        .prepare("SELECT id, version, kind, type_id, title, changed_by, started_at, changed_at FROM knowledge_revisions WHERE object_id = ? ORDER BY version DESC LIMIT 200")
+        .prepare(
+            "SELECT id, version, kind, type_id, title, changed_by, started_at, changed_at FROM knowledge_revisions WHERE object_id = ? ORDER BY version DESC LIMIT 200",
+        )
         .bind(objectId)
         .all<RevisionRow>();
     return rows.results.map(toRevision);
@@ -643,7 +710,12 @@ const loadRevision = async (db: D1Database, objectId: string, revisionId: string
 export async function getRevision(db: D1Database, user: PortalUser, objectId: string, revisionId: string): Promise<KnowledgeRevisionDetail> {
     await requireObject(db, user, objectId);
     const row = await loadRevision(db, objectId, revisionId);
-    return { ...toRevision(row), typeId: row.type_id, content: parseJson(row.content_json, { type: "doc", content: [] }), properties: parseJson(row.properties_json, {}) };
+    return {
+        ...toRevision(row),
+        typeId: row.type_id,
+        content: parseJson(row.content_json, { type: "doc", content: [] }),
+        properties: parseJson(row.properties_json, {}),
+    };
 }
 
 /** Makes an earlier revision current again, as a new version. History is never rewritten. */
@@ -667,6 +739,7 @@ export async function restoreRevision(db: D1Database, user: PortalUser, objectId
         propertyLinks: propertyLinks(type.schema.properties, values),
         revision: true,
         fields: ["title", "content", "properties", "type"],
+        session: null,
     });
     return objectDetail(db, objectId);
 }
@@ -705,7 +778,15 @@ export async function addRelation(db: D1Database, user: PortalUser, sourceId: st
             .bind(id, source.space_id, sourceId, body.targetId, body.relationType, user.email, nowIso()),
         knowledgeAudit(
             db,
-            { spaceId: source.space_id, actor: user.email, action: "relation.create", entityType: "relation", entityId: id, summary: "Linked two objects", changes: { sourceId, targetId: body.targetId } },
+            {
+                spaceId: source.space_id,
+                actor: user.email,
+                action: "relation.create",
+                entityType: "relation",
+                entityId: id,
+                summary: "Linked two objects",
+                changes: { sourceId, targetId: body.targetId },
+            },
             "WHERE changes() > 0",
         ),
     ]);

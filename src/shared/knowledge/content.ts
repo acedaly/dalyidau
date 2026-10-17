@@ -38,17 +38,7 @@ interface NodeSpec {
     inline?: boolean;
 }
 
-const BLOCKS = new Set([
-    "paragraph",
-    "heading",
-    "blockquote",
-    "bulletList",
-    "orderedList",
-    "taskList",
-    "codeBlock",
-    "horizontalRule",
-    "table",
-]);
+const BLOCKS = new Set(["paragraph", "heading", "blockquote", "bulletList", "orderedList", "taskList", "codeBlock", "horizontalRule", "table"]);
 const INLINE = new Set(["text", "hardBreak", "objectLink"]);
 
 const intIn = (value: unknown, min: number, max: number) => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;

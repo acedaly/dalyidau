@@ -65,7 +65,12 @@ export async function ensurePersonalSpace(db: D1Database, user: PortalUser): Pro
             .prepare(`INSERT INTO knowledge_memberships (space_id, email, role, added_by, created_at, updated_at) SELECT ?, ?, 'owner', ?, ?, ? ${ifCreated}`)
             .bind(id, user.email, user.email, now, now, id),
         ...seedTypeStatements(db, id, user.email, now, ifCreated),
-        knowledgeAudit(db, { spaceId: id, actor: user.email, action: "space.create", entityType: "space", entityId: id, summary: "Created a personal space" }, ifCreated, [id]),
+        knowledgeAudit(
+            db,
+            { spaceId: id, actor: user.email, action: "space.create", entityType: "space", entityId: id, summary: "Created a personal space" },
+            ifCreated,
+            [id],
+        ),
     ]);
 }
 

@@ -56,7 +56,10 @@ export async function loadKnowledgePage(env: Env, user: PortalUser, url: URL, pa
             case "list": {
                 const base = await shell(env, user, spaceParam);
                 const filters = parseListFilters(url, LIST_VIEWS[arg ?? "all"]);
-                const [list, tags] = await Promise.all([listObjects(env.DB, base.space.id, filters, { limit: 200, offset: 0 }), listTags(env.DB, base.space.id)]);
+                const [list, tags] = await Promise.all([
+                    listObjects(env.DB, base.space.id, filters, { limit: 200, offset: 0 }),
+                    listTags(env.DB, base.space.id),
+                ]);
                 return { route: "knowledge-list", ...base, filters, objects: list.objects, total: list.total, tags };
             }
             case "object": {

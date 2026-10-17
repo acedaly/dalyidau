@@ -1,8 +1,19 @@
 // Daly Knowledge: privacy between spaces, roles, the object engine, revisions, links, search and
 // the audit trail. Every identity here is fictional.
+import { createElement } from "react";
+import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
+import { PortalApp } from "../src/portal/portal-app";
 import type { DocNode } from "../src/shared/knowledge/content";
-import { HIGHLIGHT_END, HIGHLIGHT_START, type KnowledgeObjectDetail, type KnowledgeSearchHit, type KnowledgeSpace, type KnowledgeType } from "../src/shared/knowledge/types";
+import {
+    HIGHLIGHT_END,
+    HIGHLIGHT_START,
+    type KnowledgeObjectDetail,
+    type KnowledgeSearchHit,
+    type KnowledgeSpace,
+    type KnowledgeType,
+} from "../src/shared/knowledge/types";
+import type { PortalPageData } from "../src/shared/portal/types";
 import { KNOWLEDGE_FTS_REBUILD } from "../worker/knowledge/search";
 import { ORIGIN, OWNER, SECOND_OWNER, accessToken, apiCall, call, db, resetPortal } from "./portal-helpers";
 
@@ -28,11 +39,13 @@ const create = async (spaceId: string, body: Record<string, unknown>, email = OW
     expect(result.status, result.text).toBe(201);
     return result.json;
 };
-const patch = (id: string, body: Record<string, unknown>, email = OWNER) => apiCall<KnowledgeObjectDetail & { current?: { version: number } }>("PATCH", `${K}/objects/${id}`, body, { email });
+const patch = (id: string, body: Record<string, unknown>, email = OWNER) =>
+    apiCall<KnowledgeObjectDetail & { current?: { version: number } }>("PATCH", `${K}/objects/${id}`, body, { email });
 const search = async (q: string, params = "", email = OWNER) =>
     (await apiCall<{ hits: KnowledgeSearchHit[] }>("GET", `${K}/search?q=${encodeURIComponent(q)}${params}`, undefined, { email })).json.hits;
 const auditRows = async () =>
-    (await db().prepare("SELECT action, summary, changes FROM knowledge_audit ORDER BY id").all<{ action: string; summary: string; changes: string | null }>()).results;
+    (await db().prepare("SELECT action, summary, changes FROM knowledge_audit ORDER BY id").all<{ action: string; summary: string; changes: string | null }>())
+        .results;
 
 const addPortalUser = (email: string, role: "admin" | "editor" | "viewer") => apiCall("POST", "/api/portal/users", { email, role });
 
@@ -84,6 +97,12 @@ describe("migration 0013", () => {
         await db().batch(KNOWLEDGE_FTS_REBUILD.map((sql) => db().prepare(sql)));
         expect((await search("hydrants")).map((h) => h.object.title)).toEqual(["Bushfire season planning"]);
         expect((await search("seasonal")).map((h) => h.object.title)).toEqual(["Bushfire season planning"]);
+    });
+
+    it("gives the backup script the same rebuild statements the Worker uses", async () => {
+        const { default: script } = await import("../scripts/lib/virtual-tables.mjs?raw");
+        const flat = (sql: string) => sql.replace(/\s+/g, " ").trim();
+        for (const statement of KNOWLEDGE_FTS_REBUILD) expect(flat(script)).toContain(flat(statement));
     });
 });
 
@@ -210,7 +229,9 @@ describe("shared spaces and roles", () => {
         await addPortalUser(EDITOR, "editor");
         const refused = await apiCall("POST", `${K}/spaces/${space.id}/members`, { email: EDITOR, role: "viewer" }, { email: ADMIN });
         expect(refused.status).toBe(422);
-        expect((await apiCall("POST", `${K}/spaces/${space.id}/members`, { email: "stranger@example.com", role: "viewer" }, { email: ADMIN })).status).toBe(422);
+        expect((await apiCall("POST", `${K}/spaces/${space.id}/members`, { email: "stranger@example.com", role: "viewer" }, { email: ADMIN })).status).toBe(
+            422,
+        );
         expect((await auditRows()).map((r) => r.action)).toEqual(expect.arrayContaining(["member.add", "member.role"]));
     });
 
@@ -227,7 +248,12 @@ describe("shared spaces and roles", () => {
 describe("objects", () => {
     it("creates, edits, archives, trashes and restores objects", async () => {
         const space = await personal();
-        const created = await create(space.id, { title: "  Weekly   review ", content: doc("Look back"), tags: ["Routine", "routine", "#habits"], inInbox: true });
+        const created = await create(space.id, {
+            title: "  Weekly   review ",
+            content: doc("Look back"),
+            tags: ["Routine", "routine", "#habits"],
+            inInbox: true,
+        });
         expect(created.object).toMatchObject({ title: "Weekly review", status: "active", inInbox: true, version: 1, tags: ["habits", "Routine"] });
         expect(created.object.typeId).toBe(await typeId(space.id, "page"));
 
@@ -294,17 +320,26 @@ describe("objects", () => {
         const space = await personal();
         const bad = [
             { type: "doc", content: [{ type: "script", content: [] }] },
-            { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }] }] }] },
-            { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "link", attrs: { href: "//evil.example" } }] }] }] },
+            {
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }] }] }],
+            },
+            {
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "link", attrs: { href: "//evil.example" } }] }] }],
+            },
             { type: "doc", content: [{ type: "text", text: "loose text" }] },
             { type: "doc", content: [{ type: "image", attrs: { src: "https://tracker.example/pixel.gif" } }] },
             "not a document",
         ];
-        for (const content of bad) expect((await apiCall("POST", `${K}/spaces/${space.id}/objects`, { title: "x", content })).status, JSON.stringify(content)).toBe(422);
+        for (const content of bad)
+            expect((await apiCall("POST", `${K}/spaces/${space.id}/objects`, { title: "x", content })).status, JSON.stringify(content)).toBe(422);
 
         const html = await create(space.id, {
             title: "<img src=x onerror=alert(1)>",
-            content: doc(paragraph(text("<script>alert(1)</script>", [{ type: "bold" }, { type: "link", attrs: { href: "https://example.com", onclick: "x" } }]))),
+            content: doc(
+                paragraph(text("<script>alert(1)</script>", [{ type: "bold" }, { type: "link", attrs: { href: "https://example.com", onclick: "x" } }])),
+            ),
         });
         expect(html.object.title).toBe("<img src=x onerror=alert(1)>");
         expect(html.object.content.content![0].content![0].marks).toEqual([{ type: "bold" }, { type: "link", attrs: { href: "https://example.com" } }]);
@@ -318,19 +353,26 @@ describe("objects", () => {
         const space = await sharedSpace("editor");
         const note = await create(space.id, { title: "Speech", content: doc("Draft one") });
         const id = note.object.id;
-        await patch(id, { version: 1, content: doc("Draft two") });
-        await patch(id, { version: 2, content: doc("Draft three") });
+        const session = "session-tab-one";
+        await patch(id, { version: 1, content: doc("Draft two"), session });
+        await patch(id, { version: 2, content: doc("Draft three"), session });
         const list = async () =>
-            (await apiCall<{ revisions: { id: string; version: number; kind: string; changedBy: string }[] }>("GET", `${K}/objects/${id}/revisions`)).json.revisions;
+            (await apiCall<{ revisions: { id: string; version: number; kind: string; changedBy: string }[] }>("GET", `${K}/objects/${id}/revisions`)).json
+                .revisions;
         // Autosaves in one session update one revision; the creation snapshot is kept as it was.
         expect((await list()).map((r) => [r.kind, r.version])).toEqual([
             ["edit", 3],
             ["create", 1],
         ]);
-        // Someone else's edit always starts a new revision, so nobody's work is folded into another's.
-        await patch(id, { version: 3, content: doc("Draft four") }, ADMIN);
+        // Another session, even the same person's other tab, always starts a new revision, so nobody's
+        // work is folded into anyone else's; and so does a save that names no session at all.
+        await patch(id, { version: 3, content: doc("Draft four"), session: "session-tab-two" });
+        await patch(id, { version: 4, content: doc("Draft five"), session }, ADMIN);
+        await patch(id, { version: 5, content: doc("Draft four") });
         expect((await list()).map((r) => [r.version, r.changedBy])).toEqual([
-            [4, ADMIN],
+            [6, OWNER],
+            [5, ADMIN],
+            [4, OWNER],
             [3, OWNER],
             [1, OWNER],
         ]);
@@ -340,14 +382,9 @@ describe("objects", () => {
         expect(old.json.revision.content).toEqual(doc("Draft one"));
 
         expect((await apiCall("POST", `${K}/objects/${id}/revisions/${original.id}/restore`, { version: 1 })).status).toBe(409);
-        const restored = await apiCall<KnowledgeObjectDetail>("POST", `${K}/objects/${id}/revisions/${original.id}/restore`, { version: 4 });
-        expect(restored.json.object).toMatchObject({ version: 5, content: doc("Draft one") });
-        expect((await list()).map((r) => [r.kind, r.version])).toEqual([
-            ["restore", 5],
-            ["edit", 4],
-            ["edit", 3],
-            ["create", 1],
-        ]);
+        const restored = await apiCall<KnowledgeObjectDetail>("POST", `${K}/objects/${id}/revisions/${original.id}/restore`, { version: 6 });
+        expect(restored.json.object).toMatchObject({ version: 7, content: doc("Draft one") });
+        expect((await list()).map((r) => [r.kind, r.version])[0]).toEqual(["restore", 7]);
         expect(await search("four")).toEqual([]);
         expect((await search("one")).map((h) => h.object.id)).toEqual([id]);
         // A revision belongs to its object: it can't be read or restored through another one.
@@ -367,7 +404,9 @@ describe("objects", () => {
             action: "archive",
         });
         expect(archived.json.changed).toBe(1);
-        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${other.object.id}`, undefined, { email: SECOND_OWNER })).json.object.status).toBe("active");
+        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${other.object.id}`, undefined, { email: SECOND_OWNER })).json.object.status).toBe(
+            "active",
+        );
     });
 });
 
@@ -400,7 +439,10 @@ describe("properties and types", () => {
         const meetingType = await typeId(space.id, "meeting");
         const foreign = await create((await personal(SECOND_OWNER)).id, { title: "Elsewhere" }, SECOND_OWNER);
 
-        expect((await apiCall("POST", `${K}/spaces/${space.id}/objects`, { typeId: meetingType, title: "x", properties: { participants: [page.object.id] } })).status).toBe(422);
+        expect(
+            (await apiCall("POST", `${K}/spaces/${space.id}/objects`, { typeId: meetingType, title: "x", properties: { participants: [page.object.id] } }))
+                .status,
+        ).toBe(422);
 
         const meeting = await create(space.id, {
             typeId: meetingType,
@@ -424,11 +466,15 @@ describe("properties and types", () => {
             ["Kick-off", "participants"],
         ]);
         // The other person's object learns nothing.
-        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${foreign.object.id}`, undefined, { email: SECOND_OWNER })).json.backlinks).toEqual([]);
+        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${foreign.object.id}`, undefined, { email: SECOND_OWNER })).json.backlinks).toEqual(
+            [],
+        );
 
         // Removing the link from the text removes the backlink; trashed sources don't show.
         await patch(meeting.object.id, { version: 1, content: doc("Rescheduled") });
-        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${person.object.id}`)).json.backlinks.map((l) => l.relationType)).toEqual(["participants"]);
+        expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${person.object.id}`)).json.backlinks.map((l) => l.relationType)).toEqual([
+            "participants",
+        ]);
         await apiCall("POST", `${K}/objects/${meeting.object.id}/status/trash`);
         expect((await apiCall<KnowledgeObjectDetail>("GET", `${K}/objects/${person.object.id}`)).json.backlinks).toEqual([]);
     });
@@ -437,7 +483,10 @@ describe("properties and types", () => {
         const space = await personal();
         const a = await create(space.id, { title: "Decision" });
         const b = await create(space.id, { title: "Rationale" });
-        const linked = await apiCall<KnowledgeObjectDetail>("POST", `${K}/objects/${a.object.id}/relations`, { targetId: b.object.id, relationType: "Based on" });
+        const linked = await apiCall<KnowledgeObjectDetail>("POST", `${K}/objects/${a.object.id}/relations`, {
+            targetId: b.object.id,
+            relationType: "Based on",
+        });
         expect(linked.status).toBe(201);
         expect(linked.json.outgoing).toEqual([expect.objectContaining({ relationType: "based_on", origin: "manual" })]);
         expect((await apiCall("POST", `${K}/objects/${a.object.id}/relations`, { targetId: b.object.id, relationType: "based_on" })).status).toBe(409);
@@ -509,7 +558,16 @@ describe("search", () => {
     it("treats FTS syntax in the query as text, never as an error or a way around the filters", async () => {
         const space = await personal();
         await create(space.id, { title: "Alpha" });
-        for (const q of ['title:alpha OR "', "alpha) OR (*", "NEAR(alpha", "*", "-alpha", "alpha AND NOT beta", "^alpha", "'; DROP TABLE knowledge_objects; --"]) {
+        for (const q of [
+            'title:alpha OR "',
+            "alpha) OR (*",
+            "NEAR(alpha",
+            "*",
+            "-alpha",
+            "alpha AND NOT beta",
+            "^alpha",
+            "'; DROP TABLE knowledge_objects; --",
+        ]) {
             const result = await apiCall("GET", `${K}/search?q=${encodeURIComponent(q)}`);
             expect(result.status, q).toBe(200);
         }
@@ -543,9 +601,24 @@ describe("search", () => {
 });
 
 describe("pages", () => {
-    it("serves every Knowledge page to its owner", async () => {
+    /** Pages render in the browser from the data the Worker embeds; render them here from exactly that. */
+    const render = (html: string) => {
+        const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
+        const payload = JSON.parse(json!) as { data: PortalPageData; path: string };
+        return renderToString(createElement(PortalApp, { data: payload.data, path: payload.path }));
+    };
+
+    it("serves and renders every Knowledge page for its owner", async () => {
         const space = await personal();
-        const note = await create(space.id, { title: "Hello", content: doc("World") });
+        const person = await create(space.id, { typeId: await typeId(space.id, "person"), title: "Riley Example" });
+        const note = await create(space.id, {
+            typeId: await typeId(space.id, "meeting"),
+            title: "Hello",
+            content: doc("World", paragraph(objectLink(person.object.id, "Riley Example"))),
+            properties: { participants: [person.object.id], date: "2027-01-05" },
+            tags: ["greeting"],
+            inInbox: true,
+        });
         const token = await accessToken();
         for (const path of [
             "/portal/knowledge",
@@ -561,7 +634,14 @@ describe("pages", () => {
             const response = await call(path, { token, headers: { Origin: ORIGIN } });
             expect(response.status, path).toBe(200);
             expect(response.headers.get("Cache-Control")).toBe("no-store");
+            const html = render(await response.text());
+            expect(html, path).not.toContain("Page not found");
         }
+        const page = render(await (await call(`/portal/knowledge/o/${note.object.id}`, { token })).text());
+        expect(page).toContain("Riley Example");
+        expect(page).toContain("greeting");
+        const search = render(await (await call("/portal/knowledge/search?q=world", { token })).text());
+        expect(search).toContain("<mark");
         expect((await call("/portal/knowledge/o/kob_aaaaaaaaaaaaaa", { token })).status).toBe(404);
     });
 });

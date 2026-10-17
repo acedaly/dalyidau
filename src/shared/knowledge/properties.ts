@@ -79,30 +79,27 @@ export const propertyDefSchema = z.object({
 });
 export type PropertyDef = z.infer<typeof propertyDefSchema>;
 
-export const typeSchemaSchema = z
-    .object({ properties: z.array(propertyDefSchema).max(MAX_PROPERTIES).default([]) })
-    .superRefine((schema, ctx) => {
-        const keys = new Set<string>();
-        schema.properties.forEach((def, index) => {
-            if (keys.has(def.key)) ctx.addIssue({ code: "custom", path: ["properties", index, "key"], message: `“${def.key}” is used twice` });
-            keys.add(def.key);
-            if (def.type === "select" || def.type === "multi_select") {
-                if (!def.options?.length) ctx.addIssue({ code: "custom", path: ["properties", index, "options"], message: "Add at least one option" });
-                const ids = new Set<string>();
-                for (const option of def.options ?? []) {
-                    if (ids.has(option.id))
-                        ctx.addIssue({ code: "custom", path: ["properties", index, "options"], message: `Option “${option.id}” is used twice` });
-                    ids.add(option.id);
-                }
+export const typeSchemaSchema = z.object({ properties: z.array(propertyDefSchema).max(MAX_PROPERTIES).default([]) }).superRefine((schema, ctx) => {
+    const keys = new Set<string>();
+    schema.properties.forEach((def, index) => {
+        if (keys.has(def.key)) ctx.addIssue({ code: "custom", path: ["properties", index, "key"], message: `“${def.key}” is used twice` });
+        keys.add(def.key);
+        if (def.type === "select" || def.type === "multi_select") {
+            if (!def.options?.length) ctx.addIssue({ code: "custom", path: ["properties", index, "options"], message: "Add at least one option" });
+            const ids = new Set<string>();
+            for (const option of def.options ?? []) {
+                if (ids.has(option.id))
+                    ctx.addIssue({ code: "custom", path: ["properties", index, "options"], message: `Option “${option.id}” is used twice` });
+                ids.add(option.id);
             }
-            if (def.default !== undefined && def.default !== null) {
-                if (isReferenceType(def.type))
-                    ctx.addIssue({ code: "custom", path: ["properties", index, "default"], message: "References can't have a default" });
-                else if (checkValue(def, def.default).error)
-                    ctx.addIssue({ code: "custom", path: ["properties", index, "default"], message: "The default isn't a valid value" });
-            }
-        });
+        }
+        if (def.default !== undefined && def.default !== null) {
+            if (isReferenceType(def.type)) ctx.addIssue({ code: "custom", path: ["properties", index, "default"], message: "References can't have a default" });
+            else if (checkValue(def, def.default).error)
+                ctx.addIssue({ code: "custom", path: ["properties", index, "default"], message: "The default isn't a valid value" });
+        }
     });
+});
 export type TypeSchema = z.infer<typeof typeSchemaSchema>;
 
 export type PropertyValue = string | number | boolean | string[];
@@ -171,7 +168,9 @@ export function checkValue(def: PropertyDef, raw: unknown): Checked {
         }
         case "email": {
             const checked = text(254);
-            return checked.error || EMAIL.test(checked.value as string) ? { value: (checked.value as string).toLowerCase() } : { error: "Enter an email address" };
+            return checked.error || EMAIL.test(checked.value as string)
+                ? { value: (checked.value as string).toLowerCase() }
+                : { error: "Enter an email address" };
         }
         case "phone": {
             const checked = text(40);
@@ -246,6 +245,4 @@ export function applyPropertyChanges(
 
 /** Every object id referenced by a reference property, keyed by property. */
 export const referencedIds = (defs: readonly PropertyDef[], values: PropertyValues) =>
-    defs
-        .filter((def) => isReferenceType(def.type) && Array.isArray(values[def.key]))
-        .map((def) => ({ def, ids: values[def.key] as string[] }));
+    defs.filter((def) => isReferenceType(def.type) && Array.isArray(values[def.key])).map((def) => ({ def, ids: values[def.key] as string[] }));
