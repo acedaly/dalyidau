@@ -9,7 +9,7 @@ export interface KnowledgeAuditInput {
     spaceId: string;
     actor: string;
     action: string;
-    entityType: "space" | "member" | "type" | "object" | "relation" | "revision";
+    entityType: "space" | "member" | "type" | "object" | "relation" | "revision" | "template" | "collection" | "view";
     entityId?: string | null;
     summary: string;
     changes?: unknown;

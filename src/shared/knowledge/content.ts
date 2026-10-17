@@ -22,6 +22,13 @@ export interface DocNode {
 
 export const EMPTY_DOCUMENT: DocNode = { type: "doc", content: [] };
 
+/** Plain text as paragraphs, one per line (blank lines become empty paragraphs). */
+export const paragraphsFromText = (text: string): DocNode[] =>
+    text
+        .split(/\r?\n/)
+        .map((line) => line.trimEnd())
+        .map((line) => (line ? { type: "paragraph", content: [{ type: "text", text: line }] } : { type: "paragraph" }));
+
 const OBJECT_ID = /^kob_[a-z0-9]{14}$/;
 /** In-app links to an object, e.g. /portal/knowledge/o/kob_…, count as links for backlinks. */
 const OBJECT_PATH = /^\/portal\/knowledge\/o\/(kob_[a-z0-9]{14})(?:[?#].*)?$/;

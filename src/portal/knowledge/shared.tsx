@@ -17,6 +17,7 @@ import {
     User01,
 } from "@untitledui/icons";
 import { api } from "@/portal/lib/api";
+import { paragraphsFromText } from "@/shared/knowledge/content";
 import { HIGHLIGHT_END, HIGHLIGHT_START, type KnowledgeObjectDetail, type KnowledgeType, type TypeIcon } from "@/shared/knowledge/types";
 import { cx } from "@/utils/cx";
 
@@ -71,13 +72,7 @@ export const knowledgeApi = {
 };
 
 /** Plain text from what someone typed into a quick-capture box: one paragraph per line. */
-export const documentFromText = (text: string) => ({
-    type: "doc",
-    content: text
-        .split(/\r?\n/)
-        .map((line) => line.trimEnd())
-        .map((line) => (line ? { type: "paragraph", content: [{ type: "text", text: line }] } : { type: "paragraph" })),
-});
+export const documentFromText = (text: string) => ({ type: "doc", content: paragraphsFromText(text) });
 
 /** Renders a search snippet, turning the server's highlight markers into <mark>. Never parsed as HTML. */
 export const Highlighted = ({ text, className }: { text: string; className?: string }) => {

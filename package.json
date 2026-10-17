@@ -23,6 +23,8 @@
         "check:styles": "node scripts/check-style-tokens.mjs",
         "db:verify": "node scripts/db-verify.mjs",
         "db:backup": "node scripts/db-backup.mjs",
+        "test:backup": "node scripts/test-backup.mjs",
+        "knowledge:check-export": "node scripts/knowledge-export-check.mjs",
         "seed:staging": "node scripts/seed-staging.mjs"
     },
     "dependencies": {

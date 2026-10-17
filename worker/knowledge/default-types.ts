@@ -6,7 +6,7 @@ import type { PropertyDef } from "../../src/shared/knowledge/properties";
 import type { TypeIcon } from "../../src/shared/knowledge/types";
 import { newId } from "../portal/db";
 
-interface Seed {
+export interface Seed {
     slug: string;
     name: string;
     icon: TypeIcon;
@@ -120,3 +120,12 @@ export function seedTypeStatements(db: D1Database, spaceId: string, actor: strin
             ),
     );
 }
+
+/** One type, added if the space doesn't already have its slug. */
+export const seedTypeStatement = (db: D1Database, spaceId: string, actor: string, now: string, seed: Seed): D1PreparedStatement =>
+    db
+        .prepare(
+            `INSERT OR IGNORE INTO knowledge_object_types (id, space_id, name, slug, icon, description, schema_json, sort_order, created_by, updated_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM knowledge_object_types WHERE space_id = ?), ?, ?, ?, ?)`,
+        )
+        .bind(newId("kty"), spaceId, seed.name, seed.slug, seed.icon, seed.description, JSON.stringify({ properties: seed.properties({}) }), spaceId, actor, actor, now, now);

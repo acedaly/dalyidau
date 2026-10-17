@@ -29,6 +29,8 @@ export const withSecurityHeaders = (response: Response): Response => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
         // Pages opened from a signed link ask for no referrer at all; keep that stricter policy.
         if (name === "Referrer-Policy" && res.headers.get(name) === "no-referrer") continue;
+        // Downloads sandbox themselves with a stricter policy than pages need; keep it.
+        if (name === "Content-Security-Policy" && /\bsandbox\b/.test(res.headers.get(name) ?? "")) continue;
         res.headers.set(name, value);
     }
     return res;
