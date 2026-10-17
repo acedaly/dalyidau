@@ -142,7 +142,7 @@ Owner actions before invitations go out by SMS:
 - **D1 Time Travel** keeps erased data recoverable by the account owner for up to 30 days (documented in PRIVACY.md).
 - **Erased records lose their opt-out marker.** Re-importing an erased guest would make them contactable again.
 - The CSP allows inline styles (`'unsafe-inline'` in `style-src`), which React and Tailwind need; scripts are self-only.
-- **The live wedding site is public.** `wedding.daly.id.au` currently returns 200 to anonymous visitors, so the "Public wedding website" switch is on in production. It shows no guest data (tested), but confirm that's intended.
+- **Production is live.** All four guest-facing switches are on: Public wedding website and Native RSVP (since 13 October), Email delivery (13 October) and SMS delivery (16 October). The site shows no guest data (tested). Because guests can already open RSVP links, deploy F2 and F3 promptly. docs/PRODUCTION_READINESS.md still describes these switches as off.
 
 ## Test results
 
@@ -170,4 +170,4 @@ Owner actions before invitations go out by SMS:
     - A wrong webhook secret returns 404.
     - Security headers are present on the wedding host.
     - `/rsvp` is currently served with `public, max-age=0` and `strict-origin-when-cross-origin` (F3, fixed here, not yet deployed).
-    - Settings and counts: no active viewer or editor accounts; RSVP codes are on; links expire 60 days after the deadline.
+    - Settings and counts: no active viewer or editor accounts; RSVP codes are on; links expire 60 days after the deadline; all four guest-facing switches are on.
