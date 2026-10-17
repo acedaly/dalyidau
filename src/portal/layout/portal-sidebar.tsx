@@ -4,7 +4,9 @@
 // AvatarLabelGroup in place of the demo account switcher (which loads remote avatars).
 import type { FC, HTMLAttributes } from "react";
 import {
+    Archive,
     BarChartSquare02,
+    BookOpen01,
     Building07,
     Calendar,
     CalendarCheck01,
@@ -14,13 +16,18 @@ import {
     X as CloseIcon,
     Globe02,
     HeartRounded,
+    HomeLine,
+    Inbox01,
+    LayersThree01,
     LayoutGrid01,
     LogOut01,
     Mail01,
     Menu02,
     Receipt,
+    SearchLg,
     Settings01,
     ShieldTick,
+    Trash01,
     Users01,
     Wallet02,
 } from "@untitledui/icons";
@@ -38,7 +45,7 @@ import { ThemeToggle } from "@/components/site/theme-toggle";
 import { site } from "@/content/site";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
-import { type NavigationIcon, applicationForPath } from "@/shared/portal/applications";
+import { type ApplicationIcon, type NavigationIcon, applicationForPath } from "@/shared/portal/applications";
 import type { FlagKey } from "@/shared/portal/flags";
 import { ROLE_LABELS } from "@/shared/portal/permissions";
 import type { Permission } from "@/shared/portal/permissions";
@@ -69,6 +76,22 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     budget: Wallet02,
     suppliers: ClipboardCheck,
     settings: Settings01,
+    home: HomeLine,
+    inbox: Inbox01,
+    knowledge: BookOpen01,
+    search: SearchLg,
+    types: LayersThree01,
+    archive: Archive,
+    trash: Trash01,
+};
+
+const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = { wedding: HeartRounded, knowledge: BookOpen01 };
+
+/** Knowledge pages show one space at a time; its navigation keeps you in the space you're in. */
+const withSpace = (href: string) => {
+    if (typeof window === "undefined" || !href.startsWith("/portal/knowledge")) return href;
+    const space = new URLSearchParams(window.location.search).get("space");
+    return space ? `${href}?space=${encodeURIComponent(space)}` : href;
 };
 
 const portalSections = (path: string): { label: string; items: NavEntry[] }[] => {
@@ -122,6 +145,7 @@ const SidebarContent = ({ path }: { path: string }) => {
     const { user, can, isOn } = usePortal();
     const displayName = user.name ?? user.email.split("@")[0];
     const application = applicationForPath(path);
+    const ActiveIcon = application ? APPLICATION_ICONS[application.icon] : HeartRounded;
     const sections = portalSections(path);
 
     return (
@@ -135,7 +159,7 @@ const SidebarContent = ({ path }: { path: string }) => {
 
             {application && (
                 <div className="mx-4 mt-5 flex items-center gap-3 rounded-lg bg-brand-primary px-3 py-2.5 ring-1 ring-brand_alt ring-inset">
-                    <HeartRounded aria-hidden="true" className="size-5 shrink-0 text-fg-brand-primary" />
+                    <ActiveIcon aria-hidden="true" className="size-5 shrink-0 text-fg-brand-primary" />
                     <span className="min-w-0">
                         <span className="block text-xs font-medium text-brand-secondary">Active application</span>
                         <span className="block truncate text-sm font-semibold text-primary">{application.name}</span>
@@ -158,7 +182,7 @@ const SidebarContent = ({ path }: { path: string }) => {
                                         <li key={item.href} className="py-0.25">
                                             <NavItemBase
                                                 icon={item.icon}
-                                                href={item.href}
+                                                href={withSpace(item.href)}
                                                 type="link"
                                                 current={item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`))}
                                             >

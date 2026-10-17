@@ -1,4 +1,4 @@
-import { ArrowUpRight, HeartRounded, LayoutGrid01 } from "@untitledui/icons";
+import { ArrowUpRight, BookOpen01, HeartRounded, LayoutGrid01 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
@@ -8,7 +8,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { type PortalApplication, applicationById } from "@/shared/portal/applications";
 
-const ICONS = { wedding: HeartRounded } as const;
+const ICONS = { wedding: HeartRounded, knowledge: BookOpen01 } as const;
 
 const ApplicationCard = ({ application }: { application: PortalApplication }) => {
     const { flags } = usePortal();
@@ -30,7 +30,13 @@ const ApplicationCard = ({ application }: { application: PortalApplication }) =>
                 <h2 className="text-xl font-semibold text-primary">{application.name}</h2>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-tertiary">{application.description}</p>
                 <div className="mt-auto pt-8">
-                    <Button href={application.baseRoute} size="md" iconTrailing={ArrowUpRight} className="w-full sm:w-auto">
+                    <Button
+                        href={application.baseRoute}
+                        size="md"
+                        iconTrailing={ArrowUpRight}
+                        className="w-full sm:w-auto"
+                        aria-label={`Open ${application.name}`}
+                    >
                         Open application
                     </Button>
                 </div>

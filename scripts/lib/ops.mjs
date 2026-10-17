@@ -147,6 +147,22 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
+        name: "Knowledge documents and properties are valid JSON",
+        sql: "SELECT id FROM knowledge_objects WHERE json_valid(content_json) = 0 OR json_valid(properties_json) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Every knowledge space has an owner",
+        sql: "SELECT s.id FROM knowledge_spaces s WHERE NOT EXISTS (SELECT 1 FROM knowledge_memberships m WHERE m.space_id = s.id AND m.role = 'owner') LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Rebuild with KNOWLEDGE_FTS_REBUILD (worker/knowledge/search.ts) if this ever fails.
+        name: "The knowledge search index covers every object",
+        sql: "SELECT o.id FROM knowledge_objects o LEFT JOIN knowledge_fts f ON f.rowid = o.search_rowid WHERE f.rowid IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
@@ -187,4 +203,13 @@ export const TABLES = [
     "timeline_items",
     "suppliers",
     "budget_items",
+    "knowledge_spaces",
+    "knowledge_memberships",
+    "knowledge_object_types",
+    "knowledge_objects",
+    "knowledge_revisions",
+    "knowledge_relations",
+    "knowledge_tags",
+    "knowledge_object_tags",
+    "knowledge_audit",
 ];

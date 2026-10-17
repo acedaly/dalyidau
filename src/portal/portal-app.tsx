@@ -1,4 +1,10 @@
 import { ToastProvider } from "@/portal/components/toast";
+import { KnowledgeHomePage } from "@/portal/knowledge/pages/knowledge-home-page";
+import { KnowledgeListPage } from "@/portal/knowledge/pages/knowledge-list-page";
+import { KnowledgeObjectPage } from "@/portal/knowledge/pages/knowledge-object-page";
+import { KnowledgeSearchPage } from "@/portal/knowledge/pages/knowledge-search-page";
+import { KnowledgeSettingsPage } from "@/portal/knowledge/pages/knowledge-settings-page";
+import { KnowledgeTypesPage } from "@/portal/knowledge/pages/knowledge-types-page";
 import { PortalSidebar } from "@/portal/layout/portal-sidebar";
 import { AuditPage } from "@/portal/pages/audit-page";
 import { BudgetPage } from "@/portal/pages/budget-page";
@@ -73,6 +79,18 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <PortalSettingsPage data={data} />;
         case "audit":
             return <AuditPage data={data} />;
+        case "knowledge-home":
+            return <KnowledgeHomePage data={data} />;
+        case "knowledge-list":
+            return <KnowledgeListPage data={data} />;
+        case "knowledge-object":
+            return <KnowledgeObjectPage key={data.detail.object.id} data={data} />;
+        case "knowledge-search":
+            return <KnowledgeSearchPage data={data} />;
+        case "knowledge-types":
+            return <KnowledgeTypesPage data={data} />;
+        case "knowledge-settings":
+            return <KnowledgeSettingsPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:
@@ -98,7 +116,7 @@ export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }
                         <div className="min-h-full bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary print:shadow-none print:ring-0">
                             {data.context.environment !== "production" && (
                                 <p className="border-b border-secondary bg-warning-primary px-4 py-2 text-xs font-medium text-warning-primary lg:rounded-t-xl lg:px-8 print:hidden">
-                                    {data.context.environment} environment: changes here don't affect the live wedding data.
+                                    {data.context.environment} environment: changes here don't affect the live data.
                                 </p>
                             )}
                             <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8 lg:pt-8 lg:pb-12 print:max-w-none print:p-0">
