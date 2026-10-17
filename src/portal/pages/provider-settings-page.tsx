@@ -125,7 +125,7 @@ export const ProviderSettingsPage = ({ data }: { data: PageData<"provider-settin
                     </div>
                     <dl className="grid grid-cols-[8rem_1fr] gap-2 text-sm">
                         <dt className="text-tertiary">Sender</dt>
-                        <dd className="text-secondary">{data.status.emailFrom ?? "Aidan & Amelia <wedding@daly.id.au>"}</dd>
+                        <dd className="text-secondary">{data.status.emailFrom ?? "Amelia & Aidan <wedding@daly.id.au>"}</dd>
                         <dt className="text-tertiary">Sending switch</dt>
                         <dd className="text-secondary">{data.emailEnabled ? "Enabled" : "Disabled"}</dd>
                     </dl>

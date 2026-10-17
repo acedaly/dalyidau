@@ -38,8 +38,8 @@ test("a household opens its invitation from the text, then RSVPs; anyone can sav
     page.on("pageerror", (e) => errors.push(e.message));
 
     await api(request, "put", "/api/portal/settings/wedding", {
-        partnerOne: "Aidan",
-        partnerTwo: "Amelia",
+        partnerOne: "Amelia",
+        partnerTwo: "Aidan",
         date: "2027-10-23",
         location: "Rhino Lodge · Dubbo, NSW",
         timeZone: "Australia/Sydney",
@@ -75,7 +75,7 @@ test("a household opens its invitation from the text, then RSVPs; anyone can sav
         const token = link.searchParams.get("invite")!;
 
         await page.goto(`/wedding/invitation?invite=${encodeURIComponent(token)}`);
-        await expect(page.getByRole("heading", { level: 1 })).toContainText("Aidan");
+        await expect(page.getByRole("heading", { level: 1 })).toContainText("Amelia");
         await expect(page.getByText("Fred & Ann Example", { exact: true })).toBeVisible();
         // Other specs share this database and add their own events, so only this spec's times are
         // checked here; the shared-venue wording is covered in test/guest-journey.test.ts.
@@ -112,7 +112,7 @@ test("a household opens its invitation from the text, then RSVPs; anyone can sav
         expect(await page.getByRole("link", { name: "Apple Calendar" }).getAttribute("href")).toBe("https://wedding.daly.id.au/save-the-date.ics");
         const ics = await request.get("/wedding/save-the-date.ics");
         expect(ics.headers()["content-type"]).toBe("text/calendar; charset=utf-8");
-        expect(await ics.text()).toContain("SUMMARY:Aidan & Amelia's Wedding");
+        expect(await ics.text()).toContain("SUMMARY:Amelia & Aidan's Wedding");
         await noSidewaysScroll(page);
         await shot(page, `save-the-date-page-${suffix}`);
         expect(errors).toEqual([]);

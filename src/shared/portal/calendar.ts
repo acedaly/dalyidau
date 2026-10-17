@@ -172,7 +172,7 @@ export function icsFile(event: CalendarEvent, now = new Date()): string {
     return lines.map(foldIcsLine).join("\r\n") + "\r\n";
 }
 
-/** A filename for the download, e.g. "aidan-amelia-wedding.ics". */
+/** A filename for the download, e.g. "amelia-aidan-wedding.ics". */
 export const icsFilename = (details: WeddingDetails) =>
     `${[details.partnerOne, details.partnerTwo, "wedding"]
         .join("-")

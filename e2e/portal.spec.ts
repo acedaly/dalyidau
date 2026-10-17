@@ -335,8 +335,8 @@ test("a guest RSVPs on the public website with their household code", async ({ p
 
 test("the wedding website is accessible and fits every screen", async ({ page, request, isMobile }) => {
     await api(request, "put", "/api/portal/settings/wedding", {
-        partnerOne: "Aidan",
-        partnerTwo: "Amelia",
+        partnerOne: "Amelia",
+        partnerTwo: "Aidan",
         date: "2027-10-23",
         location: "Rhino Lodge · Dubbo, NSW",
         timeZone: "Australia/Sydney",
@@ -357,7 +357,7 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
     }
 
     await page.goto("/portal/wedding/website/preview");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Aidan & Amelia");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Amelia & Aidan");
     if (isMobile) {
         await expect(page.getByTestId("hero-editorial-image")).toBeHidden();
         const heroBox = await page.getByTestId("wedding-hero").boundingBox();

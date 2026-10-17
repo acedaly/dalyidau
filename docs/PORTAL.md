@@ -19,7 +19,7 @@ These are yours to do; the code is ready for them.
 
 1. **Cloudflare Access application** (Zero Trust dashboard). See [Set up Cloudflare Access](#set-up-cloudflare-access).
 2. **Worker secrets**: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `PORTAL_OWNER_EMAILS`, and `RSVP_LINK_SECRET`. Until the Access secrets are set, every portal request is refused; invitation links cannot be generated without the RSVP secret.
-3. **Wedding details** in Wedding Planner (Wedding settings → General): names, date, location, time zone. The defaults (Aidan & Amelia, 23 October 2027, Rhino Lodge · Dubbo, NSW) and the website's default content come from the Say I Do site.
+3. **Wedding details** in Wedding Planner (Wedding settings → General): names, date, location, time zone. The defaults (Amelia & Aidan, 23 October 2027, Rhino Lodge · Dubbo, NSW) and the website's default content come from the Say I Do site.
 4. **Say I Do link** (RSVPs → Settings), so the website sends guests to it while the native form is off.
 5. **When to switch on the native RSVP form** (Wedding settings → Features → Native RSVP). Off by default. Say I Do stays the live RSVP until you turn this on.
 6. **When to publish the website** (Website → Publish). Off by default. It's `noindex` by default too.

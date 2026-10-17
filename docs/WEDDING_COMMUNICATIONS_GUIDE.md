@@ -73,7 +73,7 @@ Everything is re-checked for every recipient at the moment it's sent, including 
 
 A text can't show the invitation, and a PDF or MMS isn't reliable on every phone, so the invitation text links to **the household's own invitation page** (`{{invitation_link}}`):
 
-> Dear Fred & Ann, it's Aidan & Amelia! We'd love you to join us on Saturday 23 October 2027. Your personal invitation and RSVP: https://wedding.daly.id.au/invitation?invite=… Please reply by Saturday 25 September 2027.
+> Dear Fred & Ann, it's Amelia & Aidan! We'd love you to join us on Saturday 23 October 2027. Your personal invitation and RSVP: https://wedding.daly.id.au/invitation?invite=… Please reply by Saturday 25 September 2027.
 
 - The page shows the household's invitation, built by the same Studio code as the email and the printed card, then a prominent **RSVP** button (the existing RSVP form, same answers) and **Download invitation (PDF)**.
 - It uses the household's existing signed link: no login or code. A revoked, replaced, expired or mistyped link gets a friendly "isn't working" page that names nobody. It follows the RSVP page's switch (Public wedding website), is never cached or indexed, sends no referrer and never names the household in its title or link preview.
@@ -98,12 +98,12 @@ The default Save the Date email is the designed announcement (`{{save_the_date_c
 
 The text (`{{save_the_date_link}}`):
 
-> Hi Fred & Ann! Save the date: Aidan & Amelia are getting married on Saturday 23 October 2027 at Rhino Lodge, Dubbo NSW. Add it to your calendar and see the details: https://wedding.daly.id.au/save-the-date Formal invitation to follow.
+> Hi Fred & Ann! Save the date: Amelia & Aidan are getting married on Saturday 23 October 2027 at Rhino Lodge, Dubbo NSW. Add it to your calendar and see the details: https://wedding.daly.id.au/save-the-date Formal invitation to follow.
 
 That's two SMS parts; the send check shows the parts and estimated cost before anything is sent.
 
 - **The page** (`/save-the-date`) is public and the same for everyone: no household names, codes or links. It's served once the website is published, or earlier with the **Public Save the Date page** switch. Until then the email leaves out the Apple Calendar, `.ics` and page links (Google, Outlook and Microsoft 365 still work), texts that link to the page are held back, and the send check says so.
-- **The calendar event** comes from settings: "Aidan & Amelia's Wedding", the date and the venue. Without a confirmed start _and_ finish time it's an all-day event; with both, the times are Sydney time. It never carries a household's details, uses the same UID every time (so saving it again updates rather than duplicates it in calendars that honour that), and guests always choose to save it themselves: nothing is sent as a calendar invite. Changing the date later doesn't update calendars on its own.
+- **The calendar event** comes from settings: "Amelia & Aidan's Wedding", the date and the venue. Without a confirmed start _and_ finish time it's an all-day event; with both, the times are Sydney time. It never carries a household's details, uses the same UID every time (so saving it again updates rather than duplicates it in calendars that honour that), and guests always choose to save it themselves: nothing is sent as a calendar invite. Changing the date later doesn't update calendars on its own.
 
 ## Final information and thank you
 

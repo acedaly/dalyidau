@@ -153,7 +153,7 @@ describe("household invitations", () => {
         expect(email).toContain("This invitation is for Fred & Ann Daly. You can reply for each person separately.");
         expect(email).not.toMatch(/\bFor Fred|Invited guests|Fred Daly - Ann Daly/);
         expect(byHousehold.get(f.family.household.id)!.emailBody).toContain("This invitation is for The Nguyen Family (Linh, Bao, Mai & An Nguyen).");
-        expect(byHousehold.get(f.couple.household.id)!.smsBody).toMatch(/^Dear Fred & Ann, it's Aidan & Amelia! We'd love you to join us on /);
+        expect(byHousehold.get(f.couple.household.id)!.smsBody).toMatch(/^Dear Fred & Ann, it's Amelia & Aidan! We'd love you to join us on /);
     });
 
     it("prints one page per household with a single recipient line", async () => {

@@ -59,7 +59,7 @@ export const MessageEditor = ({ subject, body, onChange, fieldError, channel = "
                     hint={
                         fieldError("body") ??
                         (sms
-                            ? `${sms.length} characters · ${sms.segments} SMS part${sms.segments === 1 ? "" : "s"} per guest before merge fields${sms.encoding === "unicode" ? " · emoji or curly quotes make each part shorter" : ""}. Say who it's from, e.g. “Aidan & Amelia here”.`
+                            ? `${sms.length} characters · ${sms.segments} SMS part${sms.segments === 1 ? "" : "s"} per guest before merge fields${sms.encoding === "unicode" ? " · emoji or curly quotes make each part shorter" : ""}. Say who it's from, e.g. “Amelia & Aidan here”.`
                             : "Plain text. Merge fields like {{first_name}} are filled in for each guest.")
                     }
                 />

@@ -20,7 +20,7 @@ const fastmailEnv = () =>
     portalEnv({
         EMAIL_DELIVERY: "fastmail",
         FASTMAIL_API_TOKEN: "fastmail-test-token",
-        EMAIL_FROM: '"Aidan & Amelia" <wedding@daly.id.au>',
+        EMAIL_FROM: '"Amelia & Aidan" <wedding@daly.id.au>',
         EMAIL_REPLY_TO: "wedding@daly.id.au",
     });
 
@@ -55,7 +55,7 @@ function fastmail(options: { failSubmission?: boolean; failUpload?: boolean } = 
             if (method === "Identity/get")
                 return json({
                     methodResponses: [
-                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Aidan & Amelia" }] }, "identities"],
+                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Amelia & Aidan" }] }, "identities"],
                         ["Mailbox/query", { ids: ["drafts-1"] }, "drafts"],
                     ],
                 });
@@ -367,7 +367,7 @@ describe("the invitation email", () => {
         // Readable with images blocked: the artwork is decorative and every word is text.
         expect([...html.matchAll(/<img [^>]*alt="([^"]*)"/g)].every((m) => m[1] === "")).toBe(true);
         expect(fred.bodyValues.text.value).toContain("This invitation is for Fred & Ann Example.");
-        expect(fred.subject).toBe("You're invited to Aidan & Amelia's wedding");
+        expect(fred.subject).toBe("You're invited to Amelia & Aidan's wedding");
 
         // Each household's own printable invitation, uploaded and attached over JMAP.
         expect(uploads).toHaveLength(2);
@@ -499,7 +499,7 @@ describe("individual invitations", () => {
 describe("MIME for SMTP providers", () => {
     it("wraps the text and HTML alternatives and a base64 PDF in multipart/mixed", () => {
         const mime = buildMime({
-            from: '"Aidan & Amelia" <wedding@daly.id.au>',
+            from: '"Amelia & Aidan" <wedding@daly.id.au>',
             to: '"Fred Example" <fred@example.com>',
             replyTo: null,
             subject: "You're invited",

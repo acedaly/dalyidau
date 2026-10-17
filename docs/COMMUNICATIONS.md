@@ -60,7 +60,7 @@ npx wrangler secret put FASTMAIL_API_TOKEN --env=""
 
 ```jsonc
 "EMAIL_DELIVERY": "fastmail",
-"EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+"EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
 "EMAIL_REPLY_TO": "wedding@daly.id.au"
 ```
 
@@ -83,7 +83,7 @@ What you need to do (needs your approval and access):
 
 1. **Create an SMTP2Go account** and choose a plan. The free tier is enough for a wedding guest list.
 2. **Verify the sender domain** `daly.id.au` (Sending → Verified senders → Sender domains). SMTP2Go gives you CNAME records for DKIM, return-path and tracking. **Adding them is a DNS change, so it's yours to approve**; it doesn't affect the website or existing mail. Check your DMARC policy still passes afterwards.
-3. **Sender**: `"Aidan & Amelia" <wedding@daly.id.au>`. Decide where replies go. Either make `wedding@daly.id.au` a real mailbox or alias (for example in Fastmail), or set `EMAIL_REPLY_TO` to one of your own addresses.
+3. **Sender**: `"Amelia & Aidan" <wedding@daly.id.au>`. Decide where replies go. Either make `wedding@daly.id.au` a real mailbox or alias (for example in Fastmail), or set `EMAIL_REPLY_TO` to one of your own addresses.
 4. **API key**: Settings → API Keys → Add. Give it **send email** permission only.
 5. **Webhook**: Settings → Webhooks → Add, URL `https://daly.id.au/api/comms/webhooks/smtp2go/<COMMS_WEBHOOK_SECRET>`, events: delivered, bounce, spam, unsubscribe, reject. JSON payloads.
 6. Set the Worker configuration:
@@ -98,7 +98,7 @@ and in `wrangler.jsonc` → `vars`:
 
 ```jsonc
 "EMAIL_DELIVERY": "smtp2go",
-"EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+"EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
 // optional:
 "EMAIL_REPLY_TO": "you@example.com",
 "SMTP2GO_API_BASE": "https://au-api.smtp2go.com/v3"   // Australian region endpoint
@@ -115,11 +115,11 @@ Cloudflare Email Service remains available (`EMAIL_DELIVERY = "cloudflare"` with
 
 ### Sender: use a dedicated number
 
-Since **1 July 2026** Australian carriers check alphanumeric sender IDs against the ACMA **SMS Sender ID Register**. Unregistered IDs (such as `AidanAmelia`) are replaced with the word **"Unverified"**. Registration is designed for organisations: applicants with an ABN go through identity verification, others through a certified provider. Generic names aren't accepted. A private couple may not be eligible for `AidanAmelia`, and an alphanumeric sender **can't receive replies** anyway.
+Since **1 July 2026** Australian carriers check alphanumeric sender IDs against the ACMA **SMS Sender ID Register**. Unregistered IDs (such as `AmeliaAidan`) are replaced with the word **"Unverified"**. Registration is designed for organisations: applicants with an ABN go through identity verification, others through a certified provider. Generic names aren't accepted. A private couple may not be eligible for `AmeliaAidan`, and an alphanumeric sender **can't receive replies** anyway.
 
-**Recommendation:** rent a **dedicated Australian virtual mobile number** from ClickSend. Numeric senders aren't affected by the register, guests can reply, and replies come back into the portal. Every message should identify you in the body, e.g. _"Aidan & Amelia here, …"_. The composer reminds you.
+**Recommendation:** rent a **dedicated Australian virtual mobile number** from ClickSend. Numeric senders aren't affected by the register, guests can reply, and replies come back into the portal. Every message should identify you in the body, e.g. _"Amelia & Aidan here, …"_. The composer reminds you.
 
-If you still want `AidanAmelia`, ask ClickSend whether a private individual can register it and what it costs. It would be send-only.
+If you still want `AmeliaAidan`, ask ClickSend whether a private individual can register it and what it costs. It would be send-only.
 
 ### Before sending invitations by SMS
 

@@ -124,7 +124,7 @@ describe("Invitation Studio", () => {
         expect(invitation.rsvpUrl).toMatch(/^https:\/\/wedding\.daly\.id\.au\/rsvp\?invite=/);
         expect(invitation.highlightedGuest).toBe("Alex Studio");
         expect(invitation).toMatchObject({
-            coupleNames: "Aidan & Amelia",
+            coupleNames: "Amelia & Aidan",
             delivery: "individual",
             recipientLine: "Alex Studio",
             namesLine: null,
@@ -219,7 +219,7 @@ describe("Invitation Studio", () => {
             accent: "eucalyptus",
         });
         expect(response.json.previews[0].emailBody).toContain("A country celebration awaits.");
-        expect(response.json.previews[0].emailBody).toContain("With love,\nAidan & Amelia");
+        expect(response.json.previews[0].emailBody).toContain("With love,\nAmelia & Aidan");
         expect(response.json.previews[0].emailBody).not.toContain("Dear The Nguyens");
     });
 });
@@ -316,7 +316,7 @@ describe("provider configuration", () => {
         portalEnv({
             EMAIL_DELIVERY: "fastmail",
             FASTMAIL_API_TOKEN: "super-secret-fastmail-token",
-            EMAIL_FROM: '"Aidan & Amelia" <wedding@daly.id.au>',
+            EMAIL_FROM: '"Amelia & Aidan" <wedding@daly.id.au>',
             EMAIL_REPLY_TO: "wedding@daly.id.au",
             ...overrides,
         });
@@ -334,7 +334,7 @@ describe("provider configuration", () => {
             .mockResolvedValueOnce(
                 json({
                     methodResponses: [
-                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Aidan & Amelia" }] }, "identities"],
+                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Amelia & Aidan" }] }, "identities"],
                         ["Mailbox/query", { ids: ["drafts-1"] }, "drafts"],
                     ],
                 }),
@@ -376,7 +376,7 @@ describe("provider configuration", () => {
             .mockResolvedValueOnce(
                 json({
                     methodResponses: [
-                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Aidan & Amelia" }] }, "identities"],
+                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Amelia & Aidan" }] }, "identities"],
                         ["Mailbox/query", { ids: ["drafts-1"] }, "drafts"],
                     ],
                 }),
@@ -392,7 +392,7 @@ describe("provider configuration", () => {
                 expect(emailCreate[emailKey]).toMatchObject({
                     mailboxIds: { "drafts-1": true },
                     keywords: { $draft: true },
-                    from: [{ email: "wedding@daly.id.au", name: "Aidan & Amelia" }],
+                    from: [{ email: "wedding@daly.id.au", name: "Amelia & Aidan" }],
                     replyTo: [{ email: "wedding@daly.id.au" }],
                 });
                 expect(submissionCreate[submissionKey]).toMatchObject({ emailId: `#${emailKey}`, identityId: "identity-1" });

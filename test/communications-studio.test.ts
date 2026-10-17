@@ -665,7 +665,7 @@ describe("stationery email", () => {
         const html = stationeryEmailHtml({
             kind: "invitation",
             text: 'Dear <Fred> & "Ann",\n\nReply: https://wedding.daly.id.au/rsvp?invite=abc.1 now.\n\njavascript:alert(1)',
-            coupleNames: "Aidan & Amelia",
+            coupleNames: "Amelia & Aidan",
             weddingDate: "Saturday 23 October 2027",
             assetOrigin: "https://wedding.daly.id.au",
             action: { label: "Reply to your invitation", url: "https://wedding.daly.id.au/rsvp?invite=abc.1" },
@@ -676,7 +676,7 @@ describe("stationery email", () => {
         expect(html).not.toContain('href="javascript');
         // Decorative artwork only; every word is live text.
         expect([...html.matchAll(/<img [^>]*alt="([^"]*)"/g)].map((m) => m[1])).toEqual(["", ""]);
-        expect(html).toContain("Aidan<br>");
+        expect(html).toContain("Amelia<br>");
     });
 });
 

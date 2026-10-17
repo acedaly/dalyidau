@@ -34,7 +34,7 @@ export interface Env {
     ACCESS_TEST_JWKS?: string;
     /** Email delivery provider: "fastmail", "smtp", "smtp2go", "cloudflare", or "log" (development only). */
     EMAIL_DELIVERY?: string;
-    /** From address for wedding emails, e.g. "Aidan & Amelia" <wedding@daly.id.au>. */
+    /** From address for wedding emails, e.g. "Amelia & Aidan" <wedding@daly.id.au>. */
     EMAIL_FROM?: string;
     /** Optional Reply-To for wedding emails. */
     EMAIL_REPLY_TO?: string;

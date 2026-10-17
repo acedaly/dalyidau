@@ -17,8 +17,8 @@ beforeEach(resetPortal);
 const WEDDING_HOST = "wedding.daly.id.au";
 const SITE = `https://${WEDDING_HOST}`;
 const WEDDING: WeddingDetails = {
-    partnerOne: "Aidan",
-    partnerTwo: "Amelia",
+    partnerOne: "Amelia",
+    partnerTwo: "Aidan",
     date: "2027-10-23",
     location: "Rhino Lodge · Dubbo, NSW",
     timeZone: "Australia/Sydney",
@@ -76,7 +76,7 @@ describe("calendar events", () => {
 
     it("is an all-day event with an exclusive end date unless a start and a finish are both confirmed", () => {
         // A start time alone never becomes an invented finish.
-        expect(allDay).toMatchObject({ start: null, end: null, date: "2027-10-23", title: "Aidan & Amelia's Wedding", location: "Rhino Lodge, Dubbo NSW" });
+        expect(allDay).toMatchObject({ start: null, end: null, date: "2027-10-23", title: "Amelia & Aidan's Wedding", location: "Rhino Lodge, Dubbo NSW" });
         const ics = icsFile(allDay, new Date("2026-10-17T01:02:03Z"));
         expect(ics).toContain("\r\nDTSTART;VALUE=DATE:20271023\r\n");
         expect(ics).toContain("\r\nDTEND;VALUE=DATE:20271024\r\n");
@@ -114,7 +114,7 @@ describe("calendar events", () => {
         for (const required of ["VERSION:2.0", "PRODID:", "UID:", "DTSTAMP:", "DTSTART", "DTEND", "SUMMARY:", "LOCATION:", "DESCRIPTION:"])
             expect(lines.some((line) => line.startsWith(required))).toBe(true);
         expect(first).toContain("LOCATION:Rhino Lodge\\, Dubbo NSW");
-        expect(first).toContain("SUMMARY:Aidan & Amelia's Wedding");
+        expect(first).toContain("SUMMARY:Amelia & Aidan's Wedding");
         // The same UID every time, so saving again updates the event instead of adding another.
         expect(/UID:(.*)/.exec(first)?.[1]).toBe("wedding-2027-10-23@wedding.daly.id.au");
         expect(/UID:(.*)/.exec(again)?.[1]).toBe(/UID:(.*)/.exec(first)?.[1]);
@@ -132,7 +132,7 @@ describe("calendar events", () => {
         expect(google.origin + google.pathname).toBe("https://calendar.google.com/calendar/render");
         expect(Object.fromEntries(google.searchParams)).toMatchObject({
             action: "TEMPLATE",
-            text: "Aidan & Amelia's Wedding",
+            text: "Amelia & Aidan's Wedding",
             dates: "20271023/20271024",
             location: "Rhino Lodge, Dubbo NSW",
             ctz: "Australia/Sydney",
@@ -142,7 +142,7 @@ describe("calendar events", () => {
         expect(Object.fromEntries(outlook.searchParams)).toMatchObject({
             rru: "addevent",
             path: "/calendar/action/compose",
-            subject: "Aidan & Amelia's Wedding",
+            subject: "Amelia & Aidan's Wedding",
             startdt: "2027-10-23",
             enddt: "2027-10-24",
             allday: "true",
@@ -215,7 +215,7 @@ describe("the invitation text", () => {
         const fred = (await sms(f.couple.id)).json;
         const sam = (await sms(f.family.id)).json;
         expect(fred.body).toMatch(
-            /^Dear Fred & Ann, it's Aidan & Amelia! We'd love you to join us on Saturday 23 October 2027\. Your personal invitation and RSVP: https:\/\/wedding\.daly\.id\.au\/invitation\?invite=\S+ Please reply by /,
+            /^Dear Fred & Ann, it's Amelia & Aidan! We'd love you to join us on Saturday 23 October 2027\. Your personal invitation and RSVP: https:\/\/wedding\.daly\.id\.au\/invitation\?invite=\S+ Please reply by /,
         );
         expect(fred.body).not.toContain("/rsvp?invite=");
         // GSM characters only, so it stays cheap; the link makes it two parts.
@@ -258,7 +258,7 @@ describe("the household's invitation page", () => {
         expect(html).not.toContain("Sample");
         const code = await db().prepare("SELECT rsvp_code FROM households WHERE id = ?").bind(f.couple.id).first<{ rsvp_code: string }>();
         expect(html).not.toContain(code!.rsvp_code);
-        expect(/<title>(.*)<\/title>/.exec(html)?.[1]).toBe("Your invitation · Aidan &amp; Amelia");
+        expect(/<title>(.*)<\/title>/.exec(html)?.[1]).toBe("Your invitation · Amelia &amp; Aidan");
         expect(html).toContain('<meta name="referrer" content="no-referrer">');
 
         // The PDF download is the same household's printable invitation with its own QR code.
@@ -353,7 +353,7 @@ describe("the Save the Date", () => {
         expect(sent.json.message.status).toBe("sent");
         expect(send).toHaveBeenCalledTimes(2);
         const fred = send.mock.calls.map((c) => c[0]).find((m) => m.to.email === "fred@example.com")!;
-        expect(fred.subject).toBe("Save the date: Aidan & Amelia, Saturday 23 October 2027");
+        expect(fred.subject).toBe("Save the date: Amelia & Aidan, Saturday 23 October 2027");
         for (const text of [
             "SAVE THE DATE",
             "Are getting married!",
@@ -378,7 +378,7 @@ describe("the Save the Date", () => {
         // Readable with images blocked: decorative artwork, every word is text.
         expect([...fred.html.matchAll(/<img [^>]*alt="([^"]*)"/g)].every((m) => m[1] === "")).toBe(true);
         expect(fred.text).toContain("Dear Fred & Ann,");
-        expect(fred.text).toContain("SAVE THE DATE\n\nAidan & Amelia\nAre getting married!\n\nSaturday, 23 October 2027\nRhino Lodge, Dubbo NSW");
+        expect(fred.text).toContain("SAVE THE DATE\n\nAmelia & Aidan\nAre getting married!\n\nSaturday, 23 October 2027\nRhino Lodge, Dubbo NSW");
         expect(fred.text).toContain(`Apple Calendar: ${SITE}/save-the-date.ics`);
         expect(fred.text).toContain(`View the Save the Date: ${SITE}/save-the-date`);
         const sam = send.mock.calls.map((c) => c[0]).find((m) => m.to.email === "sam@example.com")!;
@@ -419,7 +419,7 @@ describe("the Save the Date", () => {
         const { subject, smsBody } = CAMPAIGNS.save_the_date.copy;
         const rendered = await preview({ category: "save_the_date", channel: "sms", subject, body: smsBody, householdId: f.couple.id });
         expect(rendered.json.body).toBe(
-            `Hi Fred & Ann! Save the date: Aidan & Amelia are getting married on Saturday 23 October 2027 at Rhino Lodge, Dubbo NSW. Add it to your calendar and see the details: ${SITE}/save-the-date Formal invitation to follow.`,
+            `Hi Fred & Ann! Save the date: Amelia & Aidan are getting married on Saturday 23 October 2027 at Rhino Lodge, Dubbo NSW. Add it to your calendar and see the details: ${SITE}/save-the-date Formal invitation to follow.`,
         );
         expect(rendered.json.sms).toMatchObject({ encoding: "gsm", segments: 2 });
 
@@ -461,7 +461,7 @@ describe("the Save the Date", () => {
         const ics = await call("/save-the-date.ics", { host: WEDDING_HOST });
         expect(ics.status).toBe(200);
         expect(ics.headers.get("Content-Type")).toBe("text/calendar; charset=utf-8");
-        expect(ics.headers.get("Content-Disposition")).toBe('attachment; filename="aidan-amelia-wedding.ics"');
+        expect(ics.headers.get("Content-Disposition")).toBe('attachment; filename="amelia-aidan-wedding.ics"');
         const file = await ics.text();
         expect(file.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
         // The ceremony and reception times are confirmed (15:30 to 23:30 AEDT).
@@ -479,7 +479,7 @@ describe("stationery email without a Save the Date card", () => {
         const html = stationeryEmailHtml({
             kind: "save_the_date",
             text: "Dear Fred,\n\nSave the date!",
-            coupleNames: "Aidan & Amelia",
+            coupleNames: "Amelia & Aidan",
             weddingDate: "",
             assetOrigin: SITE,
         });

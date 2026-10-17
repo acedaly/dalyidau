@@ -310,7 +310,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         adultDefault: "adult_buffet",
         notes: "",
     },
-    wedding: { partnerOne: "Aidan", partnerTwo: "Amelia", date: "2027-10-23", location: "Rhino Lodge · Dubbo, NSW", timeZone: "Australia/Sydney" },
+    wedding: { partnerOne: "Amelia", partnerTwo: "Aidan", date: "2027-10-23", location: "Rhino Lodge · Dubbo, NSW", timeZone: "Australia/Sydney" },
     invitation: {
         artwork: "native-botanicals",
         accent: "burgundy",

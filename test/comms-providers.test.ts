@@ -25,7 +25,7 @@ const smtp2goEnv = (overrides: Partial<Env> = {}) =>
     portalEnv({
         EMAIL_DELIVERY: "smtp2go",
         SMTP2GO_API_KEY: "api-test-key",
-        EMAIL_FROM: '"Aidan & Amelia" <wedding@daly.id.au>',
+        EMAIL_FROM: '"Amelia & Aidan" <wedding@daly.id.au>',
         COMMS_WEBHOOK_SECRET: SECRET,
         ...overrides,
     });
@@ -104,7 +104,7 @@ describe("providers", () => {
         expect(url).toBe("https://api.smtp2go.com/v3/email/send");
         expect(new Headers(init.headers).get("X-Smtp2go-Api-Key")).toBe("api-test-key");
         const body = JSON.parse(String(init.body));
-        expect(body).toMatchObject({ sender: '"Aidan & Amelia" <wedding@daly.id.au>', to: ['"Jo The Guest" <jo@example.com>'], subject: "Hi" });
+        expect(body).toMatchObject({ sender: '"Amelia & Aidan" <wedding@daly.id.au>', to: ['"Jo The Guest" <jo@example.com>'], subject: "Hi" });
         expect(String(init.body)).not.toContain("api-test-key");
 
         fetchMock.mockResolvedValueOnce(json({ data: { succeeded: 0, failed: 1, failures: ["mailbox unavailable"] } }));
@@ -136,7 +136,7 @@ describe("SMS campaigns", () => {
             channel: "sms",
             category: "update",
             subject: "Bus update",
-            body: "Hi {{first_name}}, Aidan & Amelia here.",
+            body: "Hi {{first_name}}, Amelia & Aidan here.",
             audience: {},
         });
 
@@ -167,7 +167,7 @@ describe("SMS campaigns", () => {
         const sent = await apiCall<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/send`, {}, { env });
         expect(sent.json.message.status).toBe("sent");
         expect(fetchMock).toHaveBeenCalledOnce();
-        expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).messages[0].body).toBe("Hi Mo, Aidan & Amelia here.");
+        expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).messages[0].body).toBe("Hi Mo, Amelia & Aidan here.");
         expect(await db().prepare("SELECT provider_id, cost_cents, attempts FROM message_recipients WHERE status = 'sent'").first()).toEqual({
             provider_id: "cs-9",
             cost_cents: 8,
