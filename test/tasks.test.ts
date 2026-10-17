@@ -1,14 +1,18 @@
 // Daly Tasks: privacy between people, shared projects, the task engine, subtasks, repeats,
 // views, filters, comments, Knowledge references, history and export. Every identity is fictional.
+import { createElement } from "react";
+import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
+import { PortalApp } from "../src/portal/portal-app";
 import { localDate } from "../src/shared/knowledge/dates";
 import type { KnowledgeSpace } from "../src/shared/knowledge/types";
+import type { PortalPageData } from "../src/shared/portal/types";
 import { addDays } from "../src/shared/tasks/dates";
 import type { CompletedEntry, KnowledgeReference, TaskActivityEntry, TaskMember, TaskSummary } from "../src/shared/tasks/types";
 import type { TasksExport } from "../worker/tasks/export";
 import { create as createKnowledge, personal as knowledgeSpace } from "./knowledge-helpers";
 import { apiCall, db, resetPortal } from "./portal-helpers";
-import { A, ADMIN, B, WEDDING_EDITOR, activityRows, call, createProject, createTask, detail, inbox, list, projects, sharedProject } from "./tasks-helpers";
+import { A, ADMIN, B, WEDDING_EDITOR, activityRows, call, createProject, createTask, detail, inbox, list, sharedProject } from "./tasks-helpers";
 
 beforeEach(resetPortal);
 
@@ -726,9 +730,18 @@ describe("export", () => {
 });
 
 describe("pages", () => {
+    /** Pages render in the browser from the data the Worker embeds; render them here from exactly that. */
+    const render = (html: string) => {
+        const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
+        const payload = JSON.parse(json!) as { data: PortalPageData; path: string };
+        return renderToString(createElement(PortalApp, { data: payload.data, path: payload.path }));
+    };
+
     it("load for every Tasks route and 404 for anything not the caller's", async () => {
-        const project = await createProject({ name: "Pages" });
-        const task = await createTask({ title: "Page task", projectId: project.id });
+        const project = await createProject({ name: "Pages", sections: ["First"] });
+        const task = await createTask({ title: "Page task", projectId: project.id, dueDate: today(), labels: ["layout"], recurrence: { freq: "weekly" } });
+        await createTask({ title: "Page subtask", parentId: task.id });
+        await call("POST", "/filters", { name: "Saved one", definition: { labels: ["layout"] } });
         for (const path of [
             "/portal/tasks",
             "/portal/tasks/inbox",
@@ -748,7 +761,10 @@ describe("pages", () => {
             "/portal/tasks/activity",
             "/portal/tasks/settings",
         ]) {
-            expect((await apiCall("GET", path)).status, path).toBe(200);
+            const page = await apiCall("GET", path);
+            expect(page.status, path).toBe(200);
+            const html = render(page.text);
+            expect(html, path).toContain("Daly Portal");
         }
         expect((await apiCall("GET", "/portal/tasks/p/tpj_00000000000000")).status).toBe(404);
         // Tasks never appear on the public site or the wedding site.
