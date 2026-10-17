@@ -48,6 +48,7 @@ import { generateStudioInvitations, invitationPreviews, printableInvitations } f
 import { applyMobileReview, mobileReview } from "./mobile-review";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
+import { CREDENTIAL_PERMISSION, hideCredentials } from "./redact";
 import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
@@ -409,7 +410,8 @@ add("POST", "/api/portal/wedding/households/bulk", "wedding.guests.edit", async 
     return json({ ...result, households: await listHouseholdRows(env) });
 });
 
-add("POST", "/api/portal/wedding/invitations/preview", "wedding.view", async ({ env, request }) =>
+// Builds every household's invitation with its signed link, code and QR: for those who prepare them.
+add("POST", "/api/portal/wedding/invitations/preview", "wedding.comms.edit", async ({ env, request }) =>
     json({ previews: await invitationPreviews(env, await readJson(request)) }),
 );
 add("POST", "/api/portal/wedding/invitations/generate", "wedding.guests.edit", async ({ env, request, user }) =>
@@ -596,7 +598,8 @@ add(
 add(
     "POST",
     "/api/portal/wedding/messages/preview",
-    "wedding.view",
+    // The rendered copy carries the household's signed link and code in the text itself.
+    "wedding.comms.edit",
     async ({ env, request }) => json(await previewMessage(env, env.DB, await readJson(request))),
     "module.communications",
 );
@@ -824,6 +827,13 @@ add(
 
 // --- Dispatch -------------------------------------------------------------------------------------
 
+/** A JSON response with RSVP codes and signed links removed (see hideCredentials). Files are refused by permission instead. */
+async function withoutCredentials(response: Response) {
+    if (!(response.headers.get("Content-Type") ?? "").includes("application/json")) return response;
+    const body = hideCredentials(await response.json());
+    return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
+}
+
 export async function handlePortalApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
     const url = new URL(request.url);
     try {
@@ -842,7 +852,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
             if (!can(user, permission)) throw new HttpError(403, "forbidden", "You don't have permission to do that");
             const flag = typeof route.flag === "function" ? route.flag(ctx) : route.flag;
             if (flag && !(await loadFlags(env.DB))[flag]) throw new HttpError(404, "module_off", "This module is switched off");
-            return await route.handler(ctx);
+            const response = await route.handler(ctx);
+            return can(user, CREDENTIAL_PERMISSION) ? response : await withoutCredentials(response);
         }
         if (pathMatched) throw new HttpError(405, "method_not_allowed", "Method not allowed");
         throw new HttpError(404, "not_found", "Not found");

@@ -46,7 +46,7 @@ npm run db:backup -- --env production
 3. Restores the file into a throwaway local database, checks every table has at least as many rows as the live one, and runs all the integrity checks on the restored copy.
 4. Writes `backups/…sql.json` with the SHA-256, size and row counts.
 
-The file contains guests' personal details. `backups/` is git-ignored; keep backups somewhere private and delete them when no longer needed ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).
+The file contains guests' personal details. `backups/` is git-ignored, and the script makes the folder and every file in it readable by your account only (0700/0600, including older backups). Keep backups somewhere private and delete them when no longer needed: `node scripts/db-backup.mjs --prune 5` keeps the newest five per environment and deletes the rest ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).
 
 ## Restoring
 

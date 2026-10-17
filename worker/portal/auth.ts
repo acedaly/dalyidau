@@ -6,6 +6,7 @@
 import { type Permission, type Role, isRole, permissionsFor } from "../../src/shared/portal/permissions";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { loggablePath } from "../lib/log";
 import { type AccessFailure, verifyAccessRequest } from "./access";
 import { nowIso } from "./db";
 
@@ -41,7 +42,7 @@ export async function authenticate(request: Request, env: Env): Promise<AuthResu
     if (!email) {
         const result = await verifyAccessRequest(request, env);
         if (!result.ok) {
-            console.log(JSON.stringify({ event: "portal_auth_refused", reason: result.reason, path: new URL(request.url).pathname }));
+            console.log(JSON.stringify({ event: "portal_auth_refused", reason: result.reason, path: loggablePath(new URL(request.url).pathname) }));
             return { ok: false, status: result.reason === "missing_token" ? 401 : 403, reason: result.reason };
         }
         email = result.identity.email;

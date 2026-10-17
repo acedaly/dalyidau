@@ -85,7 +85,7 @@ What you need to do (needs your approval and access):
 2. **Verify the sender domain** `daly.id.au` (Sending → Verified senders → Sender domains). SMTP2Go gives you CNAME records for DKIM, return-path and tracking. **Adding them is a DNS change, so it's yours to approve**; it doesn't affect the website or existing mail. Check your DMARC policy still passes afterwards.
 3. **Sender**: `"Amelia & Aidan" <wedding@daly.id.au>`. Decide where replies go. Either make `wedding@daly.id.au` a real mailbox or alias (for example in Fastmail), or set `EMAIL_REPLY_TO` to one of your own addresses.
 4. **API key**: Settings → API Keys → Add. Give it **send email** permission only.
-5. **Webhook**: Settings → Webhooks → Add, URL `https://daly.id.au/api/comms/webhooks/smtp2go/<COMMS_WEBHOOK_SECRET>`, events: delivered, bounce, spam, unsubscribe, reject. JSON payloads.
+5. **Webhook**: Settings → Webhooks → Add, URL `https://daly.id.au/api/comms/webhooks/smtp2go?key=<COMMS_WEBHOOK_SECRET>`, events: delivered, bounce, spam, unsubscribe, reject. JSON payloads.
 6. Set the Worker configuration:
 
 ```bash
@@ -129,8 +129,8 @@ If you still want `AmeliaAidan`, ask ClickSend whether a private individual can 
 ### Setup
 
 1. Create a ClickSend account, add credit and buy a dedicated number (Numbers → Buy a number → Australia, SMS-capable).
-2. **Inbound rule** (Messaging → SMS → Inbound rules, or the dedicated number's settings): action "URL", `https://daly.id.au/api/comms/webhooks/clicksend-inbound/<COMMS_WEBHOOK_SECRET>`.
-3. **Delivery reports** (Messaging → SMS → Delivery reports): action "URL", `https://daly.id.au/api/comms/webhooks/clicksend-receipt/<COMMS_WEBHOOK_SECRET>`.
+2. **Inbound rule** (Messaging → SMS → Inbound rules, or the dedicated number's settings): action "URL", `https://daly.id.au/api/comms/webhooks/clicksend-inbound?key=<COMMS_WEBHOOK_SECRET>`.
+3. **Delivery reports** (Messaging → SMS → Delivery reports): action "URL", `https://daly.id.au/api/comms/webhooks/clicksend-receipt?key=<COMMS_WEBHOOK_SECRET>`.
 4. Worker configuration:
 
 ```bash
@@ -148,13 +148,13 @@ ClickSend reports a price per message, which the portal stores and totals per ca
 
 ## Webhook endpoints
 
-| URL                                                   | Provider and events                          |
-| ----------------------------------------------------- | -------------------------------------------- |
-| `POST /api/comms/webhooks/smtp2go/<secret>`           | SMTP2Go delivered, bounce, spam, unsubscribe |
-| `POST /api/comms/webhooks/clicksend-receipt/<secret>` | ClickSend delivery receipts                  |
-| `POST /api/comms/webhooks/clicksend-inbound/<secret>` | ClickSend inbound SMS (replies)              |
+| URL                                                       | Provider and events                          |
+| --------------------------------------------------------- | -------------------------------------------- |
+| `POST /api/comms/webhooks/smtp2go?key=<secret>`           | SMTP2Go delivered, bounce, spam, unsubscribe |
+| `POST /api/comms/webhooks/clicksend-receipt?key=<secret>` | ClickSend delivery receipts                  |
+| `POST /api/comms/webhooks/clicksend-inbound?key=<secret>` | ClickSend inbound SMS (replies)              |
 
-- Providers can't sign in through Cloudflare Access, so these are public URLs authenticated by the secret path segment, compared in constant time. Without `COMMS_WEBHOOK_SECRET` every request is a 404, and a wrong secret looks identical. Rotate the secret by setting a new value and updating both providers.
+- Providers can't sign in through Cloudflare Access, so these are public URLs authenticated by the secret in the `key` query parameter, compared in constant time. It's a query parameter because Cloudflare's request logs and traces drop query strings (`observability.redact_query_string`) but keep paths. The older form with the secret as the last path segment still works so existing provider settings don't break, but it ends up in Cloudflare's request logs: move providers to `?key=` and then rotate the secret. Without `COMMS_WEBHOOK_SECRET` every request is a 404, and a wrong secret looks identical. Rotate the secret by setting a new value and updating both providers.
 - Each event is stored once in `comm_webhook_events` (unique dedupe key), so provider retries are harmless.
 - Authenticated requests always get 200, even for events that aren't applied, so providers don't retry forever.
 
