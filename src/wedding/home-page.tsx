@@ -49,7 +49,7 @@ const ItemLink = ({ item, label }: { item: WebsiteItem; label: string }) =>
 // ---------------------------------------------------------------------------------------------
 // Hero
 
-/** "Aidan & Amelia" from the custom title when it has two names, otherwise from Wedding settings. */
+/** "Amelia & Aidan" from the custom title when it has two names, otherwise from Wedding settings. */
 const coupleNames = (data: WeddingPageData): [string, string] | null => {
     const title = data.content.heroTitle.trim();
     if (!title) return [data.details.partnerOne, data.details.partnerTwo];

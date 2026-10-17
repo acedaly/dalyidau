@@ -7,6 +7,7 @@
 // text, so it reads the same with images blocked; the artwork is decorative (empty alt) and the
 // paper colour carries the look on its own. Every string is escaped; links are only ever the URLs
 // the portal produced, shown with readable text.
+import type { CalendarLinks } from "../../src/shared/portal/calendar";
 import type { CampaignKind } from "../../src/shared/portal/campaigns";
 
 export const PALETTE = {
@@ -65,6 +66,94 @@ export interface InvitationCard {
 /** Stands in for the card inside the text until the HTML is built. Can't occur in typed text. */
 export const CARD_MARKER = "\u0000invitation-card\u0000";
 
+/** The Save the Date announcement, for showing it in the email. Nothing in it is household-specific. */
+export interface SaveTheDateCard {
+    /** "Save the date". */
+    headline: string;
+    coupleNames: string;
+    /** "Are getting married!" */
+    tagline: string;
+    /** "Saturday, 23 October 2027". */
+    weddingDate: string;
+    location: string;
+    /** "Formal invitation to follow." Empty hides it. */
+    followUp: string;
+    /** Null when the couple has switched the calendar link off. */
+    calendar: CalendarLinks | null;
+    /** The public Save the Date page, or null while it isn't being served. */
+    pageUrl: string | null;
+}
+
+/** Stands in for the Save the Date inside the text until the HTML is built. */
+export const SAVE_THE_DATE_MARKER = "\u0000save-the-date\u0000";
+
+/** Each way to save the date, in the order guests see them. The .ics file serves Apple Calendar and other apps. */
+export const calendarChoices = (links: CalendarLinks) =>
+    [
+        links.ics ? { label: "Apple Calendar", url: links.ics } : null,
+        { label: "Google Calendar", url: links.google },
+        { label: "Outlook", url: links.outlook },
+        { label: "Microsoft 365", url: links.office365 },
+        links.ics ? { label: "Other calendars (.ics)", url: links.ics } : null,
+    ].filter((choice): choice is { label: string; url: string } => !!choice);
+
+/** The Save the Date as plain text, for the text part of the email and text-only clients. */
+export function saveTheDateText(card: SaveTheDateCard) {
+    return [
+        card.headline.toUpperCase(),
+        `${card.coupleNames}\n${card.tagline}`,
+        [card.weddingDate, card.location].filter(Boolean).join("\n"),
+        card.followUp,
+        card.calendar ? ["Add it to your calendar:", ...calendarChoices(card.calendar).map((choice) => `${choice.label}: ${choice.url}`)].join("\n") : "",
+        card.pageUrl ? `View the Save the Date: ${card.pageUrl}` : "",
+    ]
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+/**
+ * The Save the Date in the email body, framed by the botanical artwork like the invitation. Every
+ * word is live text and every calendar choice is a plain link, so it all works with images blocked.
+ */
+export function saveTheDateHtml(card: SaveTheDateCard, accent: string, assetOrigin: string) {
+    const font = "Georgia,'Times New Roman',Times,serif";
+    const sans = "'Helvetica Neue',Helvetica,Arial,sans-serif";
+    const [one, two] = card.coupleNames.split(/\s+&\s+/, 2);
+    const names = two
+        ? `${escapeHtml(one)}<br><span style="font-style:italic;font-size:28px;color:${accent}">&amp;</span><br>${escapeHtml(two)}`
+        : escapeHtml(card.coupleNames);
+    const rule = `<tr><td style="padding:0 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${accent}33;font-size:0;line-height:0;height:1px">&nbsp;</td></tr></table></td></tr>`;
+    const row = (html: string, style: string) => `<tr><td align="center" class="card-pad" style="${style}">${html}</td></tr>`;
+    // Calendar choices as bordered text links, two to a row; they wrap naturally on phones.
+    const choices = card.calendar ? calendarChoices(card.calendar) : [];
+    const choiceCell = (choice: { label: string; url: string }) =>
+        `<td align="center" valign="middle" width="50%" style="padding:4px"><a href="${escapeHtml(choice.url)}" style="display:block;padding:11px 8px;border:1px solid ${accent}66;border-radius:2px;font-family:${sans};font-size:13px;font-weight:bold;color:${accent};text-decoration:none">${escapeHtml(choice.label)}</a></td>`;
+    const choiceRows: string[] = [];
+    for (let index = 0; index < choices.length; index += 2) {
+        const pair = choices.slice(index, index + 2);
+        choiceRows.push(`<tr>${pair.map(choiceCell).join("")}${pair.length === 1 ? '<td width="50%" style="padding:4px">&nbsp;</td>' : ""}</tr>`);
+    }
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PALETTE.ivory}" style="background:${PALETTE.ivory};border:1px solid ${accent}33;margin:4px 0 22px">
+<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(assetOrigin)}/wedding/email/botanical-header.jpg" width="518" alt="" role="presentation" style="display:block;width:100%;height:auto;border:0"></td></tr>
+${row(escapeHtml(card.headline.toUpperCase()), `padding:6px 34px 2px;font-family:${sans};font-size:12px;font-weight:bold;letter-spacing:0.28em;color:${accent}`)}
+${row(names, `padding:14px 34px 4px;font-family:${font};font-size:44px;line-height:1.1;color:${PALETTE.espresso}`)}
+${row(escapeHtml(card.tagline), `padding:8px 40px 20px;font-family:${font};font-size:19px;font-style:italic;line-height:1.45;color:${PALETTE.ink}`)}
+${rule}
+${row(escapeHtml(card.weddingDate.toUpperCase()), `padding:20px 34px 4px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.14em;color:${accent}`)}
+${row(escapeHtml(card.location), `padding:2px 34px 8px;font-family:${font};font-size:23px;font-weight:bold;color:${PALETTE.espresso}`)}
+${card.followUp ? row(escapeHtml(card.followUp), `padding:6px 34px 18px;font-family:${font};font-size:16px;font-style:italic;color:${PALETTE.ink}`) : ""}
+${
+    choices.length
+        ? `${rule}
+${row("ADD TO CALENDAR", `padding:18px 34px 8px;font-family:${sans};font-size:10px;font-weight:bold;letter-spacing:0.24em;color:${PALETTE.espresso}`)}
+<tr><td class="card-pad" style="padding:0 30px 12px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${choiceRows.join("")}</table></td></tr>`
+        : ""
+}
+${card.pageUrl ? row(`<a href="${escapeHtml(card.pageUrl)}" style="color:${accent};text-decoration:underline;font-weight:bold">View the Save the Date</a>`, `padding:4px 34px 14px;font-family:${sans};font-size:13px;line-height:1.6;color:${PALETTE.ink}`) : ""}
+<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escapeHtml(assetOrigin)}/wedding/email/botanical-footer.jpg" width="518" alt="" role="presentation" style="display:block;width:100%;height:auto;border:0"></td></tr>
+</table>`;
+}
+
 /** The invitation as plain text, for the text part of the email and text-only clients. */
 export function invitationCardText(card: InvitationCard) {
     return [
@@ -96,7 +185,7 @@ ${row(escapeHtml(card.eyebrow.toUpperCase()), `padding:6px 34px 2px;font-family:
 ${row(names, `padding:12px 34px 4px;font-family:${font};font-size:40px;line-height:1.12;color:${PALETTE.espresso}`)}
 ${row(escapeHtml(card.invitationLine), `padding:8px 40px 20px;font-family:${font};font-size:17px;font-style:italic;line-height:1.45;color:${PALETTE.ink}`)}
 ${rule}
-${row("WITH PLEASURE, FOR", `padding:16px 34px 4px;font-family:${sans};font-size:10px;font-weight:bold;letter-spacing:0.24em;color:${accent}`)}
+${row("INVITATION FOR", `padding:16px 34px 4px;font-family:${sans};font-size:10px;font-weight:bold;letter-spacing:0.24em;color:${accent}`)}
 ${row(escapeHtml(card.recipientLine), `padding:2px 34px ${card.namesLine ? "4px" : "16px"};font-family:${font};font-size:24px;font-weight:bold;line-height:1.25;color:${PALETTE.espresso}`)}
 ${card.namesLine ? row(escapeHtml(card.namesLine), `padding:0 34px 16px;font-family:${sans};font-size:13px;line-height:1.5;color:#4F614D`) : ""}
 ${rule}
@@ -106,7 +195,7 @@ ${card.eventLines.length ? row(card.eventLines.map(escapeHtml).join("<br>"), `pa
 ${card.deadline ? row(`Kindly reply by ${escapeHtml(card.deadline)}`, `padding:8px 34px 12px;font-family:${sans};font-size:13px;font-weight:bold;color:${PALETTE.espresso}`) : ""}
 <tr><td align="center" class="card-pad" style="padding:4px 34px 14px">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${accent}" style="border-radius:2px">
-<a href="${escapeHtml(card.rsvpUrl)}" style="display:inline-block;padding:15px 30px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:#FFFFFF;text-decoration:none">View Invitation &amp; RSVP</a>
+<a href="${escapeHtml(card.rsvpUrl)}" style="display:inline-block;padding:15px 44px;font-family:${sans};font-size:14px;font-weight:bold;letter-spacing:0.16em;text-transform:uppercase;color:#FFFFFF;text-decoration:none">RSVP</a>
 </td></tr></table></td></tr>
 ${row(
     `If the button doesn't open, copy this link into your browser:<br><a href="${escapeHtml(card.rsvpUrl)}" style="color:${accent};text-decoration:underline;word-break:break-all">${escapeHtml(card.rsvpUrl)}</a>${card.code ? `<br>Or visit ${escapeHtml(card.code.address)} and enter <strong>${escapeHtml(card.code.code)}</strong>.` : ""}`,
@@ -133,6 +222,8 @@ export interface StationeryEmail {
     test?: { recipient: string } | null;
     /** The invitation itself, shown where the text contains CARD_MARKER (formal invitations). */
     card?: InvitationCard | null;
+    /** The Save the Date, shown where the text contains SAVE_THE_DATE_MARKER. */
+    saveTheDate?: SaveTheDateCard | null;
 }
 
 const EYEBROWS: Record<StationeryEmail["kind"], string> = {
@@ -156,16 +247,18 @@ export function stationeryEmailHtml(input: StationeryEmail): string {
         .map((p) =>
             p === CARD_MARKER && input.card
                 ? invitationCardHtml(input.card, accent, input.assetOrigin)
-                : `<p style="margin:0 0 18px;font-family:${font};font-size:17px;line-height:1.65;color:${PALETTE.ink}">${linkify(p.replaceAll(CARD_MARKER, ""), accent)}</p>`,
+                : p === SAVE_THE_DATE_MARKER && input.saveTheDate
+                  ? saveTheDateHtml(input.saveTheDate, accent, input.assetOrigin)
+                  : `<p style="margin:0 0 18px;font-family:${font};font-size:17px;line-height:1.65;color:${PALETTE.ink}">${linkify(p.replaceAll(CARD_MARKER, "").replaceAll(SAVE_THE_DATE_MARKER, ""), accent)}</p>`,
         )
         .join("");
-    // With the invitation card in the body, the card carries the names, date and RSVP button.
-    const withCard = !!input.card && input.text.includes(CARD_MARKER);
+    // With the invitation or Save the Date card in the body, the card carries the names, date and actions.
+    const withCard = (!!input.card && input.text.includes(CARD_MARKER)) || (!!input.saveTheDate && input.text.includes(SAVE_THE_DATE_MARKER));
     const [one, two] = input.coupleNames.split(/\s+&\s+/, 2);
     const names = two
         ? `${escapeHtml(one)}<br><span style="font-style:italic;font-size:24px;color:${accent}">&amp;</span><br>${escapeHtml(two)}`
         : escapeHtml(input.coupleNames);
-    const preheader = escapeHtml(input.text.replaceAll(CARD_MARKER, " ").replace(/\s+/g, " ").slice(0, 110));
+    const preheader = escapeHtml(input.text.replaceAll(CARD_MARKER, " ").replaceAll(SAVE_THE_DATE_MARKER, " ").replace(/\s+/g, " ").slice(0, 110));
     const button =
         input.action && !withCard
             ? `<tr><td align="center" style="padding:6px 40px 30px">

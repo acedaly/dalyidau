@@ -36,7 +36,7 @@
         "IMAGE_TRANSFORMS": "off",
         // The portal's email and SMS providers. "off" means nothing is ever sent (docs/COMMUNICATIONS.md).
         "EMAIL_DELIVERY": "fastmail",
-        "EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+        "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
         "EMAIL_REPLY_TO": "wedding@daly.id.au",
         "SMS_DELIVERY": "clicksend",
     },
@@ -90,7 +90,7 @@
                 "SYNC_REQUEST_SPACING_MS": "2100",
                 "IMAGE_TRANSFORMS": "off",
                 "EMAIL_DELIVERY": "off",
-                "EMAIL_FROM": "\"Aidan & Amelia\" <wedding@daly.id.au>",
+                "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
                 "EMAIL_REPLY_TO": "wedding@daly.id.au",
                 "SMS_DELIVERY": "off",
             },

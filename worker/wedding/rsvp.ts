@@ -96,12 +96,20 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
             .all<{ id: string; first_name: string; last_name: string; age_group: "adult" | "child" | "infant"; dietary: string | null }>(),
         db
             .prepare(
-                `SELECT ge.guest_id, ge.event_id, ge.status, e.name, e.starts_at, e.venue_name FROM guest_events ge
+                `SELECT ge.guest_id, ge.event_id, ge.status, e.name, e.starts_at, e.ends_at, e.venue_name FROM guest_events ge
                  JOIN events e ON e.id = ge.event_id JOIN guests g ON g.id = ge.guest_id
                  WHERE g.household_id = ? AND g.deleted_at IS NULL AND e.rsvp_enabled = 1 ORDER BY e.sort_order, e.starts_at`,
             )
             .bind(household.id)
-            .all<{ guest_id: string; event_id: string; status: RsvpStatus; name: string; starts_at: string | null; venue_name: string | null }>(),
+            .all<{
+                guest_id: string;
+                event_id: string;
+                status: RsvpStatus;
+                name: string;
+                starts_at: string | null;
+                ends_at: string | null;
+                venue_name: string | null;
+            }>(),
         getSettings(db, "rsvp"),
         deadlinePassed(db),
         listQuestions(db, true),
@@ -120,7 +128,8 @@ async function loadHousehold(db: D1Database, household: { id: string; name: stri
     const events = new Map<string, RsvpHousehold["events"][number]>();
     const responses: RsvpHousehold["responses"] = {};
     for (const row of invitations.results) {
-        if (!events.has(row.event_id)) events.set(row.event_id, { id: row.event_id, name: row.name, startsAt: row.starts_at, venueName: row.venue_name });
+        if (!events.has(row.event_id))
+            events.set(row.event_id, { id: row.event_id, name: row.name, startsAt: row.starts_at, endsAt: row.ends_at, venueName: row.venue_name });
         (responses[row.guest_id] ??= {})[row.event_id] = row.status;
     }
     const answers: RsvpHousehold["answers"] = { household: {}, guests: {} };

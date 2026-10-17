@@ -13,7 +13,7 @@ Communications → **Communications Studio** has a card for each step. Every one
 | Step | What it's for                                                                                                   | Default recipients         | Sent once per household?   | Printable?                  |
 | ---- | --------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------- | --------------------------- |
 | 1    | **Save the date**: the date and place, "Formal invitation to follow". Never invites anyone or changes any RSVP. | Whoever you choose         | Yes                        | Yes (A5 card)               |
-| 2    | **Formal invitation**: the invitation itself, with each household's own RSVP link.                              | Whoever you choose         | Yes                        | Yes, from Invitation Studio |
+| 2    | **Formal invitation**: the invitation itself, with each household's own RSVP link. By text, a link to it.       | Whoever you choose         | Yes                        | Yes, from Invitation Studio |
 | 3    | **RSVP reminder**: to households with no reply yet, partly answered, or needing travel follow-up.               | Whoever you choose         | No (but never twice a day) | No                          |
 | 4    | **Final information**: times, venue, courtesy bus and accommodation, for households who are coming.             | Whoever you choose         | Yes                        | No                          |
 | 5    | **Thank you**: a card per household, with an optional photo, personal note and gallery link.                    | Whoever you choose         | Yes                        | Yes (A5 card)               |
@@ -59,14 +59,25 @@ Everything is re-checked for every recipient at the moment it's sent, including 
 3. **Generate (do not send)**. The household now shows "Email draft", and **Review and send** opens the draft.
 4. On the draft: **Send check** lists one address (theirs). Open **PDF** next to it to see the attachment. **Send a test** to your own approved address with that household's details.
 5. When delivery is approved and switched on: **Send to 1 household**.
-6. In the guest's inbox: the botanical invitation, "View Invitation & RSVP", the link written out in full and, if chosen, the PDF with its QR code. The link opens that household's RSVP, listing each invited guest; replies appear under RSVPs and on the household.
+6. In the guest's inbox: the botanical invitation, an **RSVP** button, the link written out in full and, if chosen, the PDF with its QR code. The link opens that household's RSVP, listing each invited guest; replies appear under RSVPs and on the household.
 
 ### What the guest receives
 
-- Your greeting and introduction from the Studio template, then **the invitation itself**: the native botanical artwork, "With pleasure, for" and the household's name exactly as printed, the date, venue and events, "Kindly reply by…", a **View Invitation & RSVP** button and the same link written out for email clients that block buttons. Every word is real text, so it reads properly with images blocked.
+- Your greeting and introduction from the Studio template, then **the invitation itself**: the native botanical artwork, "Invitation for" and the household's name exactly as printed, the date, venue and events, "Kindly reply by…", an **RSVP** button that goes straight to the household's RSVP form, and the same link written out for email clients that block buttons. Every word is real text, so it reads properly with images blocked.
 - A plain-text version for text-only email apps.
 - Optionally, **the household's printable invitation as a PDF**: the same file as Studio → Download printable PDF, with its own QR code.
 - Each household's email carries only its own signed link and QR code.
+- When the ceremony and reception share a venue, it's named once ("Ceremony and reception at Rhino Lodge") with each event's own time beneath. Dates and the RSVP deadline always come from settings.
+
+### By text: the household's invitation page
+
+A text can't show the invitation, and a PDF or MMS isn't reliable on every phone, so the invitation text links to **the household's own invitation page** (`{{invitation_link}}`):
+
+> Dear Fred & Ann, it's Amelia & Aidan! We'd love you to join us on Saturday 23 October 2027. Your personal invitation and RSVP: https://wedding.daly.id.au/invitation?invite=… Please reply by Saturday 25 September 2027.
+
+- The page shows the household's invitation, built by the same Studio code as the email and the printed card, then a prominent **RSVP** button (the existing RSVP form, same answers) and **Download invitation (PDF)**.
+- It uses the household's existing signed link: no login or code. A revoked, replaced, expired or mistyped link gets a friendly "isn't working" page that names nobody. It follows the RSVP page's switch (Public wedding website), is never cached or indexed, sends no referrer and never names the household in its title or link preview.
+- The email's RSVP button still goes straight to the RSVP form.
 
 The Studio template (wording, accent, artwork) is captured when the draft is prepared, so editing the template afterwards doesn't change a draft you've already checked. Prepare it again (Replace) to use the new template.
 
@@ -81,7 +92,20 @@ Fastmail (JMAP blob upload) and authenticated SMTP, and SMTP2Go, attach each hou
 
 ---
 
-## Save the date, final information and thank you
+## Save the date
+
+The default Save the Date email is the designed announcement (`{{save_the_date_card}}`): **SAVE THE DATE**, the couple, "Are getting married!", the date, the venue and "Formal invitation to follow.", then **Add to calendar** (Apple Calendar, Google Calendar, Outlook, Microsoft 365 and a universal `.ics` file for anything else) and **View the Save the Date**. It's addressed to the household ("Dear Fred & Ann") and never includes an RSVP link, code or deadline (they're refused), never marks anyone as invited and never changes an RSVP.
+
+The text (`{{save_the_date_link}}`):
+
+> Hi Fred & Ann! Save the date: Amelia & Aidan are getting married on Saturday 23 October 2027 at Rhino Lodge, Dubbo NSW. Add it to your calendar and see the details: https://wedding.daly.id.au/save-the-date Formal invitation to follow.
+
+That's two SMS parts; the send check shows the parts and estimated cost before anything is sent.
+
+- **The page** (`/save-the-date`) is public and the same for everyone: no household names, codes or links. It's served once the website is published, or earlier with the **Public Save the Date page** switch. Until then the email leaves out the Apple Calendar, `.ics` and page links (Google, Outlook and Microsoft 365 still work), texts that link to the page are held back, and the send check says so.
+- **The calendar event** comes from settings: "Amelia & Aidan's Wedding", the date and the venue. Without a confirmed start _and_ finish time it's an all-day event; with both, the times are Sydney time. It never carries a household's details, uses the same UID every time (so saving it again updates rather than duplicates it in calendars that honour that), and guests always choose to save it themselves: nothing is sent as a calendar invite. Changing the date later doesn't update calendars on its own.
+
+## Final information and thank you
 
 - **Wording & design** on each card sets the default wording (email and text), the accent colour and the stationery details: Save the Date headline, follow-up line and add-to-calendar link; final instructions and whether to include the website's courtesy bus and accommodation sections; the thank-you headline, message, wedding photograph and gallery link.
 - **Final information never invents anything.** Times come from Events (an event with no time says "time to be confirmed"), the bus and accommodation from the _published_ website, and each household's own bus answer from their RSVP (capped at the guests now coming, with "The Dubbo RSL will confirm pick-up times closer to the day").
@@ -92,7 +116,7 @@ Fastmail (JMAP blob upload) and authenticated SMTP, and SMTP2Go, attach each hou
 
 ## Text messages
 
-Keep texts short and link to the website; the composer shows the length and SMS parts (curly quotes and emoji shorten each part). Every number is checked as a valid mobile in E.164 before anything reaches ClickSend. Guests who reply STOP are opted out automatically. Replies appear under Communications → Text conversations and in the household's history. See COMMUNICATIONS.md before sending SMS invitations (link approval with ClickSend).
+Keep texts short and link to the website or the guest's own page; the composer shows the length and SMS parts (curly quotes and emoji shorten each part). Every number is checked as a valid mobile in E.164 before anything reaches ClickSend. Guests who reply STOP are opted out automatically. Replies appear under Communications → Text conversations and in the household's history. See COMMUNICATIONS.md before sending SMS invitations (link approval with ClickSend).
 
 ---
 

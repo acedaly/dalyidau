@@ -2,11 +2,12 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { PDFDocument, type PDFFont, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { invitationEventLines } from "../../src/shared/portal/invitation-events";
 import { type InvitationAddressing, invitationAddressing, salutation } from "../../src/shared/portal/invitation-names";
 import { normaliseMobile } from "../../src/shared/portal/phone";
 import type { InvitationPreview, InvitationStudioHousehold, InvitationTemplateSettings } from "../../src/shared/portal/types";
 import type { Env } from "../env";
-import { invitationUrl, typedRsvpAddress } from "../wedding/invitations";
+import { invitationPageUrl, invitationUrl, typedRsvpAddress } from "../wedding/invitations";
 import { auditStatement, newId, nowIso, placeholders } from "./db";
 import { ValidationError } from "./entities";
 import { getSettings } from "./settings";
@@ -180,15 +181,6 @@ const formatDate = (date: string) =>
               .replace(/^(\p{L}+)\s/u, "$1, ")
         : "";
 
-const formatTime = (dateTime: string | null) => {
-    if (!dateTime) return "";
-    const match = /T(\d{2}):(\d{2})/.exec(dateTime);
-    if (!match) return "";
-    const hour = Number(match[1]);
-    const minute = match[2];
-    return `${hour % 12 || 12}:${minute} ${hour < 12 ? "am" : "pm"}`;
-};
-
 const displayLocation = (location: string) =>
     location
         .replace(/\s*[·•]\s*/g, ", ")
@@ -233,11 +225,7 @@ export async function invitationPreviews(env: Env, input: unknown, preloaded?: S
     const { households, wedding, rsvp, template, events } = preloaded ?? (await loadStudioData(env));
     const selected = households.filter((household) => request.householdIds.includes(household.id));
     if (selected.length !== new Set(request.householdIds).size) throw new ValidationError("One of those households no longer exists", "householdIds");
-    const eventLines = events.results.map((event) => {
-        const time = formatTime(event.starts_at);
-        const detail = [time, event.venue_name].filter(Boolean).join(" at ");
-        return [event.name, detail].filter(Boolean).join(" - ");
-    });
+    const eventLines = invitationEventLines(events.results.map((event) => ({ name: event.name, startsAt: event.starts_at, venue: event.venue_name })));
     // Only guests the RSVP form will show get an invitation, matching the bulk generator: a household
     // with nobody invited to an RSVP-enabled event, or a revoked link, would get a link that 404s.
     const skipped = selected.filter((household) => household.inviteRevoked || !household.guests.some((guest) => guest.invited));
@@ -317,7 +305,8 @@ export async function invitationPreviews(env: Env, input: unknown, preloaded?: S
                     ...(rsvp.allowCodes ? [`If the link does not open, visit ${typedRsvpAddress(env)} and enter ${household.rsvpCode}.`] : []),
                     mergeCopy(template.emailSignoff, mergeValues),
                 ].join("\n\n"),
-                smsBody: `${greeting}, you're invited to ${coupleNames}'s wedding on ${weddingDate}. ${deadline ? `RSVP by ${deadline}: ` : "RSVP: "}${rsvpUrl}`,
+                // As Communications sends it: the link opens the household's invitation, then RSVP.
+                smsBody: `${greeting}, it's ${coupleNames}! We'd love you to join us on ${weddingDate}. Your personal invitation and RSVP: ${invitationPageUrl(rsvpUrl)}${deadline ? ` Please reply by ${deadline}.` : ""}`,
             });
         }
     }
@@ -466,7 +455,7 @@ export async function printableInvitations(env: Env, input: unknown, preloaded?:
         centredLines(preview.invitationLine, 392, 11.5, serifItalic, 282, 14, espresso);
 
         page.drawLine({ start: { x: 94, y: 373 }, end: { x: 326, y: 373 }, thickness: 0.65, color: accent, opacity: 0.32 });
-        centre("WITH PLEASURE, FOR", 359, 6.5, sansBold, accent);
+        centre("INVITATION FOR", 359, 6.5, sansBold, accent);
         // One recipient line, never a separate heading plus a repeated list. Long lines step down.
         let recipientSize = 14;
         let recipientLines = wrap(preview.recipientLine, serifBold, recipientSize, 290);
@@ -491,7 +480,7 @@ export async function printableInvitations(env: Env, input: unknown, preloaded?:
         centre(preview.weddingDate.toUpperCase(), 267, 10.5, sansBold, accent);
         centre(preview.location, 244, 15, serifBold, espresso);
         let eventY = 224;
-        for (const event of preview.eventLines.slice(0, 3)) eventY = centredLines(event, eventY, 8, sans, 250, 11, espresso) - 1;
+        for (const event of preview.eventLines.slice(0, 4)) eventY = centredLines(event, eventY, 8, sans, 250, 11, espresso) - 1;
 
         // The RSVP panel keeps the QR, signed-link fallback and code together as one clear action.
         // Draw its ivory wash first so the QR modules remain fully opaque and reliably scannable.

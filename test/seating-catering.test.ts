@@ -211,7 +211,7 @@ describe("website draft and publishing", () => {
     it("ships with the couple's details and keeps unconfirmed parts hidden", async () => {
         await apiCall("PUT", "/api/portal/flags/wedding.site.public", { enabled: true });
         const live = await html("/", undefined, "wedding.daly.id.au");
-        expect(live).toContain("Aidan &amp; Amelia");
+        expect(live).toContain("Amelia &amp; Aidan");
         expect(live).toContain("Saturday 23 October 2027");
         expect(live).toContain("Rhino Lodge");
         // Content from the couple's Say I Do site.

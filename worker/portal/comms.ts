@@ -635,14 +635,19 @@ export async function preflight(env: Env, db: D1Database, id: string): Promise<M
             excluded.set(p.reason, [...(excluded.get(p.reason) ?? []), p.recipient.name]);
     const used = new Set(usedMergeFields(`${message.subject}\n${message.body}`));
     const warnings: string[] = [];
-    if (used.has("rsvp_link") && !context.linksConfigured)
+    const personalLink = used.has("rsvp_link") || used.has("invitation_link") || used.has("invitation_card");
+    if (personalLink && !context.linksConfigured)
         warnings.push("Invitation links aren't set up on the Worker (RSVP_LINK_SECRET), so RSVP links can't be included.");
-    if ((used.has("rsvp_link") || used.has("rsvp_code")) && !context.nativeRsvp)
+    if ((personalLink || used.has("rsvp_code")) && !context.nativeRsvp)
         warnings.push("Native RSVP is switched off, so RSVP links won't open the RSVP form until it's switched on.");
-    if ((used.has("website_link") || used.has("rsvp_link")) && !context.sitePublished)
+    if ((used.has("website_link") || personalLink) && !context.sitePublished)
         warnings.push("The wedding website isn't published yet, so links to it won't open for guests.");
+    if ((used.has("save_the_date_card") || used.has("save_the_date_link")) && !context.saveTheDatePublic)
+        warnings.push(
+            "The Save the Date page isn't switched on yet (publish the website, or switch on “Public Save the Date page”). Until then emails leave out the Apple Calendar, .ics and page links, and texts that link to the page are held back.",
+        );
     if (isCampaignKind(message.category))
-        for (const field of CAMPAIGNS[message.category].expectedFields)
+        for (const field of CAMPAIGNS[message.category].expectedFields[message.channel])
             if (!used.has(field)) warnings.push(`This ${CAMPAIGNS[message.category].label.toLowerCase()} doesn't include {{${field}}}.`);
     if (message.category === "thank_you" && context.studio.thankYou.photoId && !context.photo)
         warnings.push("The wedding photo can only be shown once the website is published, so it's left out for now.");

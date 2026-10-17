@@ -8,6 +8,7 @@ import type { Guest, Household, Message, MessagePreflight, RsvpHousehold, Weddin
 import { buildMime } from "../worker/comms/providers";
 import type { Env } from "../worker/env";
 import { listStudioHouseholds } from "../worker/portal/invitation-studio";
+import { pdfQrCode, pdfText } from "./pdf-helpers";
 import { ORIGIN, accessToken, apiCall, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
@@ -19,7 +20,7 @@ const fastmailEnv = () =>
     portalEnv({
         EMAIL_DELIVERY: "fastmail",
         FASTMAIL_API_TOKEN: "fastmail-test-token",
-        EMAIL_FROM: '"Aidan & Amelia" <wedding@daly.id.au>',
+        EMAIL_FROM: '"Amelia & Aidan" <wedding@daly.id.au>',
         EMAIL_REPLY_TO: "wedding@daly.id.au",
     });
 
@@ -54,7 +55,7 @@ function fastmail(options: { failSubmission?: boolean; failUpload?: boolean } = 
             if (method === "Identity/get")
                 return json({
                     methodResponses: [
-                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Aidan & Amelia" }] }, "identities"],
+                        ["Identity/get", { list: [{ id: "identity-1", email: "wedding@daly.id.au", name: "Amelia & Aidan" }] }, "identities"],
                         ["Mailbox/query", { ids: ["drafts-1"] }, "drafts"],
                     ],
                 });
@@ -192,7 +193,9 @@ describe("Invitation Studio drafts", () => {
         expect(email.options).toMatchObject({ source: "invitation-studio", invitation: { attachPdf: true, template: { greetingPrefix: "Dear" } } });
         expect(sms.options.invitation?.attachPdf).toBe(false);
         expect(email.body).toContain("{{invitation_card}}");
-        expect(sms.body).toContain("{{rsvp_link}}");
+        // The text links to the household's invitation page (the invitation, then RSVP).
+        expect(sms.body).toContain("{{invitation_link}}");
+        expect(sms.body).not.toContain("{{rsvp_link}}");
         expect(email.audience).toEqual({ mode: "specific", householdIds: [f.couple.id] });
         const households = await db().prepare("SELECT DISTINCT household_id FROM message_recipients").all();
         expect(households.results).toEqual([{ household_id: f.couple.id }]);
@@ -348,20 +351,23 @@ describe("the invitation email", () => {
         // The invitation itself: household addressing, date, venue, deadline and the RSVP button.
         const html = fred.bodyValues.html.value;
         for (const text of [
-            "WITH PLEASURE, FOR",
+            "INVITATION FOR",
             "Fred &amp; Ann Example",
             "SATURDAY 23 OCTOBER 2027",
             "Rhino Lodge, Dubbo NSW",
             "Ceremony - 2:00 pm",
             "Kindly reply by Saturday 25 September 2027",
-            "View Invitation &amp; RSVP",
         ])
             expect(html).toContain(text);
+        // The button says simply "RSVP" and goes straight to the household's RSVP form.
+        expect(html).toMatch(new RegExp(`<a href="https://wedding\\.daly\\.id\\.au/rsvp\\?invite=${fredToken.replace(/[.]/g, "\\.")}"[^>]*>RSVP</a>`));
+        expect(html).not.toContain("View Invitation");
+        expect(html).not.toContain("WITH PLEASURE");
         expect(html).toContain("/wedding/email/botanical-header.jpg");
         // Readable with images blocked: the artwork is decorative and every word is text.
         expect([...html.matchAll(/<img [^>]*alt="([^"]*)"/g)].every((m) => m[1] === "")).toBe(true);
         expect(fred.bodyValues.text.value).toContain("This invitation is for Fred & Ann Example.");
-        expect(fred.subject).toBe("You're invited to Aidan & Amelia's wedding");
+        expect(fred.subject).toBe("You're invited to Amelia & Aidan's wedding");
 
         // Each household's own printable invitation, uploaded and attached over JMAP.
         expect(uploads).toHaveLength(2);
@@ -370,6 +376,17 @@ describe("the invitation email", () => {
             { blobId: "blob-1", type: "application/pdf", name: "Wedding invitation - Fred & Ann Example.pdf", disposition: "attachment" },
         ]);
         expect(sam.attachments?.[0]).toMatchObject({ blobId: "blob-2", name: "Wedding invitation - Sam Sample.pdf" });
+
+        // Each attachment is that household's invitation: its own names, and a QR code that scans
+        // to its own RSVP link (decoded from the modules exactly as drawn on the page).
+        const [fredPdf, samPdf] = uploads;
+        const fredText = await pdfText(fredPdf);
+        expect(fredText).toContain("INVITATION FOR");
+        expect(fredText).toContain("Fred & Ann Example");
+        expect(fredText).not.toContain("Sam Sample");
+        expect(await pdfQrCode(fredPdf)).toBe(`https://wedding.daly.id.au/rsvp?invite=${fredToken}`);
+        expect(await pdfText(samPdf)).toContain("Sam Sample");
+        expect(await pdfQrCode(samPdf)).toBe(`https://wedding.daly.id.au/rsvp?invite=${samToken}`);
     });
 
     it("keeps the template it was prepared with, so later edits can't change what was previewed", async () => {
@@ -383,7 +400,7 @@ describe("the invitation email", () => {
             eyebrow: "Changed afterwards",
             invitationLine: "invite you to celebrate their marriage",
             greetingPrefix: "Dear",
-            emailIntroduction: "We would love you to join us as we celebrate our wedding.",
+            emailIntroduction: "We would love for you to join us as we celebrate our marriage.",
             emailSignoff: "With love,\n{{couple_names}}",
         });
         const { sent } = fastmail();
@@ -482,7 +499,7 @@ describe("individual invitations", () => {
 describe("MIME for SMTP providers", () => {
     it("wraps the text and HTML alternatives and a base64 PDF in multipart/mixed", () => {
         const mime = buildMime({
-            from: '"Aidan & Amelia" <wedding@daly.id.au>',
+            from: '"Amelia & Aidan" <wedding@daly.id.au>',
             to: '"Fred Example" <fred@example.com>',
             replyTo: null,
             subject: "You're invited",

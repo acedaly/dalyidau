@@ -66,8 +66,8 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
     await page.getByRole("button", { name: "Preview every version" }).click();
     await page.getByRole("button", { name: "Email", exact: true }).click();
     const email = page.frameLocator('iframe[title^="Email to"]').first();
-    await expect(email.getByText("View Invitation & RSVP")).toBeVisible();
-    await expect(email.getByText("WITH PLEASURE, FOR")).toBeVisible();
+    await expect(email.getByRole("link", { name: "RSVP", exact: true })).toBeVisible();
+    await expect(email.getByText("INVITATION FOR")).toBeVisible();
     // Not captured: this view shows a real signed link (repository files never contain one).
 
     await page.getByRole("button", { name: "Generate (do not send)" }).click();
@@ -167,7 +167,7 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
         };
         const invitation = await preview(
             "invitation",
-            "Dear {{greeting_names}},\n\nWe would love you to join us as we celebrate our wedding.\n\n{{invitation_card}}\n\nWith love,\n{{couple_names}}",
+            "Dear {{greeting_names}},\n\nWe would love for you to join us as we celebrate our marriage.\n\n{{invitation_card}}\n\nWith love,\n{{couple_names}}",
             "You're invited to {{couple_names}}'s wedding",
             home.item.id,
         );
@@ -176,8 +176,8 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
         writeFileSync(`${ASSETS}/email-invitation.html`, sanitise(invitation.html));
         const std = await preview(
             "save_the_date",
-            "Dear {{greeting_names}},\n\nWe're getting married, and we'd love you to save the date.\n\n{{couple_names}}\n{{wedding_date}}\n{{venue}}\n\nA formal invitation will follow. In the meantime, you'll find everything at {{website_link}}.\n\nWith love,\n{{couple_names}}",
-            "Save the date",
+            "Dear {{greeting_names}},\n\nWe have some happy news to share!\n\n{{save_the_date_card}}\n\nWith love,\n{{couple_names}}",
+            "Save the date: {{couple_names}}, {{wedding_date}}",
             home.item.id,
         );
         await write("email-save-the-date-desktop", std.html, 720);

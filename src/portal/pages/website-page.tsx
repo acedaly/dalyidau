@@ -332,7 +332,7 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
                         />
                         <Input
                             label="Title"
-                            placeholder="Aidan & Amelia"
+                            placeholder="Amelia & Aidan"
                             value={content.heroTitle}
                             onChange={(v) => setContent({ ...content, heroTitle: v })}
                             hint="Leave empty to use your names."

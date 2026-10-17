@@ -48,8 +48,11 @@ describe("invitation names", () => {
         expect(invitationAddressing(family, { invitationName: "  The Daly Family " })).toEqual({
             recipientLine: "The Daly Family",
             namesLine: null,
-            greetingNames: "the Daly Family",
+            // The greeting is to the invited people by name, never "Dear the Daly Family".
+            greetingNames: "Fred, Ann & Tom",
         });
+        // With nobody named, the invitation name stands in, with a lower-case article.
+        expect(invitationAddressing([], { invitationName: "The Daly Family" }).greetingNames).toBe("the Daly Family");
         expect(invitationAddressing(family, { invitationName: "The Daly Family", listNames: true }).namesLine).toBe("Fred, Ann & Tom Daly");
         // The list option does nothing without an invitation name.
         expect(invitationAddressing(family, { invitationName: "", listNames: true })).toMatchObject({ recipientLine: "Fred, Ann & Tom Daly", namesLine: null });
@@ -140,7 +143,7 @@ describe("household invitations", () => {
         expect(byHousehold.get(f.family.household.id)).toMatchObject({
             recipientLine: "The Nguyen Family",
             namesLine: "Linh, Bao, Mai & An Nguyen",
-            greeting: "Dear the Nguyen Family",
+            greeting: "Dear Linh, Bao, Mai & An",
         });
         expect(byHousehold.get(f.single.household.id)).toMatchObject({ recipientLine: "Jo Brown", greeting: "Dear Jo" });
         expect(byHousehold.get(f.blended.household.id)).toMatchObject({ recipientLine: "Sam Lee & Kate Smith", greeting: "Dear Sam & Kate" });
@@ -150,7 +153,7 @@ describe("household invitations", () => {
         expect(email).toContain("This invitation is for Fred & Ann Daly. You can reply for each person separately.");
         expect(email).not.toMatch(/\bFor Fred|Invited guests|Fred Daly - Ann Daly/);
         expect(byHousehold.get(f.family.household.id)!.emailBody).toContain("This invitation is for The Nguyen Family (Linh, Bao, Mai & An Nguyen).");
-        expect(byHousehold.get(f.couple.household.id)!.smsBody).toMatch(/^Dear Fred & Ann, you're invited/);
+        expect(byHousehold.get(f.couple.household.id)!.smsBody).toMatch(/^Dear Fred & Ann, it's Amelia & Aidan! We'd love you to join us on /);
     });
 
     it("prints one page per household with a single recipient line", async () => {

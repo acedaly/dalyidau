@@ -74,6 +74,13 @@ export async function invitationUrl(env: Env, householdId: string, version: numb
     return `${weddingOrigin(env)}/rsvp?invite=${encodeURIComponent(token)}`;
 }
 
+/**
+ * The same signed link, opening the household's invitation page (the invitation, then an RSVP
+ * button) instead of going straight to the RSVP form. Used for texts, where the invitation itself
+ * can't be shown in the message.
+ */
+export const invitationPageUrl = (rsvpUrl: string) => rsvpUrl.replace(/\/rsvp\?invite=/, "/invitation?invite=");
+
 export async function verifyInvitationToken(secret: string, token: string): Promise<{ householdId: string; version: number; guestId: string | null } | null> {
     const match = TOKEN_RE.exec(token);
     if (!match) return null;
