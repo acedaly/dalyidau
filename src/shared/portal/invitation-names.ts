@@ -57,9 +57,18 @@ export function formatInvitees(people: InvitationPerson[]): string {
     return joinNames(parts, nested ? "and" : "&");
 }
 
-/** First names for a salutation: "Fred & Ann", "Fred, Ann & Tom". */
-export const formatGreetingNames = (people: InvitationPerson[]) =>
-    joinNames(people.map((person) => clean(person.firstName) || clean(person.lastName)).filter(Boolean));
+/**
+ * First names for a salutation: "Fred & Ann", "Fred, Ann & Tom". People who share a first name are
+ * greeted by full name so nobody reads as a repeat ("Sam Lee & Sam Smith"), and someone with only a
+ * surname is greeted by it.
+ */
+export const formatGreetingNames = (people: InvitationPerson[]) => {
+    const named = people.map((person) => ({ first: clean(person.firstName), last: clean(person.lastName) })).filter((person) => person.first || person.last);
+    const count = (first: string) => named.filter((person) => person.first.toLocaleLowerCase("en-AU") === first.toLocaleLowerCase("en-AU")).length;
+    return joinNames(
+        named.map((person) => (!person.first ? person.last : count(person.first) > 1 ? [person.first, person.last].filter(Boolean).join(" ") : person.first)),
+    );
+};
 
 /**
  * Addresses one invitation to the given people (the invited members of a household, or one person
@@ -73,8 +82,10 @@ export function invitationAddressing(people: InvitationPerson[], options: Invita
         return {
             recipientLine: custom,
             namesLine: options.listNames && names ? names : null,
-            // "Dear the Daly Family" reads better with a lower-case article.
-            greetingNames: custom.replace(/^The\s/, "the "),
+            // The card is addressed to "The Daly Family", but the greeting is to the people invited,
+            // by first name: "Dear Fred, Ann & Tom" reads warmly where "Dear the Daly Family" doesn't.
+            // With nobody named, the invitation name stands in ("Dear the Daly Family").
+            greetingNames: formatGreetingNames(people) || custom.replace(/^The\s/, "the "),
         };
     return { recipientLine: names || clean(fallback), namesLine: null, greetingNames: formatGreetingNames(people) || clean(fallback) };
 }

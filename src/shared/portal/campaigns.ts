@@ -29,34 +29,41 @@ export interface CampaignDefinition {
     oncePerHousehold: boolean;
     /** Merge fields that can't be used, with the reason shown to the couple. */
     forbiddenFields: Partial<Record<string, string>>;
-    /** Merge fields it should normally include; their absence is a warning in the send check. */
-    expectedFields: string[];
+    /** Merge fields it should normally include, per channel; their absence is a warning in the send check. */
+    expectedFields: { email: string[]; sms: string[] };
     /** A printable card can be made from it in the portal. */
     printable: boolean;
     copy: CampaignCopy;
 }
 
-const NOT_FOR_SAVE_THE_DATE = "A save the date comes before the formal invitation, so it doesn't include an RSVP link or code.";
+const NOT_FOR_SAVE_THE_DATE = "A save the date comes before the formal invitation, so it doesn't include an RSVP link, code or deadline.";
+
+/**
+ * The invitation text: warm, short, and clear that the link opens the household's own invitation
+ * and RSVP (the invitation can't be shown in a text, and a PDF or MMS isn't reliable on every phone).
+ */
+const INVITATION_SMS = (greetingPrefix: string) =>
+    `${greetingPrefix} {{greeting_names}}, it's {{couple_names}}! We'd love you to join us on {{wedding_date}}. Your personal invitation and RSVP: {{invitation_link}} Please reply by {{rsvp_deadline}}.`;
 
 export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     save_the_date: {
         label: "Save the date",
         description: "The date and place, with the formal invitation to follow. Doesn't invite anyone or change any RSVP.",
         oncePerHousehold: true,
-        forbiddenFields: { rsvp_link: NOT_FOR_SAVE_THE_DATE, rsvp_code: NOT_FOR_SAVE_THE_DATE, rsvp_progress: NOT_FOR_SAVE_THE_DATE },
-        expectedFields: ["website_link"],
+        forbiddenFields: {
+            rsvp_link: NOT_FOR_SAVE_THE_DATE,
+            rsvp_code: NOT_FOR_SAVE_THE_DATE,
+            rsvp_progress: NOT_FOR_SAVE_THE_DATE,
+            rsvp_deadline: NOT_FOR_SAVE_THE_DATE,
+            invitation_link: NOT_FOR_SAVE_THE_DATE,
+        },
+        expectedFields: { email: ["save_the_date_card"], sms: ["save_the_date_link"] },
         printable: true,
         copy: {
             subject: "Save the date: {{couple_names}}, {{wedding_date}}",
-            body: [
-                "Dear {{greeting_names}},",
-                "We're getting married, and we'd love you to save the date.",
-                "{{couple_names}}\n{{wedding_date}}\n{{venue}}",
-                "A formal invitation will follow. In the meantime, you'll find everything we know so far at {{website_link}}.",
-                "Add it to your calendar: {{calendar_link}}",
-                "With love,\n{{couple_names}}",
-            ].join("\n\n"),
-            smsBody: "{{couple_names}} here! Please save the date for our wedding: {{wedding_date}}, {{venue}}. Formal invitation to follow. {{website_link}}",
+            body: ["Dear {{greeting_names}},", "We have some happy news to share!", "{{save_the_date_card}}", "With love,\n{{couple_names}}"].join("\n\n"),
+            smsBody:
+                "Hi {{greeting_names}}! Save the date: {{couple_names}} are getting married on {{wedding_date}} at {{venue}}. Add it to your calendar and see the details: {{save_the_date_link}} Formal invitation to follow.",
         },
     },
     invitation: {
@@ -64,17 +71,17 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         description: "The invitation itself, with each household's own RSVP link. Printed versions come from Invitation Studio.",
         oncePerHousehold: true,
         forbiddenFields: {},
-        expectedFields: ["invitation_card"],
+        expectedFields: { email: ["invitation_card"], sms: ["invitation_link"] },
         printable: false,
         copy: {
             subject: "You're invited to {{couple_names}}'s wedding",
             body: [
                 "Dear {{greeting_names}},",
-                "We would love you to join us as we celebrate our wedding.",
+                "We would love for you to join us as we celebrate our marriage.",
                 "{{invitation_card}}",
                 "With love,\n{{couple_names}}",
             ].join("\n\n"),
-            smsBody: "{{couple_names}} here. You're invited to our wedding on {{wedding_date}}! Please RSVP by {{rsvp_deadline}}: {{rsvp_link}}",
+            smsBody: INVITATION_SMS("Dear"),
         },
     },
     reminder: {
@@ -82,7 +89,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         description: "A gentle nudge to households that haven't replied, or replied for only some of their guests.",
         oncePerHousehold: false,
         forbiddenFields: {},
-        expectedFields: ["rsvp_link"],
+        expectedFields: { email: ["rsvp_link"], sms: ["rsvp_link"] },
         printable: false,
         copy: {
             subject: "A gentle reminder to RSVP by {{rsvp_deadline}}",
@@ -100,7 +107,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         description: "Times, venue, courtesy bus and accommodation for the households who are coming. Only confirmed details are used.",
         oncePerHousehold: true,
         forbiddenFields: {},
-        expectedFields: ["event_schedule"],
+        expectedFields: { email: ["event_schedule"], sms: [] },
         printable: false,
         copy: {
             subject: "Final details for {{wedding_date}}",
@@ -124,7 +131,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         description: "A thank-you card for each household, with an optional photo, personal note and gallery link. Never sent automatically.",
         oncePerHousehold: true,
         forbiddenFields: {},
-        expectedFields: ["thank_you_message"],
+        expectedFields: { email: ["thank_you_message"], sms: [] },
         printable: true,
         copy: {
             subject: "Thank you from {{couple_names}}",
@@ -152,7 +159,7 @@ export function studioInvitationCopy(template: InvitationTemplateSettings): Camp
         body: [`${template.greetingPrefix} {{greeting_names}},`, map(template.emailIntroduction), "{{invitation_card}}", map(template.emailSignoff)].join(
             "\n\n",
         ),
-        smsBody: `${template.greetingPrefix} {{greeting_names}}, you're invited to {{couple_names}}'s wedding on {{wedding_date}}. Please RSVP by {{rsvp_deadline}}: {{rsvp_link}}`,
+        smsBody: INVITATION_SMS(template.greetingPrefix),
     };
 }
 

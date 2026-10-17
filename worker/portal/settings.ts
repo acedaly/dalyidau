@@ -317,7 +317,7 @@ export const SETTINGS_DEFAULTS: SettingsDocuments = {
         eyebrow: "Together with their families",
         invitationLine: "invite you to celebrate their marriage",
         greetingPrefix: "Dear",
-        emailIntroduction: "We would love you to join us as we celebrate our wedding.",
+        emailIntroduction: "We would love for you to join us as we celebrate our marriage.",
         emailSignoff: "With love,\n{{couple_names}}",
     },
     website: DEFAULT_WEBSITE,

@@ -113,7 +113,7 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
 
                     <div className="mt-4 w-full max-w-[18rem] border-y border-[#783B4A]/22 py-3">
                         <p className="text-[8px] font-semibold tracking-[.24em] uppercase" style={{ color: accent }}>
-                            With pleasure, for
+                            Invitation for
                         </p>
                         <p className="wedding-display mt-1.5 text-[1.25rem] leading-none font-semibold text-balance sm:text-[1.45rem]">
                             {invitation.recipientLine}
@@ -127,7 +127,7 @@ const InvitationCard = ({ invitation, label, compact = false }: { invitation: In
                         </p>
                         <p className="wedding-display mt-1 text-[1.25rem] leading-none font-semibold">{invitation.location}</p>
                         <div className="mt-2 space-y-0.5 text-[9px] leading-snug">
-                            {invitation.eventLines.slice(0, 3).map((line) => (
+                            {invitation.eventLines.slice(0, 4).map((line) => (
                                 <p key={line}>{line}</p>
                             ))}
                         </div>

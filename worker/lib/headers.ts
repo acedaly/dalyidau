@@ -26,6 +26,10 @@ export const SECURITY_HEADERS: Record<string, string> = {
 
 export const withSecurityHeaders = (response: Response): Response => {
     const res = new Response(response.body, response);
-    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.headers.set(name, value);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+        // Pages opened from a signed link ask for no referrer at all; keep that stricter policy.
+        if (name === "Referrer-Policy" && res.headers.get(name) === "no-referrer") continue;
+        res.headers.set(name, value);
+    }
     return res;
 };

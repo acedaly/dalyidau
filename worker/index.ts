@@ -3,7 +3,8 @@ import { site } from "../src/content/site";
 import { render, renderWedding } from "../src/entry-server";
 import { portalBootShell } from "../src/portal/boot-shell";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
-import type { PortalPageData, WeddingPageData } from "../src/shared/portal/types";
+import { icsFilename } from "../src/shared/portal/calendar";
+import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
@@ -19,6 +20,7 @@ import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { type SyncSummary, runSync } from "./sync";
+import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
 import { serveMedia } from "./wedding/media";
 import { RsvpError, lookupRsvp, submitRsvp } from "./wedding/rsvp";
@@ -95,7 +97,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path === "/portal" || path.startsWith("/portal/")) return portalPage(request, env, url);
     const photo = /^\/wedding\/media\/([^/]+)$/.exec(path);
     if (photo) return weddingPhoto(request, env, photo[1]);
-    if (path === "/wedding" || path.startsWith("/wedding/")) return weddingPage(env, url, indexable);
+    if (path === "/wedding" || path.startsWith("/wedding/")) return weddingPage(request, env, url, indexable);
 
     const publicFlags = await loadFlags(env.DB);
     const weddingPublished = publicFlags["wedding.site.public"];
@@ -307,7 +309,9 @@ function accessDenied(auth: Extract<AuthResult, { ok: false }>): Response {
 
 // --- Wedding website ------------------------------------------------------------------------------
 
-async function weddingPage(env: Env, url: URL, indexable: boolean): Promise<Response> {
+async function weddingPage(request: Request, env: Env, url: URL, indexable: boolean): Promise<Response> {
+    const guest = GUEST_PATHS.has(url.pathname.slice("/wedding".length)) ? url.pathname.slice("/wedding".length) : null;
+    if (guest) return guestPage(request, env, url, guest);
     const route = url.pathname === "/wedding" ? "home" : url.pathname === "/wedding/rsvp" ? "rsvp" : null;
     const flags = await loadFlags(env.DB);
     // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
@@ -337,6 +341,7 @@ async function weddingHost(request: Request, env: Env, url: URL, canonical: URL)
         const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${canonical.origin}/</loc></url>\n</urlset>\n`;
         return text(xml, "application/xml", HTML_EDGE_TTL);
     }
+    if (GUEST_PATHS.has(path)) return guestPage(request, env, url, path);
     const route = path === "/" ? "home" : path === "/rsvp" ? "rsvp" : null;
     const flags = await loadFlags(env.DB);
     if (!route || !flags["wedding.site.public"]) {
@@ -393,6 +398,81 @@ function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, st
         status,
         headers,
         // The wedding site has its own light palette; the stored dark-mode preference doesn't apply.
+        htmlAttributes: 'data-theme-lock="light"',
+    });
+}
+
+const GUEST_PATHS = new Set(["/invitation", "/invitation.pdf", "/save-the-date", "/save-the-date.ics"]);
+
+const GUEST_NOT_FOUND = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...PRIVATE_HEADERS } });
+
+/**
+ * The pages guests reach from a message (see worker/wedding/guest-pages.ts). The invitation pages
+ * follow the RSVP page: served once the website is published, and only for a valid signed link.
+ * They're never cached or indexed, and the signed link isn't sent on as a referrer.
+ */
+async function guestPage(request: Request, env: Env, url: URL, path: string): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    if (path === "/save-the-date" || path === "/save-the-date.ics") {
+        if (!(await saveTheDateAvailable(env))) return GUEST_NOT_FOUND();
+        if (path === "/save-the-date.ics") {
+            const calendar = await saveTheDateCalendar(env);
+            if (!calendar) return GUEST_NOT_FOUND();
+            const wedding = await getSettings(env.DB, "wedding");
+            return new Response(calendar, {
+                headers: {
+                    "Content-Type": "text/calendar; charset=utf-8",
+                    "Content-Disposition": `attachment; filename="${icsFilename(wedding)}"`,
+                    "Cache-Control": "public, max-age=300",
+                    "X-Robots-Tag": "noindex",
+                },
+            });
+        }
+        const data = await saveTheDatePage(env);
+        if (!data) return GUEST_NOT_FOUND();
+        return renderGuestDocument(env, data, url.pathname, 200, { "Cache-Control": "public, max-age=0, must-revalidate", "X-Robots-Tag": "noindex" });
+    }
+    const flags = await loadFlags(env.DB);
+    if (!flags["wedding.site.public"]) return GUEST_NOT_FOUND();
+    const token = url.searchParams.get("invite");
+    if (path === "/invitation.pdf") {
+        const pdf = await guestInvitationPdf(env, token);
+        if (!pdf) return GUEST_NOT_FOUND();
+        return new Response(new Uint8Array(pdf.bytes).buffer, {
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `attachment; filename="${pdf.filename}"`,
+                ...PRIVATE_HEADERS,
+                "Referrer-Policy": "no-referrer",
+            },
+        });
+    }
+    const data = await guestInvitationPage(env, token);
+    // An invalid link gets the same friendly page as a revoked one, with nothing about who it was for.
+    return renderGuestDocument(env, data, url.pathname, data.invitation ? 200 : 404, { ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" });
+}
+
+function renderGuestDocument(env: Env, data: GuestInvitationPageData | SaveTheDatePageData, path: string, status: number, headers: Record<string, string>) {
+    const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
+    // Titles and previews never name a household: links get pasted into chats that unfurl them.
+    const title = data.route === "invitation" ? `Your invitation · ${couple}` : `Save the date · ${couple}`;
+    const description = data.route === "invitation" ? `An invitation to ${couple}'s wedding.` : `${couple} are getting married. Formal invitation to follow.`;
+    return renderDocument(env, {
+        area: "wedding",
+        head: [
+            `<title>${escapeHtml(title)}</title>`,
+            `<meta name="description" content="${escapeHtml(description)}">`,
+            `<meta name="robots" content="noindex, nofollow">`,
+            `<meta name="referrer" content="no-referrer">`,
+            `<meta property="og:title" content="${escapeHtml(title)}">`,
+            `<meta property="og:description" content="${escapeHtml(description)}">`,
+            `<meta name="theme-color" content="#f8f5ee">`,
+        ].join("\n        "),
+        body: renderWedding(data, path),
+        data,
+        path,
+        status,
+        headers,
         htmlAttributes: 'data-theme-lock="light"',
     });
 }

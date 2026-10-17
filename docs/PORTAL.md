@@ -133,6 +133,7 @@ Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/
 | Switch                                     | Default | Effect                                                                                                                                                                                         |
 | ------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public wedding website                     | Off     | `wedding.daly.id.au` serves the site; otherwise it's a normal 404.                                                                                                                             |
+| Public Save the Date page                  | Off     | Serves `/save-the-date` and its calendar file `/save-the-date.ics` before the website is published (couple, date and venue only). Publishing the website serves them too.                      |
 | Native RSVP                                | Off     | The website's RSVP button opens our own form, and `/api/wedding/rsvp/*` accepts responses. While off, the button links to Say I Do and the API returns 404. Needs the website switched on too. |
 | Email delivery                             | Off     | Allows sending email from the portal (campaigns and RSVP confirmations). Also needs `EMAIL_DELIVERY` and its provider secrets on the Worker.                                                   |
 | SMS delivery                               | Off     | Allows sending texts and replies. Also needs `SMS_DELIVERY` and its provider secrets on the Worker.                                                                                            |
@@ -209,11 +210,12 @@ One set of rules (`src/shared/portal/invitation-names.ts`) addresses printed inv
 | Couple, different surnames                   | Sam Lee & Kate Smith                   | Dear Sam & Kate            |
 | Family                                       | Fred, Ann, Tom & Lucy Daly             | Dear Fred, Ann, Tom & Lucy |
 | Mixed                                        | Fred & Ann Daly and Kate Smith         | Dear Fred, Ann & Kate      |
-| Invitation name "The Daly Family"            | The Daly Family                        | Dear the Daly Family       |
-| …with "List each invited person" switched on | The Daly Family / Fred, Ann & Tom Daly | Dear the Daly Family       |
+| Two guests with the same first name          | Sam Lee & Sam Smith                    | Dear Sam Lee & Sam Smith   |
+| Invitation name "The Daly Family"            | The Daly Family                        | Dear Fred, Ann & Tom       |
+| …with "List each invited person" switched on | The Daly Family / Fred, Ann & Tom Daly | Dear Fred, Ann & Tom       |
 
 - Only guests invited to an event with RSVPs open are named, in RSVP-form order (import order, then the order they were added).
-- **Invitation name** (household panel) overrides the line, e.g. "The Daly Family" or "Mr & Mrs Daly". For larger families, tick **List each invited person beneath the invitation name** to print the names underneath.
+- **Invitation name** (household panel) overrides the line, e.g. "The Daly Family" or "Mr & Mrs Daly". For larger families, tick **List each invited person beneath the invitation name** to print the names underneath. The greeting still uses the invited people's first names ("Dear the Daly Family" reads awkwardly); only a household with nobody named is greeted by its invitation name.
 - The **Email greeting** template field is the salutation word ("Dear"). Migration 0009 changes the old default "For" to "Dear"; a greeting you chose yourself is kept.
 - The RSVP page lists every invited guest by full name, and each person's attendance is chosen separately for each event.
 

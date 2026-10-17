@@ -11,6 +11,7 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { formatDate, formatTime } from "@/portal/lib/format";
+import { icsFile, icsFilename, weddingCalendarEvent } from "@/shared/portal/calendar";
 import { answerText, questionApplies, validateAnswer } from "@/shared/portal/rsvp-questions";
 import {
     BUS_CHOICES,
@@ -29,7 +30,7 @@ import type { AnswerValue, RsvpHousehold, RsvpQuestion, WeddingDetails } from "@
 import { cx } from "@/utils/cx";
 import { EucalyptusBranch, Sprig } from "@/wedding/components/ornament";
 import { Eyebrow, longDate, weddingButton } from "@/wedding/components/ui";
-import { downloadCalendarFile, weddingCalendarFile } from "@/wedding/rsvp/calendar";
+import { downloadCalendarFile } from "@/wedding/rsvp/calendar";
 import { Card, ChoiceGroup, CountField, QuestionField, StepIndicator, fieldProps } from "@/wedding/rsvp/fields";
 
 type Status = "attending" | "declined";
@@ -840,7 +841,8 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
 
     const saved = household.guests.filter((g) => Object.values(household.responses[g.id] ?? {}).some((s) => s === "attending"));
     const stillToAnswer = household.guests.filter((g) => Object.values(household.responses[g.id] ?? {}).some((s) => s === "pending"));
-    const firstEvent = household.events.find((e) => saved.some((g) => household.responses[g.id]?.[e.id] === "attending"));
+    // The calendar event spans the events someone is coming to, when their times are confirmed.
+    const attendedEvents = household.events.filter((e) => saved.some((g) => household.responses[g.id]?.[e.id] === "attending"));
     return (
         <div ref={top} className="scroll-mt-24">
             <Card>
@@ -877,15 +879,14 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                             className={weddingButton.primary}
                             onClick={() =>
                                 downloadCalendarFile(
-                                    weddingCalendarFile({
-                                        title: `${wedding.partnerOne} & ${wedding.partnerTwo}'s wedding`,
-                                        date: wedding.date,
-                                        timeZone: wedding.timeZone,
-                                        location: [firstEvent?.venueName, wedding.location].filter(Boolean).join(", "),
-                                        startsAt: firstEvent?.startsAt ?? null,
-                                        url: `${window.location.origin}${homeHref}`,
-                                    }),
-                                    "wedding.ics",
+                                    icsFile(
+                                        weddingCalendarEvent({
+                                            details: wedding,
+                                            events: attendedEvents,
+                                            site: `${window.location.origin}${homeHref}`.replace(/\/+$/, ""),
+                                        })!,
+                                    ),
+                                    icsFilename(wedding),
                                 )
                             }
                         >

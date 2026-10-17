@@ -12,7 +12,9 @@
 // immediately before each recipient is sent (consent, replies and links can change in between, and
 // a scheduled message may be sent days later).
 import type { D1Database } from "@cloudflare/workers-types";
+import { calendarLinks, googleCalendarUrl, weddingCalendarEvent } from "../../src/shared/portal/calendar";
 import { CAMPAIGNS, type CampaignKind, EXCLUSION_REASONS, isCampaignKind } from "../../src/shared/portal/campaigns";
+import { invitationEventLines as sharedInvitationEventLines, sharedVenue } from "../../src/shared/portal/invitation-events";
 import { MERGE_FIELDS, OPTIONAL_MERGE_FIELDS, renderMergeFields, usedMergeFields } from "../../src/shared/portal/merge-fields";
 import { normaliseMobile } from "../../src/shared/portal/phone";
 import { smsSegments } from "../../src/shared/portal/sms";
@@ -29,9 +31,18 @@ import type {
     WebsiteContent,
     WeddingDetails,
 } from "../../src/shared/portal/types";
-import { CARD_MARKER, type InvitationCard, type StationeryAccent, invitationCardText, stationeryEmailHtml } from "../comms/stationery";
+import {
+    CARD_MARKER,
+    type InvitationCard,
+    SAVE_THE_DATE_MARKER,
+    type SaveTheDateCard,
+    type StationeryAccent,
+    invitationCardText,
+    saveTheDateText,
+    stationeryEmailHtml,
+} from "../comms/stationery";
 import type { Env } from "../env";
-import { invitationLinksConfigured, invitationUrl, typedRsvpAddress, weddingOrigin } from "../wedding/invitations";
+import { invitationLinksConfigured, invitationPageUrl, invitationUrl, typedRsvpAddress, weddingOrigin } from "../wedding/invitations";
 import { isEnabled } from "./flags";
 import { type HouseholdAddressing, householdAddressing } from "./invitation-studio";
 import { householdResponses } from "./queries";
@@ -64,20 +75,17 @@ export const displayLocation = (location: string) =>
 
 const listNames = (names: string[]) => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
-/** A Google Calendar "add event" link for the wedding day (all day, so no time is implied). */
-export function calendarLink(wedding: WeddingDetails) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(wedding.date)) return "";
-    const start = wedding.date.replace(/-/g, "");
-    const next = new Date(`${wedding.date}T12:00:00Z`);
-    next.setUTCDate(next.getUTCDate() + 1);
-    const end = next.toISOString().slice(0, 10).replace(/-/g, "");
-    const params = new URLSearchParams({
-        action: "TEMPLATE",
-        text: `${wedding.partnerOne} & ${wedding.partnerTwo}'s wedding`,
-        dates: `${start}/${end}`,
-        location: displayLocation(wedding.location),
-    });
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+/** "Saturday, 23 October 2027", as on the Save the Date. */
+const cardDate = (iso: string) => formatLongDate(iso).replace(/^(\p{L}+)\s/u, "$1, ");
+
+/** The wedding as a calendar event: settings and confirmed public event times only, never household details. */
+export const weddingEvent = (context: Pick<CampaignContext, "wedding" | "events" | "site">) =>
+    weddingCalendarEvent({ details: context.wedding, events: context.events, site: context.site });
+
+/** A Google Calendar "add event" link for the wedding (all day unless confirmed times are set). */
+export function calendarLink(context: Pick<CampaignContext, "wedding" | "events" | "site">) {
+    const event = weddingEvent(context);
+    return event ? googleCalendarUrl(event) : "";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -105,7 +113,9 @@ export interface CampaignContext {
     sitePublished: boolean;
     linksConfigured: boolean;
     site: string;
-    events: { name: string; startsAt: string | null; venue: string | null }[];
+    /** The public Save the Date page and its .ics file are being served (website published, or its own switch). */
+    saveTheDatePublic: boolean;
+    events: { name: string; startsAt: string | null; endsAt: string | null; venue: string | null }[];
     households: Map<string, HouseholdInfo>;
     addressing: Map<string, HouseholdAddressing>;
     responses: Map<string, HouseholdResponse>;
@@ -123,31 +133,35 @@ export interface CampaignContext {
 }
 
 export async function campaignContext(env: Env, db: D1Database, guests: Guest[]): Promise<CampaignContext> {
-    const [wedding, rsvp, studio, website, native, published, homes, addressing, responses, travel, notes, events, invitationTemplate] = await Promise.all([
-        getSettings(db, "wedding"),
-        getSettings(db, "rsvp"),
-        getSettings(db, "studio"),
-        getSettings(db, "website"),
-        isEnabled(db, "rsvp.native"),
-        isEnabled(db, "wedding.site.public"),
-        db.prepare("SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL").all<{
-            id: string;
-            name: string;
-            email: string | null;
-            phone: string | null;
-            rsvp_code: string;
-            invite_version: number;
-            invite_revoked_at: string | null;
-        }>(),
-        householdAddressing(db),
-        householdResponses(db),
-        loadAllTravel(db),
-        db.prepare("SELECT household_id, note FROM thank_you_notes").all<{ household_id: string; note: string }>(),
-        db
-            .prepare("SELECT name, starts_at, venue_name FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at")
-            .all<{ name: string; starts_at: string | null; venue_name: string | null }>(),
-        getSettings(db, "invitation"),
-    ]);
+    const [wedding, rsvp, studio, website, native, published, saveTheDatePage, homes, addressing, responses, travel, notes, events, invitationTemplate] =
+        await Promise.all([
+            getSettings(db, "wedding"),
+            getSettings(db, "rsvp"),
+            getSettings(db, "studio"),
+            getSettings(db, "website"),
+            isEnabled(db, "rsvp.native"),
+            isEnabled(db, "wedding.site.public"),
+            isEnabled(db, "wedding.save_the_date.public"),
+            db.prepare("SELECT id, name, email, phone, rsvp_code, invite_version, invite_revoked_at FROM households WHERE deleted_at IS NULL").all<{
+                id: string;
+                name: string;
+                email: string | null;
+                phone: string | null;
+                rsvp_code: string;
+                invite_version: number;
+                invite_revoked_at: string | null;
+            }>(),
+            householdAddressing(db),
+            householdResponses(db),
+            loadAllTravel(db),
+            db.prepare("SELECT household_id, note FROM thank_you_notes").all<{ household_id: string; note: string }>(),
+            db
+                .prepare(
+                    "SELECT name, starts_at, ends_at, venue_name FROM events WHERE is_public = 1 ORDER BY sort_order, starts_at IS NULL, starts_at, created_at",
+                )
+                .all<{ name: string; starts_at: string | null; ends_at: string | null; venue_name: string | null }>(),
+            getSettings(db, "invitation"),
+        ]);
     const site = weddingOrigin(env);
     const versions = new Map(homes.results.map((h) => [h.id, h]));
     const guestLinks = new Map<string, string>();
@@ -177,7 +191,8 @@ export async function campaignContext(env: Env, db: D1Database, guests: Guest[])
         sitePublished: published,
         linksConfigured: invitationLinksConfigured(env),
         site,
-        events: events.results.map((e) => ({ name: e.name, startsAt: e.starts_at, venue: e.venue_name })),
+        saveTheDatePublic: published || saveTheDatePage,
+        events: events.results.map((e) => ({ name: e.name, startsAt: e.starts_at, endsAt: e.ends_at, venue: e.venue_name })),
         households: new Map(
             await Promise.all(
                 homes.results.map(
@@ -214,15 +229,17 @@ export async function campaignContext(env: Env, db: D1Database, guests: Guest[])
 // ---------------------------------------------------------------------------------------------
 // Merge values
 
-const eventSchedule = (context: CampaignContext) =>
-    context.events
-        .map((event) => {
-            const time = formatTime(event.startsAt);
-            const day = event.startsAt && event.startsAt.slice(0, 10) !== context.wedding.date ? `${formatLongDate(event.startsAt)}, ` : "";
-            const when = time ? `${day}${time}` : "time to be confirmed";
-            return `${event.name}: ${when}${event.venue ? `, ${event.venue}` : ""}`;
-        })
-        .join("\n");
+const eventSchedule = (context: CampaignContext) => {
+    // A venue every event shares is named once, above the times.
+    const venue = sharedVenue(context.events);
+    const lines = context.events.map((event) => {
+        const time = formatTime(event.startsAt);
+        const day = event.startsAt && event.startsAt.slice(0, 10) !== context.wedding.date ? `${formatLongDate(event.startsAt)}, ` : "";
+        const when = time ? `${day}${time}` : "time to be confirmed";
+        return `${event.name}: ${when}${event.venue && !venue ? `, ${event.venue}` : ""}`;
+    });
+    return (venue ? [sharedInvitationEventLines(context.events)[0], ...lines] : lines).join("\n");
+};
 
 const sectionText = (website: WebsiteContent, kind: "transport" | "accommodation") =>
     website.sections
@@ -289,12 +306,8 @@ export interface MergeTarget {
     individual: boolean;
 }
 
-/** "Ceremony - 2:00 pm at Rhino Lodge", as on the printed invitation. */
-const invitationEventLines = (context: CampaignContext) =>
-    context.events.map((event) => {
-        const detail = [formatTime(event.startsAt), event.venue].filter(Boolean).join(" at ");
-        return [event.name, detail].filter(Boolean).join(" - ");
-    });
+/** "Ceremony - 2:00 pm at Rhino Lodge", or the shared venue once, as on the printed invitation. */
+const invitationEventLines = (context: CampaignContext) => sharedInvitationEventLines(context.events);
 
 /** The invitation card for one recipient: the printed invitation's content and their own link. */
 export function invitationCard(context: CampaignContext, target: MergeTarget, template = context.invitationTemplate): InvitationCard | null {
@@ -347,6 +360,28 @@ export function invitationCard(context: CampaignContext, target: MergeTarget, te
     };
 }
 
+/**
+ * The Save the Date announcement. The same for every household: the couple, the date and the venue
+ * from settings, with calendar links that never carry a household's names, code or RSVP link.
+ */
+export function saveTheDateCard(context: Pick<CampaignContext, "wedding" | "studio" | "events" | "site" | "saveTheDatePublic">): SaveTheDateCard | null {
+    const event = weddingEvent(context);
+    if (!event) return null;
+    const followUp = context.studio.saveTheDate.followUp.trim();
+    return {
+        headline: context.studio.saveTheDate.headline,
+        coupleNames: `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`,
+        tagline: "Are getting married!",
+        weddingDate: cardDate(context.wedding.date),
+        location: displayLocation(context.wedding.location),
+        followUp: followUp && !/[.!?]$/.test(followUp) ? `${followUp}.` : followUp,
+        calendar: context.studio.saveTheDate.showCalendarLink
+            ? calendarLinks(event, context.saveTheDatePublic ? `${context.site}/save-the-date.ics` : null)
+            : null,
+        pageUrl: context.saveTheDatePublic ? `${context.site}/save-the-date` : null,
+    };
+}
+
 export function mergeValues(context: CampaignContext, target: MergeTarget, template = context.invitationTemplate): Record<string, string> {
     const household = target.householdId ? context.households.get(target.householdId) : undefined;
     const addressing = target.householdId ? context.addressing.get(target.householdId) : undefined;
@@ -363,13 +398,26 @@ export function mergeValues(context: CampaignContext, target: MergeTarget, templ
         rsvp_link: household
             ? (target.individual && target.guestId && context.guestLinks.get(target.guestId)) || (household.link ?? "")
             : context.fallbackRsvpLink,
+        // The same signed link, opening the household's invitation first (for texts). Previews and tests
+        // with the fictional sample get the RSVP page, as for {{rsvp_link}}.
+        invitation_link: (() => {
+            if (!household) return context.fallbackRsvpLink;
+            const link = (target.individual && target.guestId && context.guestLinks.get(target.guestId)) || household.link;
+            return link ? invitationPageUrl(link) : "";
+        })(),
         rsvp_deadline: context.rsvpDeadline,
         rsvp_progress: rsvpProgress(context, target.householdId),
         couple_names: `${context.wedding.partnerOne} & ${context.wedding.partnerTwo}`,
         wedding_date: formatLongDate(context.wedding.date),
         venue: displayLocation(context.wedding.location),
         website_link: context.site,
-        calendar_link: studio.saveTheDate.showCalendarLink ? calendarLink(context.wedding) : "",
+        calendar_link: studio.saveTheDate.showCalendarLink ? calendarLink(context) : "",
+        // Empty while the page isn't served, so a message that needs it is held back rather than sent with a dead link.
+        save_the_date_link: context.saveTheDatePublic ? `${context.site}/save-the-date` : "",
+        save_the_date_card: (() => {
+            const card = saveTheDateCard(context);
+            return card ? saveTheDateText(card) : "";
+        })(),
         event_schedule: eventSchedule(context),
         transport_details: studio.finalDetails.includeTransport ? sectionText(context.website, "transport") : "",
         household_transport: householdTransport(context, target.householdId),
@@ -400,7 +448,7 @@ export interface RenderedCopy {
 }
 
 export const ACTION_LABELS: Partial<Record<MessageCategory, (values: Record<string, string>) => { label: string; url: string } | null>> = {
-    invitation: (v) => (v.rsvp_link ? { label: "Reply to your invitation", url: v.rsvp_link } : null),
+    invitation: (v) => (v.rsvp_link ? { label: "RSVP", url: v.rsvp_link } : null),
     reminder: (v) => (v.rsvp_link ? { label: "Reply now", url: v.rsvp_link } : null),
     save_the_date: (v) => ({ label: "Visit our wedding website", url: v.website_link }),
     final_details: (v) => ({ label: "See all the details", url: v.website_link }),
@@ -421,6 +469,7 @@ export function renderCopy(
     const subject = renderMergeFields(message.subject, values);
     const text = renderMergeFields(message.body, values);
     const card = values.invitation_card ? invitationCard(context, target, template) : null;
+    const saveTheDate = values.save_the_date_card && usedMergeFields(message.body).includes("save_the_date_card") ? saveTheDateCard(context) : null;
     const accent: StationeryAccent =
         message.category === "invitation"
             ? ({ burgundy: "burgundy", rust: "clay", eucalyptus: "eucalyptus" } as const)[template.accent]
@@ -433,8 +482,16 @@ export function renderCopy(
             message.channel === "email"
                 ? stationeryEmailHtml({
                       kind: isCampaignKind(message.category) ? message.category : message.category === "rsvp_confirmation" ? "rsvp_confirmation" : "update",
-                      text: card ? renderMergeFields(message.body, { ...values, invitation_card: CARD_MARKER }) : text,
+                      text:
+                          card || saveTheDate
+                              ? renderMergeFields(message.body, {
+                                    ...values,
+                                    ...(card ? { invitation_card: CARD_MARKER } : {}),
+                                    ...(saveTheDate ? { save_the_date_card: SAVE_THE_DATE_MARKER } : {}),
+                                })
+                              : text,
                       card,
+                      saveTheDate,
                       coupleNames: values.couple_names,
                       weddingDate: values.wedding_date,
                       assetOrigin,
@@ -465,6 +522,12 @@ export function copyProblems(category: MessageCategory, subject: string, body: s
             : []),
         ...(category !== "invitation" && used.includes("invitation_card")
             ? [{ field: "invitation_card", reason: "Only a formal invitation can include the invitation itself." }]
+            : []),
+        ...(category !== "invitation" && category !== "reminder" && used.includes("invitation_link")
+            ? [{ field: "invitation_link", reason: "Only a formal invitation or reminder can link to a household's invitation." }]
+            : []),
+        ...(category !== "save_the_date" && used.includes("save_the_date_card")
+            ? [{ field: "save_the_date_card", reason: "Only a save the date can include the Save the Date itself." }]
             : []),
     ];
     return { unknown, forbidden };
@@ -508,11 +571,11 @@ export function householdBlock(context: CampaignContext, input: EligibilityInput
     const householdId = input.householdId;
     const household = householdId ? context.households.get(householdId) : undefined;
     const response = householdId ? context.responses.get(householdId) : undefined;
-    const usesLink = used.has("rsvp_link") || used.has("rsvp_code");
+    const usesLink = used.has("rsvp_link") || used.has("rsvp_code") || used.has("invitation_link");
     if (input.category === "invitation" || input.category === "reminder") {
         if (household && !context.addressing.get(household.id)?.guestIds.length) return EXCLUSION_REASONS.notInvited;
         if (household && usesLink && household.revoked) return EXCLUSION_REASONS.linkRevoked;
-        if (household && used.has("rsvp_link") && !household.link) return EXCLUSION_REASONS.linkMissing;
+        if (household && (used.has("rsvp_link") || used.has("invitation_link")) && !household.link) return EXCLUSION_REASONS.linkMissing;
     }
     if (input.category === "reminder" && response?.status === "complete") return phase === "send" ? EXCLUSION_REASONS.repliedSince : EXCLUSION_REASONS.replied;
     if (input.category === "final_details" && household && (response?.attending ?? 0) === 0) return EXCLUSION_REASONS.notComing;

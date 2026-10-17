@@ -212,7 +212,8 @@ describe("Invitation Studio", () => {
         });
         expect(response.json.previews[0]).toMatchObject({
             recipientLine: "The Nguyens",
-            greeting: "Dear the Nguyens",
+            // The card says "The Nguyens"; the greeting is to the person invited.
+            greeting: "Dear Alex",
             eyebrow: "Please join us",
             invitationLine: "would love you to celebrate with them",
             accent: "eucalyptus",

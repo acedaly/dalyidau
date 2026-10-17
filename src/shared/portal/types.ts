@@ -1,5 +1,6 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
 import type { ApplicationId } from "./applications";
+import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
 import type { ImportHistoryEntry } from "./guest-import";
 import type { Permission, Role } from "./permissions";
@@ -906,7 +907,7 @@ export interface RsvpHousehold {
     highlightedGuestId?: string | null;
     deadlinePassed: boolean;
     guests: { id: string; firstName: string; lastName: string; ageGroup: AgeGroup; dietary: string | null }[];
-    events: { id: string; name: string; startsAt: string | null; venueName: string | null }[];
+    events: { id: string; name: string; startsAt: string | null; endsAt: string | null; venueName: string | null }[];
     /** guestId → eventId → status. Only invited combinations appear. */
     responses: Record<string, Record<string, RsvpStatus>>;
     collectDietary: boolean;
@@ -948,6 +949,55 @@ export interface WeddingPageData {
     /** Local/workers.dev compatibility only; production apex requests redirect to the canonical host. */
     legacyPaths?: boolean;
 }
+
+/**
+ * A household's own invitation page, opened from its signed link (the link in the invitation text).
+ * Holds only that household's invitation: no RSVP code, no other guests and nothing from the website.
+ */
+export interface GuestInvitationPageData {
+    route: "invitation";
+    details: WeddingDetails;
+    /** Null when the link isn't valid any more (revoked, replaced, expired or mistyped). */
+    invitation: {
+        eyebrow: string;
+        coupleNames: string;
+        invitationLine: string;
+        recipientLine: string;
+        namesLine: string | null;
+        weddingDate: string;
+        location: string;
+        eventLines: string[];
+        deadline: string;
+        accent: InvitationTemplateSettings["accent"];
+        /** The household's RSVP form, on the same signed link. */
+        rsvpUrl: string;
+        /** The household's printable invitation (PDF), on the same signed link. */
+        pdfUrl: string;
+    } | null;
+    /** The wedding website, once it's published. */
+    websiteUrl: string | null;
+}
+
+/** The public Save the Date page. The same for everyone: nothing about any household. */
+export interface SaveTheDatePageData {
+    route: "save-the-date";
+    details: WeddingDetails;
+    saveTheDate: {
+        headline: string;
+        coupleNames: string;
+        tagline: string;
+        weddingDate: string;
+        location: string;
+        followUp: string;
+        accent: StudioSettings["accent"];
+        /** Null when the couple has switched Add to Calendar off. */
+        calendar: CalendarLinks | null;
+    };
+    websiteUrl: string | null;
+}
+
+/** Everything the wedding site's renderer can show. */
+export type WeddingDocumentData = WeddingPageData | GuestInvitationPageData | SaveTheDatePageData;
 
 // ---------------------------------------------------------------------------------------------
 // Seating and catering

@@ -3,10 +3,11 @@
 // palette (ivory, chocolate, eucalyptus, olive, parchment, banksia and waratah). See src/styles/wedding.css.
 import { ArrowUpRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import type { WeddingPageData } from "@/shared/portal/types";
+import type { WeddingDocumentData, WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 import { SignatureBotanicals } from "@/wedding/components/ornament";
 import { Eyebrow, longDate, weddingButton } from "@/wedding/components/ui";
+import { GuestInvitationPage, SaveTheDatePage } from "@/wedding/guest-pages";
 import { HomePage } from "@/wedding/home-page";
 import { RsvpFlow } from "@/wedding/rsvp/rsvp-flow";
 import { MobileRsvpBar, SiteFooter, SiteHeader, siteLinks } from "@/wedding/site-chrome";
@@ -66,7 +67,14 @@ const RsvpPage = ({ data }: { data: WeddingPageData }) => {
     );
 };
 
-export const WeddingApp = ({ data }: { data: WeddingPageData; path: string }) => {
+export const WeddingApp = ({ data, path }: { data: WeddingDocumentData; path: string }) => {
+    // Pages opened from a message stand on their own, without the website's header and footer.
+    if (data.route === "invitation") return <GuestInvitationPage data={data} />;
+    if (data.route === "save-the-date") return <SaveTheDatePage data={data} />;
+    return <WebsiteApp data={data} path={path} />;
+};
+
+const WebsiteApp = ({ data }: { data: WeddingPageData; path: string }) => {
     const links = siteLinks(data);
     return (
         <div className="wedding-theme wedding-paper flex min-h-dvh flex-col">

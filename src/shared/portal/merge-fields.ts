@@ -15,9 +15,11 @@ export const MERGE_FIELDS = [
     { key: "greeting_names", label: "Greeting names" },
     { key: "rsvp_code", label: "RSVP code" },
     { key: "rsvp_link", label: "RSVP link" },
+    // The household's own invitation page (the invitation, then RSVP), for texts. Same signed link.
+    { key: "invitation_link", label: "Personal invitation link (invitation, then RSVP)" },
     { key: "rsvp_deadline", label: "RSVP deadline" },
     // The whole invitation as designed in Invitation Studio: the botanical card in the email, with
-    // the household's own "View Invitation & RSVP" button and link. Formal invitations only.
+    // the household's own RSVP button and link. Formal invitations only.
     { key: "invitation_card", label: "The invitation (as designed in Invitation Studio)" },
     // "We still need an answer for Tom and Lucy." Only for reminders.
     { key: "rsvp_progress", label: "Who still needs to reply" },
@@ -25,7 +27,12 @@ export const MERGE_FIELDS = [
     { key: "wedding_date", label: "Wedding date" },
     { key: "venue", label: "Venue" },
     { key: "website_link", label: "Wedding website link" },
-    { key: "calendar_link", label: "Add-to-calendar link", optional: true },
+    { key: "calendar_link", label: "Add-to-calendar link (Google Calendar)", optional: true },
+    // The Save the Date as designed: names, date, venue, "formal invitation to follow" and Add to
+    // Calendar for Apple, Google, Outlook and other calendars. Save the dates only.
+    { key: "save_the_date_card", label: "The Save the Date (with Add to Calendar)" },
+    // The public Save the Date page. Empty (so the message is held back) until the page is served.
+    { key: "save_the_date_link", label: "Save the Date page link" },
     // Each public event with its confirmed time, or "time to be confirmed". Never an invented time.
     { key: "event_schedule", label: "Event times" },
     { key: "transport_details", label: "Courtesy bus details (from the website)", optional: true },

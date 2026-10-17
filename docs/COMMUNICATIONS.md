@@ -123,7 +123,7 @@ If you still want `AidanAmelia`, ask ClickSend whether a private individual can 
 
 ### Before sending invitations by SMS
 
-- **Links**: ask ClickSend to confirm that messages containing `https://wedding.daly.id.au/rsvp?invite=…` links are allowed on your account. Some providers hold messages with unknown links, require URL allow-listing or force their own shortener. **This hasn't been confirmed yet.** Don't send SMS invitations until it is.
+- **Links**: ask ClickSend to confirm that messages containing `https://wedding.daly.id.au/invitation?invite=…` (invitation texts) and `https://wedding.daly.id.au/save-the-date` links are allowed on your account. Some providers hold messages with unknown links, require URL allow-listing or force their own shortener. **This hasn't been confirmed yet.** Don't send SMS invitations until it is.
 - **Payload check**: ClickSend's push formats for delivery receipts and inbound messages aren't fully documented publicly. The webhook parser accepts the common field names (`message_id`, `status_text`/`status_code`, `from`, `body`, `custom_string`) as JSON or form posts, and keeps every raw payload. Before relying on it, send yourself a test text, reply to it, and confirm both appear correctly under Text conversations.
 
 ### Setup
