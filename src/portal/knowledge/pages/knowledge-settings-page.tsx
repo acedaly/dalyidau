@@ -1,9 +1,10 @@
 // A space's settings, members and audit trail, and creating shared spaces. Personal spaces are
 // never shared; a shared space can include anyone who can open Knowledge in the portal.
 import { useState } from "react";
-import { Plus, ShieldTick, Users01 } from "@untitledui/icons";
+import { Download01, Plus, ShieldTick, Users01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { PortalDialog } from "@/portal/components/dialog";
@@ -15,7 +16,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { type KnowledgeMember, type KnowledgeSpace, SPACE_ROLES, SPACE_ROLE_LABELS, type SpaceRole } from "@/shared/knowledge/types";
 import { KnowledgeHeader } from "../knowledge-header";
-import { spaceHref } from "../shared";
+import { downloadExport, spaceHref } from "../shared";
 
 const ROLE_ITEMS = SPACE_ROLES.map((id) => ({ id, label: SPACE_ROLE_LABELS[id].label, supportingText: SPACE_ROLE_LABELS[id].description }));
 
@@ -42,6 +43,20 @@ export const KnowledgeSettingsPage = ({ data }: { data: PageData<"knowledge-sett
     const [createOpen, setCreateOpen] = useState(false);
     const [newName, setNewName] = useState("");
     const base = `/api/portal/knowledge/spaces/${space.id}`;
+    const [withHistory, setWithHistory] = useState(true);
+    const [exporting, setExporting] = useState<"zip" | "json" | null>(null);
+
+    const runExport = async (format: "zip" | "json") => {
+        setExporting(format);
+        try {
+            await downloadExport(`${base}/export?format=${format}&revisions=${withHistory ? 1 : 0}`);
+            toast.success("Export downloaded", "Keep it somewhere private: it holds everything in this space.");
+        } catch (e) {
+            toast.error("The export failed", errorMessage(e));
+        } finally {
+            setExporting(null);
+        }
+    };
 
     const saveSpace = async () => {
         try {
@@ -102,6 +117,7 @@ export const KnowledgeSettingsPage = ({ data }: { data: PageData<"knowledge-sett
                 space={space}
                 spaces={spaces}
                 types={types}
+                templates={data.templates}
                 crumb="Space settings"
                 actions={
                     <Button size="sm" color="secondary" iconLeading={Plus} onClick={() => setCreateOpen(true)}>
@@ -189,6 +205,41 @@ export const KnowledgeSettingsPage = ({ data }: { data: PageData<"knowledge-sett
                                 </form>
                             )}
                         </>
+                    )}
+                </Panel>
+
+                <Panel
+                    title="Export"
+                    description="Take everything in this space with you, in an open format. Exports are built when you ask and downloaded straight to you; nothing is kept on the server."
+                >
+                    {isOwner ? (
+                        <>
+                            <ul className="list-disc pl-5 text-sm text-tertiary">
+                                <li>
+                                    <span className="font-medium text-secondary">ZIP</span>: every object as a Markdown file (front matter, wiki links between them),
+                                    plus the complete JSON in <code>manifest.json</code>.
+                                </li>
+                                <li>
+                                    <span className="font-medium text-secondary">JSON</span>: the documented <code>daly.knowledge.export.v1</code> format, with the
+                                    exact editor documents, types and properties, tags, links, collections, templates, saved views, your favourites and the audit trail.
+                                </li>
+                                <li>Archived and trashed objects are included and marked as such. Other people's favourites and private views are not.</li>
+                            </ul>
+                            <Checkbox label="Include version history" hint="Every saved version of every object. Larger, but nothing is left behind." isSelected={withHistory} onChange={setWithHistory} />
+                            <div className="flex flex-wrap gap-3">
+                                <Button size="sm" iconLeading={Download01} isLoading={exporting === "zip"} isDisabled={!!exporting} onClick={() => void runExport("zip")}>
+                                    Download ZIP
+                                </Button>
+                                <Button size="sm" color="secondary" iconLeading={Download01} isLoading={exporting === "json"} isDisabled={!!exporting} onClick={() => void runExport("json")}>
+                                    Download JSON
+                                </Button>
+                            </div>
+                            <p className="text-xs text-tertiary">
+                                This is for moving your knowledge elsewhere. Restoring the whole database after a disaster is a separate, verified backup (docs/DATABASE.md).
+                            </p>
+                        </>
+                    ) : (
+                        <Notice title="Only owners can export a whole space">You can export any object you can read from its More actions menu, as Markdown or JSON.</Notice>
                     )}
                 </Panel>
 

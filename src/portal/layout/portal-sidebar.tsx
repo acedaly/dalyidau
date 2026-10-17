@@ -10,10 +10,14 @@ import {
     Building07,
     Calendar,
     CalendarCheck01,
+    CalendarDate,
     CheckDone01,
     ClipboardCheck,
     Clock,
     X as CloseIcon,
+    Compass03,
+    File06,
+    FolderClosed,
     Globe02,
     HeartRounded,
     HomeLine,
@@ -27,6 +31,7 @@ import {
     SearchLg,
     Settings01,
     ShieldTick,
+    Star01,
     Trash01,
     Users01,
     Wallet02,
@@ -83,7 +88,20 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     types: LayersThree01,
     archive: Archive,
     trash: Trash01,
+    daily: CalendarDate,
+    favourites: Star01,
+    collections: FolderClosed,
+    templates: File06,
+    discover: Compass03,
 };
+
+/** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
+export interface ExtraNavSection {
+    label: string;
+    /** Placed after the application section with this label. */
+    after: string;
+    items: { label: string; href: string; icon: NavigationIcon }[];
+}
 
 const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = { wedding: HeartRounded, knowledge: BookOpen01 };
 
@@ -94,7 +112,7 @@ const withSpace = (href: string) => {
     return space ? `${href}?space=${encodeURIComponent(space)}` : href;
 };
 
-const portalSections = (path: string): { label: string; items: NavEntry[] }[] => {
+const portalSections = (path: string, extra: ExtraNavSection[]): { label: string; items: NavEntry[] }[] => {
     const application = applicationForPath(path);
     return [
         {
@@ -102,10 +120,12 @@ const portalSections = (path: string): { label: string; items: NavEntry[] }[] =>
             items: [{ label: "All Applications", href: "/portal", icon: LayoutGrid01 }],
         },
         ...(application
-            ? application.navigation.map((section) => ({
-                  label: section.label,
-                  items: section.items.map((item) => ({ ...item, icon: ICONS[item.icon] })),
-              }))
+            ? application.navigation.flatMap((section) => [
+                  { label: section.label, items: section.items.map((item) => ({ ...item, icon: ICONS[item.icon] })) },
+                  ...extra
+                      .filter((e) => e.after === section.label && e.items.length)
+                      .map((e) => ({ label: e.label, items: e.items.map((item) => ({ ...item, icon: ICONS[item.icon] })) })),
+              ])
             : []),
         {
             label: "Portal",
@@ -141,12 +161,12 @@ const Logo = ({ path }: { path: string }) => {
     );
 };
 
-const SidebarContent = ({ path }: { path: string }) => {
+const SidebarContent = ({ path, extra }: { path: string; extra: ExtraNavSection[] }) => {
     const { user, can, isOn } = usePortal();
     const displayName = user.name ?? user.email.split("@")[0];
     const application = applicationForPath(path);
     const ActiveIcon = application ? APPLICATION_ICONS[application.icon] : HeartRounded;
-    const sections = portalSections(path);
+    const sections = portalSections(path, extra);
 
     return (
         <aside
@@ -182,7 +202,7 @@ const SidebarContent = ({ path }: { path: string }) => {
                                         <li key={item.href} className="py-0.25">
                                             <NavItemBase
                                                 icon={item.icon}
-                                                href={withSpace(item.href)}
+                                                href={item.href.includes("?") ? item.href : withSpace(item.href)}
                                                 type="link"
                                                 current={item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`))}
                                             >
@@ -206,7 +226,7 @@ const SidebarContent = ({ path }: { path: string }) => {
     );
 };
 
-export const PortalSidebar = ({ path }: { path: string }) => (
+export const PortalSidebar = ({ path, extra = [] }: { path: string; extra?: ExtraNavSection[] }) => (
     <>
         {/* Mobile header and drawer */}
         <AriaDialogTrigger>
@@ -240,7 +260,7 @@ export const PortalSidebar = ({ path }: { path: string }) => (
                         </AriaButton>
                         <AriaModal className="w-full max-w-74 cursor-auto will-change-transform">
                             <AriaDialog aria-label="Navigation" className="h-dvh outline-hidden focus:outline-hidden">
-                                <SidebarContent path={path} />
+                                <SidebarContent path={path} extra={extra} />
                             </AriaDialog>
                         </AriaModal>
                     </>
@@ -250,7 +270,7 @@ export const PortalSidebar = ({ path }: { path: string }) => (
 
         {/* Desktop sidebar */}
         <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:py-1 lg:pl-1">
-            <SidebarContent path={path} />
+            <SidebarContent path={path} extra={extra} />
         </div>
         {/* Reserves the sidebar's width, because the real sidebar is fixed. */}
         <div style={{ paddingLeft: SIDEBAR_WIDTH + 4 }} className="invisible hidden lg:sticky lg:top-0 lg:bottom-0 lg:left-0 lg:block" />

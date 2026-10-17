@@ -34,7 +34,7 @@ export const KnowledgeSearchPage = ({ data }: { data: PageData<"knowledge-search
 
     return (
         <div className="flex flex-col gap-8" onKeyDown={moveFocus}>
-            <KnowledgeHeader title="Search" space={space} spaces={spaces} types={types} crumb="Search" hideSearch />
+            <KnowledgeHeader title="Search" space={space} spaces={spaces} types={types} templates={data.templates} crumb="Search" hideSearch />
 
             <form role="search" method="get" action="/portal/knowledge/search" className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 {space.kind !== "personal" && <input type="hidden" name="space" value={space.id} />}

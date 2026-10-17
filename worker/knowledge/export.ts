@@ -11,6 +11,7 @@ import { type MarkdownOptions, objectToMarkdown } from "../../src/shared/knowled
 import type { PropertyValues } from "../../src/shared/knowledge/properties";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { nowIso, parseJson } from "../portal/db";
+import { HttpError } from "../portal/http";
 import { requireObject, requireSpace } from "./access";
 import { knowledgeAudit } from "./audit";
 import { parseSchema } from "./types";
@@ -18,6 +19,10 @@ import { buildZip } from "./zip";
 
 /** Rows are read in pages so no single D1 response gets large. */
 const PAGE = 500;
+/** Keeps JSON parsing and ZIP assembly comfortably inside a Worker's memory limit. */
+export const MAX_EXPORT_SOURCE_BYTES = 20_000_000;
+export const MAX_EXPORT_RECORDS = 100_000;
+export const MAX_OBJECT_EXPORT_REVISIONS = 5_000;
 
 async function allRows<T extends { id: string }>(db: D1Database, sql: string, binds: unknown[]): Promise<T[]> {
     const out: T[] = [];
@@ -30,6 +35,74 @@ async function allRows<T extends { id: string }>(db: D1Database, sql: string, bi
         out.push(...page.results);
         if (page.results.length < PAGE) return out;
         after = page.results[page.results.length - 1].id;
+    }
+}
+
+async function rowsByOffset<T>(db: D1Database, sql: string, binds: unknown[], order: string): Promise<T[]> {
+    const out: T[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+        const page = await db
+            .prepare(`${sql} ORDER BY ${order} LIMIT ${PAGE} OFFSET ?`)
+            .bind(...binds, offset)
+            .all<T>();
+        out.push(...page.results);
+        if (page.results.length < PAGE) return out;
+    }
+}
+
+interface ExportSize {
+    objects: number;
+    revisions: number;
+    relations: number;
+    object_tags: number;
+    collection_items: number;
+    audit: number;
+    other_records: number;
+    source_bytes: number;
+}
+
+/** Refuse an export before loading a space large enough to exhaust Worker memory. */
+async function assertSpaceExportFits(db: D1Database, spaceId: string, revisions: boolean) {
+    const row = await db
+        .prepare(
+            `SELECT
+                (SELECT COUNT(*) FROM knowledge_objects WHERE space_id = ?1) AS objects,
+                (SELECT COUNT(*) FROM knowledge_revisions WHERE space_id = ?1) AS revisions,
+                (SELECT COUNT(*) FROM knowledge_relations WHERE space_id = ?1) AS relations,
+                (SELECT COUNT(*) FROM knowledge_object_tags WHERE space_id = ?1) AS object_tags,
+                (SELECT COUNT(*) FROM knowledge_collection_items WHERE space_id = ?1) AS collection_items,
+                (SELECT COUNT(*) FROM knowledge_audit WHERE space_id = ?1) AS audit,
+                (SELECT COUNT(*) FROM knowledge_memberships WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_object_types WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_collections WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_pins WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_favourites WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_saved_views WHERE space_id = ?1) +
+                (SELECT COUNT(*) FROM knowledge_templates WHERE space_id = ?1) AS other_records,
+                COALESCE((SELECT SUM(length(title) + length(content_json) + length(properties_json)) FROM knowledge_objects WHERE space_id = ?1), 0) +
+                CASE WHEN ?2 THEN COALESCE((SELECT SUM(length(title) + length(content_json) + length(properties_json)) FROM knowledge_revisions WHERE space_id = ?1), 0) ELSE 0 END +
+                COALESCE((SELECT SUM(length(schema_json) + length(name) + length(description)) FROM knowledge_object_types WHERE space_id = ?1), 0) +
+                COALESCE((SELECT SUM(length(content_json) + length(properties_json) + length(name) + length(description) + length(title)) FROM knowledge_templates WHERE space_id = ?1), 0) +
+                COALESCE((SELECT SUM(length(definition_json) + length(name)) FROM knowledge_saved_views WHERE space_id = ?1), 0) +
+                COALESCE((SELECT SUM(length(summary) + length(COALESCE(changes, ''))) FROM knowledge_audit WHERE space_id = ?1), 0) AS source_bytes`,
+        )
+        .bind(spaceId, revisions ? 1 : 0)
+        .first<ExportSize>();
+    if (!row) throw new Error("Couldn't measure the export");
+    const records =
+        row.objects +
+        (revisions ? row.revisions : 0) +
+        row.relations +
+        row.object_tags +
+        row.collection_items +
+        row.audit +
+        row.other_records;
+    if (records > MAX_EXPORT_RECORDS || row.source_bytes > MAX_EXPORT_SOURCE_BYTES) {
+        throw new HttpError(
+            413,
+            "export_too_large",
+            `This space is too large for an in-browser export (${records.toLocaleString()} records). Use the verified database backup workflow instead.`,
+        );
     }
 }
 
@@ -155,15 +228,15 @@ const toExportedRelation = (r: RelationRow): KnowledgeExport["relations"][number
 });
 
 const tagsByObject = async (db: D1Database, spaceId: string, objectId?: string) => {
-    const rows = await db
-        .prepare(
+    const rows = await rowsByOffset<{ object_id: string; name: string }>(
+        db,
             `SELECT ot.object_id, t.name FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id
-             WHERE ot.space_id = ? ${objectId ? "AND ot.object_id = ?" : ""} ORDER BY t.name COLLATE NOCASE`,
-        )
-        .bind(...(objectId ? [spaceId, objectId] : [spaceId]))
-        .all<{ object_id: string; name: string }>();
+             WHERE ot.space_id = ? ${objectId ? "AND ot.object_id = ?" : ""}`,
+        objectId ? [spaceId, objectId] : [spaceId],
+        "ot.object_id, t.name COLLATE NOCASE, t.name",
+    );
     const map = new Map<string, string[]>();
-    for (const r of rows.results) map.set(r.object_id, [...(map.get(r.object_id) ?? []), r.name]);
+    for (const r of rows) map.set(r.object_id, [...(map.get(r.object_id) ?? []), r.name]);
     return map;
 };
 
@@ -174,9 +247,10 @@ export interface ExportOptions {
 /** Everything in a space. Owners only: it includes the members list and the audit trail. */
 export async function exportSpace(db: D1Database, user: PortalUser, spaceId: string, options: ExportOptions): Promise<KnowledgeExport> {
     const space = await requireSpace(db, user, spaceId, "owner");
+    await assertSpaceExportFits(db, spaceId, options.revisions);
     const spaceRow = await db.prepare("SELECT created_at FROM knowledge_spaces WHERE id = ?").bind(spaceId).first<{ created_at: string }>();
 
-    const [members, types, collections, pins, templates, views, favourites, audit] = await db.batch([
+    const [members, types, collections, pins, templates, views, favourites] = await db.batch([
         db.prepare("SELECT email, role FROM knowledge_memberships WHERE space_id = ? ORDER BY email").bind(spaceId),
         db.prepare("SELECT * FROM knowledge_object_types WHERE space_id = ? ORDER BY sort_order, id").bind(spaceId),
         db.prepare("SELECT * FROM knowledge_collections WHERE space_id = ? ORDER BY sort_order, id").bind(spaceId),
@@ -187,17 +261,21 @@ export async function exportSpace(db: D1Database, user: PortalUser, spaceId: str
             .prepare("SELECT * FROM knowledge_saved_views WHERE space_id = ? AND (owner_email IS NULL OR owner_email = ?) ORDER BY sort_order, id")
             .bind(spaceId, user.email),
         db.prepare("SELECT object_id, position, created_at FROM knowledge_favourites WHERE space_id = ? AND email = ? ORDER BY position").bind(spaceId, user.email),
-        db.prepare("SELECT at, actor, action, entity_type, entity_id, summary, changes FROM knowledge_audit WHERE space_id = ? ORDER BY id").bind(spaceId),
     ]);
     const objectRows = await allRows<ObjectExportRow>(db, `${OBJECT_SELECT} WHERE space_id = ?`, [spaceId]);
     const objectIds = new Set(objectRows.map((r) => r.id));
     const tagMap = await tagsByObject(db, spaceId);
     const relations = await allRows<RelationRow>(db, "SELECT * FROM knowledge_relations WHERE space_id = ?", [spaceId]);
-    const items = await db
-        .prepare("SELECT collection_id, object_id, position, pinned_at, added_by, added_at FROM knowledge_collection_items WHERE space_id = ? ORDER BY position")
-        .bind(spaceId)
-        .all<{ collection_id: string; object_id: string; position: number; pinned_at: string | null; added_by: string; added_at: string }>();
+    const items = await rowsByOffset<{ collection_id: string; object_id: string; position: number; pinned_at: string | null; added_by: string; added_at: string }>(
+        db,
+        "SELECT collection_id, object_id, position, pinned_at, added_by, added_at FROM knowledge_collection_items WHERE space_id = ?",
+        [spaceId],
+        "collection_id, position, object_id",
+    );
     const revisions = options.revisions ? await allRows<RevisionRow>(db, "SELECT * FROM knowledge_revisions WHERE space_id = ?", [spaceId]) : [];
+    const audit = await allRows<
+        { id: string; at: string; actor: string; action: string; entity_type: string; entity_id: string | null; summary: string; changes: string | null }
+    >(db, "SELECT id, at, actor, action, entity_type, entity_id, summary, changes FROM knowledge_audit WHERE space_id = ?", [spaceId]);
 
     // Rows are read one query at a time, not as one snapshot: anything that refers to an object
     // created after the objects were read is left out, so the export is always self-consistent.
@@ -227,7 +305,7 @@ export async function exportSpace(db: D1Database, user: PortalUser, spaceId: str
             createdAt: c.created_at as string,
             updatedBy: c.updated_by as string,
             updatedAt: c.updated_at as string,
-            items: items.results
+            items: items
                 .filter((i) => i.collection_id === c.id && known(i.object_id))
                 .map((i) => ({ objectId: i.object_id, position: i.position, pinnedAt: i.pinned_at, addedBy: i.added_by, addedAt: i.added_at })),
         })),
@@ -266,7 +344,7 @@ export async function exportSpace(db: D1Database, user: PortalUser, spaceId: str
             .filter((r) => known(r.object_id))
             .sort((a, b) => a.object_id.localeCompare(b.object_id) || a.version - b.version)
             .map(toExportedRevision),
-        audit: (audit.results as Row[]).map((a) => ({
+        audit: (audit as unknown as Row[]).map((a) => ({
             at: a.at as string,
             actor: a.actor as string,
             action: a.action as string,
@@ -309,6 +387,11 @@ export async function exportObject(db: D1Database, user: PortalUser, objectId: s
     ]);
     if (!objectRow || !typeRow) throw new Error("Object vanished during export");
     const tags = (await tagsByObject(db, access.space_id, objectId)).get(objectId) ?? [];
+    if (options.revisions) {
+        const count = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_revisions WHERE object_id = ?").bind(objectId).first<{ n: number }>();
+        if ((count?.n ?? 0) > MAX_OBJECT_EXPORT_REVISIONS)
+            throw new HttpError(413, "export_too_large", "This object has too many revisions for an in-browser export. Export without revision history instead.");
+    }
     const revisions = options.revisions ? await allRows<RevisionRow>(db, "SELECT * FROM knowledge_revisions WHERE object_id = ?", [objectId]) : [];
     const linked = new Map<string, { id: string; title: string; typeId: string }>();
     for (const r of relations.results) {

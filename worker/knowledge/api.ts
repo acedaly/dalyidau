@@ -103,9 +103,15 @@ export const parseListFilters = (url: URL, view?: ListFilters["view"]): ListFilt
     };
 };
 
+const boundedInteger = (value: string | null, fallback: number, minimum: number, maximum: number) => {
+    if (value === null || value.trim() === "") return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), minimum), maximum) : fallback;
+};
+
 const pageParams = (url: URL) => ({
-    limit: Math.min(Math.max(Number(url.searchParams.get("limit")) || 100, 1), 200),
-    offset: Math.max(Number(url.searchParams.get("offset")) || 0, 0),
+    limit: boundedInteger(url.searchParams.get("limit"), 100, 1, 200),
+    offset: boundedInteger(url.searchParams.get("offset"), 0, 0, 1_000_000),
 });
 
 // --- Spaces and members --------------------------------------------------------------------------
@@ -355,7 +361,7 @@ add("GET", "/search", async ({ env, url, user }) => {
         status: status === "archived" || status === "any" ? status : "active",
         updatedFrom: from && DATE.test(from) ? from : null,
         updatedTo: to && DATE.test(to) ? to : null,
-        limit: Number(url.searchParams.get("limit")) || 50,
+        limit: boundedInteger(url.searchParams.get("limit"), 50, 1, 100),
     });
     return json({ hits });
 });

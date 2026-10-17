@@ -366,8 +366,12 @@ export async function setPinned(db: D1Database, user: PortalUser, objectId: stri
     const access = await requireObject(db, user, objectId, "editor");
     if (pinned && access.status === "trashed") throw new HttpError(409, "conflict", "This object is in the trash");
     if (pinned) {
-        const count = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_pins WHERE space_id = ?").bind(access.space_id).first<{ n: number }>();
-        if ((count?.n ?? 0) >= MAX_PINS) throw new HttpError(422, "validation", `Up to ${MAX_PINS} objects can be pinned. Unpin one first.`);
+        const count = await db
+            .prepare("SELECT COUNT(*) AS n, COALESCE(MAX(object_id = ?), 0) AS already FROM knowledge_pins WHERE space_id = ?")
+            .bind(objectId, access.space_id)
+            .first<{ n: number; already: number }>();
+        if (!(count?.already ?? 0) && (count?.n ?? 0) >= MAX_PINS)
+            throw new HttpError(422, "validation", `Up to ${MAX_PINS} objects can be pinned. Unpin one first.`);
     }
     await db.batch([
         pinned
@@ -418,8 +422,12 @@ export async function listFavourites(db: D1Database, email: string, spaceId?: st
 export async function setFavourite(db: D1Database, user: PortalUser, objectId: string, favourite: boolean): Promise<void> {
     const access = await requireObject(db, user, objectId);
     if (favourite) {
-        const count = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_favourites WHERE email = ?").bind(user.email).first<{ n: number }>();
-        if ((count?.n ?? 0) >= MAX_FAVOURITES) throw new HttpError(422, "validation", `You can have up to ${MAX_FAVOURITES} favourites`);
+        const count = await db
+            .prepare("SELECT COUNT(*) AS n, COALESCE(MAX(object_id = ?), 0) AS already FROM knowledge_favourites WHERE email = ?")
+            .bind(objectId, user.email)
+            .first<{ n: number; already: number }>();
+        if (!(count?.already ?? 0) && (count?.n ?? 0) >= MAX_FAVOURITES)
+            throw new HttpError(422, "validation", `You can have up to ${MAX_FAVOURITES} favourites`);
     }
     await db.batch([
         favourite

@@ -11,8 +11,9 @@ import { PageHeader } from "@/portal/components/page-header";
 import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
 import { roleAtLeast } from "@/shared/knowledge/types";
-import type { KnowledgeSpace, KnowledgeType } from "@/shared/knowledge/types";
-import { TypeIconFor, knowledgeApi, objectHref, spaceHref } from "./shared";
+import type { KnowledgeSpace, KnowledgeType, TemplateRef } from "@/shared/knowledge/types";
+import { KnowledgeCommands } from "./knowledge-commands";
+import { TypeIconFor, keepNotices, knowledgeApi, objectHref, spaceHref } from "./shared";
 
 interface KnowledgeHeaderProps {
     title: string;
@@ -20,6 +21,8 @@ interface KnowledgeHeaderProps {
     space: KnowledgeSpace;
     spaces: KnowledgeSpace[];
     types: KnowledgeType[];
+    /** Templates offered under "New". */
+    templates?: TemplateRef[];
     /** Extra breadcrumb after "Knowledge". */
     crumb?: string;
     actions?: ReactNode;
@@ -33,6 +36,7 @@ export const useCreateObject = (space: KnowledgeSpace) => {
     return async (typeId?: string, extra: Record<string, unknown> = {}) => {
         try {
             const created = await knowledgeApi.create(space.id, { title: "", ...(typeId ? { typeId } : {}), ...extra });
+            keepNotices(created.object.id, created.notices);
             window.location.assign(objectHref(created.object.id));
         } catch (error) {
             toast.error("Couldn't create it", errorMessage(error));
@@ -40,7 +44,7 @@ export const useCreateObject = (space: KnowledgeSpace) => {
     };
 };
 
-export const KnowledgeHeader = ({ title, description, space, spaces, types, crumb, actions, children, hideSearch }: KnowledgeHeaderProps) => {
+export const KnowledgeHeader = ({ title, description, space, spaces, types, templates = [], crumb, actions, children, hideSearch }: KnowledgeHeaderProps) => {
     const [query, setQuery] = useState("");
     const create = useCreateObject(space);
     const canEdit = roleAtLeast(space.role, "editor");
@@ -78,22 +82,44 @@ export const KnowledgeHeader = ({ title, description, space, spaces, types, crum
                             <Input aria-label="Search knowledge" name="q" size="sm" icon={SearchLg} placeholder="Search" value={query} onChange={setQuery} />
                         </form>
                     )}
+                    <KnowledgeCommands space={space} spaces={spaces} types={types} onNewPage={() => void create(undefined, { useDefaultTemplate: true })} />
                     {actions}
                     {canEdit && (
                         <Dropdown.Root>
                             <Button size="sm" iconLeading={Plus}>
                                 New
                             </Button>
-                            <Dropdown.Popover className="w-56">
-                                <Dropdown.Menu onAction={(key) => create(String(key))}>
-                                    {liveTypes.map((type) => (
-                                        <Dropdown.Item key={type.id} id={type.id} textValue={type.name}>
-                                            <span className="flex items-center gap-2">
-                                                <TypeIconFor type={type} />
-                                                {type.name}
-                                            </span>
-                                        </Dropdown.Item>
-                                    ))}
+                            <Dropdown.Popover className="w-64">
+                                <Dropdown.Menu
+                                    onAction={(key) => {
+                                        const [kind, id] = String(key).split(":");
+                                        // A type's default template is used unless they pick another (or "blank").
+                                        void (kind === "template" ? create(undefined, { templateId: id }) : create(id, { useDefaultTemplate: true }));
+                                    }}
+                                >
+                                    <Dropdown.Section>
+                                        {liveTypes.map((type) => (
+                                            <Dropdown.Item key={type.id} id={`type:${type.id}`} textValue={type.name}>
+                                                <span className="flex items-center gap-2">
+                                                    <TypeIconFor type={type} />
+                                                    {type.name}
+                                                </span>
+                                            </Dropdown.Item>
+                                        ))}
+                                    </Dropdown.Section>
+                                    {templates.length > 0 && (
+                                        <Dropdown.Section>
+                                            <Dropdown.SectionHeader className="px-4 pt-2 pb-1 text-xs font-semibold text-quaternary">From a template</Dropdown.SectionHeader>
+                                            {templates.map((template) => (
+                                                <Dropdown.Item key={template.id} id={`template:${template.id}`} textValue={template.name}>
+                                                    <span className="flex items-center gap-2">
+                                                        <TypeIconFor type={types.find((t) => t.id === template.typeId)} />
+                                                        <span className="truncate">{template.name}</span>
+                                                    </span>
+                                                </Dropdown.Item>
+                                            ))}
+                                        </Dropdown.Section>
+                                    )}
                                 </Dropdown.Menu>
                             </Dropdown.Popover>
                         </Dropdown.Root>

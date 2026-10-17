@@ -1,10 +1,14 @@
 // Inbox, All knowledge, Archive and Trash: one list with filters, sorting, bulk actions and
 // "load more". Filters live in the URL so a filtered view can be bookmarked.
 import { useState } from "react";
-import { Archive, BookOpen01, Inbox01, RefreshCcw01, Trash01 } from "@untitledui/icons";
+import { Archive, BookOpen01, Bookmark, Edit05, Inbox01, RefreshCcw01, Trash01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
+import { PortalDialog } from "@/portal/components/dialog";
+import { DateField } from "@/portal/components/date-field";
 import { type DataColumn, DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
 import { Timestamp } from "@/portal/components/timestamp";
@@ -12,7 +16,7 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import { pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
-import { type KnowledgeObjectSummary, type ListView, roleAtLeast } from "@/shared/knowledge/types";
+import { type KnowledgeObjectSummary, type LinkFilter, type ListFilters, type ListView, roleAtLeast } from "@/shared/knowledge/types";
 import { KnowledgeHeader } from "../knowledge-header";
 import { QuickCapture } from "../quick-capture";
 import { TypeIconFor, knowledgeApi, objectHref, spaceHref, titleOf } from "../shared";
@@ -50,6 +54,26 @@ const VIEWS: Record<ListView, { title: string; path: string; description: string
 
 const PAGE = 200;
 
+const LINK_LABELS: Record<LinkFilter, string> = {
+    any: "Any links",
+    unlinked: "Not linked at all",
+    no_backlinks: "Nothing links here",
+    no_outgoing: "Links nowhere",
+};
+
+/** URL parameters for a set of filters (the same names the API reads). */
+const filterParams = (f: ListFilters): Record<string, string | null> => ({
+    type: f.typeId,
+    tag: f.tag,
+    sort: f.sort === "updated" ? null : f.sort,
+    links: f.links && f.links !== "any" ? f.links : null,
+    created_from: f.createdFrom ?? null,
+    created_to: f.createdTo ?? null,
+    updated_from: f.updatedFrom ?? null,
+    updated_to: f.updatedTo ?? null,
+});
+
+
 export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }) => {
     const { space, spaces, types, filters } = data;
     const toast = useToast();
@@ -58,18 +82,56 @@ export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }
     const [total, setTotal] = useState(data.total);
     const [loading, setLoading] = useState(false);
     const canEdit = roleAtLeast(space.role, "editor");
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [viewName, setViewName] = useState("");
+    const [shareView, setShareView] = useState(false);
+    const saved = data.savedView;
+    const [editViewOpen, setEditViewOpen] = useState(false);
+    const [savedViewName, setSavedViewName] = useState(saved?.name ?? "");
 
-    const go = (next: Partial<typeof filters>) => {
-        const merged = { ...filters, ...next };
-        window.location.assign(spaceHref(view.path, space, { type: merged.typeId, tag: merged.tag, sort: merged.sort === "updated" ? null : merged.sort }));
+    const go = (next: Partial<ListFilters>) => window.location.assign(spaceHref(view.path, space, filterParams({ ...filters, ...next })));
+
+    const saveView = async () => {
+        try {
+            const { view: created } = await knowledgeApi.createView(space.id, { name: viewName, shared: shareView, definition: filters });
+            setSaveOpen(false);
+            const target = spaceHref("/portal/knowledge/all", space, { saved: created.id });
+            // The modal has a 200 ms exit animation. Navigating before it finishes can leave the
+            // newly rendered document inert to assistive technology, so wait for that cleanup.
+            window.setTimeout(() => window.location.assign(target), 250);
+        } catch (e) {
+            toast.error("Couldn't save the view", errorMessage(e));
+        }
+    };
+
+    const deleteView = async () => {
+        if (!saved) return;
+        try {
+            await knowledgeApi.deleteView(saved.id);
+            go({});
+        } catch (e) {
+            toast.error("Couldn't delete the view", errorMessage(e));
+        }
+    };
+
+    const renameView = async () => {
+        if (!saved) return;
+        try {
+            const { view: updated } = await knowledgeApi.updateView(saved.id, { version: saved.version, name: savedViewName });
+            setEditViewOpen(false);
+            const target = spaceHref("/portal/knowledge/all", space, { saved: updated.id });
+            window.setTimeout(() => window.location.assign(target), 250);
+        } catch (e) {
+            toast.error("Couldn't rename the view", errorMessage(e));
+        }
     };
 
     const loadMore = async () => {
         setLoading(true);
         try {
-            const params = new URLSearchParams({ view: filters.view, sort: filters.sort, offset: String(objects.length), limit: String(PAGE) });
-            if (filters.typeId) params.set("type", filters.typeId);
-            if (filters.tag) params.set("tag", filters.tag);
+            const params = new URLSearchParams({ view: filters.view, offset: String(objects.length), limit: String(PAGE) });
+            for (const [key, value] of Object.entries(filterParams(filters))) if (value) params.set(key, value);
+            params.set("sort", filters.sort);
             const more = await api<{ objects: KnowledgeObjectSummary[]; total: number }>("GET", `/api/portal/knowledge/spaces/${space.id}/objects?${params}`);
             setObjects([...objects, ...more.objects]);
             setTotal(more.total);
@@ -146,7 +208,52 @@ export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }
 
     return (
         <>
-            <KnowledgeHeader title={view.title} description={view.description} space={space} spaces={spaces} types={types} crumb={view.title} />
+            <KnowledgeHeader
+                title={saved?.name ?? view.title}
+                description={saved ? `A saved view${saved.shared ? " shared with everyone in this space" : " only you can see"}.` : view.description}
+                space={space}
+                spaces={spaces}
+                types={types}
+                templates={data.templates}
+                crumb={saved ? "Saved views" : view.title}
+                actions={
+                    <>
+                        {data.views.length > 0 && (
+                            <Select
+                                aria-label="Saved views"
+                                size="sm"
+                                className="w-full sm:w-48"
+                                placeholder="Saved views"
+                                value={saved?.id ?? null}
+                                onChange={(key) => key && window.location.assign(spaceHref("/portal/knowledge/all", space, { saved: String(key) }))}
+                                items={data.views.map((v) => ({ id: v.id, label: v.name, supportingText: v.shared ? "Shared" : "Private" }))}
+                            >
+                                {(item) => (
+                                    <Select.Item id={item.id} supportingText={item.supportingText}>
+                                        {item.label}
+                                    </Select.Item>
+                                )}
+                            </Select>
+                        )}
+                        {saved ? (
+                            (saved.mine || canEdit) && (
+                                <>
+                                    <Button size="sm" color="secondary" iconLeading={Edit05} onClick={() => setEditViewOpen(true)}>
+                                        Rename view
+                                    </Button>
+                                    <Button size="sm" color="tertiary-destructive" onClick={() => void deleteView()}>
+                                        Delete view
+                                    </Button>
+                                </>
+                            )
+                        ) : (
+                            <Button size="sm" color="secondary" iconLeading={Bookmark} onClick={() => setSaveOpen(true)}>
+                                Save view
+                            </Button>
+                        )}
+                    </>
+                }
+            />
 
             {filters.view === "inbox" && canEdit && (
                 <QuickCapture
@@ -167,10 +274,16 @@ export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }
                 searchPlaceholder="Filter these by title or text"
                 selectable={canEdit}
                 onRowAction={(o) => window.location.assign(objectHref(o.id))}
-                activeFilterCount={(filters.typeId ? 1 : 0) + (filters.tag ? 1 : 0)}
-                onClearFilters={() => go({ typeId: null, tag: null })}
+                activeFilterCount={
+                    (filters.typeId ? 1 : 0) +
+                    (filters.tag ? 1 : 0) +
+                    (filters.links && filters.links !== "any" ? 1 : 0) +
+                    (filters.createdFrom || filters.createdTo ? 1 : 0) +
+                    (filters.updatedFrom || filters.updatedTo ? 1 : 0)
+                }
+                onClearFilters={() => go({ typeId: null, tag: null, links: "any", createdFrom: null, createdTo: null, updatedFrom: null, updatedTo: null })}
                 filters={
-                    <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                         <Select
                             aria-label="Type"
                             size="sm"
@@ -209,6 +322,20 @@ export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }
                                 {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                             </Select>
                         )}
+                        <Select
+                            aria-label="Links"
+                            size="sm"
+                            className="sm:w-48"
+                            value={filters.links ?? "any"}
+                            onChange={(key) => go({ links: key as LinkFilter })}
+                            items={(Object.keys(LINK_LABELS) as LinkFilter[]).map((id) => ({ id, label: LINK_LABELS[id] }))}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                        <DateField label="Created from" value={filters.createdFrom ?? null} onChange={(value) => go({ createdFrom: value })} />
+                        <DateField label="Created to" value={filters.createdTo ?? null} onChange={(value) => go({ createdTo: value })} />
+                        <DateField label="Updated from" value={filters.updatedFrom ?? null} onChange={(value) => go({ updatedFrom: value })} />
+                        <DateField label="Updated to" value={filters.updatedTo ?? null} onChange={(value) => go({ updatedTo: value })} />
                     </div>
                 }
                 bulkActions={(ids, clear) => (
@@ -243,6 +370,52 @@ export const KnowledgeListPage = ({ data }: { data: PageData<"knowledge-list"> }
                 initialSort={undefined}
                 pageSize={50}
             />
+
+            <PortalDialog
+                isOpen={saveOpen}
+                onOpenChange={setSaveOpen}
+                title="Save this view"
+                icon={Bookmark}
+                description="Saves these filters and this sort under a name, so you can come back to them from the Saved views menu."
+                onSubmit={() => void saveView()}
+                footer={
+                    <>
+                        <Button color="secondary" onClick={() => setSaveOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" isDisabled={!viewName.trim()}>
+                            Save view
+                        </Button>
+                    </>
+                }
+            >
+                <div className="flex flex-col gap-4">
+                    <Input label="Name" value={viewName} onChange={setViewName} placeholder="e.g. Wedding people" autoFocus />
+                    {space.kind === "shared" && canEdit && (
+                        <Checkbox label="Share with everyone in this space" hint="Otherwise only you see it." isSelected={shareView} onChange={setShareView} />
+                    )}
+                </div>
+            </PortalDialog>
+
+            <PortalDialog
+                isOpen={editViewOpen}
+                onOpenChange={setEditViewOpen}
+                title="Rename saved view"
+                icon={Edit05}
+                onSubmit={() => void renameView()}
+                footer={
+                    <>
+                        <Button color="secondary" onClick={() => setEditViewOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" isDisabled={!savedViewName.trim() || savedViewName.trim() === saved?.name}>
+                            Save
+                        </Button>
+                    </>
+                }
+            >
+                <Input label="Name" value={savedViewName} onChange={setSavedViewName} autoFocus />
+            </PortalDialog>
 
             {objects.length < total && (
                 <div className="flex justify-center">

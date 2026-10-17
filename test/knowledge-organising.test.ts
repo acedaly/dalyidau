@@ -1,7 +1,10 @@
 // Daly Knowledge, Milestone 3: daily notes, collections, pins, favourites, saved views, templates,
 // related knowledge and orphan discovery, including every way they must refuse access. Every
 // identity and note is fictional.
+import { createElement } from "react";
+import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
+import { PortalApp } from "../src/portal/portal-app";
 import { addDays, formatDailyTitle, localDate, startOfLocalDay } from "../src/shared/knowledge/dates";
 import type {
     CollectionItem,
@@ -13,9 +16,10 @@ import type {
     ObjectRef,
     RelatedSuggestion,
 } from "../src/shared/knowledge/types";
+import type { PortalPageData } from "../src/shared/portal/types";
 import { similarityQuery } from "../worker/knowledge/related";
 import { ADMIN, K, auditRows, create, doc, objectLink, paragraph, personal, sharedSpace, text, typeId, typesOf } from "./knowledge-helpers";
-import { OWNER, SECOND_OWNER, apiCall, db, resetPortal } from "./portal-helpers";
+import { OWNER, SECOND_OWNER, accessToken, apiCall, call, db, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
 
@@ -544,5 +548,67 @@ describe("related knowledge", () => {
     it("builds similarity queries that can't carry FTS syntax", () => {
         expect(similarityQuery('Transport AND "options" OR NEAR(x)')).toBe('"transport"* OR "options"* OR "near"*');
         expect(similarityQuery("a to of")).toBeNull();
+    });
+});
+
+describe("pages", () => {
+    const render = (html: string) => {
+        const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
+        const payload = JSON.parse(json!) as { data: PortalPageData; path: string };
+        return renderToString(createElement(PortalApp, { data: payload.data, path: payload.path }));
+    };
+
+    it("serves and renders every Milestone 3 page for its owner, and none of them to anyone else", async () => {
+        const space = await personal();
+        const note = await create(space.id, { title: "Packing list", tags: ["travel"] });
+        await apiCall("POST", `${K}/objects/${note.object.id}/favourite`, { favourite: true });
+        await apiCall("POST", `${K}/objects/${note.object.id}/pin`, { pinned: true });
+        const collection = (await apiCall<{ collection: KnowledgeCollection }>("POST", `${K}/spaces/${space.id}/collections`, { name: "Trip to Hobart" })).json
+            .collection;
+        await apiCall("POST", `${K}/collections/${collection.id}/items`, { objectIds: [note.object.id] });
+        const template = (
+            await apiCall<{ template: KnowledgeTemplate }>("POST", `${K}/spaces/${space.id}/templates`, { typeId: note.object.typeId, name: "Checklist" })
+        ).json.template;
+        await apiCall("POST", `${K}/spaces/${space.id}/daily/append`, { text: "Booked the ferry", date: "2026-10-16" });
+        const token = await accessToken();
+        const pages: [string, string][] = [
+            ["/portal/knowledge", "Trip to Hobart"],
+            ["/portal/knowledge/daily", "Today"],
+            ["/portal/knowledge/daily/2026-10-16", "Booked the ferry"],
+            ["/portal/knowledge/collections", "Trip to Hobart"],
+            [`/portal/knowledge/c/${collection.id}`, "Packing list"],
+            ["/portal/knowledge/favourites", "Packing list"],
+            ["/portal/knowledge/templates", "Checklist"],
+            [`/portal/knowledge/templates/${template.id}`, "Checklist"],
+            ["/portal/knowledge/discover", "Packing list"],
+            ["/portal/knowledge/all?links=unlinked&created_from=2026-01-01", "Packing list"],
+            [`/portal/knowledge/o/${note.object.id}`, "Trip to Hobart"],
+            ["/portal/knowledge/settings", "Download ZIP"],
+        ];
+        for (const [path, expected] of pages) {
+            const response = await call(path, { token });
+            expect(response.status, path).toBe(200);
+            const html = render(await response.text());
+            expect(html, path).not.toContain("Page not found");
+            expect(html, path).toContain(expected);
+        }
+        // The sidebar carries this space's favourites and collections.
+        const home = render(await (await call("/portal/knowledge", { token })).text());
+        expect(home).toContain(`/portal/knowledge/c/${collection.id}`);
+        expect(home).toContain(`/portal/knowledge/o/${note.object.id}`);
+
+        const outsider = await accessToken({ email: SECOND_OWNER });
+        for (const path of [`/portal/knowledge/c/${collection.id}`, `/portal/knowledge/templates/${template.id}`, `/portal/knowledge/daily?space=${space.id}`]) {
+            const response = await call(path, { token: outsider });
+            expect(response.status, path).toBe(404);
+            const text = await response.text();
+            expect(text, path).not.toContain("Trip to Hobart");
+            expect(text, path).not.toContain("Checklist");
+        }
+        // Their own pages never show my favourites, pins or collections.
+        const theirs = await (await call("/portal/knowledge", { token: outsider })).text();
+        expect(theirs).not.toContain("Packing list");
+        expect(theirs).not.toContain("Trip to Hobart");
+        expect((await call("/portal/knowledge/daily/2026-02-30", { token })).status).toBe(404);
     });
 });

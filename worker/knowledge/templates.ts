@@ -32,6 +32,8 @@ interface TemplateRow {
     updated_at: string;
 }
 
+export const MAX_TEMPLATES = 500;
+
 const toTemplate = (row: TemplateRow): KnowledgeTemplate => ({
     id: row.id,
     spaceId: row.space_id,
@@ -111,6 +113,8 @@ const defaultStatements = (db: D1Database, typeId: string, templateId: string, i
 export async function createTemplate(db: D1Database, user: PortalUser, spaceId: string, input: unknown): Promise<KnowledgeTemplate> {
     await requireSpace(db, user, spaceId, "editor");
     const body = templateInput.parse(input);
+    const count = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_templates WHERE space_id = ?").bind(spaceId).first<{ n: number }>();
+    if ((count?.n ?? 0) >= MAX_TEMPLATES) throw new HttpError(422, "validation", `A space can have up to ${MAX_TEMPLATES} templates`);
     const type = await getTypeInSpace(db, spaceId, body.typeId);
     const content = parseDoc(body.content);
     const values = templateValues(type, body.properties);

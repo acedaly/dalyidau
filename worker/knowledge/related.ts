@@ -44,7 +44,7 @@ export async function relatedObjects(db: D1Database, objectId: string, spaceId: 
         // Objects sharing a tag, with the tags' names.
         db
             .prepare(
-                `SELECT b.object_id AS id, COUNT(*) AS n, group_concat(t.name, ', ') AS via FROM knowledge_object_tags a
+                `SELECT b.object_id AS id, COUNT(*) AS n, group_concat(t.name, ', ' ORDER BY t.name COLLATE NOCASE, t.name) AS via FROM knowledge_object_tags a
                  JOIN knowledge_object_tags b ON b.tag_id = a.tag_id AND b.object_id <> a.object_id
                  JOIN knowledge_tags t ON t.id = a.tag_id
                  WHERE a.object_id = ? AND b.space_id = ? GROUP BY b.object_id ORDER BY n DESC LIMIT ${CANDIDATES}`,

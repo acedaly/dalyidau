@@ -55,8 +55,11 @@ export const ButtonUtility: {
     (props: ButtonProps): ReactElement<ButtonProps>;
 } = ({ tooltip, className, isDisabled, icon: Icon, size = "sm", color = "secondary", tooltipPlacement = "top", ...props }) => {
     const commonProps = {
-        "aria-label": tooltip,
         ...props,
+        // A surprising number of icon-only callers rely on the tooltip for the accessible name.
+        // Put the fallback after the spread because React Aria callers can contribute an explicit
+        // `aria-label={undefined}`, which must not erase that name.
+        "aria-label": props["aria-label"] ?? tooltip,
         isDisabled,
         className: cx(
             "group relative inline-flex h-max cursor-pointer items-center justify-center rounded-md p-1.5 outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50",

@@ -2,7 +2,23 @@
 // and archive/trash/restore. Everything saves as you go.
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Archive, ClockRewind, DotsVertical, HomeLine, Inbox01, Link03, RefreshCcw01, Trash01, XClose } from "@untitledui/icons";
+import {
+    Archive,
+    ClockRewind,
+    DotsVertical,
+    Download01,
+    File06,
+    FolderClosed,
+    FolderPlus,
+    HomeLine,
+    Inbox01,
+    Link03,
+    Pin02,
+    RefreshCcw01,
+    Star01,
+    Trash01,
+    XClose,
+} from "@untitledui/icons";
 import { Breadcrumbs } from "@/components/application/breadcrumbs/breadcrumbs";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -19,12 +35,13 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { type DocNode, normaliseDocument } from "@/shared/knowledge/content";
-import type { KnowledgeLink, KnowledgeRevision, KnowledgeRevisionDetail, KnowledgeType } from "@/shared/knowledge/types";
+import type { KnowledgeCollection, KnowledgeLink, KnowledgeRevision, KnowledgeRevisionDetail, KnowledgeType } from "@/shared/knowledge/types";
 import { roleAtLeast } from "@/shared/knowledge/types";
 import { useCreateObject } from "../knowledge-header";
 import { ObjectPicker } from "../object-picker";
 import { PropertyFields } from "../property-fields";
-import { TypeIconFor, knowledgeApi, objectHref, spaceHref, titleOf } from "../shared";
+import { RelatedKnowledge } from "../related-knowledge";
+import { TypeIconFor, collectionHref, downloadExport, keepNotices, knowledgeApi, objectHref, spaceHref, takeNotices, titleOf } from "../shared";
 import { type SaveState, useObjectSaver } from "../use-object-saver";
 
 const KnowledgeEditor = lazy(() => import("../editor/knowledge-editor"));
@@ -230,7 +247,9 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
     const { space, types } = data;
     const toast = useToast();
     const saver = useObjectSaver(data.detail);
-    const { detail, queue, flush } = saver;
+    const { queue, flush } = saver;
+    // An object page always starts with its object, so the saver always has one.
+    const detail = saver.detail ?? data.detail;
     const object = detail.object;
     const type = types.find((t) => t.id === object.typeId);
     const trashed = object.status === "trashed";
@@ -244,6 +263,86 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
     const editor = useRef<Editor | null>(null);
     const createObject = useCreateObject(space);
     const isNew = object.version === 1 && !object.title && !object.excerpt;
+    const [favourite, setFavourite] = useState(data.state.favourite);
+    const [pinned, setPinned] = useState(data.state.pinned);
+    const [inCollections, setInCollections] = useState(data.collections);
+    const [collectionOpen, setCollectionOpen] = useState(false);
+    const [allCollections, setAllCollections] = useState<KnowledgeCollection[] | null>(null);
+    const [templateOpen, setTemplateOpen] = useState(false);
+    const [notices, setNotices] = useState<string[]>([]);
+    const typeTemplates = data.templates.filter((t) => t.typeId === object.typeId);
+
+    // Template values that didn't fit the type when this was created from one.
+    useEffect(() => setNotices(takeNotices(object.id)), [object.id]);
+
+    const toggleFavourite = async () => {
+        try {
+            await knowledgeApi.favourite(object.id, !favourite);
+            setFavourite(!favourite);
+            toast.success(favourite ? "Removed from your favourites" : "Added to your favourites");
+        } catch (e) {
+            toast.error("Couldn't change your favourites", errorMessage(e));
+        }
+    };
+
+    const togglePin = async () => {
+        try {
+            await knowledgeApi.pin(object.id, !pinned);
+            setPinned(!pinned);
+            toast.success(pinned ? "Unpinned from the home page" : "Pinned to the home page");
+        } catch (e) {
+            toast.error("Couldn't pin it", errorMessage(e));
+        }
+    };
+
+    const openCollections = async () => {
+        setCollectionOpen(true);
+        try {
+            setAllCollections((await knowledgeApi.collections(space.id)).collections);
+        } catch (e) {
+            toast.error("Couldn't load collections", errorMessage(e));
+        }
+    };
+
+    const addToCollection = async (collection: KnowledgeCollection) => {
+        try {
+            await knowledgeApi.addToCollection(collection.id, [object.id]);
+            setInCollections([...inCollections, { id: collection.id, name: collection.name }].sort((a, b) => a.name.localeCompare(b.name)));
+            setCollectionOpen(false);
+            toast.success(`Added to ${collection.name}`);
+        } catch (e) {
+            toast.error("Couldn't add it", errorMessage(e));
+        }
+    };
+
+    const removeFromCollection = async (collection: { id: string; name: string }) => {
+        try {
+            await knowledgeApi.removeFromCollection(collection.id, object.id);
+            setInCollections(inCollections.filter((c) => c.id !== collection.id));
+        } catch (e) {
+            toast.error("Couldn't remove it", errorMessage(e));
+        }
+    };
+
+    const applyTemplate = async (templateId: string) => {
+        if (!(await flush())) return toast.error("Save your changes first", "There are changes that haven't been saved.");
+        try {
+            const updated = await knowledgeApi.applyTemplate(object.id, templateId, saver.version.current);
+            // The document changed under the editor, so reload; the notices come along.
+            keepNotices(object.id, updated.notices);
+            window.location.reload();
+        } catch (e) {
+            toast.error("Couldn't add the template", errorMessage(e));
+        }
+    };
+    const runExport = async (format: "markdown" | "json") => {
+        if (!(await flush())) return toast.error("Save your changes first", "There are changes that haven't been saved.");
+        try {
+            await downloadExport(`/api/portal/knowledge/objects/${object.id}/export?format=${format}`);
+        } catch (e) {
+            toast.error("Couldn't export it", errorMessage(e));
+        }
+    };
 
     const runStatus = async (action: "archive" | "unarchive" | "trash" | "restore") => {
         if (!(await flush())) return toast.error("Save your changes first", "There are changes that haven't been saved.");
@@ -339,28 +438,48 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                                 Done processing
                             </Button>
                         )}
+                        {!trashed && (
+                                <ButtonUtility
+                                    size="sm"
+                                    color={favourite ? "secondary" : "tertiary"}
+                                    icon={<Star01 data-icon className={favourite ? "size-4 fill-current text-fg-warning-secondary" : "size-4"} aria-hidden="true" />}
+                                    tooltip={favourite ? "Remove from favourites" : "Add to favourites"}
+                                    aria-pressed={favourite}
+                                    onClick={() => void toggleFavourite()}
+                                />
+                        )}
                         <Button size="sm" color="secondary" iconLeading={ClockRewind} onClick={() => setHistoryOpen(true)}>
                             History
                         </Button>
-                        {roleAtLeast(space.role, "editor") && (
-                            <Dropdown.Root>
-                                <Button size="sm" color="tertiary" iconLeading={DotsVertical} aria-label="More actions" />
-                                <Dropdown.Popover className="w-56">
-                                    <Dropdown.Menu
-                                        onAction={(key) => {
-                                            if (key === "delete") setDeleteOpen(true);
-                                            else void runStatus(key as "archive" | "unarchive" | "trash" | "restore");
-                                        }}
-                                    >
-                                        {object.status === "active" && <Dropdown.Item id="archive" icon={Archive} label="Archive" />}
-                                        {object.status === "archived" && <Dropdown.Item id="unarchive" icon={Archive} label="Unarchive" />}
-                                        {!trashed && <Dropdown.Item id="trash" icon={Trash01} label="Move to trash" />}
-                                        {trashed && <Dropdown.Item id="restore" icon={RefreshCcw01} label="Restore from trash" />}
-                                        {trashed && space.role === "owner" && <Dropdown.Item id="delete" icon={Trash01} label="Delete permanently…" />}
-                                    </Dropdown.Menu>
-                                </Dropdown.Popover>
-                            </Dropdown.Root>
-                        )}
+                        <Dropdown.Root>
+                            <Button size="sm" color="tertiary" iconLeading={DotsVertical} aria-label="More actions" />
+                            <Dropdown.Popover className="w-60">
+                                <Dropdown.Menu
+                                    onAction={(key) => {
+                                        if (key === "delete") setDeleteOpen(true);
+                                        else if (key === "pin") void togglePin();
+                                        else if (key === "collection") void openCollections();
+                                        else if (key === "template") setTemplateOpen(true);
+                                        else if (key === "export-md") void runExport("markdown");
+                                        else if (key === "export-json") void runExport("json");
+                                        else void runStatus(key as "archive" | "unarchive" | "trash" | "restore");
+                                    }}
+                                >
+                                    {editable && <Dropdown.Item id="pin" icon={Pin02} label={pinned ? "Unpin from home" : "Pin to home"} />}
+                                    {editable && <Dropdown.Item id="collection" icon={FolderPlus} label="Add to a collection…" />}
+                                    {editable && <Dropdown.Item id="template" icon={File06} label="Add a template…" />}
+                                    <Dropdown.Item id="export-md" icon={Download01} label="Export as Markdown" />
+                                    <Dropdown.Item id="export-json" icon={Download01} label="Export as JSON (with history)" />
+                                    {roleAtLeast(space.role, "editor") && object.status === "active" && <Dropdown.Item id="archive" icon={Archive} label="Archive" />}
+                                    {roleAtLeast(space.role, "editor") && object.status === "archived" && (
+                                        <Dropdown.Item id="unarchive" icon={Archive} label="Unarchive" />
+                                    )}
+                                    {roleAtLeast(space.role, "editor") && !trashed && <Dropdown.Item id="trash" icon={Trash01} label="Move to trash" />}
+                                    {roleAtLeast(space.role, "editor") && trashed && <Dropdown.Item id="restore" icon={RefreshCcw01} label="Restore from trash" />}
+                                    {trashed && space.role === "owner" && <Dropdown.Item id="delete" icon={Trash01} label="Delete permanently…" />}
+                                </Dropdown.Menu>
+                            </Dropdown.Popover>
+                        </Dropdown.Root>
                     </div>
                 </div>
 
@@ -423,6 +542,23 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                         }
                     >
                         {saver.error}
+                    </Notice>
+                )}
+
+                {notices.length > 0 && (
+                    <Notice
+                        title="Some template values weren't used"
+                        actions={
+                            <Button size="sm" color="secondary" onClick={() => setNotices([])}>
+                                Dismiss
+                            </Button>
+                        }
+                    >
+                        <ul className="list-disc pl-5">
+                            {notices.map((n) => (
+                                <li key={n}>{n}</li>
+                            ))}
+                        </ul>
                     </Notice>
                 )}
 
@@ -594,6 +730,44 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                         )}
                     </Section>
 
+                    <Section
+                        title="Collections"
+                        actions={
+                            editable && (
+                                <ButtonUtility size="xs" color="tertiary" icon={FolderPlus} tooltip="Add to a collection" onClick={() => void openCollections()} />
+                            )
+                        }
+                    >
+                        {inCollections.length ? (
+                            <ul className="flex flex-col gap-1.5">
+                                {inCollections.map((c) => (
+                                    <li key={c.id} className="flex items-center gap-2 text-sm">
+                                        <FolderClosed aria-hidden="true" className="size-4 shrink-0 text-fg-quaternary" />
+                                        <a
+                                            href={collectionHref(c.id)}
+                                            className="min-w-0 flex-1 truncate font-medium text-secondary hover:text-brand-secondary hover:underline"
+                                        >
+                                            {c.name}
+                                        </a>
+                                        {editable && (
+                                            <ButtonUtility
+                                                size="xs"
+                                                color="tertiary"
+                                                icon={XClose}
+                                                tooltip={`Remove from ${c.name}`}
+                                                onClick={() => void removeFromCollection(c)}
+                                            />
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-sm text-tertiary">Not in a collection.</p>
+                        )}
+                    </Section>
+
+                    {!trashed && <RelatedKnowledge objectId={object.id} types={types} />}
+
                     <Section title="Details">
                         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
                             <dt className="text-tertiary">Created</dt>
@@ -610,6 +784,75 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                     </Section>
                 </aside>
             </div>
+
+            <PortalDialog
+                isOpen={collectionOpen}
+                onOpenChange={setCollectionOpen}
+                title="Add to a collection"
+                icon={FolderPlus}
+                description="An object can be in any number of collections. Nothing is copied."
+            >
+                {allCollections === null ? (
+                    <Skeleton className="h-24" />
+                ) : allCollections.filter((c) => !inCollections.some((i) => i.id === c.id)).length ? (
+                    <ul className="flex max-h-80 flex-col gap-1 overflow-y-auto" aria-label="Collections">
+                        {allCollections
+                            .filter((c) => !inCollections.some((i) => i.id === c.id))
+                            .map((c) => (
+                                <li key={c.id}>
+                                    <button
+                                        type="button"
+                                        onClick={() => void addToCollection(c)}
+                                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2"
+                                    >
+                                        <FolderClosed aria-hidden="true" className="size-4 text-fg-quaternary" />
+                                        <span className="min-w-0 flex-1 truncate font-medium text-secondary">{c.name}</span>
+                                        <span className="text-xs text-tertiary tabular-nums">{c.itemCount}</span>
+                                    </button>
+                                </li>
+                            ))}
+                    </ul>
+                ) : (
+                    <p className="text-sm text-tertiary">
+                        {allCollections.length ? "It's already in every collection." : "There are no collections yet."}{" "}
+                        <a href={spaceHref("/portal/knowledge/collections", space)} className="font-medium text-brand-secondary hover:underline">
+                            Manage collections
+                        </a>
+                    </p>
+                )}
+            </PortalDialog>
+
+            <PortalDialog
+                isOpen={templateOpen}
+                onOpenChange={setTemplateOpen}
+                title="Add a template"
+                icon={File06}
+                description="The template's text goes after what's already here, and its values only fill properties that are empty. Nothing is overwritten."
+            >
+                {typeTemplates.length ? (
+                    <ul className="flex flex-col gap-1" aria-label="Templates">
+                        {typeTemplates.map((t) => (
+                            <li key={t.id}>
+                                <button
+                                    type="button"
+                                    onClick={() => void applyTemplate(t.id)}
+                                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2"
+                                >
+                                    <File06 aria-hidden="true" className="size-4 text-fg-quaternary" />
+                                    <span className="min-w-0 flex-1 truncate font-medium text-secondary">{t.name}</span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-sm text-tertiary">
+                        There are no templates for {type?.name ?? "this type"} yet.{" "}
+                        <a href={spaceHref("/portal/knowledge/templates", space)} className="font-medium text-brand-secondary hover:underline">
+                            Make one
+                        </a>
+                    </p>
+                )}
+            </PortalDialog>
 
             <HistoryDialog objectId={object.id} isOpen={historyOpen} onOpenChange={setHistoryOpen} canRestore={editable} onRestore={restoreRevision} />
 

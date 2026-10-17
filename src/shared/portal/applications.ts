@@ -27,7 +27,12 @@ export type NavigationIcon =
     | "search"
     | "types"
     | "archive"
-    | "trash";
+    | "trash"
+    | "daily"
+    | "favourites"
+    | "collections"
+    | "templates"
+    | "discover";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -142,22 +147,32 @@ export const APPLICATIONS = [
                 label: "Knowledge",
                 items: [
                     { label: "Home", href: "/portal/knowledge", icon: "home" },
+                    { label: "Today", href: "/portal/knowledge/daily", icon: "daily", active: "prefix" },
                     { label: "Inbox", href: "/portal/knowledge/inbox", icon: "inbox" },
-                    { label: "All knowledge", href: "/portal/knowledge/all", icon: "knowledge" },
                     { label: "Search", href: "/portal/knowledge/search", icon: "search" },
+                ],
+            },
+            {
+                label: "Library",
+                items: [
+                    { label: "All knowledge", href: "/portal/knowledge/all", icon: "knowledge" },
+                    { label: "Favourites", href: "/portal/knowledge/favourites", icon: "favourites" },
+                    { label: "Collections", href: "/portal/knowledge/collections", icon: "collections" },
+                    { label: "Discover", href: "/portal/knowledge/discover", icon: "discover" },
                 ],
             },
             {
                 label: "Organise",
                 items: [
                     { label: "Object types", href: "/portal/knowledge/types", icon: "types" },
+                    { label: "Templates", href: "/portal/knowledge/templates", icon: "templates", active: "prefix" },
                     { label: "Archive", href: "/portal/knowledge/archive", icon: "archive" },
                     { label: "Trash", href: "/portal/knowledge/trash", icon: "trash" },
                 ],
             },
             {
                 label: "Application",
-                items: [{ label: "Space settings", href: "/portal/knowledge/settings", icon: "settings" }],
+                items: [{ label: "Settings and export", href: "/portal/knowledge/settings", icon: "settings" }],
             },
         ],
     },
