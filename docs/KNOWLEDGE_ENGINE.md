@@ -2,7 +2,7 @@
 
 A private knowledge application at `/portal/knowledge`: structured objects (pages, people, projects, meetings, decisions…), custom types and properties, a rich-text editor with `[[` links and backlinks, full-text search, revision history, archive and recoverable trash. It replaces Capacities as the place notes live. AI is optional and is not part of the current release.
 
-**Status:** Milestone 1 (secure foundation) and the first usable part of Milestone 2 (application, CRUD, editor, search) are built and tested. **Not deployed.** Migration `0013_knowledge_engine.sql` hasn't been applied to any remote database. See [Decisions for the owner](#decisions-for-the-owner).
+**Status:** Milestones 1–3 and portable export are built and tested: the secure object engine, editor and search; daily notes; collections; favourites and pins; saved views; templates; related-content discovery; and JSON, Markdown and ZIP export. **Not deployed.** Migrations `0013_knowledge_engine.sql` and `0014_knowledge_organising.sql` have not been applied to any remote database. See [Decisions for the owner](#decisions-for-the-owner).
 
 The repository is public: no real notes, exports or attachments are ever committed. Tests and fixtures use invented data only.
 
@@ -32,12 +32,15 @@ worker/knowledge/
   access.ts                Space membership: the only way to reach a space, object or result
   api.ts                   /api/portal/knowledge/* router
   objects.ts               Object engine: CRUD, versions, revisions, tags, links, trash
+  daily.ts collections.ts  Daily notes, collections, pins and personal favourites
+  templates.ts views.ts    Templates and validated saved views
+  related.ts export.ts     Bounded discovery and portable export
   search.ts                FTS5 query building, search, index statements and rebuild
   types.ts spaces.ts       Object types; spaces and members
   audit.ts                 knowledge_audit
   pages.ts                 First-render data for each page
 src/portal/knowledge/      Pages, editor (lazy-loaded), property fields, pickers, autosave
-migrations/0013_…          Schema
+migrations/0013_… 0014_…   Object engine and Milestone 3 schema
 scripts/lib/virtual-tables.mjs   FTS rebuild for backups
 ```
 
@@ -49,11 +52,11 @@ The application is registered in `src/shared/portal/applications.ts` (`knowledge
 2. **Portal role → `knowledge.use`**: owners and admins can open Knowledge. Editors and viewers of the wedding planner can't, and get no personal space.
 3. **Space membership** decides everything inside. Each person gets a personal space on their first visit that only they can see: **being a portal owner gives no access to anyone else's space**. Shared spaces have Owner, Editor and Viewer members.
 
-| Space role | Can                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------ |
-| Owner      | Everything, including members, permanent deletion and the audit trail.               |
-| Editor     | Create, edit, organise, archive, trash and restore objects; create and change types. |
-| Viewer     | Read and search.                                                                     |
+| Space role | Can                                                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner      | Everything, including members, full-space export, permanent deletion and the audit trail.                                             |
+| Editor     | Create, edit, organise, archive, trash and restore objects; manage types, templates, collections, shared pins and shared saved views. |
+| Viewer     | Read, search, export an object they can read, and manage only their own favourites and private saved views.                           |
 
 Enforcement, all on the Worker and covered by `test/knowledge.test.ts`:
 
@@ -68,18 +71,22 @@ Not imported without data-governance approval: confidential NSW RFS operational 
 
 ## Data model
 
-| Table                                       | Holds                                                                                                                                                        |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `knowledge_spaces`, `knowledge_memberships` | Spaces (personal or shared, with a time zone) and who belongs to them                                                                                        |
-| `knowledge_object_types`                    | Types and their property schema (`schema_json`); archived, never deleted while in use                                                                        |
-| `knowledge_objects`                         | Title, document, derived `body_text`, properties, status (`active`/`archived`/`trashed`), Inbox flag, version, source ids for imports                        |
-| `knowledge_revisions`                       | Snapshots of title, document, properties and type                                                                                                            |
-| `knowledge_relations`                       | Typed, directed links. `origin` is `content` (a link in the text), `property` (a reference property) or `manual`. Backlinks are the same rows read by target |
-| `knowledge_tags`, `knowledge_object_tags`   | Tags per space                                                                                                                                               |
-| `knowledge_audit`                           | The space's audit trail                                                                                                                                      |
-| `knowledge_fts`                             | FTS5 index over title, text and tags (derived)                                                                                                               |
+| Table                                                 | Holds                                                                                                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `knowledge_spaces`, `knowledge_memberships`           | Spaces (personal or shared, with a time zone) and who belongs to them                                                                                        |
+| `knowledge_object_types`                              | Types and their property schema (`schema_json`); archived, never deleted while in use                                                                        |
+| `knowledge_objects`                                   | Title, document, derived `body_text`, properties, status, Inbox flag, optional daily date, version, source ids for imports                                   |
+| `knowledge_revisions`                                 | Snapshots of title, document, properties and type                                                                                                            |
+| `knowledge_relations`                                 | Typed, directed links. `origin` is `content` (a link in the text), `property` (a reference property) or `manual`. Backlinks are the same rows read by target |
+| `knowledge_tags`, `knowledge_object_tags`             | Tags per space                                                                                                                                               |
+| `knowledge_audit`                                     | The space's audit trail                                                                                                                                      |
+| `knowledge_fts`                                       | FTS5 index over title, text and tags (derived)                                                                                                               |
+| `knowledge_collections`, `knowledge_collection_items` | Named, ordered groupings; objects are referenced, never copied                                                                                               |
+| `knowledge_pins`, `knowledge_favourites`              | Shared space-home pins and per-user shortcuts                                                                                                                |
+| `knowledge_saved_views`                               | Strictly validated filter definitions, either private to one user or shared with a space                                                                     |
+| `knowledge_templates`                                 | Versioned starting documents, titles and property defaults associated with an object type                                                                    |
 
-Ids are prefixed random strings (`ksp_`, `kty_`, `kob_`, `krv_`, `krl_`, `ktg_`) and never change.
+Ids are prefixed random strings (`ksp_`, `kty_`, `kob_`, `krv_`, `krl_`, `ktg_`, `kcl_`, `kvw_`, `ktp_`) and never change.
 
 ## Content format
 
@@ -121,9 +128,33 @@ SQLite FTS5 (`unicode61`, diacritics folded, prefix indexes) over title, text an
 - `[[` lookups use a title match within one space.
 - The index is written in the same batch as each change. `KNOWLEDGE_FTS_REBUILD` rebuilds it from scratch; `npm run db:verify` warns if any object is missing from it.
 
+## Daily notes and organisation
+
+- A daily note is an ordinary searchable, versioned object with a fixed `daily_date`. A partial unique index permits exactly one per space and date. It is created only when first used; concurrent requests return the same note. “Today”, previous/next navigation and `{date}` template substitution use the space's IANA time zone, including Australian daylight-saving transitions.
+- Collections hold ordered references to objects without copying them. Objects can be in several collections; deleting a collection removes only its membership rows. Composite foreign keys and server checks reject cross-space membership.
+- Space-home pins are shared and editor-managed. Favourites are personal, available to every member, and are read through current membership so revoked access cannot disclose stale favourites. Trashed objects are hidden from both; archived objects remain intentionally reachable.
+- Saved views store only a server-validated `ListFilters` shape—never SQL, column names or arbitrary expressions. Private views belong to their creator; shared views require an editor to manage. Saves and renames use optimistic versions.
+- Templates copy an allow-listed document, title and schema-validated property defaults into a new object. Reference properties are not allowed as defaults. Templates and created objects are independent, archived templates cannot be used, only one live default exists per type, and stale saves return 409.
+
+## Related content and discovery
+
+Related suggestions combine bounded queries for shared tags, shared collections, co-links and FTS title similarity. Direct links, trashed objects and anything outside the object's space are excluded. Results are deduplicated, capped at eight and include plain-language reasons. Discover provides three bounded orphan views: completely unlinked, no backlinks and no outgoing links; daily notes are excluded because they are intentionally date-centred.
+
+No embeddings, Workers AI, Vectorize or external service is used. Ordinary D1 indexes and the existing FTS5 table do the work, so Milestone 3 adds no recurring service cost.
+
+## Portable export
+
+- Any member may export an object they can read as Markdown or structured JSON. The JSON preserves its stable id, type and schema, full `daly.doc.v1` document, properties, tags, relations, linked-object labels, timestamps, status, source metadata and optional revisions.
+- A space owner may export the entire space as structured JSON or a ZIP containing `manifest.json`, a README and one readable Markdown file per object. The manifest includes stable ids, objects, types and schemas, tags, relationships, collections and ordering, pins, templates, visible saved views, the exporter's own favourites, dates, members of shared spaces and the private Knowledge audit trail. Revision history is optional. Other users' private views and favourites are deliberately excluded.
+- ZIP names are generated from sanitised titles plus stable ids. The writer rejects absolute paths, traversal segments, duplicate names, control characters and platform-reserved path characters. Downloads are `private, no-store`, `nosniff`, sandboxed and audited.
+- `npm run knowledge:check-export -- <file.zip|file.json>` verifies format/version, ZIP CRCs and safe names, reference integrity, and that every object has Markdown. `test/knowledge-export.test.ts` additionally restores an export into an isolated empty local database, rebuilds FTS5, re-exports it and compares the portable data. There is intentionally no production restore endpoint.
+- Browser exports are bounded before data is loaded: at most 100,000 included records and approximately 20 MB of stored source JSON/text; an object export may include at most 5,000 revisions. Larger spaces receive a 413 and should use the verified database-backup workflow. The limit keeps JSON parsing and ZIP assembly inside Workers memory without adding storage or a paid job service.
+
 ## Backups and restore
 
-See [DATABASE.md](DATABASE.md#backups). In short: `npm run db:backup` still produces one restorable `.sql` file. With the FTS table present, it exports the ordinary tables one by one, then appends indexes, triggers, views and the statements that recreate and refill the index. The script then restores it into a throwaway database and checks every table's row count, every schema object, foreign keys and that the index covers every object. Tested locally against a database with knowledge data. R2 attachments don't exist yet; when they do (Milestone 4), backups must cover them too.
+See [DATABASE.md](DATABASE.md#backups). In short: `npm run db:backup` still produces one restorable `.sql` file. With the FTS table present, it exports the ordinary tables one by one, then appends indexes, triggers, views and the statements that recreate and refill the index. The script then restores it into a throwaway database and checks every table's row count, every schema object, foreign keys and that the index covers every object.
+
+`npm run test:backup` was run on 17 October 2026 against invented blog, wedding and Knowledge data. It applied `0014` over a populated `0013` database, populated every Milestone 3 table, ran the real backup script, restored twice, rebuilt FTS5, recovered search results and relations, preserved blog/wedding row counts and rechecked cross-space and daily-note constraints. R2 attachments don't exist yet; Milestone 4 must extend this workflow before attachments ship.
 
 ## API
 
@@ -136,8 +167,8 @@ All under `/api/portal/knowledge`, all requiring Access, `knowledge.use` and mem
 | `GET/POST /spaces/:space/members`, `PATCH/DELETE /spaces/:space/members/:email`       | Members (owner to change)                                                                          |
 | `GET /spaces/:space/audit`                                                            | Audit trail (owner)                                                                                |
 | `GET/POST /spaces/:space/types`, `PATCH /types/:id`                                   | Types; `PATCH` takes `version`, and `archived` to archive                                          |
-| `GET /spaces/:space/objects`                                                          | `view` (all, inbox, archived, trashed), `type`, `tag`, `sort`, `limit` (≤ 200), `offset`           |
-| `POST /spaces/:space/objects`                                                         | Create: `typeId`, `title`, `content`, `properties`, `tags`, `inInbox`                              |
+| `GET /spaces/:space/objects`                                                          | List with type, tag, link, created/updated date and status filters; bounded pagination             |
+| `POST /spaces/:space/objects`                                                         | Create, optionally from a selected or the type's default template                                  |
 | `POST /spaces/:space/objects/bulk`                                                    | `ids` (≤ 200) and `action`: archive, unarchive, trash, restore, file (out of the Inbox)            |
 | `GET /spaces/:space/lookup?q=`, `GET /spaces/:space/tags`                             | Titles for `[[`; tags in use                                                                       |
 | `GET /objects/:id`, `PATCH /objects/:id`                                              | Object with links, backlinks and referenced titles; update with `version` (and optional `session`) |
@@ -145,32 +176,45 @@ All under `/api/portal/knowledge`, all requiring Access, `knowledge.use` and mem
 | `POST /objects/:id/delete`                                                            | `{ "confirm": "DELETE" }`, owner, from the trash only                                              |
 | `GET /objects/:id/revisions`, `GET …/revisions/:rev`, `POST …/revisions/:rev/restore` | History; restore takes the current `version`                                                       |
 | `POST /objects/:id/relations`, `DELETE /relations/:id`                                | Manual typed links (`targetId`, `relationType`)                                                    |
-| `GET /search?q=`                                                                      | `space`, `type`, `tag`, `status`, `from`, `to`, `limit`                                            |
+| `GET /objects/:id/related`                                                            | Bounded, explained related-content suggestions                                                     |
+| `POST /objects/:id/favourite`, `POST /objects/:id/pin`                                | Personal favourite or editor-managed shared pin                                                    |
+| `GET /favourites`                                                                     | Caller’s live favourites across spaces they can still access                                       |
+| `GET/POST /spaces/:space/daily/:date`, `POST …/daily/append`                          | Read/create one daily note; append quick-captured text                                             |
+| `GET/POST /spaces/:space/collections`, `GET/PATCH/DELETE /collections/:id`            | Collection list and lifecycle                                                                      |
+| `POST/DELETE /collections/:id/items…`, `POST …/move`, `POST …/pin`                    | Add, remove, order and pin collection items                                                        |
+| `GET/POST /spaces/:space/views`, `PATCH/DELETE /views/:id`                            | Validated private/shared saved views, with optimistic versions                                     |
+| `GET/POST /spaces/:space/templates`, `GET/PATCH/DELETE /templates/:id`                | Templates, archive/delete/default and optimistic versions                                          |
+| `POST /objects/:id/apply-template`                                                    | Append template content and fill only empty properties                                             |
+| `GET /objects/:id/export`                                                             | Markdown or JSON, membership checked                                                               |
+| `GET /spaces/:space/export`                                                           | Owner-only JSON or ZIP, optional revision history                                                  |
+| `GET /search?q=`                                                                      | Bounded search by space, type, tag, status and updated date                                        |
 
 ## What's in the app now
 
-- **Home**: quick capture, recently edited, the Inbox, types with counts.
+- **Home**: quick capture to Inbox or today's note, pinned knowledge, recent daily notes and recently edited objects.
+- **Daily notes**: create on demand, date picker, previous/today/next navigation, autosave, history and ordinary search/link behaviour.
 - **Inbox**: captured items (first line as title). **Done processing** files them, one at a time or in bulk.
-- **All knowledge, Archive, Trash**: filter by type and tag, sort, bulk archive, trash and restore, load more.
-- **Object page**: editable title; editor with toolbar, `/` commands (headings, lists, checklist, quote, code, divider, table, link), `[[` links with "Create…", Markdown shortcuts, undo and redo; autosave and conflict handling; type, properties, tags, links (add typed links by hand), backlinks, "New note linking here", history with preview and restore, archive, trash and permanent delete.
+- **All knowledge, Archive, Trash**: filter by type, tag, links and created/updated dates; sort; save/rename/delete views; bulk archive, trash and restore; load more.
+- **Collections**: create, rename, browse, add/remove/reorder/pin objects and delete the collection without deleting its contents.
+- **Favourites and pins**: personal shortcuts and editor-managed shared pins, reflected consistently in navigation and object actions.
+- **Templates**: list, create, edit, archive/delete, set a type default and create independent objects with copied content and property defaults.
+- **Discover**: unlinked/no-backlink/no-outgoing tabs with counts, plus explainable related suggestions.
+- **Object page**: editable title; editor with toolbar, `/` commands, `[[` links with "Create…", Markdown shortcuts, undo/redo; autosave and conflict handling; type, properties, tags, collections, favourite/pin, links, backlinks, related knowledge, history, status actions and Markdown/JSON export.
 - **Search**: ranked, highlighted, filterable, all spaces or one, keyboard navigation.
 - **Object types**: create and edit types and properties, reorder, archive.
-- **Space settings**: name and time zone, members and roles, new shared space, audit trail.
+- **Space settings and export**: name/time zone, members/roles, new shared space, audit trail and full JSON/ZIP export with optional revisions.
+- **Command menu**: keyboard-driven navigation, search and capture actions.
 - Works on phones: the Playwright tests run on Pixel 7 emulation as well as desktop, and fail on any horizontal overflow or any serious or critical axe accessibility issue on a Knowledge page.
 
 ## Not done yet
 
-| Area                                          | Milestone | Notes                                                                                                                                                                                                                                                              |
-| --------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Daily notes                                   | 3         | Add a `daily_date` column with a unique index per space, created on demand in the space's time zone.                                                                                                                                                               |
-| Collections, favourites, saved views          | 3         | New tables. Collections reference objects without copying them.                                                                                                                                                                                                    |
-| Templates                                     | 3         | A template document and properties per type.                                                                                                                                                                                                                       |
-| Related-content suggestions, orphan discovery | 3         | The relations table supports both. Orphans are objects with no relations in either direction.                                                                                                                                                                      |
-| Attachments and images                        | 4         | Private R2 keys (`knowledge/<space>/<object>/<uuid>`), authenticated download routes that check membership, size limits, MIME sniffing, no SVG or HTML inline. Permanent deletion removes the R2 objects. Backups must include R2.                                 |
-| Capacities import                             | 4         | Inspect a real export first. Preview, type and property mapping, `source_system`/`source_id` for idempotency (already in the schema), link reconstruction, a reconciliation report. Never deletes anything in Capacities.                                          |
-| Export                                        | 4         | JSON (lossless) plus Markdown per object, with an attachment manifest. Restore tested from the export.                                                                                                                                                             |
-| Semantic search                               | 5         | Vectorize behind a flag, off by default: chunk `body_text`, embed on change, merge with FTS, filter by the caller's spaces, cite sources.                                                                                                                          |
-| AI                                            | 5         | A provider-independent interface; read-only MCP tools (search, get, related) scoped to the caller's spaces; writes only through a server-side, metered model API with previews and confirmation; a monthly spend limit. Nothing runs or costs anything by default. |
+| Area                      | Milestone | Notes                                                                                                                                                                                                         |
+| ------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attachments and images    | 4         | Private R2 keys, authenticated membership-checked downloads, size/MIME controls, deletion cleanup and attachment-aware export/backups. No SVG or HTML inline.                                                 |
+| Capacities import         | 4         | Inspect a real export first. Preview, type/property mapping, attachment ingestion, `source_system`/`source_id` idempotency, link reconstruction and reconciliation. Never deletes in Capacities.              |
+| In-app export restoration | 4         | The v1 format and isolated restore implementation are verified, but there is no user-facing or production restore route. Add preview, collision handling and an explicit safe destination before exposing it. |
+| Semantic search           | 5         | Vectorize behind a flag, off by default: chunk `body_text`, embed on change, merge with FTS, filter by the caller's spaces and cite sources.                                                                  |
+| AI and authenticated MCP  | 5         | Provider-independent, space-scoped reads first; writes only through server-side policy, previews and confirmation; explicit metering and a monthly limit. Nothing runs or costs anything by default.          |
 
 Known limitations of this release:
 
@@ -178,11 +222,13 @@ Known limitations of this release:
 - Links between spaces aren't supported (by design for now).
 - Collaborative real-time editing isn't supported. Simultaneous edits are detected and never silently overwritten, but they aren't merged.
 - The editor bundle (about 190 KB gzipped) loads only on object pages.
+- Full-space browser export is owner-only and bounded to 100,000 records / about 20 MB of stored source data; use the verified database backup for a larger space.
+- Markdown is intentionally readable rather than lossless; `manifest.json` is the restoration format. Attachments do not exist yet.
 
 ## Decisions for the owner
 
-1. **Close PR #22 in favour of this PR?** This branch contains #22's commits plus the revised migration.
-2. **Approve applying `0013` to staging, then production.** It's additive (new tables only). Merging to `main` deploys and migrates automatically, and the deploy token has been failing since 14 Oct. Take `npm run db:backup -- --env production` first; the updated backup script is required from then on.
+1. **Review and merge the Milestone 3 PR only after its checks complete.** PR #22 and #23 supplied the foundation; this branch continues them rather than replacing them.
+2. **Approve applying `0013` and `0014` to staging, then production.** Both are additive. Merging to `main` deploys and migrates automatically. Take `npm run db:backup -- --env production` first; the updated backup script is required after FTS5 exists.
 3. **Who gets Knowledge.** Currently portal owners and admins (`knowledge.use`). Note that the second portal owner gets their own private space, and neither owner can see the other's.
 4. **Editor dependency:** Tiptap 3.31.4 (MIT), pinned exactly. The Untitled UI PRO text editor component uses it too.
 5. **RFS data:** confirm the data-governance position before any NSW RFS material is entered or imported.

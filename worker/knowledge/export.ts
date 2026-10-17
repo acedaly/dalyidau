@@ -388,9 +388,14 @@ export async function exportObject(db: D1Database, user: PortalUser, objectId: s
     if (!objectRow || !typeRow) throw new Error("Object vanished during export");
     const tags = (await tagsByObject(db, access.space_id, objectId)).get(objectId) ?? [];
     if (options.revisions) {
-        const count = await db.prepare("SELECT COUNT(*) AS n FROM knowledge_revisions WHERE object_id = ?").bind(objectId).first<{ n: number }>();
-        if ((count?.n ?? 0) > MAX_OBJECT_EXPORT_REVISIONS)
-            throw new HttpError(413, "export_too_large", "This object has too many revisions for an in-browser export. Export without revision history instead.");
+        const size = await db
+            .prepare(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(length(title) + length(content_json) + length(properties_json)), 0) AS source_bytes FROM knowledge_revisions WHERE object_id = ?",
+            )
+            .bind(objectId)
+            .first<{ n: number; source_bytes: number }>();
+        if ((size?.n ?? 0) > MAX_OBJECT_EXPORT_REVISIONS || (size?.source_bytes ?? 0) > MAX_EXPORT_SOURCE_BYTES)
+            throw new HttpError(413, "export_too_large", "This object's revision history is too large for an in-browser export. Export without revision history instead.");
     }
     const revisions = options.revisions ? await allRows<RevisionRow>(db, "SELECT * FROM knowledge_revisions WHERE object_id = ?", [objectId]) : [];
     const linked = new Map<string, { id: string; title: string; typeId: string }>();

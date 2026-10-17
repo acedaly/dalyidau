@@ -80,6 +80,8 @@ export async function searchObjects(db: D1Database, query: string, options: Sear
         where.push("o.updated_at < date(?, '+1 day')");
         binds.push(options.updatedTo);
     }
+    const requestedLimit = options.limit ?? 50;
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50;
     const rows = await db
         .prepare(
             `SELECT ${SUMMARY_COLUMNS},
@@ -90,7 +92,7 @@ export async function searchObjects(db: D1Database, query: string, options: Sear
              ORDER BY bm25(knowledge_fts, 10.0, 1.0, 4.0), o.updated_at DESC
              LIMIT ?`,
         )
-        .bind(HIGHLIGHT_START, HIGHLIGHT_END, HIGHLIGHT_START, HIGHLIGHT_END, ...binds, Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), 100))
+        .bind(HIGHLIGHT_START, HIGHLIGHT_END, HIGHLIGHT_START, HIGHLIGHT_END, ...binds, limit)
         .all<SummaryRow & { title_snippet: string; body_snippet: string }>();
     return rows.results.map((row) => ({ object: toSummary(row), titleSnippet: row.title_snippet, bodySnippet: row.body_snippet }));
 }
