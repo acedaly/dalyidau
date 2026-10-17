@@ -70,7 +70,7 @@ Erasing in the portal can't remove copies that already exist elsewhere:
 
 - **Downloaded CSV files** (exports, mail-merge files). Every export is recorded in the audit log with who took it. Delete the files when you're done with them.
 - **Downloaded full JSON exports**. These contain the portal's database records (but not R2 photo binaries) and are audited like CSV exports.
-- **Database backups** made with `npm run db:backup` (in `backups/`, git-ignored). Delete old backup files once they're no longer needed; don't keep them longer than the retention period.
+- **Database backups** made with `npm run db:backup` (in `backups/`, git-ignored). They're readable by your account only. Delete old backup files once they're no longer needed (`node scripts/db-backup.mjs --prune 5` keeps the newest five per environment); don't keep them longer than the retention period.
 - **D1 Time Travel**: Cloudflare can restore the database to any point in the last 30 days. Erased data therefore remains recoverable by the account owner for up to 30 days, then is gone.
 - **Worker logs** (Workers Logs) record request paths and error messages, not guest details.
 - **Email providers**, once delivery is enabled, keep their own sending logs per their retention policy.

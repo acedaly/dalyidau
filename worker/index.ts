@@ -10,12 +10,14 @@ import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
+import { loggablePath } from "./lib/log";
 import { handlePortalApi } from "./portal/api";
-import { type AuthResult, authenticate } from "./portal/auth";
+import { type AuthResult, authenticate, can } from "./portal/auth";
 import { processDueMessages } from "./portal/comms";
 import { loadFlags } from "./portal/flags";
 import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { loadPortalPage } from "./portal/pages";
+import { CREDENTIAL_PERMISSION, hideCredentials } from "./portal/redact";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
@@ -23,7 +25,7 @@ import { type SyncSummary, runSync } from "./sync";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
 import { serveMedia } from "./wedding/media";
-import { RsvpError, lookupRsvp, submitRsvp } from "./wedding/rsvp";
+import { RsvpError, allow, lookupRsvp, submitRsvp } from "./wedding/rsvp";
 import { loadWeddingPage, weddingTitle } from "./wedding/site";
 
 const HTML_EDGE_TTL = 300;
@@ -36,7 +38,7 @@ export default {
         try {
             return withSecurityHeaders(await handle(request, env, ctx));
         } catch (error) {
-            console.error(JSON.stringify({ event: "request_error", path: new URL(request.url).pathname, message: (error as Error).message }));
+            console.error(JSON.stringify({ event: "request_error", path: loggablePath(new URL(request.url).pathname), message: (error as Error).message }));
             return withSecurityHeaders(
                 new Response(errorPage(), { status: 500, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }),
             );
@@ -71,12 +73,16 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     // for authenticated portal previews and previously cached pages.
     if (weddingHasOwnHost && url.hostname === siteUrl.hostname && (path === "/wedding" || path === "/wedding/rsvp")) {
         const target = path === "/wedding" ? "/" : "/rsvp";
-        return Response.redirect(`${weddingUrl.origin}${target}${url.search}`, 301);
+        // The query can be a signed invitation link: never cache the redirect or pass the URL on.
+        return new Response(null, {
+            status: 301,
+            headers: { Location: `${weddingUrl.origin}${target}${url.search}`, ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" },
+        });
     }
 
     if (path.startsWith("/api/portal/")) return portalApi(request, env);
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
-    if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, path);
+    if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 
@@ -265,7 +271,9 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
 
     const [flags, wedding] = await Promise.all([loadFlags(env.DB), getSettings(env.DB, "wedding")]);
     const result = await loadPortalPage(path, url, env, auth.user, flags);
-    const data: PortalPageData = { ...result.data, context: { user: auth.user, flags, wedding, environment: env.ENVIRONMENT } };
+    // Viewers never receive RSVP codes or signed links, in page data any more than from the API.
+    const pageData = can(auth.user, CREDENTIAL_PERMISSION) ? result.data : hideCredentials(result.data);
+    const data: PortalPageData = { ...pageData, context: { user: auth.user, flags, wedding, environment: env.ENVIRONMENT } };
     return renderDocument(env, {
         area: "portal",
         head: [`<title>${escapeHtml(result.title)} · Portal · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join(
@@ -318,11 +326,8 @@ async function weddingPage(request: Request, env: Env, url: URL, indexable: bool
     if (!route || !flags["wedding.site.public"])
         return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false } }, url.pathname, 404, true);
     const data = { ...(await loadWeddingPage(env.DB, route, false)), legacyPaths: true };
-    const noindex = data.content.noindex || !indexable;
-    return renderWeddingDocument(env, data, url.pathname, 200, noindex, {
-        "Cache-Control": "public, max-age=0, must-revalidate",
-        ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
-    });
+    const noindex = data.content.noindex || !indexable || route === "rsvp";
+    return renderWeddingDocument(env, data, url.pathname, 200, noindex, weddingPageHeaders(route, noindex));
 }
 
 async function weddingHost(request: Request, env: Env, url: URL, canonical: URL): Promise<Response> {
@@ -352,11 +357,18 @@ async function weddingHost(request: Request, env: Env, url: URL, canonical: URL)
     }
     const data = await loadWeddingPage(env.DB, route, false);
     const noindex = data.content.noindex || !indexable || route === "rsvp";
-    return renderWeddingDocument(env, data, path, 200, noindex, {
-        "Cache-Control": "public, max-age=0, must-revalidate",
-        ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
-    });
+    return renderWeddingDocument(env, data, path, 200, noindex, weddingPageHeaders(route, noindex));
 }
+
+/**
+ * The RSVP page is opened with a signed link in its address, so it's never stored by any cache and
+ * never sends that address on as a referrer. Its HTML holds no household details (they're fetched
+ * once the link is checked), but the URL itself is the credential.
+ */
+const weddingPageHeaders = (route: WeddingPageData["route"], noindex: boolean): Record<string, string> =>
+    route === "rsvp"
+        ? { ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" }
+        : { "Cache-Control": "public, max-age=0, must-revalidate", ...(noindex ? { "X-Robots-Tag": "noindex" } : {}) };
 
 function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, status: number, noindex: boolean, headers: Record<string, string>) {
     const title = weddingTitle(data);
@@ -379,6 +391,7 @@ function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, st
             `<title>${escapeHtml(title)}</title>`,
             `<meta name="description" content="${escapeHtml(description)}">`,
             `<meta name="robots" content="${noindex ? "noindex, nofollow" : "index, follow"}">`,
+            ...(data.route === "rsvp" ? [`<meta name="referrer" content="no-referrer">`] : []),
             ...(data.preview ? [] : [`<link rel="canonical" href="${escapeHtml(`${site}${path}`)}">`]),
             `<meta property="og:title" content="${escapeHtml(title)}">`,
             `<meta property="og:description" content="${escapeHtml(description)}">`,
@@ -434,6 +447,13 @@ async function guestPage(request: Request, env: Env, url: URL, path: string): Pr
     }
     const flags = await loadFlags(env.DB);
     if (!flags["wedding.site.public"]) return GUEST_NOT_FOUND();
+    // Building an invitation (and above all its PDF) is real work: limit each visitor, as the RSVP API does.
+    const client = request.headers.get("CF-Connecting-IP") ?? "unknown";
+    if (!(await allow(env.DB, path === "/invitation.pdf" ? "invitation-pdf" : "invitation-page", client, path === "/invitation.pdf" ? 20 : 60, 600)))
+        return new Response("Too many requests. Please wait a few minutes and try again.", {
+            status: 429,
+            headers: { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "600", ...PRIVATE_HEADERS },
+        });
     const token = url.searchParams.get("invite");
     if (path === "/invitation.pdf") {
         const pdf = await guestInvitationPdf(env, token);

@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import { ProviderError } from "../comms/providers";
 import type { Env } from "../env";
+import { loggablePath } from "../lib/log";
 import { RsvpError } from "../wedding/rsvp";
 import { ConflictError, NotFoundError, ValidationError } from "./entities";
 
@@ -45,11 +46,39 @@ export const checkCrossSite = (request: Request) => {
     if (site === "cross-site" || site === "same-site") throw new HttpError(403, "cross_site", "Cross-site request refused");
 };
 
-export const readJson = async (request: Request, maxBytes = 1_500_000): Promise<unknown> => {
+/**
+ * Reads a request body as text, refusing anything over maxBytes. The limit is enforced while the
+ * body streams in, so a body sent without a Content-Length (chunked) can't make the Worker buffer
+ * more than the limit before it's refused.
+ */
+export async function readText(request: Request, maxBytes: number): Promise<string> {
     const length = Number(request.headers.get("Content-Length") ?? "0");
     if (length > maxBytes) throw new HttpError(413, "too_large", "Request is too large");
-    const text = await request.text();
-    if (text.length > maxBytes) throw new HttpError(413, "too_large", "Request is too large");
+    if (!request.body) return "";
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+            await reader.cancel().catch(() => undefined);
+            throw new HttpError(413, "too_large", "Request is too large");
+        }
+        chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+export const readJson = async (request: Request, maxBytes = 1_500_000): Promise<unknown> => {
+    const text = await readText(request, maxBytes);
     if (!text) return {};
     try {
         return JSON.parse(text);
@@ -82,6 +111,13 @@ export const errorResponse = (error: unknown, path: string) => {
     if (/FOREIGN KEY constraint failed/.test((error as Error)?.message ?? "")) {
         return json({ error: "validation", message: "A linked record no longer exists. Reload the page and try again.", issues: [] }, 422);
     }
-    console.error(JSON.stringify({ event: "api_error", path, message: (error as Error).message, stack: (error as Error).stack?.split("\n").slice(0, 4) }));
+    console.error(
+        JSON.stringify({
+            event: "api_error",
+            path: loggablePath(path),
+            message: (error as Error).message,
+            stack: (error as Error).stack?.split("\n").slice(0, 4),
+        }),
+    );
     return json({ error: "server_error", message: "Something went wrong. Please try again." }, 500);
 };

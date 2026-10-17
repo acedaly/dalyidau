@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Guest, Household, InvitationPreview, RsvpHousehold, WeddingEvent } from "../src/shared/portal/types";
 import { emailProvider } from "../worker/comms/providers";
 import type { Env } from "../worker/env";
-import { accessToken, apiCall, call, db, portalEnv, resetPortal } from "./portal-helpers";
+import { resetAccessKeyCache } from "../worker/portal/access";
+import { accessToken, apiCall, call, db, jwks, portalEnv, resetPortal } from "./portal-helpers";
 
 const WEDDING_HOST = "wedding.daly.id.au";
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -45,7 +46,7 @@ describe("wedding hostname", () => {
 
         const rsvp = await call("/rsvp", { host: WEDDING_HOST });
         expect(rsvp.status).toBe(200);
-        expect(rsvp.headers.get("X-Robots-Tag")).toBe("noindex");
+        expect(rsvp.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
 
         const legacy = await call("/wedding/rsvp?invite=signed.token&guest=highlight", { redirect: "manual" });
         expect(legacy.status).toBe(301);
@@ -288,6 +289,14 @@ describe("Invitation Studio recipients", () => {
 
     it("refuses staging links that would point at the live wedding site, and serves staging by path", async () => {
         const f = await fixture();
+        // Staging ignores ACCESS_TEST_JWKS, so the test keys are served as the team's published keys.
+        resetAccessKeyCache();
+        const keys = await jwks();
+        vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+            String(input instanceof Request ? input.url : input).endsWith("/cdn-cgi/access/certs")
+                ? new Response(keys)
+                : new Response("unexpected", { status: 500 }),
+        );
         const unconfigured = await portalEnv({ ENVIRONMENT: "staging" });
         expect((await preview({ householdIds: [f.household.id], channels: ["print"] }, unconfigured)).status).toBe(422);
 

@@ -139,11 +139,12 @@ export async function verifyAccessJwt(
  * Finds the signing key for a kid. Keys come from https://<team>/cdn-cgi/access/certs and are cached
  * for ten minutes. An unknown kid (key rotation) triggers one refetch, rate-limited.
  *
- * Outside production, ACCESS_TEST_JWKS can supply the key set directly so automated tests can sign
- * their own tokens. It is ignored when ENVIRONMENT is "production".
+ * In automated tests and local development only, ACCESS_TEST_JWKS can supply the key set directly
+ * so tests can sign their own tokens. It is ignored everywhere else, staging included: staging is a
+ * deployed Worker, and a key set in its variables would let anyone mint a portal identity.
  */
 async function signingKey(env: Env, teamDomain: string, kid: string, now: number): Promise<CryptoKey | null | "unavailable"> {
-    if (env.ACCESS_TEST_JWKS && env.ENVIRONMENT !== "production") {
+    if (env.ACCESS_TEST_JWKS && (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "development")) {
         const keys = await importKeySet(JSON.parse(env.ACCESS_TEST_JWKS) as { keys: Jwk[] });
         return keys.get(kid) ?? null;
     }

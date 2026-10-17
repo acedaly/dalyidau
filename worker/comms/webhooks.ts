@@ -1,18 +1,22 @@
 // Provider webhooks: delivery reports and bounces from SMTP2Go, delivery receipts and inbound
 // replies from ClickSend.
 //
-//   POST /api/comms/webhooks/smtp2go/<COMMS_WEBHOOK_SECRET>
-//   POST /api/comms/webhooks/clicksend-receipt/<COMMS_WEBHOOK_SECRET>
-//   POST /api/comms/webhooks/clicksend-inbound/<COMMS_WEBHOOK_SECRET>
+//   POST /api/comms/webhooks/smtp2go?key=<COMMS_WEBHOOK_SECRET>
+//   POST /api/comms/webhooks/clicksend-receipt?key=<COMMS_WEBHOOK_SECRET>
+//   POST /api/comms/webhooks/clicksend-inbound?key=<COMMS_WEBHOOK_SECRET>
 //
-// These are public URLs (providers can't sign in through Cloudflare Access), so the secret path
-// segment is the credential: without COMMS_WEBHOOK_SECRET configured every request is a 404, and a
-// wrong secret looks exactly the same. Every payload is stored once (a unique dedupe key makes
+// These are public URLs (providers can't sign in through Cloudflare Access), so the secret is the
+// credential: without COMMS_WEBHOOK_SECRET configured every request is a 404, and a wrong secret
+// looks exactly the same. It goes in the query string because Cloudflare's request logs and traces
+// drop query strings (observability.redact_query_string) but keep paths. The older form with the
+// secret as a final path segment still works so existing provider settings keep working; our own
+// logs mask it (lib/log.ts), but move providers to the query form and rotate the secret. Every payload is stored once (a unique dedupe key makes
 // provider retries harmless) and then applied to message history. Field names vary between
 // provider versions, so parsing is tolerant and anything unrecognised is kept for inspection.
 import type { Env } from "../env";
 import { receiveSms } from "../portal/comms";
 import { newId, nowIso } from "../portal/db";
+import { HttpError, readText } from "../portal/http";
 
 type Payload = Record<string, unknown>;
 const PROVIDERS = ["smtp2go", "clicksend-receipt", "clicksend-inbound"] as const;
@@ -35,8 +39,13 @@ async function sameSecret(given: string, expected: string) {
 
 async function readPayload(request: Request): Promise<Payload | Payload[] | null> {
     const type = request.headers.get("Content-Type") ?? "";
-    const text = await request.text();
-    if (text.length > 64_000) return null;
+    let text: string;
+    try {
+        text = await readText(request, 64_000);
+    } catch (error) {
+        if (error instanceof HttpError) return null;
+        throw error;
+    }
     if (type.includes("json") || /^\s*[[{]/.test(text)) {
         try {
             return JSON.parse(text) as Payload | Payload[];
@@ -163,10 +172,11 @@ async function applyClickSendInbound(env: Env, payload: Payload) {
     return { applied: true, matched: result.matched };
 }
 
-export async function handleCommsWebhook(request: Request, env: Env, path: string): Promise<Response> {
-    const match = /^\/api\/comms\/webhooks\/([a-z0-9-]+)\/([^/]+)$/.exec(path);
+export async function handleCommsWebhook(request: Request, env: Env, url: URL): Promise<Response> {
+    const match = /^\/api\/comms\/webhooks\/([a-z0-9-]+)(?:\/([^/]+))?$/.exec(url.pathname);
     if (!match || request.method !== "POST" || !env.COMMS_WEBHOOK_SECRET) return notFound();
-    const [, provider, secret] = match;
+    const [, provider, inPath] = match;
+    const secret = url.searchParams.get("key") ?? inPath ?? "";
     if (!(PROVIDERS as readonly string[]).includes(provider) || !(await sameSecret(secret, env.COMMS_WEBHOOK_SECRET))) return notFound();
     const payload = await readPayload(request);
     if (!payload) return new Response("Bad request", { status: 400 });
