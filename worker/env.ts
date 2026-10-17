@@ -30,6 +30,8 @@ export interface Env {
     PORTAL_OWNER_EMAILS?: string;
     /** Local development only (ENVIRONMENT=development on localhost): act as this email without Access. */
     ACCESS_DEV_EMAIL?: string;
+    /** Local development only: a second identity, chosen with the portal_dev_identity=alt cookie (browser tests). */
+    ACCESS_DEV_ALT_EMAIL?: string;
     /** Tests only, ignored in production: a JWKS document to verify Access tokens against. */
     ACCESS_TEST_JWKS?: string;
     /** Email delivery provider: "fastmail", "smtp", "smtp2go", "cloudflare", or "log" (development only). */

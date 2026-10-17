@@ -183,6 +183,28 @@ describe("portal access control", () => {
         expect((await call("/api/portal/me", { env: { ...devEnv, ENVIRONMENT: "staging" } })).status).toBe(403);
     });
 
+    it("only switches to the second development identity in development, by cookie", async () => {
+        const devEnv = await portalEnv({
+            ENVIRONMENT: "development",
+            SITE_URL: "http://localhost:8787",
+            ACCESS_DEV_EMAIL: OWNER,
+            ACCESS_DEV_ALT_EMAIL: SECOND_OWNER,
+            ACCESS_TEAM_DOMAIN: "",
+            ACCESS_AUD: "",
+        });
+        const me = async (env: typeof devEnv, cookie?: string) => {
+            const response = await call("/api/portal/me", { env, headers: cookie ? { Cookie: cookie } : {} });
+            return response.status === 200 ? ((await response.json()) as { user: { email: string } }).user.email : response.status;
+        };
+        expect(await me(devEnv)).toBe(OWNER);
+        expect(await me(devEnv, "theme=dark; portal_dev_identity=alt")).toBe(SECOND_OWNER);
+        expect(await me(devEnv, "portal_dev_identity=alternative")).toBe(OWNER);
+        expect(await me({ ...devEnv, ACCESS_DEV_ALT_EMAIL: undefined }, "portal_dev_identity=alt")).toBe(OWNER);
+        // Outside development the cookie is meaningless: no identity at all without Access.
+        expect(await me({ ...devEnv, ENVIRONMENT: "production" }, "portal_dev_identity=alt")).toBe(403);
+        expect(await me({ ...devEnv, SITE_URL: "https://daly.id.au" }, "portal_dev_identity=alt")).toBe(403);
+    });
+
     it("never lets people change their own role or configured owners", async () => {
         expect((await apiCall("POST", "/api/portal/users", { email: SECOND_OWNER, role: "viewer" })).status).toBe(422);
         expect((await apiCall("POST", "/api/portal/users", { email: OWNER, role: "viewer" })).status).toBe(422);
