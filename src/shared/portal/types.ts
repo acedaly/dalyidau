@@ -438,6 +438,8 @@ export interface MessageOptions {
     individualDelivery?: boolean;
     /** "Send another": include households that already have one of this kind on this channel (sent or drafted). */
     resend?: boolean;
+    /** Exact repeat household/guest keys explicitly approved when this message was scheduled. */
+    scheduledResendConfirmed?: string[];
     /** Prepared from Invitation Studio, so the Studio can show and update it. */
     source?: "invitation-studio";
     /** Formal invitations: the Studio template captured when it was prepared, and whether to attach the PDF. */

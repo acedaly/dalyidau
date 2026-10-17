@@ -762,13 +762,27 @@ const sendSchema = z.object({
     confirmAgain: z.boolean().default(false),
 });
 
+const repeatRecipientKey = (recipient: MessageRecipient) => (recipient.householdId ? `household:${recipient.householdId}` : `guest:${recipient.guestId}`);
+
+/** The distinct households (or standalone guests) in this send that have already received this campaign. */
+async function repeatRecipientKeys(db: D1Database, message: Message, toSend: { recipient: MessageRecipient }[]) {
+    if (!message.options.resend || !toSend.length) return new Set<string>();
+    const sent = await alreadyContacted(db, message.category, message.channel, "sent", message.id);
+    return new Set(
+        toSend
+            .filter(({ recipient }) => (recipient.householdId ? sent.households.has(recipient.householdId) : sent.guests.has(recipient.guestId)))
+            .map(({ recipient }) => repeatRecipientKey(recipient)),
+    );
+}
+
 /** "Send another" needs its own confirmation whenever it would reach someone who was already sent one, even one household. */
 async function requireAgainConfirmed(db: D1Database, message: Message, toSend: { recipient: MessageRecipient }[], confirmed: boolean) {
-    if (!message.options.resend || confirmed || !toSend.length) return;
-    const sent = await alreadyContacted(db, message.category, message.channel, "sent", message.id);
-    const again = toSend.filter(({ recipient: r }) => (r.householdId ? sent.households.has(r.householdId) : sent.guests.has(r.guestId))).length;
-    if (again)
-        throw new ConflictError(`${again} recipient${again === 1 ? " was" : "s were"} already sent one. Confirm that they should get another before sending.`);
+    const again = await repeatRecipientKeys(db, message, toSend);
+    if (again.size && !confirmed)
+        throw new ConflictError(
+            `${again.size} recipient${again.size === 1 ? " was" : "s were"} already sent one. Confirm that they should get another before sending.`,
+        );
+    return again;
 }
 
 export async function sendMessage(env: Env, db: D1Database, id: string, actor: string, scheduledOnly = false, input: unknown = {}): Promise<Message> {
@@ -784,8 +798,22 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
     if (wantsPdf(found.message) && provider.channel === "email" && !provider.supportsAttachments)
         throw new ValidationError(`${provider.name} can't attach the printable invitation. Prepare it again without the PDF, or use Fastmail.`, "attachPdf");
     const context = await campaignContext(env, db, await listGuests(db));
-    const plan = await planSend(env, db, found, context);
-    const toSend = plan.filter((p) => p.action === "send");
+    let plan = await planSend(env, db, found, context);
+    let toSend = plan.filter((p) => p.action === "send");
+    if (scheduledOnly && found.message.options.resend) {
+        const repeatedNow = await repeatRecipientKeys(db, found.message, toSend);
+        const confirmedWhenScheduled = new Set(found.message.options.scheduledResendConfirmed ?? []);
+        // A household that received this campaign after scheduling was never part of the user's
+        // explicit "send another" confirmation. Hold it back instead of broadening that approval.
+        if ([...repeatedNow].some((key) => !confirmedWhenScheduled.has(key))) {
+            plan = plan.map((item) =>
+                item.action === "send" && repeatedNow.has(repeatRecipientKey(item.recipient)) && !confirmedWhenScheduled.has(repeatRecipientKey(item.recipient))
+                    ? { ...item, action: "skip" as const, reason: EXCLUSION_REASONS.resendNotConfirmed }
+                    : item,
+            );
+            toSend = plan.filter((p) => p.action === "send");
+        }
+    }
     const studio = wantsPdf(found.message) ? await loadStudioData(env, found.message.options.invitation?.template) : null;
     // Bulk sends need the count the person saw in the send check; anything else means the list changed.
     if (!scheduledOnly && toSend.length > 1 && confirmCount !== toSend.length)
@@ -794,7 +822,7 @@ export async function sendMessage(env: Env, db: D1Database, id: string, actor: s
                 ? `Confirm the send check first: this will go to ${toSend.length} recipients.`
                 : `The recipient list has changed since you checked it (now ${toSend.length}). Review the send check again.`,
         );
-    // A scheduled message was confirmed when it was scheduled.
+    // Scheduled sends use the exact repeat-recipient snapshot persisted when they were scheduled.
     if (!scheduledOnly) await requireAgainConfirmed(db, found.message, toSend, confirmAgain);
 
     // Claim the message so a double click, a second tab or a cron retry cannot send twice.
@@ -921,11 +949,14 @@ export async function scheduleMessage(env: Env, db: D1Database, id: string, inpu
     const count = toSend.length;
     if (data.confirmCount !== count)
         throw new ConflictError(`The recipient list has changed since you checked it (now ${count}). Review the send check again.`);
-    await requireAgainConfirmed(db, found.message, toSend, data.confirmAgain);
+    const scheduledResendConfirmed = await requireAgainConfirmed(db, found.message, toSend, data.confirmAgain);
     const scheduledAt = new Date(data.scheduledAt).toISOString();
+    const options = found.message.options.resend
+        ? { ...found.message.options, scheduledResendConfirmed: [...scheduledResendConfirmed].sort() }
+        : found.message.options;
     const updated = await db
-        .prepare("UPDATE messages SET status = 'queued', scheduled_at = ? WHERE id = ? AND status = 'draft' RETURNING id")
-        .bind(scheduledAt, id)
+        .prepare("UPDATE messages SET status = 'queued', scheduled_at = ?, options = ? WHERE id = ? AND status = 'draft' RETURNING id")
+        .bind(scheduledAt, JSON.stringify(options), id)
         .first();
     if (!updated) throw new ValidationError("This message changed while you were scheduling it", "status");
     await auditStatement(db, {

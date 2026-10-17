@@ -176,6 +176,7 @@ export const EXCLUSION_REASONS = {
     alreadyDrafted: "Already in an unsent draft for this household (nothing sent yet)",
     alreadySent: "Already sent to this household",
     alreadySentElsewhere: "Already sent to this household in another message",
+    resendNotConfirmed: "Already sent after this was scheduled; sending another wasn't confirmed",
     replied: "Already replied for everyone",
     repliedSince: "Replied for everyone since this was prepared",
     remindedRecently: "Reminded in the last 24 hours",
