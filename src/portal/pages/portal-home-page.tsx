@@ -30,7 +30,13 @@ const ApplicationCard = ({ application }: { application: PortalApplication }) =>
                 <h2 className="text-xl font-semibold text-primary">{application.name}</h2>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-tertiary">{application.description}</p>
                 <div className="mt-auto pt-8">
-                    <Button href={application.baseRoute} size="md" iconTrailing={ArrowUpRight} className="w-full sm:w-auto">
+                    <Button
+                        href={application.baseRoute}
+                        size="md"
+                        iconTrailing={ArrowUpRight}
+                        className="w-full sm:w-auto"
+                        aria-label={`Open ${application.name}`}
+                    >
                         Open application
                     </Button>
                 </div>

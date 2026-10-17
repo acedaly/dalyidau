@@ -35,7 +35,10 @@ export const PageHeader = ({
     <header className={cx("flex flex-col gap-5", className)}>
         {breadcrumbs.length > 0 && (
             <Breadcrumbs type="button" className="max-lg:hidden">
-                <Breadcrumbs.Item href={homeHref} icon={HomeLine} aria-label={homeLabel} />
+                {/* The item's aria-label lands on the list item, not the link, so the link carries hidden text. */}
+                <Breadcrumbs.Item href={homeHref} icon={HomeLine}>
+                    <span className="sr-only">{homeLabel}</span>
+                </Breadcrumbs.Item>
                 {breadcrumbs.map((crumb) => (
                     <Breadcrumbs.Item key={crumb.label} href={crumb.href}>
                         {crumb.label}

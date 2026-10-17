@@ -24,7 +24,7 @@ test("launches Wedding Planner directly into its dashboard", async ({ page }) =>
     await page.goto("/portal");
     await expect(page.getByRole("heading", { level: 1, name: "Applications" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Wedding Planner" })).toBeVisible();
-    await page.getByRole("link", { name: "Open application" }).click();
+    await page.getByRole("link", { name: "Open Wedding Planner" }).click();
     await expect(page).toHaveURL(/\/portal\/wedding$/);
     await expect(page.getByText("Everything for", { exact: false })).toBeVisible();
     await expect(page.getByRole("link", { name: "All Applications" }).first()).toBeVisible();
