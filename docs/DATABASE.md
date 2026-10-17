@@ -27,7 +27,7 @@ npm run db:verify -- --env staging
 npm run db:verify -- --local           # your wrangler dev database
 ```
 
-Checks: migrations applied and in order, SQLite `quick_check`, foreign keys, guest JSON validity, invitations pointing at real guests and events, active guests left in deleted households (warning), RSVP code format, non-negative budget amounts. It prints only row counts, never contents.
+Checks: migrations applied and in order, SQLite `quick_check`, foreign keys, guest JSON validity, invitations pointing at real guests and events, active guests left in deleted households (warning), RSVP code format, non-negative budget amounts, and for Knowledge: valid document JSON, every space has an owner, and the search index covers every object (warning; rebuild it with `KNOWLEDGE_FTS_REBUILD` from `worker/knowledge/search.ts`). It prints only row counts, never contents.
 
 ## Backups
 
@@ -41,10 +41,12 @@ D1 keeps a point-in-time history for **30 days** with no setup. Every deploy log
 npm run db:backup -- --env production
 ```
 
-1. Records row counts on the live database.
+1. Records the schema and row counts on the live database.
 2. Exports it to `backups/production-<time>.sql` (read-only on the remote).
-3. Restores the file into a throwaway local database, checks every table has at least as many rows as the live one, and runs all the integrity checks on the restored copy.
+3. Restores the file into a throwaway local database, checks every table has at least as many rows as the live one and every table, index, trigger and view is there, and runs all the integrity checks on the restored copy.
 4. Writes `backups/…sql.json` with the SHA-256, size and row counts.
+
+**Virtual tables (Knowledge search).** `wrangler d1 export` refuses any database that contains a virtual table ("cannot export databases with Virtual Tables (fts5)"). Once migration `0013` adds `knowledge_fts`, the script exports the ordinary tables one by one instead, then appends their indexes, triggers and views, and finally the statements that recreate `knowledge_fts` and rebuild it from `knowledge_objects` (`scripts/lib/virtual-tables.mjs`). The result is still one `.sql` file that restores with `wrangler d1 execute --file`. A plain `wrangler d1 export` of the whole database won't work any more; use the script. The index is derived data, so nothing is lost by rebuilding it.
 
 The file contains guests' personal details. `backups/` is git-ignored, and the script makes the folder and every file in it readable by your account only (0700/0600, including older backups). Keep backups somewhere private and delete them when no longer needed: `node scripts/db-backup.mjs --prune 5` keeps the newest five per environment and deletes the rest ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).
 

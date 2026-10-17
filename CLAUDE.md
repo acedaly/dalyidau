@@ -10,6 +10,7 @@ Personal site and Capacities-powered blog on a single Cloudflare Worker. Read `R
 - Don't change DNS or the `routes` block in `wrangler.jsonc` without the owner's approval. Don't touch DalyHub resources.
 - Portal (`/portal`, `src/portal`, `worker/portal`) and wedding site (`/wedding`, `src/wedding`, `worker/wedding`): see `docs/PORTAL.md`. Every portal route verifies the Cloudflare Access JWT and the user's role server-side and fails closed; every write is audited. Use Untitled UI PRO components (`npx untitledui@latest add …`) before writing custom UI; the CLI can overwrite existing files, so check `git diff` afterwards (the site's `empty-state.tsx` is adapted).
 - Native RSVP, the public wedding site and email delivery are behind feature switches that default off. Never send real email or switch them on without the owner's approval.
+- Daly Knowledge (`/portal/knowledge`, `src/portal/knowledge`, `src/shared/knowledge`, `worker/knowledge`): see `docs/KNOWLEDGE_ENGINE.md`. Every read and write goes through space membership (`worker/knowledge/access.ts`); non-members get 404, and portal roles never grant access to someone's space. Documents are validated against the allow-listed `daly.doc.v1` format and never rendered as raw HTML. Knowledge audit goes to `knowledge_audit` without titles or text, never `audit_log`. `knowledge_fts` is derived: keep it rebuildable (`KNOWLEDGE_FTS_REBUILD` and `scripts/lib/virtual-tables.mjs` must match) because D1 can't export virtual tables. The repo is public: never commit real notes or exports.
 
 ---
 
