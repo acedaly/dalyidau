@@ -65,6 +65,8 @@ export interface KnowledgeObjectSummary {
     title: string;
     status: ObjectStatus;
     inInbox: boolean;
+    /** Set for daily notes: the calendar date the note belongs to. */
+    dailyDate: string | null;
     /** The first couple of hundred characters of the text. */
     excerpt: string;
     tags: string[];
@@ -94,6 +96,8 @@ export interface KnowledgeLink {
 
 export interface KnowledgeObjectDetail {
     object: KnowledgeObject;
+    /** After creating from a template: template values that couldn't be used with the type as it is now. */
+    notices?: string[];
     /** Links from this object (in its text, its properties or added by hand). */
     outgoing: KnowledgeLink[];
     /** Links to this object from other objects. */
@@ -146,20 +150,98 @@ export interface KnowledgeAuditEntry {
     summary: string;
 }
 
+export interface KnowledgeTemplate {
+    id: string;
+    spaceId: string;
+    typeId: string;
+    name: string;
+    description: string;
+    /** The new object's title; {date} becomes today's date in the space. */
+    title: string;
+    content: DocNode;
+    properties: PropertyValues;
+    isDefault: boolean;
+    archived: boolean;
+    version: number;
+    updatedBy: string;
+    updatedAt: string;
+}
+
+export interface KnowledgeCollection {
+    id: string;
+    spaceId: string;
+    name: string;
+    description: string;
+    archived: boolean;
+    version: number;
+    /** Objects in it that aren't in the trash. */
+    itemCount: number;
+    updatedAt: string;
+}
+
+export interface CollectionItem extends KnowledgeObjectSummary {
+    position: number;
+    pinned: boolean;
+}
+
+/** A light reference to an object, for navigation (favourites, pins, the sidebar). */
+export type ObjectRef = Pick<KnowledgeObjectSummary, "id" | "spaceId" | "title" | "typeId" | "status" | "dailyDate" | "updatedAt">;
+
+export interface KnowledgeSavedView {
+    id: string;
+    name: string;
+    /** Shared with everyone in the space, or private to its creator. */
+    shared: boolean;
+    mine: boolean;
+    definition: ListFilters;
+    version: number;
+}
+
+export interface RelatedSuggestion {
+    object: ObjectRef;
+    score: number;
+    /** "strong": several signals or a strong one. "possible": a single weaker signal, worth a look. */
+    strength: "strong" | "possible";
+    /** Plain-language reasons, e.g. "Shares 3 tags: wedding, venue, transport". */
+    reasons: string[];
+}
+
+export interface DailyNoteDay {
+    date: string;
+    id: string;
+    title: string;
+    excerpt: string;
+}
+
 export type ListView = "all" | "inbox" | "archived" | "trashed";
 export type ListSort = "updated" | "created" | "title";
+/** For finding disconnected knowledge: objects with no links to or from other (untrashed) objects. */
+export const LINK_FILTERS = ["any", "unlinked", "no_backlinks", "no_outgoing"] as const;
+export type LinkFilter = (typeof LINK_FILTERS)[number];
 
 export interface ListFilters {
     view: ListView;
     typeId: string | null;
     tag: string | null;
     sort: ListSort;
+    links?: LinkFilter;
+    /** Calendar dates (YYYY-MM-DD) in the space's time zone, inclusive. */
+    createdFrom?: string | null;
+    createdTo?: string | null;
+    updatedFrom?: string | null;
+    updatedTo?: string | null;
 }
+
+export type TemplateRef = Pick<KnowledgeTemplate, "id" | "name" | "typeId" | "isDefault">;
 
 interface KnowledgeShell {
     space: KnowledgeSpace;
     spaces: KnowledgeSpace[];
     types: KnowledgeType[];
+    /** Templates that aren't archived, for "New". */
+    templates: TemplateRef[];
+    /** The sidebar's own sections for this space. */
+    nav: { favourites: ObjectRef[]; collections: Pick<KnowledgeCollection, "id" | "name">[]; today: string };
 }
 
 export type KnowledgeRoute =
@@ -167,10 +249,46 @@ export type KnowledgeRoute =
           route: "knowledge-home";
           recent: KnowledgeObjectSummary[];
           inbox: KnowledgeObjectSummary[];
+          pinned: ObjectRef[];
+          collections: KnowledgeCollection[];
+          todayNote: DailyNoteDay | null;
           counts: { active: number; inbox: number; archived: number; trashed: number };
       })
-    | (KnowledgeShell & { route: "knowledge-list"; filters: ListFilters; objects: KnowledgeObjectSummary[]; total: number; tags: string[] })
-    | (KnowledgeShell & { route: "knowledge-object"; detail: KnowledgeObjectDetail })
+    | (KnowledgeShell & {
+          route: "knowledge-list";
+          filters: ListFilters;
+          objects: KnowledgeObjectSummary[];
+          total: number;
+          tags: string[];
+          views: KnowledgeSavedView[];
+          savedView: KnowledgeSavedView | null;
+      })
+    | (KnowledgeShell & {
+          route: "knowledge-object";
+          detail: KnowledgeObjectDetail;
+          state: { favourite: boolean; pinned: boolean };
+          collections: { id: string; name: string }[];
+      })
+    | (KnowledgeShell & {
+          route: "knowledge-daily";
+          date: string;
+          today: string;
+          note: KnowledgeObjectDetail | null;
+          recent: DailyNoteDay[];
+          /** Dates near this one that have a note with something in it. */
+          marked: string[];
+      })
+    | (KnowledgeShell & { route: "knowledge-collections"; collections: KnowledgeCollection[] })
+    | (KnowledgeShell & { route: "knowledge-collection"; collection: KnowledgeCollection; items: CollectionItem[]; total: number })
+    | (KnowledgeShell & { route: "knowledge-favourites"; favourites: ObjectRef[] })
+    | (KnowledgeShell & { route: "knowledge-templates"; allTemplates: KnowledgeTemplate[] })
+    | (KnowledgeShell & { route: "knowledge-template"; template: KnowledgeTemplate })
+    | (KnowledgeShell & {
+          route: "knowledge-discover";
+          lists: Record<"unlinked" | "no_backlinks" | "no_outgoing", { objects: KnowledgeObjectSummary[]; total: number }>;
+          /** Of the objects listed, those that are tagged or in a collection. */
+          organised: string[];
+      })
     | (KnowledgeShell & { route: "knowledge-search"; query: string; hits: KnowledgeSearchHit[]; typeId: string | null; allSpaces: boolean })
     | (KnowledgeShell & { route: "knowledge-types" })
     | (KnowledgeShell & { route: "knowledge-settings"; members: KnowledgeMember[]; audit: KnowledgeAuditEntry[] | null });

@@ -134,6 +134,9 @@ export async function removeMember(db: D1Database, user: PortalUser, spaceId: st
             db.prepare("DELETE FROM knowledge_memberships WHERE space_id = ? AND email = ?").bind(spaceId, email),
             requireChange(db),
             keepsAnOwner(db, spaceId),
+            // Their own shortcuts in this space go with their access.
+            db.prepare("DELETE FROM knowledge_favourites WHERE space_id = ? AND email = ?").bind(spaceId, email),
+            db.prepare("DELETE FROM knowledge_saved_views WHERE space_id = ? AND owner_email = ?").bind(spaceId, email),
             knowledgeAudit(db, { spaceId, actor: user.email, action: "member.remove", entityType: "member", entityId: email, summary: "Removed a member" }),
         ]);
     } catch (error) {

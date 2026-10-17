@@ -377,10 +377,29 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "object", match[1]),
     },
     {
-        pattern: /^\/portal\/knowledge\/(search|types|settings)$/,
+        pattern: /^\/portal\/knowledge\/daily(?:\/(\d{4}-\d{2}-\d{2}))?$/,
+        title: "Daily note",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "daily", match[1]),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/c\/(kcl_[a-z0-9]{14})$/,
+        title: "Collection",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "collection", match[1]),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/templates\/(ktp_[a-z0-9]{14})$/,
+        title: "Template",
+        application: "knowledge",
+        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "template", match[1]),
+    },
+    {
+        pattern: /^\/portal\/knowledge\/(search|types|settings|collections|favourites|templates|discover)$/,
         title: "Knowledge",
         application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, match[1] as "search" | "types" | "settings"),
+        load: ({ env, user, url, match }) =>
+            loadKnowledgePage(env, user, url, match[1] as "search" | "types" | "settings" | "collections" | "favourites" | "templates" | "discover"),
     },
     {
         pattern: /^\/portal\/audit$/,

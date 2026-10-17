@@ -141,6 +141,7 @@ export const KnowledgeTypesPage = ({ data }: { data: PageData<"knowledge-types">
                 space={space}
                 spaces={spaces}
                 types={types}
+                templates={data.templates}
                 crumb="Object types"
                 actions={
                     canEdit && (

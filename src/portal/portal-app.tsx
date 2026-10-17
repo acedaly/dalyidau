@@ -1,11 +1,18 @@
 import { ToastProvider } from "@/portal/components/toast";
+import { KnowledgeCollectionPage } from "@/portal/knowledge/pages/knowledge-collection-page";
+import { KnowledgeCollectionsPage } from "@/portal/knowledge/pages/knowledge-collections-page";
+import { KnowledgeDailyPage } from "@/portal/knowledge/pages/knowledge-daily-page";
+import { KnowledgeDiscoverPage } from "@/portal/knowledge/pages/knowledge-discover-page";
+import { KnowledgeFavouritesPage } from "@/portal/knowledge/pages/knowledge-favourites-page";
 import { KnowledgeHomePage } from "@/portal/knowledge/pages/knowledge-home-page";
 import { KnowledgeListPage } from "@/portal/knowledge/pages/knowledge-list-page";
 import { KnowledgeObjectPage } from "@/portal/knowledge/pages/knowledge-object-page";
 import { KnowledgeSearchPage } from "@/portal/knowledge/pages/knowledge-search-page";
 import { KnowledgeSettingsPage } from "@/portal/knowledge/pages/knowledge-settings-page";
+import { KnowledgeTemplatePage } from "@/portal/knowledge/pages/knowledge-template-page";
+import { KnowledgeTemplatesPage } from "@/portal/knowledge/pages/knowledge-templates-page";
 import { KnowledgeTypesPage } from "@/portal/knowledge/pages/knowledge-types-page";
-import { PortalSidebar } from "@/portal/layout/portal-sidebar";
+import { type ExtraNavSection, PortalSidebar } from "@/portal/layout/portal-sidebar";
 import { AuditPage } from "@/portal/pages/audit-page";
 import { BudgetPage } from "@/portal/pages/budget-page";
 import { CateringPage } from "@/portal/pages/catering-page";
@@ -85,6 +92,20 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <KnowledgeListPage data={data} />;
         case "knowledge-object":
             return <KnowledgeObjectPage key={data.detail.object.id} data={data} />;
+        case "knowledge-daily":
+            return <KnowledgeDailyPage key={data.date} data={data} />;
+        case "knowledge-collections":
+            return <KnowledgeCollectionsPage data={data} />;
+        case "knowledge-collection":
+            return <KnowledgeCollectionPage key={data.collection.id} data={data} />;
+        case "knowledge-favourites":
+            return <KnowledgeFavouritesPage data={data} />;
+        case "knowledge-templates":
+            return <KnowledgeTemplatesPage data={data} />;
+        case "knowledge-template":
+            return <KnowledgeTemplatePage key={data.template.id} data={data} />;
+        case "knowledge-discover":
+            return <KnowledgeDiscoverPage data={data} />;
         case "knowledge-search":
             return <KnowledgeSearchPage data={data} />;
         case "knowledge-types":
@@ -96,6 +117,24 @@ const Page = ({ data }: { data: PortalPageData }) => {
         default:
             return <NotFoundPage />;
     }
+};
+
+/** Knowledge pages add the space's own favourites and collections to the navigation. */
+const extraNavigation = (data: PortalPageData): ExtraNavSection[] => {
+    if (!("nav" in data) || !data.nav) return [];
+    const MAX = 6;
+    return [
+        {
+            label: "Favourites",
+            after: "Knowledge",
+            items: data.nav.favourites.slice(0, MAX).map((f) => ({ label: f.title || "Untitled", href: `/portal/knowledge/o/${f.id}`, icon: "favourites" as const })),
+        },
+        {
+            label: "Collections",
+            after: "Library",
+            items: data.nav.collections.slice(0, MAX).map((c) => ({ label: c.name, href: `/portal/knowledge/c/${c.id}`, icon: "collections" as const })),
+        },
+    ];
 };
 
 export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }) => (
@@ -110,7 +149,7 @@ export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }
                 </a>
                 <div className="flex min-h-dvh flex-col bg-primary lg:flex-row lg:bg-secondary print:block print:bg-primary">
                     <div className="contents print:hidden">
-                        <PortalSidebar path={path} />
+                        <PortalSidebar path={path} extra={extraNavigation(data)} />
                     </div>
                     <main id="main" className="min-w-0 flex-1 lg:pt-1 lg:pr-1 lg:pb-1 print:p-0">
                         <div className="min-h-full bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary print:shadow-none print:ring-0">

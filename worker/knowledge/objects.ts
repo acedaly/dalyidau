@@ -7,6 +7,7 @@
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { CONTENT_FORMAT, DocumentError, normaliseDocument } from "../../src/shared/knowledge/content";
+import { addDays, startOfLocalDay } from "../../src/shared/knowledge/dates";
 import { PERSON_TYPE_SLUG, type PropertyDef, type PropertyValues, applyPropertyChanges, referencedIds } from "../../src/shared/knowledge/properties";
 import type {
     KnowledgeLink,
@@ -14,6 +15,7 @@ import type {
     KnowledgeObjectSummary,
     KnowledgeRevision,
     KnowledgeRevisionDetail,
+    LinkFilter,
     ListFilters,
     ObjectStatus,
 } from "../../src/shared/knowledge/types";
@@ -24,6 +26,7 @@ import { notFound, requireObject, requireSpace } from "./access";
 import { knowledgeAudit } from "./audit";
 import { OBJECT_COLUMNS, type ObjectRow, SUMMARY_COLUMNS, type SummaryRow, toObject, toSummary } from "./rows";
 import { indexStatements, unindexStatement } from "./search";
+import { defaultTemplateId, templateStart } from "./templates";
 import { defaultTypeId, getTypeInSpace } from "./types";
 
 /** Consecutive saves by one person within this window update one revision instead of adding more. */
@@ -66,7 +69,7 @@ export const normaliseTags = (tags: string[]) => {
     return [...seen.values()];
 };
 
-const parseContent = (content: unknown) => {
+export const parseContent = (content: unknown) => {
     try {
         return normaliseDocument(content);
     } catch (error) {
@@ -75,12 +78,12 @@ const parseContent = (content: unknown) => {
     }
 };
 
-const propertyIssue = (issues: { path: string; message: string }[]) => {
+export const propertyIssue = (issues: { path: string; message: string }[]) => {
     if (issues.length) throw new HttpError(422, "validation", issues[0].message);
 };
 
 /** Reference properties may only point at live objects in the same space (and of the right type). */
-async function checkReferences(db: D1Database, spaceId: string, defs: readonly PropertyDef[], values: PropertyValues, keys: Set<string>) {
+export async function checkReferences(db: D1Database, spaceId: string, defs: readonly PropertyDef[], values: PropertyValues, keys: Set<string>) {
     const refs = referencedIds(defs, values).filter((r) => keys.has(r.def.key));
     const ids = [...new Set(refs.flatMap((r) => r.ids))];
     if (!ids.length) return;
@@ -154,11 +157,21 @@ interface Snapshot {
     propertiesJson: string;
 }
 
-const revisionInsert = (db: D1Database, row: { id: string; space_id: string }, version: number, kind: string, snap: Snapshot, actor: string, now: string) =>
+export const revisionInsert = (
+    db: D1Database,
+    row: { id: string; space_id: string },
+    version: number,
+    kind: string,
+    snap: Snapshot,
+    actor: string,
+    now: string,
+    condition = "",
+    conditionBinds: unknown[] = [],
+) =>
     db
         .prepare(
             `INSERT INTO knowledge_revisions (id, space_id, object_id, version, kind, type_id, title, content_json, content_format, properties_json, changed_by, started_at, changed_at)
-             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`,
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${condition}`,
         )
         .bind(
             newId("krv"),
@@ -174,15 +187,28 @@ const revisionInsert = (db: D1Database, row: { id: string; space_id: string }, v
             actor,
             now,
             now,
+            ...conditionBinds,
         );
 
 // --- Reading -------------------------------------------------------------------------------------
+
+/** A link from `o` to another object that isn't in the trash, and one to `o` from such an object. */
+const LIVE_OUT = `SELECT 1 FROM knowledge_relations r JOIN knowledge_objects x ON x.id = r.target_id WHERE r.source_id = o.id AND x.status <> 'trashed'`;
+const LIVE_IN = `SELECT 1 FROM knowledge_relations r JOIN knowledge_objects x ON x.id = r.source_id WHERE r.target_id = o.id AND x.status <> 'trashed'`;
+
+/** Conditions on `o` for a list's link filter. Daily notes are left out: they're dated and standalone by nature. */
+const linkConditions: Record<Exclude<LinkFilter, "any">, string[]> = {
+    unlinked: ["o.daily_date IS NULL", `NOT EXISTS (${LIVE_OUT})`, `NOT EXISTS (${LIVE_IN})`],
+    no_backlinks: ["o.daily_date IS NULL", `NOT EXISTS (${LIVE_IN})`],
+    no_outgoing: ["o.daily_date IS NULL", `NOT EXISTS (${LIVE_OUT})`],
+};
 
 export async function listObjects(
     db: D1Database,
     spaceId: string,
     filters: ListFilters,
     page: { limit: number; offset: number } = { limit: 200, offset: 0 },
+    timeZone = "UTC",
 ): Promise<{ objects: KnowledgeObjectSummary[]; total: number }> {
     const where = ["o.space_id = ?"];
     const binds: unknown[] = [spaceId];
@@ -197,6 +223,21 @@ export async function listObjects(
     if (filters.tag) {
         where.push("EXISTS (SELECT 1 FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = o.id AND t.name = ?)");
         binds.push(filters.tag);
+    }
+    if (filters.links && filters.links !== "any") where.push(...linkConditions[filters.links]);
+    // Date ranges are whole days in the space's time zone, turned into UTC instants here.
+    for (const [column, from, to] of [
+        ["o.created_at", filters.createdFrom, filters.createdTo],
+        ["o.updated_at", filters.updatedFrom, filters.updatedTo],
+    ] as const) {
+        if (from) {
+            where.push(`${column} >= ?`);
+            binds.push(startOfLocalDay(from, timeZone));
+        }
+        if (to) {
+            where.push(`${column} < ?`);
+            binds.push(startOfLocalDay(addDays(to, 1), timeZone));
+        }
     }
     const order =
         filters.view === "trashed"
@@ -239,7 +280,7 @@ export async function listTags(db: D1Database, spaceId: string): Promise<string[
     return rows.results.map((r) => r.name);
 }
 
-const loadRow = async (db: D1Database, objectId: string) => {
+export const loadRow = async (db: D1Database, objectId: string) => {
     const row = await db.prepare(`SELECT ${OBJECT_COLUMNS} FROM knowledge_objects o WHERE o.id = ?`).bind(objectId).first<ObjectRow>();
     if (!row) throw notFound();
     return row;
@@ -315,19 +356,30 @@ const createInput = z.object({
     properties: z.record(z.string(), z.unknown()).default({}),
     tags: z.array(z.string().max(100)).max(100).default([]),
     inInbox: z.boolean().default(false),
+    /** Start from this template: its title, document and property values, copied. */
+    templateId: z.string().max(40).optional(),
+    /** Start from the type's default template, if it has one ("New" does; quick capture doesn't). */
+    useDefaultTemplate: z.boolean().default(false),
 });
 
 export async function createObject(db: D1Database, user: PortalUser, spaceId: string, input: unknown): Promise<KnowledgeObjectDetail> {
-    await requireSpace(db, user, spaceId, "editor");
+    const space = await requireSpace(db, user, spaceId, "editor");
     const body = createInput.parse(input);
-    const type = await getTypeInSpace(db, spaceId, body.typeId ?? (await defaultTypeId(db, spaceId)));
+    let type = await getTypeInSpace(db, spaceId, body.typeId ?? (await defaultTypeId(db, spaceId)));
+    const templateId = body.templateId ?? (body.useDefaultTemplate ? await defaultTemplateId(db, type.id) : null);
+    const start = templateId ? await templateStart(db, spaceId, space.time_zone, templateId) : null;
+    if (start && start.typeId !== type.id) {
+        if (body.typeId) throw new HttpError(422, "validation", "That template is for a different type");
+        type = await getTypeInSpace(db, spaceId, start.typeId);
+    }
     if (type.archived) throw new HttpError(422, "validation", "That object type is archived");
-    const content = parseContent(body.content ?? { type: "doc", content: [] });
-    const { values, issues } = applyPropertyChanges(type.schema.properties, {}, body.properties, "create");
+    // What the request says wins over the template; the template fills in the rest.
+    const content = parseContent(body.content ?? start?.content ?? { type: "doc", content: [] });
+    const { values, issues } = applyPropertyChanges(type.schema.properties, {}, { ...start?.properties, ...body.properties }, "create");
     propertyIssue(issues);
     await checkReferences(db, spaceId, type.schema.properties, values, new Set(Object.keys(values)));
     const tags = normaliseTags(body.tags);
-    const title = normaliseTitle(body.title);
+    const title = normaliseTitle(body.title || start?.title || "");
 
     const id = newId("kob");
     const now = nowIso();
@@ -359,9 +411,18 @@ export async function createObject(db: D1Database, user: PortalUser, spaceId: st
         ...relationStatements(db, spaceId, id, "content", contentLinks(content.links), user.email, now),
         ...relationStatements(db, spaceId, id, "property", propertyLinks(type.schema.properties, values), user.email, now),
         ...indexStatements(db, id),
-        knowledgeAudit(db, { spaceId, actor: user.email, action: "object.create", entityType: "object", entityId: id, summary: "Created an object" }),
+        knowledgeAudit(db, {
+            spaceId,
+            actor: user.email,
+            action: "object.create",
+            entityType: "object",
+            entityId: id,
+            summary: templateId ? "Created an object from a template" : "Created an object",
+            ...(templateId ? { changes: { templateId } } : {}),
+        }),
     ]);
-    return objectDetail(db, id);
+    const detail = await objectDetail(db, id);
+    return start?.notices.length ? { ...detail, notices: start.notices } : detail;
 }
 
 // --- Updating ------------------------------------------------------------------------------------
@@ -815,4 +876,39 @@ export async function removeRelation(db: D1Database, user: PortalUser, relationI
             changes: { sourceId: relation.source_id, targetId: relation.target_id },
         }),
     ]);
+}
+
+// --- Templates on existing objects ---------------------------------------------------------------
+
+const applyTemplateInput = z.object({ templateId: z.string().max(40), version: z.number().int().min(1) });
+
+/**
+ * Adds a template to an object that already exists, without overwriting anything: the template's
+ * document goes after what's there, and its property values only fill properties that are empty.
+ * It's an ordinary versioned edit, so it's refused (409) if someone saved since `version`.
+ */
+export async function applyTemplateToObject(db: D1Database, user: PortalUser, objectId: string, input: unknown): Promise<KnowledgeObjectDetail> {
+    const access = await requireObject(db, user, objectId, "editor");
+    const body = applyTemplateInput.parse(input);
+    const space = await requireSpace(db, user, access.space_id);
+    const start = await templateStart(db, access.space_id, space.time_zone, body.templateId);
+    const row = await loadRow(db, objectId);
+    const existing = toObject(row);
+    const type = await getTypeInSpace(db, row.space_id, row.type_id);
+    const notices = [...start.notices];
+    const properties: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(start.properties)) {
+        const def = type.schema.properties.find((d) => d.key === key);
+        if (!def) notices.push(`The template's value for “${key}” wasn't used: ${type.name} has no such property.`);
+        else if (existing.properties[key] !== undefined) notices.push(`${def.label} already had a value, so it was kept.`);
+        else properties[key] = value;
+    }
+    const current = (existing.content.content ?? []) as unknown[];
+    const added = (start.content.content ?? []) as unknown[];
+    const detail = await updateObject(db, user, objectId, {
+        version: body.version,
+        ...(added.length ? { content: { type: "doc", content: [...current, ...added] } } : {}),
+        ...(Object.keys(properties).length ? { properties } : {}),
+    });
+    return notices.length ? { ...detail, notices } : detail;
 }

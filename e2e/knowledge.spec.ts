@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 // Daly Knowledge in a real browser. The e2e Worker acts as an owner on localhost (see
 // portal.spec.ts). Both projects share one database, so every title includes the project name.
@@ -29,6 +30,12 @@ const createObject = async (request: APIRequestContext, spaceId: string, data: R
 /** The editor saves after a pause; wait until the badge says so. */
 const saved = (page: Page) => expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
 
+const spaceTypes = async (request: APIRequestContext, spaceId: string) => {
+    const response = await request.get(`/api/portal/knowledge/spaces/${spaceId}/types`);
+    expect(response.ok(), await response.text()).toBe(true);
+    return ((await response.json()) as { types: { id: string; name: string }[] }).types;
+};
+
 test("every Knowledge page loads without errors, fits the screen and passes axe", async ({ page, request }, info) => {
     const errors = watchErrors(page);
     const spaceId = await personalSpace(request);
@@ -36,8 +43,13 @@ test("every Knowledge page loads without errors, fits the screen and passes axe"
     for (const path of [
         "/portal",
         "/portal/knowledge",
+        "/portal/knowledge/daily",
         "/portal/knowledge/inbox",
         "/portal/knowledge/all",
+        "/portal/knowledge/favourites",
+        "/portal/knowledge/collections",
+        "/portal/knowledge/templates",
+        "/portal/knowledge/discover",
         "/portal/knowledge/search?q=layout",
         "/portal/knowledge/types",
         "/portal/knowledge/archive",
@@ -152,4 +164,186 @@ test("never overwrites a newer save, and recovers from the trash", async ({ page
     await expect(page.getByText("This is in the trash")).toBeVisible();
     await page.getByRole("button", { name: "Restore", exact: true }).click();
     await expect(page.getByText("This is in the trash")).toBeHidden();
+});
+
+test("writes one daily note, navigates between days and keeps the content", async ({ page, request }, info) => {
+    const spaceId = await personalSpace(request);
+    const date = info.project.name === "desktop" ? "2026-10-16" : "2026-10-15";
+    const content = `Daily browser note ${info.project.name}`;
+
+    await page.goto(`/portal/knowledge/daily/${date}`);
+    const editor = page.locator(".ProseMirror");
+    await expect(editor).toBeVisible();
+    await editor.fill(content);
+    await saved(page);
+
+    const first = await request.get(`/api/portal/knowledge/spaces/${spaceId}/daily/${date}`);
+    expect(first.ok()).toBe(true);
+    const firstId = ((await first.json()) as { note: { object: { id: string } } }).note.object.id;
+
+    await page.getByRole("link", { name: "Previous day" }).click();
+    await expect(page).toHaveURL(new RegExp(`/daily/`));
+    await page.getByRole("link", { name: "Next day" }).click();
+    await expect(editor).toContainText(content);
+    await page.reload();
+    await expect(page.locator(".ProseMirror")).toContainText(content);
+
+    const creates = await Promise.all(Array.from({ length: 3 }, () => request.post(`/api/portal/knowledge/spaces/${spaceId}/daily/${date}`, { headers: JSON_HEADERS })));
+    expect(creates.every((response) => response.ok())).toBe(true);
+    const ids = await Promise.all(creates.map(async (response) => ((await response.json()) as { object: { id: string } }).object.id));
+    expect(new Set([firstId, ...ids]).size).toBe(1);
+});
+
+test("creates, renames, reorders and deletes a collection without deleting its notes", async ({ page, request }, info) => {
+    const suffix = info.project.name;
+    const spaceId = await personalSpace(request);
+    const objects = await Promise.all(
+        ["Venue", "Catering", "Music"].map((title) => createObject(request, spaceId, { title: `${title} collection ${suffix}` })),
+    );
+    const collectionName = `Launch collection ${suffix}`;
+
+    await page.goto("/portal/knowledge/collections");
+    await page.getByRole("button", { name: "New collection" }).first().click();
+    const createDialog = page.getByRole("dialog", { name: "New collection" });
+    await createDialog.getByLabel("Name").fill(collectionName);
+    await createDialog.getByLabel("Description").fill("Fictional browser-test notes");
+    await createDialog.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByRole("heading", { name: collectionName, level: 1 })).toBeVisible();
+
+    const picker = page.getByLabel("Add an object to this collection");
+    const ordered = page.locator('ol[aria-label="Objects in this collection"]');
+    for (const title of ["Venue", "Catering", "Music"].map((name) => `${name} collection ${suffix}`)) {
+        await picker.fill(title);
+        await page.getByRole("option", { name: new RegExp(title) }).click();
+        await expect(ordered.locator("a").filter({ hasText: title })).toBeVisible();
+    }
+
+    await page.getByRole("button", { name: `Move Music collection ${suffix} up` }).click();
+    await expect.poll(async () => ordered.getByRole("link").allTextContents()).toEqual([
+        `Venue collection ${suffix}`,
+        `Music collection ${suffix}`,
+        `Catering collection ${suffix}`,
+    ]);
+    const cateringRow = ordered.getByRole("listitem").filter({ hasText: `Catering collection ${suffix}` });
+    await cateringRow.getByRole("button", { name: "Pin to the top" }).click();
+    await expect.poll(async () => ordered.getByRole("link").allTextContents()).toEqual([
+        `Catering collection ${suffix}`,
+        `Venue collection ${suffix}`,
+        `Music collection ${suffix}`,
+    ]);
+    await page.getByRole("button", { name: `Remove Venue collection ${suffix} from this collection` }).click();
+    await expect(page.getByRole("link", { name: `Venue collection ${suffix}` })).toBeHidden();
+
+    await page.getByRole("button", { name: "Rename" }).click();
+    const rename = page.getByRole("dialog", { name: "Rename collection" });
+    await rename.getByLabel("Name").fill(`${collectionName} renamed`);
+    await rename.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("heading", { name: `${collectionName} renamed`, level: 1 })).toBeVisible();
+
+    await page.getByRole("button", { name: "Delete collection" }).click();
+    await page.getByRole("dialog", { name: "Delete this collection?" }).getByRole("button", { name: "Delete collection" }).click();
+    await expect(page).toHaveURL(/\/portal\/knowledge\/collections/);
+    for (const object of objects) expect((await request.get(`/api/portal/knowledge/objects/${object.id}`)).ok()).toBe(true);
+});
+
+test("creates a template, makes an independent note from it and preserves the template", async ({ page, request }, info) => {
+    const suffix = info.project.name;
+    const spaceId = await personalSpace(request);
+    const [type] = await spaceTypes(request, spaceId);
+    expect(type).toBeTruthy();
+    const templateName = `Meeting template ${suffix}`;
+    const objectTitle = `Meeting from template ${suffix}`;
+
+    await page.goto("/portal/knowledge/templates");
+    await page.getByRole("button", { name: "New template" }).first().click();
+    const createDialog = page.getByRole("dialog", { name: "New template" });
+    await createDialog.getByLabel("Name").fill(templateName);
+    await createDialog.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByRole("heading", { name: templateName, level: 1 })).toBeVisible();
+    const templateUrl = page.url();
+
+    await page.getByLabel("Title of new objects").fill(objectTitle);
+    await page.locator(".ProseMirror").fill("Purpose\n\nActions");
+    const defaultToggle = page.getByRole("switch", { name: new RegExp("Default for") });
+    if ((await defaultToggle.getAttribute("aria-checked")) !== "true") await defaultToggle.check({ force: true });
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Template saved")).toBeVisible();
+
+    await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.getByRole("menuitem", { name: new RegExp(templateName) }).click();
+    await expect(page.getByLabel("Title")).toHaveValue(objectTitle);
+    await expect(page.locator(".ProseMirror")).toContainText("Purpose");
+    await page.locator(".ProseMirror").fill(`Changed note only ${suffix}`);
+    await saved(page);
+
+    await page.goto(templateUrl);
+    await expect(page.locator(".ProseMirror")).toContainText("Purpose");
+    await expect(page.locator(".ProseMirror")).not.toContainText(`Changed note only ${suffix}`);
+});
+
+test("keeps favourites and saved views, explains discovery and downloads portable exports", async ({ page, request }, info) => {
+    const suffix = info.project.name;
+    const spaceId = await personalSpace(request);
+    const tag = `browser-${suffix}`;
+    const favouriteTitle = `Favourite export ${suffix}`;
+    const relatedTitle = `Related export ${suffix}`;
+    const favourite = await createObject(request, spaceId, { title: favouriteTitle, tags: [tag] });
+    await createObject(request, spaceId, { title: relatedTitle, tags: [tag] });
+    await createObject(request, spaceId, { title: `Outside saved view ${suffix}`, tags: [`other-${suffix}`] });
+
+    await page.goto(`/portal/knowledge/o/${favourite.id}`);
+    await page.getByRole("button", { name: "Add to favourites" }).click();
+    await expect(page.getByText("Added to your favourites")).toBeVisible();
+    await page.goto("/portal/knowledge/favourites");
+    await expect(page.getByRole("main").locator("a").filter({ hasText: favouriteTitle }).first()).toBeVisible();
+
+    await page.goto(`/portal/knowledge/all?tag=${encodeURIComponent(tag)}`);
+    await expect(page.getByRole("main").locator("a").filter({ hasText: favouriteTitle }).first()).toBeVisible();
+    await expect(page.getByRole("main").locator("a").filter({ hasText: `Outside saved view ${suffix}` })).toBeHidden();
+    await page.getByRole("button", { name: "Save view" }).click();
+    const saveDialog = page.getByRole("dialog", { name: "Save this view" });
+    const viewName = `Browser view ${suffix}`;
+    await saveDialog.getByLabel("Name").fill(viewName);
+    await Promise.all([page.waitForNavigation(), saveDialog.getByRole("button", { name: "Save view" }).click()]);
+    await expect(page).toHaveURL(/\?saved=kvw_/);
+    await expect(page.getByRole("heading", { name: viewName, level: 1 })).toBeVisible();
+    const savedUrl = page.url();
+    await page.goto("/portal/knowledge");
+    await page.goto(savedUrl);
+    await expect(page.getByRole("main").locator("a").filter({ hasText: favouriteTitle }).first()).toBeVisible();
+    await expect(page.getByRole("main").locator("a").filter({ hasText: `Outside saved view ${suffix}` })).toBeHidden();
+
+    await page.getByRole("button", { name: "Rename view" }).click();
+    const renameDialog = page.getByRole("dialog", { name: "Rename saved view" });
+    const renamed = `${viewName} renamed`;
+    await renameDialog.getByLabel("Name").fill(renamed);
+    await Promise.all([page.waitForNavigation(), renameDialog.getByRole("button", { name: "Save" }).click()]);
+    await expect(page.getByRole("heading", { name: renamed, level: 1 })).toBeVisible();
+
+    await page.goto("/portal/knowledge/discover");
+    const orphanRow = page.getByRole("main").getByRole("listitem").filter({ has: page.locator("a").filter({ hasText: favouriteTitle }) }).first();
+    await orphanRow.getByRole("button", { name: "Suggest links" }).click();
+    await expect(orphanRow.getByRole("link", { name: relatedTitle })).toBeVisible();
+    await expect(orphanRow.getByText(new RegExp(`Shares the tag ${tag}|Shares 1 tag`))).toBeVisible();
+
+    await page.goto(`/portal/knowledge/o/${favourite.id}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+    const markdownPromise = page.waitForEvent("download");
+    await page.getByRole("menuitem", { name: "Export as Markdown" }).click();
+    const markdown = await markdownPromise;
+    expect((await readFile((await markdown.path())!, "utf8"))).toContain(`# ${favouriteTitle}`);
+
+    await page.goto("/portal/knowledge/settings");
+    const jsonPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const jsonDownload = await jsonPromise;
+    const manifest = JSON.parse(await readFile((await jsonDownload.path())!, "utf8")) as { format: string; objects: { title: string }[] };
+    expect(manifest.format).toBe("daly.knowledge.export.v1");
+    expect(manifest.objects.some((object) => object.title === favouriteTitle)).toBe(true);
+
+    const zipPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download ZIP" }).click();
+    const zipDownload = await zipPromise;
+    const zip = await readFile((await zipDownload.path())!);
+    expect(zip.subarray(0, 4).toString("hex")).toBe("504b0304");
 });

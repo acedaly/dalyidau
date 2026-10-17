@@ -47,11 +47,11 @@ export const PageHeader = ({
             </Breadcrumbs>
         )}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-1 md:flex-1">
                 <h1 className="text-display-xs font-semibold text-primary lg:text-display-sm">{title}</h1>
                 {description && <div className="text-md text-tertiary">{description}</div>}
             </div>
-            {actions && <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div>}
+            {actions && <div className="flex min-w-0 flex-wrap items-center gap-3 md:max-w-[70%] md:justify-end">{actions}</div>}
         </div>
         {children}
     </header>

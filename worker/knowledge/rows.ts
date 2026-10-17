@@ -11,6 +11,7 @@ export interface SummaryRow {
     title: string;
     status: ObjectStatus;
     in_inbox: number;
+    daily_date: string | null;
     excerpt: string;
     tags_json: string | null;
     created_at: string;
@@ -30,7 +31,7 @@ export interface ObjectRow extends SummaryRow {
 }
 
 /** Columns for a summary of `o` (knowledge_objects). */
-export const SUMMARY_COLUMNS = `o.id, o.space_id, o.type_id, o.title, o.status, o.in_inbox, substr(o.body_text, 1, 240) AS excerpt,
+export const SUMMARY_COLUMNS = `o.id, o.space_id, o.type_id, o.title, o.status, o.in_inbox, o.daily_date, substr(o.body_text, 1, 240) AS excerpt,
     (SELECT json_group_array(t.name) FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = o.id) AS tags_json,
     o.created_at, o.updated_at, o.updated_by`;
 
@@ -43,6 +44,7 @@ export const toSummary = (row: SummaryRow): KnowledgeObjectSummary => ({
     title: row.title,
     status: row.status,
     inInbox: !!row.in_inbox,
+    dailyDate: row.daily_date,
     excerpt: row.excerpt.replace(/\s+/g, " ").trim(),
     tags: parseJson<string[]>(row.tags_json, []).sort((a, b) => a.localeCompare(b)),
     createdAt: row.created_at,

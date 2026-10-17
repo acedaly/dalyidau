@@ -163,6 +163,17 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        name: "Knowledge templates and saved views are valid JSON",
+        sql: "SELECT id FROM knowledge_templates WHERE json_valid(content_json) = 0 OR json_valid(properties_json) = 0 UNION ALL SELECT id FROM knowledge_saved_views WHERE json_valid(definition_json) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Never shown (every read joins membership), and removed with the membership; any left are stale.
+        name: "Knowledge favourites belong to current members",
+        sql: "SELECT f.object_id FROM knowledge_favourites f LEFT JOIN knowledge_memberships m ON m.space_id = f.space_id AND m.email = f.email WHERE m.email IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
@@ -212,4 +223,10 @@ export const TABLES = [
     "knowledge_tags",
     "knowledge_object_tags",
     "knowledge_audit",
+    "knowledge_collections",
+    "knowledge_collection_items",
+    "knowledge_pins",
+    "knowledge_favourites",
+    "knowledge_saved_views",
+    "knowledge_templates",
 ];

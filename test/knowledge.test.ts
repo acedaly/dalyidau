@@ -599,6 +599,17 @@ describe("search", () => {
         expect(await search("budget", "&to=2000-01-01&status=any")).toEqual([]);
     });
 
+    it("keeps hostile or malformed result limits bounded", async () => {
+        const space = await personal();
+        await Promise.all([
+            create(space.id, { title: "Bounded alpha" }),
+            create(space.id, { title: "Bounded beta" }),
+            create(space.id, { title: "Bounded gamma" }),
+        ]);
+        expect(await search("bounded", "&limit=-1")).toHaveLength(1);
+        expect(await search("bounded", "&limit=Infinity")).toHaveLength(3);
+    });
+
     it("looks up titles for [[ links within one space", async () => {
         const space = await personal();
         await create(space.id, { title: "Project Phoenix" });

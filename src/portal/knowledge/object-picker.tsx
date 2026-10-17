@@ -34,6 +34,7 @@ export const ObjectPicker = ({
     const [input, setInput] = useState("");
     const [results, setResults] = useState<{ id: string; title: string; typeId: string }[]>([]);
     const latest = useRef(0);
+    const picker = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const request = ++latest.current;
@@ -60,10 +61,14 @@ export const ObjectPicker = ({
         if (!found) return;
         onPick(found);
         setInput("");
+        // This is an action picker, not a persistent selected value. Close it after the action so
+        // the now-empty focus-triggered popover does not leave the rest of the page inert.
+        window.requestAnimationFrame(() => picker.current?.querySelector("input")?.blur());
     };
 
     return (
         <Select.ComboBox
+            ref={picker}
             aria-label={label ? undefined : placeholder}
             label={label}
             size={size}

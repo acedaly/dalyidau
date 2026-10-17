@@ -2,6 +2,9 @@
 // pause (or straight away for discrete changes like a property), one request at a time, each
 // carrying the version it was based on. If someone else saved in between, the Worker refuses with
 // 409 and nothing is sent until the person chooses what to do: their pending changes are kept.
+//
+// A daily note doesn't exist until someone writes in it: with no object yet, the first save calls
+// `ensure` (which creates it, or returns the one another tab just made) and then saves on top.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, errorMessage } from "@/portal/lib/api";
 import type { KnowledgeObjectDetail } from "@/shared/knowledge/types";
@@ -26,12 +29,13 @@ const merge = (a: Patch, b: Patch): Patch => ({
     ...(a.properties || b.properties ? { properties: { ...a.properties, ...b.properties } } : {}),
 });
 
-export function useObjectSaver(initial: KnowledgeObjectDetail) {
+export function useObjectSaver(initial: KnowledgeObjectDetail | null, ensure?: () => Promise<KnowledgeObjectDetail>) {
     const [detail, setDetail] = useState(initial);
     const [state, setState] = useState<SaveState>("saved");
     const [error, setError] = useState<string | null>(null);
     const [conflict, setConflict] = useState<{ updatedBy: string; updatedAt: string } | null>(null);
-    const version = useRef(initial.object.version);
+    const version = useRef(initial?.object.version ?? 0);
+    const objectId = useRef(initial?.object.id ?? null);
     const pending = useRef<Patch>({});
     const inFlight = useRef(false);
     const timer = useRef<number | undefined>(undefined);
@@ -52,7 +56,16 @@ export function useObjectSaver(initial: KnowledgeObjectDetail) {
         inFlight.current = true;
         setState("saving");
         try {
-            const saved = await knowledgeApi.update(detail.object.id, { version: version.current, session: session.current, ...patch });
+            if (!objectId.current) {
+                if (!ensure) throw new Error("Nothing to save to");
+                const created = await ensure();
+                objectId.current = created.object.id;
+                version.current = created.object.version;
+                setDetail(created);
+                // Someone (another tab, a capture) wrote in it first: saving ours would replace theirs.
+                if (created.object.version > 1) throw new ApiError(409, "conflict", "Someone else saved this first");
+            }
+            const saved = await knowledgeApi.update(objectId.current, { version: version.current, session: session.current, ...patch });
             version.current = saved.object.version;
             setDetail(saved);
             setError(null);
@@ -68,7 +81,7 @@ export function useObjectSaver(initial: KnowledgeObjectDetail) {
                 blocked.current = true;
                 setState("conflict");
                 setConflict({ updatedBy: "", updatedAt: "" });
-                const current = await knowledgeApi.get(detail.object.id).catch(() => null);
+                const current = await knowledgeApi.get(objectId.current!).catch(() => null);
                 if (current) setConflict({ updatedBy: current.object.updatedBy, updatedAt: current.object.updatedAt });
                 return false;
             }
@@ -76,7 +89,7 @@ export function useObjectSaver(initial: KnowledgeObjectDetail) {
             setError(errorMessage(e));
             return false;
         }
-    }, [detail.object.id]);
+    }, [ensure]);
 
     const queue = useCallback(
         (patch: Patch, immediate = false) => {
@@ -92,12 +105,12 @@ export function useObjectSaver(initial: KnowledgeObjectDetail) {
 
     /** After a conflict: save these changes on top of the newer version (which stays in the history). */
     const keepMine = useCallback(async () => {
-        const current = await knowledgeApi.get(detail.object.id);
+        const current = await knowledgeApi.get(objectId.current!);
         version.current = current.object.version;
         blocked.current = false;
         setConflict(null);
         return flush();
-    }, [detail.object.id, flush]);
+    }, [flush]);
 
     // Leaving with unsaved changes asks first, and tries to save on the way out.
     useEffect(() => {

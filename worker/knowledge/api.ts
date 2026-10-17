@@ -3,7 +3,8 @@
 // adds the "knowledge.use" permission; each handler then checks the caller's membership of the
 // space it touches (worker/knowledge/access.ts).
 import { z } from "zod";
-import type { ListFilters } from "../../src/shared/knowledge/types";
+import { isCalendarDate } from "../../src/shared/knowledge/dates";
+import { LINK_FILTERS, type LinkFilter, type ListFilters } from "../../src/shared/knowledge/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { can } from "../portal/auth";
@@ -11,10 +12,28 @@ import { HttpError, json, readJson } from "../portal/http";
 import { createSharedSpace, ensurePersonalSpace, listSpaces, memberSpaceIds, requireObject, requireSpace, toSpace } from "./access";
 import { listKnowledgeAudit } from "./audit";
 import {
+    addToCollection,
+    collectionItems,
+    createCollection,
+    deleteCollection,
+    listCollections,
+    listFavourites,
+    moveInCollection,
+    pinInCollection,
+    removeFromCollection,
+    requireCollection,
+    setFavourite,
+    setPinned,
+    updateCollection,
+} from "./collections";
+import { appendToDailyNote, dailyNote, ensureDailyNote, parseDailyDate, spaceToday } from "./daily";
+import { exportObject, exportSpace, exportZip, objectMarkdown, safeFileStem } from "./export";
+import {
     KnowledgeConflict,
     STATUS_ACTIONS,
     type StatusAction,
     addRelation,
+    applyTemplateToObject,
     bulkAction,
     changeStatus,
     createObject,
@@ -29,9 +48,12 @@ import {
     restoreRevision,
     updateObject,
 } from "./objects";
+import { relatedObjects } from "./related";
 import { searchObjects } from "./search";
 import { addMember, listMembers, removeMember, updateMember, updateSpace } from "./spaces";
+import { createTemplate, deleteTemplate, getTemplate, listTemplates, updateTemplate } from "./templates";
 import { createType, listTypes, updateType } from "./types";
+import { createView, deleteView, listViews, updateView } from "./views";
 
 /** Documents can be large; everything else is small. */
 const MAX_OBJECT_BYTES = 1_000_000;
@@ -57,22 +79,39 @@ const add = (method: string, path: string, handler: Handler) => {
     routes.push({ method, pattern, keys, handler });
 };
 
+const dateParam = (url: URL, name: string) => {
+    const value = url.searchParams.get(name);
+    return isCalendarDate(value) ? value : null;
+};
+
 export const parseListFilters = (url: URL, view?: ListFilters["view"]): ListFilters => {
     const views = ["all", "inbox", "archived", "trashed"] as const;
     const sorts = ["updated", "created", "title"] as const;
     const requestedView = url.searchParams.get("view") as ListFilters["view"];
     const sort = url.searchParams.get("sort") as ListFilters["sort"];
+    const links = url.searchParams.get("links") as LinkFilter;
     return {
         view: view ?? (views.includes(requestedView) ? requestedView : "all"),
         typeId: url.searchParams.get("type")?.slice(0, 40) || null,
         tag: url.searchParams.get("tag")?.slice(0, 50) || null,
         sort: sorts.includes(sort) ? sort : "updated",
+        links: LINK_FILTERS.includes(links) ? links : "any",
+        createdFrom: dateParam(url, "created_from"),
+        createdTo: dateParam(url, "created_to"),
+        updatedFrom: dateParam(url, "updated_from"),
+        updatedTo: dateParam(url, "updated_to"),
     };
 };
 
+const boundedInteger = (value: string | null, fallback: number, minimum: number, maximum: number) => {
+    if (value === null || value.trim() === "") return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), minimum), maximum) : fallback;
+};
+
 const pageParams = (url: URL) => ({
-    limit: Math.min(Math.max(Number(url.searchParams.get("limit")) || 100, 1), 200),
-    offset: Math.max(Number(url.searchParams.get("offset")) || 0, 0),
+    limit: boundedInteger(url.searchParams.get("limit"), 100, 1, 200),
+    offset: boundedInteger(url.searchParams.get("offset"), 0, 0, 1_000_000),
 });
 
 // --- Spaces and members --------------------------------------------------------------------------
@@ -122,8 +161,8 @@ add("PATCH", "/types/:id", async ({ env, request, user, params }) => json({ type
 // --- Objects -------------------------------------------------------------------------------------
 
 add("GET", "/spaces/:space/objects", async ({ env, url, user, params }) => {
-    await requireSpace(env.DB, user, params.space);
-    return json(await listObjects(env.DB, params.space, parseListFilters(url), pageParams(url)));
+    const space = await requireSpace(env.DB, user, params.space);
+    return json(await listObjects(env.DB, params.space, parseListFilters(url), pageParams(url), space.time_zone));
 });
 add("POST", "/spaces/:space/objects", async ({ env, request, user, params }) =>
     json(await createObject(env.DB, user, params.space, await readJson(request, MAX_OBJECT_BYTES)), 201),
@@ -168,6 +207,142 @@ add("DELETE", "/relations/:id", async ({ env, user, params }) => {
     return json({ ok: true });
 });
 
+add("GET", "/objects/:id/related", async ({ env, user, params }) => {
+    const access = await requireObject(env.DB, user, params.id);
+    return json({ related: await relatedObjects(env.DB, access.id, access.space_id) });
+});
+add("POST", "/objects/:id/apply-template", async ({ env, request, user, params }) =>
+    json(await applyTemplateToObject(env.DB, user, params.id, await readJson(request))),
+);
+const toggle = (key: string) => z.object({ [key]: z.boolean() });
+add("POST", "/objects/:id/favourite", async ({ env, request, user, params }) => {
+    const body = toggle("favourite").parse(await readJson(request)) as { favourite: boolean };
+    await setFavourite(env.DB, user, params.id, body.favourite);
+    return json({ ok: true });
+});
+add("POST", "/objects/:id/pin", async ({ env, request, user, params }) => {
+    const body = toggle("pinned").parse(await readJson(request)) as { pinned: boolean };
+    await setPinned(env.DB, user, params.id, body.pinned);
+    return json({ ok: true });
+});
+add("GET", "/favourites", async ({ env, user }) => json({ favourites: await listFavourites(env.DB, user.email) }));
+
+// --- Daily notes ---------------------------------------------------------------------------------
+
+add("POST", "/spaces/:space/daily/append", async ({ env, request, user, params }) =>
+    json(await appendToDailyNote(env.DB, user, params.space, await readJson(request, MAX_OBJECT_BYTES))),
+);
+add("GET", "/spaces/:space/daily/:date", async ({ env, user, params }) => {
+    const space = await requireSpace(env.DB, user, params.space);
+    const date = parseDailyDate(params.date, space);
+    return json({ date, today: spaceToday(space), note: await dailyNote(env.DB, space.id, date) });
+});
+add("POST", "/spaces/:space/daily/:date", async ({ env, user, params }) => {
+    const space = await requireSpace(env.DB, user, params.space, "editor");
+    return json(await ensureDailyNote(env.DB, user, space.id, parseDailyDate(params.date, space)));
+});
+
+// --- Collections ---------------------------------------------------------------------------------
+
+add("GET", "/spaces/:space/collections", async ({ env, url, user, params }) => {
+    await requireSpace(env.DB, user, params.space);
+    return json({ collections: await listCollections(env.DB, params.space, { archived: url.searchParams.get("archived") === "1" }) });
+});
+add("POST", "/spaces/:space/collections", async ({ env, request, user, params }) =>
+    json({ collection: await createCollection(env.DB, user, params.space, await readJson(request)) }, 201),
+);
+add("GET", "/collections/:id", async ({ env, url, user, params }) => {
+    const { collection } = await requireCollection(env.DB, user, params.id);
+    return json({ collection, ...(await collectionItems(env.DB, collection.id, pageParams(url))) });
+});
+add("PATCH", "/collections/:id", async ({ env, request, user, params }) =>
+    json({ collection: await updateCollection(env.DB, user, params.id, await readJson(request)) }),
+);
+add("DELETE", "/collections/:id", async ({ env, user, params }) => {
+    await deleteCollection(env.DB, user, params.id);
+    return json({ ok: true });
+});
+add("POST", "/collections/:id/items", async ({ env, request, user, params }) => json(await addToCollection(env.DB, user, params.id, await readJson(request)), 201));
+add("DELETE", "/collections/:id/items/:object", async ({ env, user, params }) => {
+    await removeFromCollection(env.DB, user, params.id, params.object);
+    return json({ ok: true });
+});
+add("POST", "/collections/:id/move", async ({ env, request, user, params }) => {
+    await moveInCollection(env.DB, user, params.id, await readJson(request));
+    return json({ ok: true });
+});
+add("POST", "/collections/:id/items/:object/pin", async ({ env, request, user, params }) => {
+    const body = toggle("pinned").parse(await readJson(request)) as { pinned: boolean };
+    await pinInCollection(env.DB, user, params.id, params.object, body.pinned);
+    return json({ ok: true });
+});
+
+// --- Saved views ---------------------------------------------------------------------------------
+
+add("GET", "/spaces/:space/views", async ({ env, user, params }) => {
+    await requireSpace(env.DB, user, params.space);
+    return json({ views: await listViews(env.DB, user.email, params.space) });
+});
+add("POST", "/spaces/:space/views", async ({ env, request, user, params }) =>
+    json({ view: await createView(env.DB, user, params.space, await readJson(request)) }, 201),
+);
+add("PATCH", "/views/:id", async ({ env, request, user, params }) => json({ view: await updateView(env.DB, user, params.id, await readJson(request)) }));
+add("DELETE", "/views/:id", async ({ env, user, params }) => {
+    await deleteView(env.DB, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Templates -----------------------------------------------------------------------------------
+
+add("GET", "/spaces/:space/templates", async ({ env, user, params }) => {
+    await requireSpace(env.DB, user, params.space);
+    return json({ templates: await listTemplates(env.DB, params.space) });
+});
+add("POST", "/spaces/:space/templates", async ({ env, request, user, params }) =>
+    json({ template: await createTemplate(env.DB, user, params.space, await readJson(request, MAX_OBJECT_BYTES)) }, 201),
+);
+add("GET", "/templates/:id", async ({ env, user, params }) => json({ template: await getTemplate(env.DB, user, params.id) }));
+add("PATCH", "/templates/:id", async ({ env, request, user, params }) =>
+    json({ template: await updateTemplate(env.DB, user, params.id, await readJson(request, MAX_OBJECT_BYTES)) }),
+);
+add("DELETE", "/templates/:id", async ({ env, user, params }) => {
+    await deleteTemplate(env.DB, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Export --------------------------------------------------------------------------------------
+
+/** Exports are private downloads: never cached, never rendered, never sniffed. */
+const download = (body: BodyInit, type: string, filename: string) =>
+    new Response(body, {
+        headers: {
+            "Content-Type": type,
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Cache-Control": "private, no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+            "X-Robots-Tag": "noindex",
+        },
+    });
+const asciiName = (name: string) => safeFileStem(name).replace(/[^A-Za-z0-9 _-]+/g, "").replace(/\s+/g, "-").toLowerCase() || "knowledge";
+
+add("GET", "/objects/:id/export", async ({ env, url, user, params }) => {
+    const format = url.searchParams.get("format") === "json" ? "json" : "markdown";
+    const data = await exportObject(env.DB, user, params.id, { revisions: format === "json" && url.searchParams.get("revisions") !== "0" });
+    const stem = asciiName(data.objects[0].title || "untitled");
+    return format === "json"
+        ? download(JSON.stringify(data, null, 2), "application/json; charset=utf-8", `${stem}.json`)
+        : download(objectMarkdown(data, params.id), "text/markdown; charset=utf-8", `${stem}.md`);
+});
+add("GET", "/spaces/:space/export", async ({ env, url, user, params }) => {
+    const format = url.searchParams.get("format") === "json" ? "json" : "zip";
+    const data = await exportSpace(env.DB, user, params.space, { revisions: url.searchParams.get("revisions") !== "0" });
+    const stem = `${asciiName(data.space.name)}-${data.exportedAt.slice(0, 10)}`;
+    return format === "json"
+        ? download(JSON.stringify(data, null, 2), "application/json; charset=utf-8", `${stem}.json`)
+        : download(exportZip(data), "application/zip", `${stem}.zip`);
+});
+
 // --- Search --------------------------------------------------------------------------------------
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -186,7 +361,7 @@ add("GET", "/search", async ({ env, url, user }) => {
         status: status === "archived" || status === "any" ? status : "active",
         updatedFrom: from && DATE.test(from) ? from : null,
         updatedTo: to && DATE.test(to) ? to : null,
-        limit: Number(url.searchParams.get("limit")) || 50,
+        limit: boundedInteger(url.searchParams.get("limit"), 50, 1, 100),
     });
     return json({ hits });
 });
