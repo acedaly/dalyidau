@@ -6,15 +6,22 @@ import { IconNotification } from "@/components/application/notifications/notific
 
 type ToastColor = "success" | "error" | "warning" | "brand" | "default";
 
+/** A button on the toast, e.g. "Undo". Pressing it runs the action and dismisses the toast. */
+interface ToastAction {
+    label: string;
+    run: () => void;
+}
+
 interface Toast {
     id: number;
     title: string;
     description: string;
     color: ToastColor;
+    action?: ToastAction;
 }
 
 interface ToastApi {
-    show: (toast: { title: string; description?: string; color?: ToastColor }) => void;
+    show: (toast: { title: string; description?: string; color?: ToastColor; action?: ToastAction }) => void;
     success: (title: string, description?: string) => void;
     error: (title: string, description?: string) => void;
 }
@@ -28,11 +35,12 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     const dismiss = useCallback((id: number) => setToasts((list) => list.filter((t) => t.id !== id)), []);
 
     const show = useCallback<ToastApi["show"]>(
-        ({ title, description = "", color = "default" }) => {
+        ({ title, description = "", color = "default", action }) => {
             const id = nextId.current++;
-            setToasts((list) => [...list.slice(-2), { id, title, description, color }]);
-            // Errors stay until dismissed so they can be read; everything else fades after 5 s.
-            if (color !== "error") window.setTimeout(() => dismiss(id), 5000);
+            setToasts((list) => [...list.slice(-2), { id, title, description, color, action }]);
+            // Errors stay until dismissed so they can be read; everything else fades after 5 s
+            // (8 s when there's something to press, like Undo).
+            if (color !== "error") window.setTimeout(() => dismiss(id), action ? 8000 : 5000);
         },
         [dismiss],
     );
@@ -65,6 +73,11 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
                             description={toast.description}
                             color={toast.color}
                             hideDismissLabel
+                            confirmLabel={toast.action?.label}
+                            onConfirm={() => {
+                                toast.action?.run();
+                                dismiss(toast.id);
+                            }}
                             onClose={() => dismiss(toast.id)}
                         />
                     </div>

@@ -26,7 +26,7 @@ These are yours to do; the code is ready for them.
 7. **Email and SMS providers** (Fastmail JMAP preferred, generic TLS SMTP or SMTP2Go; ClickSend for SMS), if you want the portal to send messages itself. Not configured, by design. See [COMMUNICATIONS.md](COMMUNICATIONS.md).
 8. **Production is missing the `ADMIN_TOKEN` secret** (found by `npm run check:config`). It predates the portal; without it the blog's manual resync endpoint is disabled. Set it with `npx wrangler secret put ADMIN_TOKEN --env=""` (e.g. `openssl rand -base64 32`).
 9. **Staging** (optional, recommended before production): see [STAGING.md](STAGING.md).
-10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql`, `0010_rsvp_travel.sql`, `0011_communications_studio.sql`, `0012_household_consent.sql`, `0013_knowledge_engine.sql` (Daly Knowledge and its FTS5 index) and `0014_knowledge_organising.sql` (daily-note uniqueness, collections, pins, favourites, saved views and templates). After FTS5 exists, back up with `npm run db:backup`, not plain `wrangler d1 export`; see [DATABASE.md](DATABASE.md#backups). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
+10. **Whether to merge this branch.** Merging to `main` deploys to production automatically (`.github/workflows/deploy.yml`) and would apply all unapplied migrations, including additive `0008_invitation_studio.sql`, `0009_household_invitation_names.sql`, `0010_rsvp_travel.sql`, `0011_communications_studio.sql`, `0012_household_consent.sql`, `0013_knowledge_engine.sql` (Daly Knowledge and its FTS5 index), `0014_knowledge_organising.sql` (daily-note uniqueness, collections, pins, favourites, saved views and templates) and `0015_tasks.sql` (Daly Tasks). After FTS5 exists, back up with `npm run db:backup`, not plain `wrangler d1 export`; see [DATABASE.md](DATABASE.md#backups). This task must not be merged or migrated without explicit approval. Importing guests and generating invitations remain manual; neither sends anything.
 
 ---
 
@@ -103,6 +103,8 @@ Defined in `src/shared/portal/permissions.ts` and enforced on every API route an
 
 Owners and admins can also open **Daly Knowledge** (`knowledge.use`). Inside it, access is by space membership, not portal role: each person's personal space is visible to them alone, even to other owners. Milestone 3 adds daily notes, collections, per-user favourites, shared pins, saved views, templates, discovery and owner-only full-space export without any AI or paid service. See [KNOWLEDGE_ENGINE.md](KNOWLEDGE_ENGINE.md#who-can-see-what).
 
+Owners and admins can also open **Daly Tasks** (`tasks.use`), at `/portal/tasks`. Inside it, access is by project membership: each person's Inbox and personal projects are visible to them alone, even to other owners, and shared projects have owners, editors and viewers. Knowledge and Tasks memberships are independent. See [TASKS_PROJECTS.md](TASKS_PROJECTS.md#who-can-see-what). The wedding planner's own task list (`/portal/wedding/tasks`) is separate and unchanged.
+
 Add people in **Portal settings → People and roles** _and_ in the Access policy. Removing someone from either removes their access. Removing an email from `PORTAL_OWNER_EMAILS` also removes their owner rights immediately.
 
 ---
@@ -132,14 +134,14 @@ Remaining risk: optional legacy household codes are 8 characters (about 37 bits)
 
 Wedding settings → Features. Stored in D1 (`feature_flags`); defaults in `src/shared/portal/flags.ts`. Every change is audited.
 
-| Switch                                     | Default | Effect                                                                                                                                                                                         |
-| ------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public wedding website                     | Off     | `wedding.daly.id.au` serves the site; otherwise it's a normal 404.                                                                                                                             |
-| Public Save the Date page                  | Off     | Serves `/save-the-date` and its calendar file `/save-the-date/calendar` (one event; `/save-the-date.ics` still answers for links already sent) before the website is published (couple, date and venue only). Publishing the website serves them too.                      |
-| Native RSVP                                | Off     | The website's RSVP button opens our own form, and `/api/wedding/rsvp/*` accepts responses. While off, the button links to Say I Do and the API returns 404. Needs the website switched on too. |
-| Email delivery                             | Off     | Allows sending email from the portal (campaigns and RSVP confirmations). Also needs `EMAIL_DELIVERY` and its provider secrets on the Worker.                                                   |
-| SMS delivery                               | Off     | Allows sending texts and replies. Also needs `SMS_DELIVERY` and its provider secrets on the Worker.                                                                                            |
-| Communications / Planning / Budget modules | On      | Hide a module's pages and API when you don't need it.                                                                                                                                          |
+| Switch                                     | Default | Effect                                                                                                                                                                                                                                                |
+| ------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public wedding website                     | Off     | `wedding.daly.id.au` serves the site; otherwise it's a normal 404.                                                                                                                                                                                    |
+| Public Save the Date page                  | Off     | Serves `/save-the-date` and its calendar file `/save-the-date/calendar` (one event; `/save-the-date.ics` still answers for links already sent) before the website is published (couple, date and venue only). Publishing the website serves them too. |
+| Native RSVP                                | Off     | The website's RSVP button opens our own form, and `/api/wedding/rsvp/*` accepts responses. While off, the button links to Say I Do and the API returns 404. Needs the website switched on too.                                                        |
+| Email delivery                             | Off     | Allows sending email from the portal (campaigns and RSVP confirmations). Also needs `EMAIL_DELIVERY` and its provider secrets on the Worker.                                                                                                          |
+| SMS delivery                               | Off     | Allows sending texts and replies. Also needs `SMS_DELIVERY` and its provider secrets on the Worker.                                                                                                                                                   |
+| Communications / Planning / Budget modules | On      | Hide a module's pages and API when you don't need it.                                                                                                                                                                                                 |
 
 ---
 
@@ -330,7 +332,7 @@ npm run seed:portal                # optional: invented demo guests, events, bud
 open http://localhost:8787/portal
 ```
 
-`ACCESS_DEV_EMAIL` lets local development act as that person without Access. It only works when `ENVIRONMENT=development` _and_ `SITE_URL` is on localhost, neither of which is true for a deployed Worker. The seed script refuses to run against anything but localhost.
+`ACCESS_DEV_EMAIL` lets local development act as that person without Access. It only works when `ENVIRONMENT=development` _and_ `SITE_URL` is on localhost, neither of which is true for a deployed Worker. With `ACCESS_DEV_ALT_EMAIL` also set, a `portal_dev_identity=alt` cookie acts as that second person (the browser tests use it to check what one person can see of another's tasks); it's subject to the same conditions, and `check:config` refuses it on deployed environments. The seed script refuses to run against anything but localhost.
 
 ## Tests
 

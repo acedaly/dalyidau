@@ -37,6 +37,14 @@ import { TextsPage } from "@/portal/pages/texts-page";
 import { TimelinePage } from "@/portal/pages/timeline-page";
 import { WebsitePage } from "@/portal/pages/website-page";
 import { PortalProvider } from "@/portal/portal-context";
+import { TasksCompletedPage } from "@/portal/tasks/pages/tasks-completed-page";
+import { TasksFiltersPage } from "@/portal/tasks/pages/tasks-filters-page";
+import { TasksLabelsPage } from "@/portal/tasks/pages/tasks-labels-page";
+import { TasksActivityPage, TasksSearchPage, TasksSettingsPage } from "@/portal/tasks/pages/tasks-misc-pages";
+import { TasksProjectPage } from "@/portal/tasks/pages/tasks-project-page";
+import { TasksProjectsPage } from "@/portal/tasks/pages/tasks-projects-page";
+import { TasksUpcomingPage } from "@/portal/tasks/pages/tasks-upcoming-page";
+import { TasksViewPage } from "@/portal/tasks/pages/tasks-view-page";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
 
@@ -112,6 +120,26 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <KnowledgeTypesPage data={data} />;
         case "knowledge-settings":
             return <KnowledgeSettingsPage data={data} />;
+        case "tasks-view":
+            return <TasksViewPage key={data.view} data={data} />;
+        case "tasks-upcoming":
+            return <TasksUpcomingPage data={data} />;
+        case "tasks-completed":
+            return <TasksCompletedPage data={data} />;
+        case "tasks-project":
+            return <TasksProjectPage key={data.project.id} data={data} />;
+        case "tasks-projects":
+            return <TasksProjectsPage data={data} />;
+        case "tasks-labels":
+            return <TasksLabelsPage data={data} />;
+        case "tasks-filters":
+            return <TasksFiltersPage data={data} />;
+        case "tasks-search":
+            return <TasksSearchPage data={data} />;
+        case "tasks-activity":
+            return <TasksActivityPage data={data} />;
+        case "tasks-settings":
+            return <TasksSettingsPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:
@@ -119,15 +147,23 @@ const Page = ({ data }: { data: PortalPageData }) => {
     }
 };
 
-/** Knowledge pages add the space's own favourites and collections to the navigation. */
+/** Knowledge pages add the space's own favourites and collections to the navigation; Tasks pages add active projects. */
 const extraNavigation = (data: PortalPageData): ExtraNavSection[] => {
+    if (data.route.startsWith("tasks-") && "inboxId" in data) {
+        const active = data.projects.filter((p) => !p.isInbox && p.status === "active").slice(0, 10);
+        return [
+            { label: "Projects", after: "Organise", items: active.map((p) => ({ label: p.name, href: `/portal/tasks/p/${p.id}`, icon: "project" as const })) },
+        ];
+    }
     if (!("nav" in data) || !data.nav) return [];
     const MAX = 6;
     return [
         {
             label: "Favourites",
             after: "Knowledge",
-            items: data.nav.favourites.slice(0, MAX).map((f) => ({ label: f.title || "Untitled", href: `/portal/knowledge/o/${f.id}`, icon: "favourites" as const })),
+            items: data.nav.favourites
+                .slice(0, MAX)
+                .map((f) => ({ label: f.title || "Untitled", href: `/portal/knowledge/o/${f.id}`, icon: "favourites" as const })),
         },
         {
             label: "Collections",

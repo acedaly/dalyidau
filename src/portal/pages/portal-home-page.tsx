@@ -1,4 +1,4 @@
-import { ArrowUpRight, BookOpen01, HeartRounded, LayoutGrid01 } from "@untitledui/icons";
+import { ArrowUpRight, BookOpen01, CheckDone01, HeartRounded, LayoutGrid01 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
@@ -8,7 +8,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { type PortalApplication, applicationById } from "@/shared/portal/applications";
 
-const ICONS = { wedding: HeartRounded, knowledge: BookOpen01 } as const;
+const ICONS = { wedding: HeartRounded, knowledge: BookOpen01, tasks: CheckDone01 } as const;
 
 const ApplicationCard = ({ application }: { application: PortalApplication }) => {
     const { flags } = usePortal();

@@ -6,7 +6,7 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates).
+//    templates) and every Daly Tasks table (0015).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -84,6 +84,48 @@ INSERT INTO knowledge_templates (id, space_id, type_id, name, is_default, create
 ${VIRTUAL_TABLE_REBUILDS.knowledge_fts.map((s) => `${s};`).join("\n")}
 `;
 
+// Daly Tasks (0015): every table, a shared project with two members, a section, a parent and a
+// repeating subtask, a label, a completion, a comment, history, a Knowledge reference, a saved view
+// and a reminder.
+const TASKS = `
+INSERT INTO task_preferences (email, time_zone, updated_at) VALUES ('owner@example.com', 'Australia/Sydney', '${NOW}');
+INSERT INTO task_projects (id, name, kind, is_inbox, inbox_owner, created_by, updated_by, created_at, updated_at) VALUES
+  ('tpj_backuptest0001', 'Inbox', 'personal', 1, 'owner@example.com', 'x', 'x', '${NOW}', '${NOW}'),
+  ('tpj_backuptest0002', 'Household', 'shared', 0, NULL, 'x', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_project_members (project_id, email, role, added_by, created_at, updated_at) VALUES
+  ('tpj_backuptest0001', 'owner@example.com', 'owner', 'x', '${NOW}', '${NOW}'),
+  ('tpj_backuptest0002', 'owner@example.com', 'owner', 'x', '${NOW}', '${NOW}'),
+  ('tpj_backuptest0002', 'partner@example.com', 'editor', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_sections (id, project_id, name, position, created_by, created_at, updated_at) VALUES ('tsc_backuptest0001', 'tpj_backuptest0002', 'Garden', 1, 'x', '${NOW}', '${NOW}');
+INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, due_date, assignee_email, position, created_by, updated_by, created_at, updated_at) VALUES
+  ('tsk_backuptest0001', 'tpj_backuptest0002', 'tsc_backuptest0001', NULL, 0, 'Prune the roses', '2026-10-20', 'partner@example.com', 1, 'x', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, due_date, recurrence_json, position, created_by, updated_by, created_at, updated_at) VALUES
+  ('tsk_backuptest0002', 'tpj_backuptest0002', 'tsc_backuptest0001', 'tsk_backuptest0001', 1, 'Sharpen secateurs', '2026-10-21', '{"freq":"weekly","interval":1,"basis":"scheduled","anchor":"2026-10-21","weekdays":[3]}', 1, 'x', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_labels (id, owner_email, name, created_at, updated_at) VALUES ('tlb_backuptest0001', 'owner@example.com', 'garden', '${NOW}', '${NOW}');
+INSERT INTO task_item_labels (task_id, name, added_by, added_at) VALUES ('tsk_backuptest0001', 'garden', 'x', '${NOW}');
+INSERT INTO task_completions (task_id, kind, occurrence_date, next_date, at, by) VALUES ('tsk_backuptest0002', 'completed', '2026-10-14', '2026-10-21', '${NOW}', 'x');
+INSERT INTO task_comments (id, task_id, author_email, body, created_at) VALUES ('tcm_backuptest0001', 'tsk_backuptest0001', 'owner@example.com', 'Gloves are in the shed', '${NOW}');
+INSERT INTO task_activity (project_id, task_id, actor, action, at) VALUES ('tpj_backuptest0002', 'tsk_backuptest0001', 'x', 'task.create', '${NOW}');
+INSERT INTO task_knowledge_links (id, task_id, object_id, added_by, added_at) VALUES ('tkl_backuptest0001', 'tsk_backuptest0001', 'kob_backuptest0003', 'x', '${NOW}');
+INSERT INTO task_saved_views (id, owner_email, name, definition_json, created_at, updated_at) VALUES ('tfv_backuptest0001', 'owner@example.com', 'Garden', '{"labels":["garden"]}', '${NOW}', '${NOW}');
+INSERT INTO task_reminders (id, task_id, owner_email, kind, remind_at, created_at) VALUES ('trm_backuptest0001', 'tsk_backuptest0001', 'partner@example.com', 'absolute', '2026-10-19T22:00:00.000Z', '${NOW}');
+`;
+const TASK_TABLES = [
+    "task_preferences",
+    "task_projects",
+    "task_project_members",
+    "task_sections",
+    "task_items",
+    "task_labels",
+    "task_item_labels",
+    "task_completions",
+    "task_comments",
+    "task_activity",
+    "task_knowledge_links",
+    "task_saved_views",
+    "task_reminders",
+];
+
 const M3_TABLES = [
     "knowledge_collections",
     "knowledge_collection_items",
@@ -116,8 +158,16 @@ try {
     for (const m of all.filter((name) => name >= "0014")) copyFileSync(join(ROOT, "migrations", m), join(work, "migrations", m));
     migrate();
     const objectsAfter = query("SELECT id, title, body_text, version, updated_at FROM knowledge_objects ORDER BY id");
-    report.check(JSON.stringify(objectsAfter) === JSON.stringify(objectsBefore), "Migrating left every existing object unchanged", "Migrating changed existing objects");
-    report.check(query("SELECT COUNT(*) AS n FROM knowledge_objects WHERE daily_date IS NOT NULL")[0].n === 0, "Existing objects aren't daily notes", "Existing objects gained a date");
+    report.check(
+        JSON.stringify(objectsAfter) === JSON.stringify(objectsBefore),
+        "Migrating left every existing object unchanged",
+        "Migrating changed existing objects",
+    );
+    report.check(
+        query("SELECT COUNT(*) AS n FROM knowledge_objects WHERE daily_date IS NOT NULL")[0].n === 0,
+        "Existing objects aren't daily notes",
+        "Existing objects gained a date",
+    );
     report.check(searchHits("hydrant", state).join() === "kob_backuptest0001", "Search still works after migrating", "Search broke after migrating");
     report.check(count("guests") === 1 && count("posts") === 1, "Wedding and blog rows are untouched", "Wedding or blog rows changed");
 
@@ -127,6 +177,13 @@ try {
         M3_TABLES.every((t) => count(t) > 0),
         "Every Milestone 3 table has rows",
         "A Milestone 3 table is empty",
+    );
+
+    run(TASKS);
+    report.check(
+        TASK_TABLES.every((t) => count(t) > 0),
+        "Every Tasks table has rows",
+        "A Tasks table is empty",
     );
 
     // 4. The real backup script.
@@ -139,20 +196,44 @@ try {
             .map((l) => `    ${l}\n`)
             .join(""),
     );
-    report.check(backup.status === 0 && !!backupFile, "db-backup.mjs exported, restored and verified the database", `db-backup.mjs failed:\n${backup.stdout}\n${backup.stderr}`);
+    report.check(
+        backup.status === 0 && !!backupFile,
+        "db-backup.mjs exported, restored and verified the database",
+        `db-backup.mjs failed:\n${backup.stdout}\n${backup.stderr}`,
+    );
 
     // 5. Restore it again and look inside.
     if (backupFile) {
         mkdirSync(restored);
         const result = wrangler(["d1", "execute", "DB", "--local", "--env=", "--persist-to", restored, "--file", backupFile, "--yes"], { quiet: true });
         report.check(result.ok, "The backup restores into an empty database", `The backup doesn't restore: ${result.stderr}`);
-        for (const table of ["posts", "households", "guests", "events", "guest_events", "knowledge_objects", "knowledge_relations", "knowledge_revisions", ...M3_TABLES])
+        for (const table of [
+            "posts",
+            "households",
+            "guests",
+            "events",
+            "guest_events",
+            "knowledge_objects",
+            "knowledge_relations",
+            "knowledge_revisions",
+            ...M3_TABLES,
+            ...TASK_TABLES,
+        ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
-        report.check(searchHits("hydrant", restored).join() === "kob_backuptest0001", "Search finds titles after restoring", "Search doesn't work after restoring");
-        report.check(searchHits("nursery", restored).join() === "kob_backuptest0004", "Search finds daily notes after restoring", "Daily notes aren't searchable after restoring");
         report.check(
-            query("SELECT source_id, target_id FROM knowledge_relations", restored).map((r) => `${r.source_id}>${r.target_id}`).join() ===
-                "kob_backuptest0001>kob_backuptest0002",
+            searchHits("hydrant", restored).join() === "kob_backuptest0001",
+            "Search finds titles after restoring",
+            "Search doesn't work after restoring",
+        );
+        report.check(
+            searchHits("nursery", restored).join() === "kob_backuptest0004",
+            "Search finds daily notes after restoring",
+            "Daily notes aren't searchable after restoring",
+        );
+        report.check(
+            query("SELECT source_id, target_id FROM knowledge_relations", restored)
+                .map((r) => `${r.source_id}>${r.target_id}`)
+                .join() === "kob_backuptest0001>kob_backuptest0002",
             "Relations are intact",
             "Relations changed",
         );
@@ -163,7 +244,10 @@ try {
             restored,
         );
         report.check(crossing.length === 0, "Nothing crosses spaces in the restored copy", `Cross-space rows: ${JSON.stringify(crossing)}`);
-        const indexes = query("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('knowledge_objects_daily', 'knowledge_templates_default')", restored);
+        const indexes = query(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('knowledge_objects_daily', 'knowledge_templates_default')",
+            restored,
+        );
         report.check(indexes.length === 2, "The daily-note and default-template unique indexes survive", "Unique indexes are missing after restoring");
         let refused = false;
         try {
@@ -175,12 +259,39 @@ try {
             refused = true;
         }
         report.check(refused, "The restored copy still refuses a second daily note for a date", "The restored copy accepted a duplicate daily note");
+        // Tasks' own rules survive: the personal-project trigger and the composite keys.
+        const refuses = (sql) => {
+            try {
+                run(sql, restored);
+                return false;
+            } catch {
+                return true;
+            }
+        };
+        report.check(
+            refuses(
+                "INSERT INTO task_project_members (project_id, email, role, added_by, created_at, updated_at) VALUES ('tpj_backuptest0001', 'partner@example.com', 'editor', 'x', 'x', 'x');",
+            ),
+            "The restored copy still keeps personal projects to one member",
+            "The restored copy let a second person into a personal project",
+        );
+        report.check(
+            refuses("UPDATE task_items SET project_id = 'tpj_backuptest0001' WHERE id = 'tsk_backuptest0002';"),
+            "The restored copy still refuses a subtask in a different project from its parent and section",
+            "The restored copy accepted a cross-project subtask",
+        );
+        report.check(
+            query("SELECT recurrence_json FROM task_items WHERE id = 'tsk_backuptest0002'", restored)[0]?.recurrence_json?.includes('"anchor":"2026-10-21"'),
+            "Repeat rules restore intact",
+            "Repeat rules changed in the restored copy",
+        );
     }
 } catch (error) {
     report.fail(error.message);
 } finally {
     rmSync(work, { recursive: true, force: true });
     // The backup holds only the invented rows above; remove it and its manifest.
-    if (backupFile) for (const name of readdirSync(join(ROOT, "backups"))) if (join(ROOT, "backups", name).startsWith(backupFile)) rmSync(join(ROOT, "backups", name));
+    if (backupFile)
+        for (const name of readdirSync(join(ROOT, "backups"))) if (join(ROOT, "backups", name).startsWith(backupFile)) rmSync(join(ROOT, "backups", name));
 }
 report.finish();

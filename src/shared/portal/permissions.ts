@@ -18,6 +18,8 @@ export const PERMISSIONS = [
     "wedding.export",
     /** Opening Daly Knowledge. What each person can see inside it is decided by space membership, not by this. */
     "knowledge.use",
+    /** Opening Daly Tasks. What each person can see inside it is decided by project membership, not by this. */
+    "tasks.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

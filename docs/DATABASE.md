@@ -4,22 +4,23 @@ The Worker uses one D1 database per environment: `dalyidau-production` and `daly
 
 ## Migrations
 
-| File                                   | What it does                                                                                                          |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `0001_init.sql`                        | Blog tables                                                                                                           |
-| `0002_portal_wedding.sql`              | Portal and wedding tables                                                                                             |
-| `0003_privacy_and_integrity.sql`       | Soft deletion, integrity triggers, append-only audit and concurrent-edit guard                                        |
-| `0004_seating_catering_rsvp_comms.sql` | Seating, catering, website media, RSVP versioning/idempotency and communication scheduling                            |
-| `0005_comms_channels.sql`              | Communication channel and provider-delivery records                                                                   |
-| `0006_say_i_do_ceremony.sql`           | Ceremony/site data carried forward from Say I Do                                                                      |
-| `0007_guest_import.sql`                | Auditable, idempotent guest import staging and reports                                                                |
-| `0008_invitation_studio.sql`           | Invitation design and generation data                                                                                 |
-| `0009_household_invitation_names.sql`  | Household invitation-name fields                                                                                      |
-| `0010_rsvp_travel.sql`                 | Courtesy-bus and accommodation responses                                                                              |
-| `0011_communications_studio.sql`       | Household-aware recipients, controlled test sends and thank-you notes                                                 |
-| `0012_household_consent.sql`           | Household email/SMS opt-out fields                                                                                    |
-| `0013_knowledge_engine.sql`            | Knowledge spaces, types, objects, revisions, relationships, tags, private audit and derived FTS5 index                |
-| `0014_knowledge_organising.sql`        | Daily-note uniqueness, collections/memberships, shared pins, personal favourites, validated saved views and templates |
+| File                                   | What it does                                                                                                                                                                                                |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0001_init.sql`                        | Blog tables                                                                                                                                                                                                 |
+| `0002_portal_wedding.sql`              | Portal and wedding tables                                                                                                                                                                                   |
+| `0003_privacy_and_integrity.sql`       | Soft deletion, integrity triggers, append-only audit and concurrent-edit guard                                                                                                                              |
+| `0004_seating_catering_rsvp_comms.sql` | Seating, catering, website media, RSVP versioning/idempotency and communication scheduling                                                                                                                  |
+| `0005_comms_channels.sql`              | Communication channel and provider-delivery records                                                                                                                                                         |
+| `0006_say_i_do_ceremony.sql`           | Ceremony/site data carried forward from Say I Do                                                                                                                                                            |
+| `0007_guest_import.sql`                | Auditable, idempotent guest import staging and reports                                                                                                                                                      |
+| `0008_invitation_studio.sql`           | Invitation design and generation data                                                                                                                                                                       |
+| `0009_household_invitation_names.sql`  | Household invitation-name fields                                                                                                                                                                            |
+| `0010_rsvp_travel.sql`                 | Courtesy-bus and accommodation responses                                                                                                                                                                    |
+| `0011_communications_studio.sql`       | Household-aware recipients, controlled test sends and thank-you notes                                                                                                                                       |
+| `0012_household_consent.sql`           | Household email/SMS opt-out fields                                                                                                                                                                          |
+| `0013_knowledge_engine.sql`            | Knowledge spaces, types, objects, revisions, relationships, tags, private audit and derived FTS5 index                                                                                                      |
+| `0014_knowledge_organising.sql`        | Daily-note uniqueness, collections/memberships, shared pins, personal favourites, validated saved views and templates                                                                                       |
+| `0015_tasks.sql`                       | Daly Tasks: projects, members, sections, tasks, labels, completions, comments, history, Knowledge references, saved filters, reminders, preferences (see [TASKS_PROJECTS.md](TASKS_PROJECTS.md#data-model)) |
 
 Rules:
 
@@ -37,7 +38,7 @@ npm run db:verify -- --env staging
 npm run db:verify -- --local           # your wrangler dev database
 ```
 
-Checks: migrations applied and in order, SQLite `quick_check`, foreign keys, guest JSON validity, invitations pointing at real guests and events, active guests left in deleted households (warning), RSVP code format, non-negative budget amounts, and for Knowledge: valid object/template/view JSON, every space has an owner, favourites still belong to members, and the search index covers every object (warning; rebuild it with `KNOWLEDGE_FTS_REBUILD` from `worker/knowledge/search.ts`). It prints only row counts, never contents.
+Checks: migrations applied and in order, SQLite `quick_check`, foreign keys, guest JSON validity, invitations pointing at real guests and events, active guests left in deleted households (warning), RSVP code format, non-negative budget amounts, and for Knowledge: valid object/template/view JSON, every space has an owner, favourites still belong to members, and the search index covers every object (warning; rebuild it with `KNOWLEDGE_FTS_REBUILD` from `worker/knowledge/search.ts`); and for Tasks: every project has an owner and personal projects only their owner, subtasks sit one level below a parent in the same project and section, repeating tasks have a valid rule and a date, and reminders belong to current members (warning). It prints only row counts, never contents.
 
 ## Backups
 
@@ -56,7 +57,7 @@ npm run db:backup -- --env production
 3. Restores the file into a throwaway local database, checks every table has at least as many rows as the live one and every table, index, trigger and view is there, and runs all the integrity checks on the restored copy.
 4. Writes `backups/…sql.json` with the SHA-256, size and row counts.
 
-**Virtual tables (Knowledge search).** `wrangler d1 export` refuses any database that contains a virtual table ("cannot export databases with Virtual Tables (fts5)"). Once migration `0013` adds `knowledge_fts`, the script exports the ordinary tables one by one instead, then appends their indexes, triggers and views, and finally the statements that recreate `knowledge_fts` and rebuild it from `knowledge_objects` (`scripts/lib/virtual-tables.mjs`). The result is still one `.sql` file that restores with `wrangler d1 execute --file`. A plain `wrangler d1 export` of the whole database won't work any more; use the script. The index is derived data, so nothing is lost by rebuilding it.
+**Virtual tables (Knowledge search).** `wrangler d1 export` refuses any database that contains a virtual table ("cannot export databases with Virtual Tables (fts5)"). Once migration `0013` adds `knowledge_fts`, the script exports the ordinary tables one by one instead, then appends their indexes, triggers and views, and finally the statements that recreate `knowledge_fts` and rebuild it from `knowledge_objects` (`scripts/lib/virtual-tables.mjs`). The result is still one `.sql` file that restores with `wrangler d1 execute --file`. A plain `wrangler d1 export` of the whole database won't work any more; use the script. The index is derived data, so nothing is lost by rebuilding it. Daly Tasks (`0015`) adds no virtual tables: its search uses ordinary indexed queries, and its triggers and composite keys are restored with the rest of the schema (`npm run test:backup` checks both).
 
 `scripts/lib/ops.mjs` includes every `0014` table in the row-count manifest. `npm run test:backup` is the safe local regression: it migrates a populated `0013` database, adds invented rows to every Milestone 3 table, invokes the real backup command, restores into isolated scratch databases, rebuilds FTS5 and verifies search, relations, schema objects, constraints and unrelated blog/wedding rows. It completed with no problems on 17 October 2026. It never uses a remote binding.
 

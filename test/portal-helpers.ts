@@ -117,6 +117,19 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "task_reminders",
+    "task_knowledge_links",
+    "task_comments",
+    "task_completions",
+    "task_item_labels",
+    "task_activity",
+    "task_items",
+    "task_sections",
+    "task_project_members",
+    "task_projects",
+    "task_labels",
+    "task_saved_views",
+    "task_preferences",
     "knowledge_collection_items",
     "knowledge_collections",
     "knowledge_pins",

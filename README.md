@@ -2,7 +2,7 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with two applications, the Wedding Planner and [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with three applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md) and [Daly Tasks](docs/TASKS_PROJECTS.md), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
 Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
@@ -42,10 +42,11 @@ src/                 React app (Untitled UI components), shared by server render
   components/site/   Site components: header, footer, post cards, pagination, TOC, share links
   content/           Editable site settings and About copy
   pages/             Home, Blog, Article, About, Contact, 404
-  portal/            The private portal: the wedding management app and Knowledge (portal/knowledge)
+  portal/            The private portal: the wedding management app, Knowledge (portal/knowledge) and Tasks (portal/tasks)
   wedding/           The public wedding website and RSVP form
   shared/portal/     Roles, feature flags and data types shared by the worker and the browser
   shared/knowledge/  Knowledge's document format, properties and data types
+  shared/tasks/      Tasks' repeat rules, Quick Add parser, filters and data types
   entry-server.tsx   renderToString for the Worker (blog, portal, wedding)
   entry-client.tsx   Blog hydration; entry-portal.tsx and entry-wedding.tsx for the other areas
 worker/              Cloudflare Worker
@@ -56,6 +57,7 @@ worker/              Cloudflare Worker
   seo.ts             Meta tags, JSON-LD, sitemap, RSS, robots.txt
   portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API
   knowledge/         Knowledge: space membership, objects, revisions, links, search, API
+  tasks/             Tasks: project membership, task engine, views, Knowledge references, export, API
   wedding/           Public wedding pages and the RSVP engine
 migrations/          D1 schema
 fixtures/capacities/ Sample Capacities space and mock API (development and tests only)
@@ -76,3 +78,4 @@ docs/                Setup, deployment and operations
 - [Database](docs/DATABASE.md): migrations, verification, backups, restore and rollback
 - [Staging](docs/STAGING.md): the separate staging environment and how to set it up
 - [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md): the private knowledge application at `/portal/knowledge`: access model, content format, search, history and roadmap
+- [Daly Tasks & Projects](docs/TASKS_PROJECTS.md): personal and shared tasks and projects at `/portal/tasks`: access model, repeats, Knowledge links, API, export and roadmap

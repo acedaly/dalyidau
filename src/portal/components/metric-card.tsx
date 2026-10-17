@@ -38,6 +38,7 @@ export const MetricCard = ({ label, value, icon, detail, change, progress, progr
                     <ProgressBar
                         value={Math.max(0, Math.min(100, progress))}
                         labelPosition="right"
+                        aria-label={progressLabel ?? label}
                         valueFormatter={() => progressLabel ?? `${Math.round(progress)}%`}
                     />
                 )}

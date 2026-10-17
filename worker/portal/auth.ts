@@ -24,8 +24,10 @@ export const ownerEmails = (env: Env) =>
  * Local development only: lets `wrangler dev` act as ACCESS_DEV_EMAIL without Access. Requires
  * ENVIRONMENT=development AND a localhost SITE_URL, both of which only .dev.vars or the e2e config
  * set. (The request's own host can't be used: wrangler dev rewrites it to the production route.)
+ * With ACCESS_DEV_ALT_EMAIL also set, a `portal_dev_identity=alt` cookie acts as that second person,
+ * so browser tests can check what one person can and can't see of another's work.
  */
-const devIdentity = (env: Env): string | null => {
+const devIdentity = (env: Env, request: Request): string | null => {
     if (env.ENVIRONMENT !== "development" || !env.ACCESS_DEV_EMAIL) return null;
     let siteHost = "";
     try {
@@ -34,11 +36,12 @@ const devIdentity = (env: Env): string | null => {
         return null;
     }
     if (siteHost !== "localhost" && siteHost !== "127.0.0.1") return null;
-    return env.ACCESS_DEV_EMAIL.trim().toLowerCase();
+    const alt = env.ACCESS_DEV_ALT_EMAIL && /(?:^|;\s*)portal_dev_identity=alt(?:;|$)/.test(request.headers.get("Cookie") ?? "");
+    return (alt ? env.ACCESS_DEV_ALT_EMAIL! : env.ACCESS_DEV_EMAIL).trim().toLowerCase();
 };
 
 export async function authenticate(request: Request, env: Env): Promise<AuthResult> {
-    let email = devIdentity(env);
+    let email = devIdentity(env, request);
     if (!email) {
         const result = await verifyAccessRequest(request, env);
         if (!result.ok) {

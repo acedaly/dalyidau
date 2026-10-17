@@ -7,6 +7,7 @@ import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { loadKnowledgePage } from "../knowledge/pages";
+import { type TasksPage, loadTasksPage } from "../tasks/pages";
 import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -400,6 +401,31 @@ const PAGES: PageDef[] = [
         application: "knowledge",
         load: ({ env, user, url, match }) =>
             loadKnowledgePage(env, user, url, match[1] as "search" | "types" | "settings" | "collections" | "favourites" | "templates" | "discover"),
+    },
+    // Daly Tasks. The application's permission is checked here; project membership in the loaders.
+    {
+        pattern: /^\/portal\/tasks$/,
+        title: "Today",
+        application: "tasks",
+        load: ({ env, user, url }) => loadTasksPage(env, user, url, "today"),
+    },
+    {
+        pattern: /^\/portal\/tasks\/(inbox|today|upcoming|overdue|completed|projects|labels|filters|search|activity|settings)$/,
+        title: "Tasks",
+        application: "tasks",
+        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, match[1] as TasksPage),
+    },
+    {
+        pattern: /^\/portal\/tasks\/p\/(tpj_[a-z0-9]{14})$/,
+        title: "Project",
+        application: "tasks",
+        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "project", match[1]),
+    },
+    {
+        pattern: /^\/portal\/tasks\/t\/(tsk_[a-z0-9]{14})$/,
+        title: "Task",
+        application: "tasks",
+        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "task", match[1]),
     },
     {
         pattern: /^\/portal\/audit$/,

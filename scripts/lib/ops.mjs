@@ -174,6 +174,28 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        name: "Every Tasks project has an owner, and personal projects only their owner",
+        sql: "SELECT p.id FROM task_projects p WHERE NOT EXISTS (SELECT 1 FROM task_project_members m WHERE m.project_id = p.id AND m.role = 'owner') OR (p.kind = 'personal' AND (SELECT COUNT(*) FROM task_project_members m WHERE m.project_id = p.id) <> 1) LIMIT 20",
+        level: "fail",
+    },
+    {
+        // depth is maintained by the Worker; a subtask is always one level below its parent, in the same project.
+        name: "Subtasks sit one level below a parent in the same project",
+        sql: "SELECT c.id FROM task_items c JOIN task_items p ON p.id = c.parent_id WHERE c.depth <> p.depth + 1 OR c.project_id <> p.project_id OR c.section_id IS NOT p.section_id LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Repeating tasks have a valid rule and a date",
+        sql: "SELECT id FROM task_items WHERE recurrence_json IS NOT NULL AND (json_valid(recurrence_json) = 0 OR json_extract(recurrence_json, '$.anchor') IS NULL OR due_date IS NULL) LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Never shown (every read joins membership); removing a member deletes them. Any left are stale.
+        name: "Task reminders belong to current project members",
+        sql: "SELECT r.id FROM task_reminders r JOIN task_items t ON t.id = r.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = r.owner_email WHERE m.email IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
