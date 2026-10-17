@@ -95,12 +95,11 @@ async function setup() {
 }
 
 const prepareStudio = (body: Record<string, unknown>, email?: string) =>
-    apiCall<{ drafts: Message[]; conflicts?: { messageId: string; others: number }[] }>(
-        "POST",
-        "/api/portal/wedding/invitations/prepare",
-        { delivery: "household", channels: ["email"], ...body },
-        email ? { email } : {},
-    );
+    apiCall<{
+        drafts: Message[];
+        conflicts?: { messageId: string; others: number }[];
+        sent?: { channel: "email" | "sms"; householdIds: string[] }[];
+    }>("POST", "/api/portal/wedding/invitations/prepare", { delivery: "household", channels: ["email"], ...body }, email ? { email } : {});
 
 const preflight = async (id: string) => (await apiCall<{ preflight: MessagePreflight }>("GET", `/api/portal/wedding/messages/${id}/preflight`)).json.preflight;
 const switchEmailOn = () => apiCall("PUT", "/api/portal/flags/communications.delivery", { enabled: true });
@@ -226,7 +225,7 @@ describe("Invitation Studio drafts", () => {
         expect(replaced.status).toBe(201);
         expect(await db().prepare("SELECT id FROM messages").all()).toMatchObject({ results: [{ id: replaced.json.drafts[0].id }] });
         expect(await db().prepare("SELECT action, summary FROM audit_log WHERE action = 'message.delete'").first()).toMatchObject({
-            summary: expect.stringContaining("Replaced the Invitation Studio email draft"),
+            summary: expect.stringContaining("Replaced the unsent email invitation draft"),
         });
 
         // A draft that also covers another household is never replaced from a narrower selection.
@@ -234,19 +233,77 @@ describe("Invitation Studio drafts", () => {
         const narrow = await prepareStudio({ householdIds: [f.couple.id], replace: true });
         expect(narrow.status).toBe(422);
 
-        // Once sent, a household's invitation is history: a new draft holds it back rather than resending.
+        // Once sent, a household's invitation is history: preparing another needs an explicit resend.
         const draft = (await db().prepare("SELECT id FROM messages").first<{ id: string }>())!.id;
-        fastmail();
+        const delivery = fastmail();
         await switchEmailOn();
         await apiCall("POST", `/api/portal/wedding/messages/${draft}/send`, { confirmCount: 2 }, { env: await fastmailEnv() });
-        const after = await prepareStudio({ householdIds: [f.couple.id] });
-        expect(after.status).toBe(201);
-        const rows = await db()
-            .prepare("SELECT status, error FROM message_recipients WHERE message_id = ? AND guest_id = ?")
-            .bind(after.json.drafts[0].id, f.fred.id)
+        const householdBefore = await db()
+            .prepare("SELECT rsvp_code, invite_version, invitation_generated_at FROM households WHERE id = ?")
+            .bind(f.couple.id)
             .first();
-        expect(rows).toEqual({ status: "skipped", error: "Already prepared or sent to this household" });
+        const after = await prepareStudio({ householdIds: [f.couple.id] });
+        expect(after.status).toBe(409);
+        expect(after.json.sent).toEqual([{ channel: "email", householdIds: [f.couple.id] }]);
+
+        // A deliberate resend prepares a new draft, preserves the household and sent history, and
+        // still cannot be sent until the extra resend confirmation is supplied.
+        const firstResendDraft = await prepareStudio({ householdIds: [f.couple.id], resend: true });
+        expect(firstResendDraft.status, firstResendDraft.text).toBe(201);
+        const heldAgain = await prepareStudio({ householdIds: [f.couple.id] });
+        expect(heldAgain.status).toBe(409);
+        expect(heldAgain.json).toMatchObject({
+            conflicts: [expect.objectContaining({ messageId: firstResendDraft.json.drafts[0].id, others: 0 })],
+            sent: [{ channel: "email", householdIds: [f.couple.id] }],
+        });
+        const another = await prepareStudio({ householdIds: [f.couple.id], replace: true, resend: true });
+        expect(another.status, another.text).toBe(201);
+        expect(await db().prepare("SELECT id FROM messages WHERE id = ?").bind(firstResendDraft.json.drafts[0].id).first()).toBeNull();
+        expect(another.json.drafts[0].options.resend).toBe(true);
+        await db().prepare("UPDATE guests SET email_opt_out_at = ? WHERE id = ?").bind(new Date().toISOString(), f.fred.id).run();
+        expect(await preflight(another.json.drafts[0].id)).toMatchObject({
+            recipients: 0,
+            excluded: [expect.objectContaining({ reason: "Opted out of email" })],
+        });
+        await db().prepare("UPDATE guests SET email_opt_out_at = NULL WHERE id = ?").bind(f.fred.id).run();
+        const resendCheck = await preflight(another.json.drafts[0].id);
+        expect(resendCheck.again).toBe(1);
+        expect(resendCheck.sending).toEqual([expect.objectContaining({ name: "Fred & Ann Example", to: "fred@example.com", sentBefore: true })]);
+        expect(
+            (
+                await apiCall("POST", `/api/portal/wedding/messages/${another.json.drafts[0].id}/schedule`, {
+                    scheduledAt: new Date(Date.now() + 60_000).toISOString(),
+                    confirmCount: 1,
+                })
+            ).status,
+        ).toBe(409);
+        const refused = await apiCall("POST", `/api/portal/wedding/messages/${another.json.drafts[0].id}/send`, {}, { env: await fastmailEnv() });
+        expect(refused.status).toBe(409);
+        expect(delivery.sent).toHaveLength(2);
+        const resent = await apiCall(
+            "POST",
+            `/api/portal/wedding/messages/${another.json.drafts[0].id}/send`,
+            { confirmAgain: true },
+            { env: await fastmailEnv() },
+        );
+        expect(resent.status, resent.text).toBe(200);
+        expect(delivery.sent).toHaveLength(3);
         expect(await db().prepare("SELECT status FROM messages WHERE id = ?").bind(draft).first()).toEqual({ status: "sent" });
+        expect(await db().prepare("SELECT rsvp_code, invite_version, invitation_generated_at FROM households WHERE id = ?").bind(f.couple.id).first()).toEqual(
+            householdBefore,
+        );
+        expect(await db().prepare("SELECT COUNT(*) AS n FROM messages WHERE category = 'invitation' AND status = 'sent'").first()).toEqual({ n: 2 });
+
+        const sentStatus = (await listStudioHouseholds(db())).find((household) => household.id === f.couple.id)?.messages[0];
+        expect(sentStatus).toMatchObject({ status: "sent", deliveryStatus: null });
+        await db()
+            .prepare(
+                "UPDATE message_recipients SET delivery_status = 'delivered', delivered_at = ? WHERE message_id = ? AND household_id = ? AND status = 'sent'",
+            )
+            .bind(new Date().toISOString(), another.json.drafts[0].id, f.couple.id)
+            .run();
+        const deliveredStatus = (await listStudioHouseholds(db())).find((household) => household.id === f.couple.id)?.messages[0];
+        expect(deliveredStatus).toMatchObject({ status: "sent", deliveryStatus: "delivered" });
     });
 
     it("lets editors prepare drafts but only owners and admins send them; viewers can do neither", async () => {
@@ -455,7 +512,9 @@ describe("one-household UAT, end to end", () => {
         for (const flag of ["wedding.site.public", "rsvp.native"]) await apiCall("PUT", `/api/portal/flags/${flag}`, { enabled: true });
         const draft = (await prepareStudio({ householdIds: [f.couple.id], attachPdf: true })).json.drafts[0];
         const check = await preflight(draft.id);
-        expect(check.sending).toEqual([{ name: "Fred & Ann Example", to: "fred@example.com", householdId: f.couple.id, guestId: f.fred.id }]);
+        expect(check.sending).toEqual([
+            { name: "Fred & Ann Example", to: "fred@example.com", householdId: f.couple.id, guestId: f.fred.id, sentBefore: false },
+        ]);
         const { sent } = fastmail();
         await switchEmailOn();
         await apiCall("POST", `/api/portal/wedding/messages/${draft.id}/send`, {}, { env: await fastmailEnv() });

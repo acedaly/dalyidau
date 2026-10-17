@@ -2,6 +2,7 @@
 // check is worked out by the Worker exactly as sending is, so what it shows is what will happen.
 import { useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Send01, Users01 } from "@untitledui/icons";
+import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
@@ -80,7 +81,14 @@ export const SendCheck = ({
                     <ul className="flex max-h-72 flex-col divide-y divide-secondary overflow-y-auto rounded-lg ring-1 ring-secondary">
                         {preflight.sending.map((r, index) => (
                             <li key={`${r.to}-${index}`} className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                                <span className="text-sm text-primary">{r.name}</span>
+                                <span className="flex items-center gap-2 text-sm text-primary">
+                                    {r.name}
+                                    {r.sentBefore && (
+                                        <Badge size="sm" color="warning">
+                                            Already sent one
+                                        </Badge>
+                                    )}
+                                </span>
                                 <span className="flex items-center gap-3">
                                     <span className="font-mono text-xs break-all text-tertiary">{r.to}</span>
                                     {pdfHref && r.householdId && (
@@ -232,10 +240,13 @@ export const SendDialog = ({
 }) => {
     const toast = useToast();
     const [checked, setChecked] = useState(false);
+    const [againChecked, setAgainChecked] = useState(false);
     const [when, setWhen] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const bulk = preflight.recipients > 1;
+    const another = preflight.again > 0;
+    const anotherInvitation = another && message.category === "invitation";
     const noun = message.channel === "sms" ? "text" : "email";
     const confirm = async () => {
         setBusy(true);
@@ -246,8 +257,12 @@ export const SendDialog = ({
                     ? await api<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/schedule`, {
                           scheduledAt: new Date(when).toISOString(),
                           confirmCount: preflight.recipients,
+                          confirmAgain: againChecked,
                       })
-                    : await api<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/send`, { confirmCount: preflight.recipients });
+                    : await api<{ message: Message }>("POST", `/api/portal/wedding/messages/${message.id}/send`, {
+                          confirmCount: preflight.recipients,
+                          confirmAgain: againChecked,
+                      });
             toast.success(mode === "schedule" ? "Scheduled" : "Sent", result.message.deliveryNote ?? undefined);
             onDone(result.message);
             onOpenChange(false);
@@ -262,18 +277,27 @@ export const SendDialog = ({
             isOpen={mode !== null}
             onOpenChange={(open) => {
                 if (busy) return;
-                if (!open) setChecked(false);
+                if (!open) {
+                    setChecked(false);
+                    setAgainChecked(false);
+                }
                 onOpenChange(open);
             }}
             title={
-                mode === "schedule"
-                    ? `Schedule ${pluralise(preflight.recipients, noun)}?`
-                    : `Send ${pluralise(preflight.recipients, noun)} to ${pluralise(preflight.households, "household")}?`
+                anotherInvitation
+                    ? mode === "schedule"
+                        ? "Schedule another invitation?"
+                        : "Send another invitation?"
+                    : mode === "schedule"
+                      ? `Schedule ${pluralise(preflight.recipients, noun)}?`
+                      : `Send ${pluralise(preflight.recipients, noun)} to ${pluralise(preflight.households, "household")}?`
             }
             description={
-                mode === "schedule"
-                    ? "It's checked again when it's sent: anyone who replies, opts out or loses their link in the meantime is held back."
-                    : "Each household receives its own personalised copy. This can't be undone."
+                anotherInvitation
+                    ? `${pluralise(preflight.again, "household")} already received an invitation on this channel. The same RSVP link and guest details will be used, and the earlier invitation stays in the history.`
+                    : mode === "schedule"
+                      ? "It's checked again when it's sent: anyone who replies, opts out or loses their link in the meantime is held back."
+                      : "Each household receives its own personalised copy. This can't be undone."
             }
             icon={mode === "schedule" ? Clock : Send01}
             iconColor="warning"
@@ -283,8 +307,20 @@ export const SendDialog = ({
                     <Button color="secondary" size="lg" onClick={() => onOpenChange(false)} isDisabled={busy}>
                         Cancel
                     </Button>
-                    <Button size="lg" isLoading={busy} showTextWhileLoading isDisabled={(bulk && !checked) || (mode === "schedule" && !when)} onClick={confirm}>
-                        {mode === "schedule" ? "Schedule" : `Send ${pluralise(preflight.recipients, noun)}`}
+                    <Button
+                        size="lg"
+                        isLoading={busy}
+                        showTextWhileLoading
+                        isDisabled={(bulk && !checked) || (another && !againChecked) || (mode === "schedule" && !when)}
+                        onClick={confirm}
+                    >
+                        {anotherInvitation
+                            ? mode === "schedule"
+                                ? "Schedule another invitation"
+                                : "Send another invitation"
+                            : mode === "schedule"
+                              ? "Schedule"
+                              : `Send ${pluralise(preflight.recipients, noun)}`}
                     </Button>
                 </>
             }
@@ -312,6 +348,17 @@ export const SendDialog = ({
                     )}{" "}
                     held back, as listed in the send check.
                 </p>
+            )}
+            {another && (
+                <Checkbox
+                    label={
+                        anotherInvitation
+                            ? `I confirm that ${pluralise(preflight.again, "household")} already received an invitation and should receive another`
+                            : `I confirm that ${pluralise(preflight.again, "household")} already received one and should receive another`
+                    }
+                    isSelected={againChecked}
+                    onChange={setAgainChecked}
+                />
             )}
             {bulk && <Checkbox label="I've previewed it, sent a test and checked who it goes to" isSelected={checked} onChange={setChecked} />}
         </PortalDialog>

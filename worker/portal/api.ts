@@ -422,12 +422,15 @@ add(
     "wedding.comms.edit",
     async ({ env, request, user }) => {
         const result = await prepareStudioDrafts(env, env.DB, await readJson(request), user.email);
-        if (result.conflicts.length)
+        if (result.conflicts.length || result.sent.length)
             return json(
                 {
                     error: "conflict",
-                    message: "These households already have an unsent invitation draft. Open it, or replace it.",
+                    message: result.conflicts.length
+                        ? "These households already have an unsent invitation draft. Open it, or deliberately replace it."
+                        : "These households were already sent an invitation. Confirm that you want to prepare another invitation.",
                     conflicts: result.conflicts,
+                    sent: result.sent,
                 },
                 409,
             );

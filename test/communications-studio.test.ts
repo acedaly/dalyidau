@@ -123,16 +123,28 @@ describe("save the date", () => {
         expect(refused.text).toContain("formal invitation");
     });
 
-    it("holds back households that already have one, unless “send again” is chosen", async () => {
+    it("describes an existing unsent draft accurately and includes it only when preparing another is deliberate", async () => {
         await setup();
         const body = { category: "save_the_date", subject: "Save the date", body: "Dear {{greeting_names}}" };
         await prepare(body);
         const second = await prepare(body);
         expect((await recipients(second.json.message.id)).every((r) => r.status === "skipped")).toBe(true);
-        expect((await recipients(second.json.message.id)).find((r) => r.name === "Kate Replied")?.error).toBe("Already prepared or sent to this household");
+        expect((await recipients(second.json.message.id)).find((r) => r.name === "Kate Replied")?.error).toBe(
+            "Already in an unsent draft for this household (nothing sent yet)",
+        );
         const again = await prepare({ ...body, resend: true });
         expect((await recipients(again.json.message.id)).filter((r) => r.status === "pending")).toHaveLength(3);
         expect(again.json.message.options).toEqual({ resend: true });
+    });
+
+    it("deduplicates only the same campaign and channel", async () => {
+        await setup();
+        const body = { category: "invitation", subject: "Invitation", body: "{{rsvp_link}}" };
+        await prepare({ ...body, channel: "email" });
+        const text = await prepare({ ...body, channel: "sms" });
+        const rows = await recipients(text.json.message.id);
+        expect(rows.some((recipient) => recipient.error?.includes("unsent draft"))).toBe(false);
+        expect(rows.filter((recipient) => recipient.error === "No mobile number")).toHaveLength(5);
     });
 });
 
@@ -260,7 +272,7 @@ describe("sending safeguards", () => {
         const body = { category: "save_the_date", subject: "Save the date", body: "{{website_link}}" };
         const first = (await prepare(body)).json.message;
         const second = (await prepare({ ...body, resend: true })).json.message;
-        // As if the second had been prepared without "send again" (e.g. before the first existed).
+        // As if the second had been prepared without "send another" (e.g. before the first existed).
         await db().prepare("UPDATE messages SET options = '{}' WHERE id = ?").bind(second.id).run();
         const { env, send: provider } = await emailEnv();
         await switchEmailOn();
@@ -270,6 +282,65 @@ describe("sending safeguards", () => {
         expect(plan.excluded[0]).toMatchObject({ reason: "Already sent to this household in another message", count: 3 });
         await send(second.id, env);
         expect(provider).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not let a scheduled resend contact a household that only became a repeat recipient after scheduling", async () => {
+        const f = await setup();
+        const body = {
+            category: "invitation",
+            subject: "Wedding invitation",
+            body: "Your invitation: {{rsvp_link}}",
+            audience: { householdIds: [f.couple.id] },
+        };
+        const first = (await prepare(body)).json.message;
+        const scheduledDraft = (await prepare({ ...body, resend: true })).json.message;
+        const scheduled = await apiCall<{ message: Message }>("POST", `/api/portal/wedding/messages/${scheduledDraft.id}/schedule`, {
+            scheduledAt: "2030-01-01T00:00:00.000Z",
+            confirmCount: 1,
+        });
+        expect(scheduled.status, scheduled.text).toBe(200);
+        expect(scheduled.json.message.options.scheduledResendConfirmed).toEqual([]);
+
+        const { env, send: provider } = await emailEnv();
+        await switchEmailOn();
+        expect((await send(first.id, env, { confirmCount: 1 })).status).toBe(200);
+        expect(provider).toHaveBeenCalledTimes(1);
+
+        await db().prepare("UPDATE messages SET scheduled_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").bind(scheduledDraft.id).run();
+        expect(await processDueMessages(env)).toEqual({ processed: 1 });
+        expect(provider).toHaveBeenCalledTimes(1);
+        expect((await recipients(scheduledDraft.id)).find((recipient) => recipient.name === "Fred & Ann Example")).toMatchObject({
+            status: "skipped",
+            error: "Already sent after this was scheduled; sending another wasn't confirmed",
+        });
+    });
+
+    it("persists the repeat household explicitly confirmed for a scheduled invitation resend", async () => {
+        const f = await setup();
+        const body = {
+            category: "invitation",
+            subject: "Wedding invitation",
+            body: "Your invitation: {{rsvp_link}}",
+            audience: { householdIds: [f.couple.id] },
+        };
+        const first = (await prepare(body)).json.message;
+        const { env, send: provider } = await emailEnv();
+        await switchEmailOn();
+        expect((await send(first.id, env, { confirmCount: 1 })).status).toBe(200);
+
+        const resend = (await prepare({ ...body, resend: true })).json.message;
+        const scheduled = await apiCall<{ message: Message }>("POST", `/api/portal/wedding/messages/${resend.id}/schedule`, {
+            scheduledAt: "2030-01-01T00:00:00.000Z",
+            confirmCount: 1,
+            confirmAgain: true,
+        });
+        expect(scheduled.status, scheduled.text).toBe(200);
+        expect(scheduled.json.message.options.scheduledResendConfirmed).toEqual([`household:${f.couple.id}`]);
+
+        await db().prepare("UPDATE messages SET scheduled_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").bind(resend.id).run();
+        expect(await processDueMessages(env)).toEqual({ processed: 1 });
+        expect(provider).toHaveBeenCalledTimes(2);
+        expect((await recipients(resend.id)).find((recipient) => recipient.name === "Fred & Ann Example")?.status).toBe("sent");
     });
 
     it("re-checks opt-outs at sending", async () => {

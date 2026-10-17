@@ -41,7 +41,7 @@ describe("communication safeguards", () => {
             .prepare("SELECT status, error FROM message_recipients WHERE message_id = ?")
             .bind(second.json.message.id)
             .all<{ status: string; error: string }>();
-        expect(rows.results).toEqual([{ status: "skipped", error: "Already prepared or sent to this household" }]);
+        expect(rows.results).toEqual([{ status: "skipped", error: "Already in an unsent draft for this household (nothing sent yet)" }]);
     });
 
     it("queues scheduled messages but never processes them while delivery is disabled", async () => {

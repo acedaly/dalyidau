@@ -22,8 +22,9 @@ export interface CampaignDefinition {
     /** One line for the Studio card. */
     description: string;
     /**
-     * Sent once per household. A household that already has one prepared or sent is held back
-     * unless "send again" is chosen. Reminders can be sent more than once (with a warning).
+     * Sent once per household and channel. A household that already has one in an unsent draft, or
+     * was already sent one, on the same channel is held back unless "send another" is chosen.
+     * Reminders can be sent more than once (with a warning).
      */
     oncePerHousehold: boolean;
     /** Merge fields that can't be used, with the reason shown to the couple. */
@@ -172,8 +173,10 @@ export const EXCLUSION_REASONS = {
     invalidMobile: "Mobile number isn't valid",
     optedOutEmail: "Opted out of email",
     optedOutSms: "Opted out of texts",
-    alreadySent: "Already prepared or sent to this household",
+    alreadyDrafted: "Already in an unsent draft for this household (nothing sent yet)",
+    alreadySent: "Already sent to this household",
     alreadySentElsewhere: "Already sent to this household in another message",
+    resendNotConfirmed: "Already sent after this was scheduled; sending another wasn't confirmed",
     replied: "Already replied for everyone",
     repliedSince: "Replied for everyone since this was prepared",
     remindedRecently: "Reminded in the last 24 hours",
