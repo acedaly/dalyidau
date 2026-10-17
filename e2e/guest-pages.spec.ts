@@ -109,10 +109,17 @@ test("a household opens its invitation from the text, then RSVPs; anyone can sav
         await expect(page.getByRole("heading", { name: "Add to calendar" })).toBeVisible();
         for (const name of ["Apple Calendar", "Google Calendar", "Outlook", "Microsoft 365"]) await expect(page.getByRole("link", { name })).toBeVisible();
         expect(await page.getByRole("link", { name: "Google Calendar" }).getAttribute("href")).toMatch(/^https:\/\/calendar\.google\.com\/calendar\/render\?/);
-        expect(await page.getByRole("link", { name: "Apple Calendar" }).getAttribute("href")).toBe("https://wedding.daly.id.au/save-the-date.ics");
-        const ics = await request.get("/wedding/save-the-date.ics");
+        const apple = page.getByRole("link", { name: "Apple Calendar" });
+        expect(await apple.getAttribute("href")).toBe("https://wedding.daly.id.au/save-the-date/calendar");
+        // Opened in place so Safari offers to add the one event, rather than downloading it.
+        expect(await apple.getAttribute("download")).toBeNull();
+        const ics = await request.get("/wedding/save-the-date/calendar");
         expect(ics.headers()["content-type"]).toBe("text/calendar; charset=utf-8");
-        expect(await ics.text()).toContain("SUMMARY:Amelia & Aidan's Wedding");
+        expect(ics.headers()["content-disposition"]).toMatch(/^inline; filename=".+\.ics"$/);
+        const event = await ics.text();
+        expect(event).toContain("SUMMARY:Amelia & Aidan's Wedding");
+        expect(event.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+        expect(event).not.toContain("RRULE");
         await noSidewaysScroll(page);
         await shot(page, `save-the-date-page-${suffix}`);
         expect(errors).toEqual([]);

@@ -3,7 +3,7 @@
 // - /invitation?invite=…      the household's own invitation, then an RSVP button (from the invitation text)
 // - /invitation.pdf?invite=…  the same household's printable invitation, with its QR code
 // - /save-the-date            the public Save the Date, with Add to Calendar
-// - /save-the-date.ics        the universal calendar file
+// - /save-the-date/calendar   the universal calendar file: one event (also /save-the-date.ics, for links already sent)
 //
 // The invitation pages use the household's existing signed link and nothing else: no login, no
 // code, and a link that's revoked, replaced, expired or mistyped shows the same page as any other.

@@ -2,7 +2,15 @@
 // formal invitation text and the household's own invitation page, then the RSVP. Every provider is
 // mocked: nothing is ever sent.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { foldIcsLine, googleCalendarUrl, icsFile, outlookCalendarUrl, weddingCalendarEvent, zonedTimeToUtc } from "../src/shared/portal/calendar";
+import {
+    SAVE_THE_DATE_DESCRIPTION,
+    foldIcsLine,
+    googleCalendarUrl,
+    icsFile,
+    outlookCalendarUrl,
+    weddingCalendarEvent,
+    zonedTimeToUtc,
+} from "../src/shared/portal/calendar";
 import { CAMPAIGNS } from "../src/shared/portal/campaigns";
 import { invitationEventLines } from "../src/shared/portal/invitation-events";
 import { invitationAddressing } from "../src/shared/portal/invitation-names";
@@ -149,6 +157,30 @@ describe("calendar events", () => {
             location: "Rhino Lodge, Dubbo NSW",
         });
         expect(new URL(outlookCalendarUrl(allDay, "office")).origin).toBe("https://outlook.office.com");
+    });
+
+    // Regression: guests were being offered a calendar subscription instead of one event.
+    it("is exactly one non-recurring event with the Save the Date wording, never a calendar feed", () => {
+        const ics = icsFile(allDay);
+        expect(ics.match(/^BEGIN:VCALENDAR$/gm)).toHaveLength(1);
+        expect(ics.match(/^BEGIN:VEVENT\r$/gm)).toHaveLength(1);
+        expect(ics.match(/^END:VEVENT\r$/gm)).toHaveLength(1);
+        expect(ics).toContain("\r\nMETHOD:PUBLISH\r\n");
+        // Nothing that repeats the event or makes the file look like a feed to refresh.
+        expect(ics).not.toMatch(/RRULE|RDATE|EXDATE|X-WR-CALNAME|X-WR-RELCALID|REFRESH-INTERVAL|X-PUBLISHED-TTL|SOURCE:|webcal/i);
+        expect(allDay.description).toBe("Formal invitation and further details to follow.");
+        expect(ics).toContain(`\r\nDESCRIPTION:${SAVE_THE_DATE_DESCRIPTION}\r\n`);
+
+        // Google and Outlook open their create-event pages, not "add a calendar by URL".
+        const google = new URL(googleCalendarUrl(allDay));
+        expect(google.searchParams.get("action")).toBe("TEMPLATE");
+        expect(google.searchParams.has("cid")).toBe(false);
+        for (const service of ["live", "office"] as const) {
+            const outlook = new URL(outlookCalendarUrl(allDay, service));
+            expect(outlook.pathname).toBe("/calendar/0/action/compose");
+            expect(outlook.searchParams.get("rru")).toBe("addevent");
+            expect(outlook.toString()).not.toMatch(/addcalendar|addfromweb|subscribe|webcal|\.ics/i);
+        }
     });
 });
 
@@ -366,20 +398,23 @@ describe("the Save the Date", () => {
             ">Outlook</a>",
             ">Microsoft 365</a>",
             ">Other calendars (.ics)</a>",
-            `href="${SITE}/save-the-date.ics"`,
+            `href="${SITE}/save-the-date/calendar"`,
             "https://calendar.google.com/calendar/render?action=TEMPLATE",
             "https://outlook.live.com/calendar/0/action/compose?",
             `href="${SITE}/save-the-date"`,
             ">View the Save the Date</a>",
         ])
             expect(fred.html).toContain(text);
+        // No guest-facing link ends in .ics or uses webcal: iOS Mail offers to subscribe to those.
+        const links = [...fred.html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]).concat(fred.text.match(/\S+:\/\/\S+/g) ?? []);
+        expect(links.filter((link) => /\.ics(\?|$)|^webcal:/i.test(link))).toEqual([]);
         // Nothing about replying: no RSVP link, code or deadline, and no household's signed link.
         expect(fred.html).not.toMatch(/rsvp|invite=|reply by/i);
         // Readable with images blocked: decorative artwork, every word is text.
         expect([...fred.html.matchAll(/<img [^>]*alt="([^"]*)"/g)].every((m) => m[1] === "")).toBe(true);
         expect(fred.text).toContain("Dear Fred & Ann,");
         expect(fred.text).toContain("SAVE THE DATE\n\nAmelia & Aidan\nAre getting married!\n\nSaturday, 23 October 2027\nRhino Lodge, Dubbo NSW");
-        expect(fred.text).toContain(`Apple Calendar: ${SITE}/save-the-date.ics`);
+        expect(fred.text).toContain(`Apple Calendar: ${SITE}/save-the-date/calendar`);
         expect(fred.text).toContain(`View the Save the Date: ${SITE}/save-the-date`);
         const sam = send.mock.calls.map((c) => c[0]).find((m) => m.to.email === "sam@example.com")!;
         expect(sam.text).toContain("Dear Sam & Tom,");
@@ -443,6 +478,7 @@ describe("the Save the Date", () => {
     it("serves a public page and a calendar file with no household details, only when switched on", async () => {
         await setup();
         expect((await call("/save-the-date", { host: WEDDING_HOST })).status).toBe(404);
+        expect((await call("/save-the-date/calendar", { host: WEDDING_HOST })).status).toBe(404);
         expect((await call("/save-the-date.ics", { host: WEDDING_HOST })).status).toBe(404);
         await enable("wedding.save_the_date.public");
 
@@ -455,21 +491,33 @@ describe("the Save the Date", () => {
         for (const label of ["Apple Calendar", "Google Calendar", "Outlook", "Microsoft 365", "Download the calendar event (.ics)"])
             expect(html).toContain(label);
         expect(html).not.toMatch(/Fred|Sample|rsvp|invite=/i);
+        // The Apple and .ics links open the one event in place: no download attribute, no .ics or webcal URL.
+        expect(html).toContain(`href="${SITE}/save-the-date/calendar"`);
+        expect(html).not.toMatch(/\.ics"|webcal:|<a[^>]*\bdownload\b/i);
         // The website link appears only once the website is published.
         expect(html).not.toContain("Our wedding website");
 
-        const ics = await call("/save-the-date.ics", { host: WEDDING_HOST });
+        const ics = await call("/save-the-date/calendar", { host: WEDDING_HOST });
         expect(ics.status).toBe(200);
         expect(ics.headers.get("Content-Type")).toBe("text/calendar; charset=utf-8");
-        expect(ics.headers.get("Content-Disposition")).toBe('attachment; filename="amelia-aidan-wedding.ics"');
+        expect(ics.headers.get("Content-Disposition")).toBe('inline; filename="amelia-aidan-wedding.ics"');
         const file = await ics.text();
         expect(file.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+        expect(file.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+        expect(file).not.toMatch(/RRULE|X-WR-CALNAME|REFRESH-INTERVAL|X-PUBLISHED-TTL/);
+        expect(file).toContain("DESCRIPTION:Formal invitation and further details to follow.");
         // The ceremony and reception times are confirmed (15:30 to 23:30 AEDT).
         expect(file).toContain("DTSTART:20271023T043000Z");
         expect(file).toContain("DTEND:20271023T123000Z");
         expect(file).not.toMatch(/Fred|Sample|invite=|rsvp/i);
 
+        // Links in messages already sent still get the same single event.
+        const legacy = await call("/save-the-date.ics", { host: WEDDING_HOST });
+        expect(legacy.status).toBe(200);
+        expect((await legacy.text()).replace(/DTSTAMP:.*/, "")).toBe(file.replace(/DTSTAMP:.*/, ""));
+
         // The path-based site serves them too.
+        expect((await call("/wedding/save-the-date/calendar")).status).toBe(200);
         expect((await call("/wedding/save-the-date.ics")).status).toBe(200);
     });
 });

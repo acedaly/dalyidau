@@ -877,18 +877,13 @@ export const RsvpFlow = ({ apiBase, deadline, wedding, homeHref }: { apiBase: st
                             size="xl"
                             iconLeading={CalendarPlus01}
                             className={weddingButton.primary}
-                            onClick={() =>
+                            onClick={() => {
+                                const site = `${window.location.origin}${homeHref}`.replace(/\/+$/, "");
                                 downloadCalendarFile(
-                                    icsFile(
-                                        weddingCalendarEvent({
-                                            details: wedding,
-                                            events: attendedEvents,
-                                            site: `${window.location.origin}${homeHref}`.replace(/\/+$/, ""),
-                                        })!,
-                                    ),
+                                    icsFile(weddingCalendarEvent({ details: wedding, events: attendedEvents, site, description: `Details: ${site}` })!),
                                     icsFilename(wedding),
-                                )
-                            }
+                                );
+                            }}
                         >
                             Add to calendar
                         </Button>

@@ -237,7 +237,7 @@ describe("public pages and files", () => {
         await households();
         await enable("wedding.site.public", "wedding.save_the_date.public");
         const codes = (await db().prepare("SELECT rsvp_code FROM households").all<{ rsvp_code: string }>()).results.map((r) => r.rsvp_code);
-        for (const path of ["/", "/rsvp", "/save-the-date", "/save-the-date.ics", "/invitation", "/sitemap.xml", "/robots.txt"]) {
+        for (const path of ["/", "/rsvp", "/save-the-date", "/save-the-date/calendar", "/save-the-date.ics", "/invitation", "/sitemap.xml", "/robots.txt"]) {
             const text = await (await call(path, { host: WEDDING_HOST })).text();
             for (const absent of ["Zephyrine", "Marrowby", "@example.com", "0412", "dietary", "invite=", ...codes])
                 expect(text, `${path}: ${absent}`).not.toContain(absent);

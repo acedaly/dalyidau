@@ -12,7 +12,7 @@ export const FLAG_DEFINITIONS = {
     "wedding.save_the_date.public": {
         label: "Public Save the Date page",
         description:
-            "Serve the Save the Date page (/save-the-date) and its calendar file (/save-the-date.ics) before the website is published. Shows only the couple, date and venue. Publishing the website serves them too.",
+            "Serve the Save the Date page (/save-the-date) and its calendar file (/save-the-date/calendar) before the website is published. Shows only the couple, date and venue. Publishing the website serves them too.",
         default: false,
         group: "Website",
     },
