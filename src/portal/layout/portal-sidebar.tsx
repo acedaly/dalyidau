@@ -4,6 +4,8 @@
 // AvatarLabelGroup in place of the demo account switcher (which loads remote avatars).
 import type { FC, HTMLAttributes } from "react";
 import {
+    Activity,
+    AlarmClock,
     Archive,
     BarChartSquare02,
     BookOpen01,
@@ -11,12 +13,16 @@ import {
     Calendar,
     CalendarCheck01,
     CalendarDate,
+    CalendarPlus02,
+    CheckCircle,
     CheckDone01,
     ClipboardCheck,
     Clock,
     X as CloseIcon,
     Compass03,
     File06,
+    FilterLines,
+    Folder,
     FolderClosed,
     Globe02,
     HeartRounded,
@@ -32,8 +38,11 @@ import {
     Settings01,
     ShieldTick,
     Star01,
+    Sun,
+    Tag01,
     Trash01,
     Users01,
+    Users03,
     Wallet02,
 } from "@untitledui/icons";
 import {
@@ -93,6 +102,16 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     collections: FolderClosed,
     templates: File06,
     discover: Compass03,
+    today: Sun,
+    upcoming: CalendarPlus02,
+    overdue: AlarmClock,
+    completed: CheckCircle,
+    projects: Folder,
+    shared: Users03,
+    labels: Tag01,
+    filters: FilterLines,
+    activity: Activity,
+    project: Folder,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -103,7 +122,23 @@ export interface ExtraNavSection {
     items: { label: string; href: string; icon: NavigationIcon }[];
 }
 
-const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = { wedding: HeartRounded, knowledge: BookOpen01 };
+const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = { wedding: HeartRounded, knowledge: BookOpen01, tasks: CheckDone01 };
+
+/**
+ * Whether a navigation item is the current page. Items with a query (Tasks' "Shared projects") match
+ * the query too, and the Tasks home is its Today page.
+ */
+const isCurrent = (item: { href: string; active?: "exact" | "prefix" }, path: string) => {
+    const [itemPath, itemQuery] = item.href.split("?");
+    const current = path === "/portal/tasks" ? "/portal/tasks/today" : path;
+    if (itemQuery !== undefined || item.href === "/portal/tasks/projects") {
+        const search = typeof window === "undefined" ? "" : window.location.search.replace(/^\?/, "");
+        const kind = new URLSearchParams(search).get("kind");
+        const wanted = new URLSearchParams(itemQuery ?? "").get("kind");
+        return itemPath === current && kind === wanted;
+    }
+    return item.href === current || (item.active === "prefix" && current.startsWith(`${item.href}/`));
+};
 
 /** Knowledge pages show one space at a time; its navigation keeps you in the space you're in. */
 const withSpace = (href: string) => {
@@ -204,7 +239,7 @@ const SidebarContent = ({ path, extra }: { path: string; extra: ExtraNavSection[
                                                 icon={item.icon}
                                                 href={item.href.includes("?") ? item.href : withSpace(item.href)}
                                                 type="link"
-                                                current={item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`))}
+                                                current={isCurrent(item, path)}
                                             >
                                                 {item.label}
                                             </NavItemBase>

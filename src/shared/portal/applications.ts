@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "knowledge";
+export type ApplicationId = "wedding" | "knowledge" | "tasks";
 
-export type ApplicationIcon = "wedding" | "knowledge";
+export type ApplicationIcon = "wedding" | "knowledge" | "tasks";
 
 export type NavigationIcon =
     | "dashboard"
@@ -32,7 +32,17 @@ export type NavigationIcon =
     | "favourites"
     | "collections"
     | "templates"
-    | "discover";
+    | "discover"
+    | "today"
+    | "upcoming"
+    | "overdue"
+    | "completed"
+    | "projects"
+    | "shared"
+    | "labels"
+    | "filters"
+    | "activity"
+    | "project";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -173,6 +183,45 @@ export const APPLICATIONS = [
             {
                 label: "Application",
                 items: [{ label: "Settings and export", href: "/portal/knowledge/settings", icon: "settings" }],
+            },
+        ],
+    },
+    {
+        id: "tasks",
+        name: "Daly Tasks",
+        description:
+            "Tasks and projects, personal and shared, with Today, Upcoming, repeating tasks and links to Knowledge. Private to you unless you share a project.",
+        icon: "tasks",
+        baseRoute: "/portal/tasks",
+        requiredPermission: "tasks.use",
+        enabled: true,
+        navigation: [
+            {
+                label: "My tasks",
+                items: [
+                    { label: "Inbox", href: "/portal/tasks/inbox", icon: "inbox" },
+                    { label: "Today", href: "/portal/tasks/today", icon: "today" },
+                    { label: "Upcoming", href: "/portal/tasks/upcoming", icon: "upcoming" },
+                    { label: "Overdue", href: "/portal/tasks/overdue", icon: "overdue" },
+                    { label: "Completed", href: "/portal/tasks/completed", icon: "completed" },
+                ],
+            },
+            {
+                label: "Organise",
+                items: [
+                    { label: "My projects", href: "/portal/tasks/projects", icon: "projects" },
+                    { label: "Shared projects", href: "/portal/tasks/projects?kind=shared", icon: "shared" },
+                    { label: "Labels", href: "/portal/tasks/labels", icon: "labels" },
+                    { label: "Filters", href: "/portal/tasks/filters", icon: "filters" },
+                ],
+            },
+            {
+                label: "Application",
+                items: [
+                    { label: "Search", href: "/portal/tasks/search", icon: "search" },
+                    { label: "Activity", href: "/portal/tasks/activity", icon: "activity" },
+                    { label: "Settings and export", href: "/portal/tasks/settings", icon: "settings" },
+                ],
             },
         ],
     },
