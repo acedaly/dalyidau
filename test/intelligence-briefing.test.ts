@@ -36,7 +36,10 @@ describe("briefings", () => {
         expect(section(view, "today")?.items.map((i) => i.title)).toContain("Pay the council rates");
         expect(section(view, "today")?.items.find((i) => i.id === due.id)?.url).toContain(`/portal/tasks/t/${due.id}`);
         expect(section(view, "overdue")?.items[0].detail).toBe("2 days overdue");
-        expect(view.notChecked).toEqual(expect.arrayContaining(["email", "calendar"]));
+        // Calendar is part of the briefing now (Milestone 6); email never is.
+        expect(view.notChecked).toContain("email");
+        expect(view.notChecked).not.toContain("calendar");
+        expect(section(view, "calendar")).toBeDefined();
         expect(view.recommendations.status).toBe("not_requested");
         expect(ai.calls).toHaveLength(0);
     });

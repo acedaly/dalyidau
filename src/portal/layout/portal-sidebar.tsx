@@ -23,6 +23,7 @@ import {
     Compass03,
     File06,
     FilterLines,
+    Flag01,
     Folder,
     FolderClosed,
     Globe02,
@@ -37,9 +38,12 @@ import {
     Mail01,
     Menu02,
     Microphone01,
+    Plane,
     Plus,
     Receipt,
     Repeat04,
+    Rows01,
+    Rss01,
     SearchLg,
     Settings01,
     ShieldTick,
@@ -52,6 +56,7 @@ import {
     Trash01,
     UserCheck01,
     Users01,
+    Users02,
     Users03,
     Wallet02,
 } from "@untitledui/icons";
@@ -135,6 +140,14 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     briefing: Sunrise,
     review: CalendarCheck01,
     meetings: Microphone01,
+    calendar: Calendar,
+    year: CalendarDate,
+    agenda: Rows01,
+    subscriptions: Rss01,
+    family: Users02,
+    leave: Plane,
+    planner: Sun,
+    holidays: Flag01,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -149,6 +162,7 @@ const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElem
     wedding: HeartRounded,
     knowledge: BookOpen01,
     tasks: CheckDone01,
+    calendar: Calendar,
     intelligence: Stars02,
 };
 
@@ -159,11 +173,12 @@ const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElem
 const isCurrent = (item: { href: string; active?: "exact" | "prefix" }, path: string) => {
     const [itemPath, itemQuery] = item.href.split("?");
     const current = path === "/portal/tasks" ? "/portal/tasks/today" : path;
-    if (itemQuery !== undefined || item.href === "/portal/tasks/projects") {
-        const search = typeof window === "undefined" ? "" : window.location.search.replace(/^\?/, "");
-        const kind = new URLSearchParams(search).get("kind");
-        const wanted = new URLSearchParams(itemQuery ?? "").get("kind");
-        return itemPath === current && kind === wanted;
+    if (itemQuery !== undefined || item.href === "/portal/tasks/projects" || item.href === "/portal/calendar") {
+        const search = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search.replace(/^\?/, ""));
+        const wanted = new URLSearchParams(itemQuery ?? "");
+        // Calendar's Agenda is the calendar page with ?view=agenda; every other view is "Calendar".
+        if (itemPath === "/portal/calendar") return itemPath === current && (wanted.get("view") === "agenda") === (search.get("view") === "agenda");
+        return itemPath === current && search.get("kind") === wanted.get("kind");
     }
     return item.href === current || (item.active === "prefix" && current.startsWith(`${item.href}/`));
 };

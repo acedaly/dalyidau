@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { PortalMcpRequest, PortalMcpResponse } from "../../worker/mcp/entrypoint";
 
 /**
- * The Daly MCP tools (Daly Tasks and Daly Knowledge in Daly Portal) and how each one is advertised.
+ * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence and Daly Calendar in Daly Portal) and how each one is advertised.
  *
  * This Worker holds the MCP descriptions and a first round of input validation only. Every call
  * goes over the private `PORTAL` service binding to the portal Worker's `PortalMcpEntrypoint`
@@ -68,6 +68,23 @@ export const PORTAL_TOOL_NAMES = [
     "intelligence_capture_text",
     "intelligence_request_analysis",
     "intelligence_approve_suggestion",
+    "calendar_list_calendars",
+    "calendar_list_events",
+    "calendar_search_events",
+    "calendar_get_agenda",
+    "calendar_find_conflicts",
+    "calendar_list_subscriptions",
+    "calendar_school_holidays",
+    "leave_get_balances",
+    "leave_list_bookings",
+    "leave_forecast",
+    "leave_find_opportunities",
+    "calendar_create_event",
+    "calendar_update_event",
+    "calendar_create_subscription",
+    "calendar_refresh_subscription",
+    "leave_create_proposal",
+    "leave_update_proposal",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -92,6 +109,12 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "intelligence_capture_text",
     "intelligence_request_analysis",
     "intelligence_approve_suggestion",
+    "calendar_create_event",
+    "calendar_update_event",
+    "calendar_create_subscription",
+    "calendar_refresh_subscription",
+    "leave_create_proposal",
+    "leave_update_proposal",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -109,6 +132,20 @@ const objectId = portalId("kob", "Knowledge object");
 const taskId = portalId("tsk", "task");
 const projectId = portalId("tpj", "project");
 const captureId = portalId("aic", "Intelligence capture");
+const calendarId = portalId("cal", "calendar");
+const eventId = portalId("cev", "calendar event");
+const subscriptionId = portalId("csb", "calendar subscription");
+const leaveTypeId = portalId("lvt", "leave type");
+const bookingId = portalId("lvb", "leave booking");
+const scenarioId = portalId("lvs", "leave scenario");
+const clock = z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .describe("24-hour local time, HH:MM.");
+const CAL =
+    "Daly Calendar (daly.id.au/portal/calendar). Shows only calendars the person belongs to; other people's private events appear as Busy and sensitive events (children, care, health) as Private event, with no details.";
+const LEAVE =
+    "Daly Calendar's leave planner. Balances and dates are worked out by the portal's deterministic leave engine from the person's own settings and NSW public holidays: report them as given, never estimate or invent them, and never describe leave as approved unless its status says so.";
 const suggestionId = portalId("ais", "Intelligence suggestion");
 const date = z
     .string()
@@ -181,7 +218,183 @@ type ToolSpec = {
 
 const SOURCE = "Daly Portal (daly.id.au/portal). Shows only what the signed-in person can see there.";
 
+const leaveStatus = z.enum(["draft", "proposed", "requested", "approved", "taken", "cancelled"]);
+
 export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
+    /* ------------------------------ Calendar reads --------------------------- */
+    calendar_list_calendars: {
+        description: `${CAL} List the person's calendars (personal, shared household and subscribed), their role in each and whether events can be added to it. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    calendar_list_events: {
+        description: `${CAL} Every event occurrence between two dates (at most 92 days), in the person's time zone, with recurring events expanded. Read-only.`,
+        input: z.object({ from: date, to: date, calendarIds: z.array(calendarId).max(20).optional(), limit: limit(300) }).strict(),
+        annotations: READ,
+    },
+    calendar_search_events: {
+        description: `${CAL} Search event titles and places. Each match is shown at its next occurrence. Sensitive events are never matched. Read-only.`,
+        input: z.object({ query: z.string().trim().min(1).max(200), limit: limit(50) }).strict(),
+        annotations: READ,
+    },
+    calendar_get_agenda: {
+        description: `${CAL} A day-by-day agenda (default: the next 7 days from today) with events, NSW public holidays, school holidays, leave (the person's and leave others share with them), tasks due from Daly Tasks, and overlapping commitments. Use for "what's on this week?". Read-only.`,
+        input: z.object({ date: date.optional(), days: z.number().int().min(1).max(31).optional() }).strict(),
+        annotations: READ,
+    },
+    calendar_find_conflicts: {
+        description: `${CAL} Overlapping busy, timed events between two dates (at most 62 days). Read-only.`,
+        input: z.object({ from: date, to: date }).strict(),
+        annotations: READ,
+    },
+    calendar_list_subscriptions: {
+        description: `${CAL} External calendar subscriptions (ICS/webcal feeds) the person can see, with last successful refresh, failures and the error, never the address itself. Use failingOnly for "which subscriptions are failing?". Read-only.`,
+        input: z.object({ failingOnly: z.boolean().optional() }).strict(),
+        annotations: READ,
+    },
+    calendar_school_holidays: {
+        description: `${CAL} Official NSW public school holiday periods (Eastern or Western division, default: the person's setting), whether leave is planned in each and the leave hours to cover it. Read-only.`,
+        input: z.object({ from: date.optional(), to: date.optional(), division: z.enum(["eastern", "western"]).optional() }).strict(),
+        annotations: READ,
+    },
+    leave_get_balances: {
+        description: `${LEAVE} Each leave type's balance today and at a date (default today), with accrual, leave taken and any point it goes negative. "planned" counts requested and proposed leave too; "confirmed" only approved and taken. Read-only.`,
+        input: z.object({ asOf: date.optional(), mode: z.enum(["confirmed", "planned"]).optional(), scenarioId: scenarioId.optional() }).strict(),
+        annotations: READ,
+    },
+    leave_list_bookings: {
+        description: `${LEAVE} The person's leave bookings with their status (draft, proposed, requested, approved, taken, cancelled). Scenario (what-if) bookings only when asked. Read-only.`,
+        input: z.object({ from: date.optional(), to: date.optional(), status: leaveStatus.optional(), includeScenarios: z.boolean().optional() }).strict(),
+        annotations: READ,
+    },
+    leave_forecast: {
+        description: `${LEAVE} The projected balance at a date with the full calculation: opening balance and date, accrued, adjustments, each booking's hours, forfeited and capped hours. Use for "how much annual leave will I have in December?". Read-only.`,
+        input: z
+            .object({ date, leaveTypeId: leaveTypeId.optional(), mode: z.enum(["confirmed", "planned", "all"]).optional(), scenarioId: scenarioId.optional() })
+            .strict(),
+        annotations: READ,
+    },
+    leave_find_opportunities: {
+        description: `${LEAVE} Deterministic leave planning. question: "longest_break" (budgetHours: longest run of days off it can make), "public_holidays" (best breaks bridging public holidays within budgetHours), "school_holidays" (cost to cover each school holiday period and whether leave is planned), "cover_period" (start and end: hours needed and balance after), "joint" (with: someone who shares their leave with the person; budgetHours each: breaks both can take together). Every answer lists the exact leave dates, hours, days off and projected balance. Read-only.`,
+        input: z
+            .object({
+                question: z.enum(["longest_break", "public_holidays", "school_holidays", "cover_period", "joint"]),
+                budgetHours: z.number().min(0).max(2000).optional(),
+                theirBudgetHours: z.number().min(0).max(2000).optional(),
+                from: date.optional(),
+                to: date.optional(),
+                start: date.optional(),
+                end: date.optional(),
+                leaveTypeId: leaveTypeId.optional(),
+                with: z.string().email().optional().describe("For joint: the email of someone who has shared their leave with the person."),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    /* ------------------------------ Calendar writes -------------------------- */
+    calendar_create_event: {
+        description: `${CAL} WRITE: add an event to one of the person's calendars (default: their own default calendar). Timed events need startTime; endDate defaults to startDate. repeat creates a recurring event. Confirm the details with the person first. Send a fresh requestId.`,
+        input: z
+            .object({
+                calendarId: calendarId.optional(),
+                title: z.string().trim().min(1).max(300),
+                allDay: z.boolean().optional(),
+                startDate: date,
+                startTime: clock.optional(),
+                endDate: date.optional(),
+                endTime: clock.optional(),
+                timeZone: z.string().max(64).optional().describe("IANA zone, default the calendar's (Australia/Sydney)."),
+                location: z.string().trim().max(500).optional(),
+                description: z.string().trim().max(8000).optional(),
+                category: z.enum(["general", "appointment", "family", "birthday", "anniversary", "school", "travel", "commitment", "work", "other"]).optional(),
+                visibility: z.enum(["default", "private"]).optional(),
+                repeat: z
+                    .object({
+                        freq: z.enum(["daily", "weekly", "monthly", "yearly"]),
+                        interval: z.number().int().min(1).max(99).optional(),
+                        until: date.optional(),
+                        count: z.number().int().min(1).max(500).optional(),
+                    })
+                    .strict()
+                    .optional(),
+                reminderMinutes: z.array(z.number().int().min(0).max(40320)).max(3).optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    calendar_update_event: {
+        description: `${CAL} WRITE: change an event the person can edit (never a subscribed one). For a recurring event, scope "occurrence" with occurrenceKey changes one occurrence, "following" that one and every later one, "series" (default) all of them. Pass the version you read. Nothing can be deleted through this connector.`,
+        input: z
+            .object({
+                eventId,
+                version,
+                scope: z.enum(["series", "occurrence", "following"]).optional(),
+                occurrenceKey: z
+                    .string()
+                    .max(16)
+                    .optional()
+                    .describe("From calendar_list_events: the occurrence's original start (YYYY-MM-DD or YYYY-MM-DDTHH:MM)."),
+                title: z.string().trim().min(1).max(300).optional(),
+                allDay: z.boolean().optional(),
+                startDate: date.optional(),
+                startTime: clock.optional(),
+                endDate: date.optional(),
+                endTime: clock.optional(),
+                location: z.string().trim().max(500).optional(),
+                description: z.string().trim().max(8000).optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    calendar_create_subscription: {
+        description: `${CAL} WRITE: subscribe to an external calendar from its https or webcal address (Google, Apple, Outlook, school, sport, public holidays). Its events appear read-only and refresh about every six hours. The address is a credential: only pass one the person gave you for this, and never repeat it back. Private-network and non-https addresses are refused.`,
+        input: z
+            .object({ url: z.string().trim().min(8).max(2000), name: z.string().trim().min(1).max(100).optional(), shared: z.boolean().optional(), requestId })
+            .strict(),
+        annotations: WRITE,
+    },
+    calendar_refresh_subscription: {
+        description: `${CAL} WRITE: refresh one subscription now (at most once a minute) and report the result.`,
+        input: z.object({ subscriptionId, requestId }).strict(),
+        annotations: IDEMPOTENT_WRITE,
+    },
+    leave_create_proposal: {
+        description: `${LEAVE} WRITE: record planned leave as a draft or proposal (never requested, approved or taken: only the person changes that in the portal). Returns the projected balance afterwards. Use scenarioId to add it to a what-if scenario instead of the real plan. Confirm with the person first.`,
+        input: z
+            .object({
+                leaveTypeId,
+                startDate: date,
+                endDate: date,
+                part: z.enum(["full", "am", "pm", "hours"]).optional(),
+                hours: z.number().min(0).max(24).optional(),
+                status: z.enum(["draft", "proposed"]).optional(),
+                title: z.string().trim().max(120).optional(),
+                scenarioId: scenarioId.optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    leave_update_proposal: {
+        description: `${LEAVE} WRITE: change a draft or proposed booking (dates, part, title) or set it to draft, proposed or cancelled. Bookings already requested, approved or taken can't be changed here. Pass the version you read.`,
+        input: z
+            .object({
+                bookingId,
+                version,
+                startDate: date.optional(),
+                endDate: date.optional(),
+                part: z.enum(["full", "am", "pm", "hours"]).optional(),
+                hours: z.number().min(0).max(24).optional(),
+                status: z.enum(["draft", "proposed", "cancelled"]).optional(),
+                title: z.string().trim().max(120).optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+
     /* ---------------------------- Knowledge reads --------------------------- */
     knowledge_list_spaces: {
         description: `${SOURCE} List the Knowledge spaces the person belongs to: their personal space first, then shared spaces, each with their role and today's date in that space. Read-only.`,

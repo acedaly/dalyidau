@@ -2,7 +2,7 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with four applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md) and [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with five applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md), [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, family planning, NSW holidays and a leave planner) and [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
 Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
@@ -47,6 +47,7 @@ src/                 React app (Untitled UI components), shared by server render
   shared/portal/     Roles, feature flags and data types shared by the worker and the browser
   shared/knowledge/  Knowledge's document format, properties and data types
   shared/tasks/      Tasks' repeat rules, Quick Add parser, filters and data types
+  shared/calendar/   Calendar's time handling, repeat rules, NSW holiday data, leave engine and optimiser
   entry-server.tsx   renderToString for the Worker (blog, portal, wedding)
   entry-client.tsx   Blog hydration; entry-portal.tsx and entry-wedding.tsx for the other areas
 worker/              Cloudflare Worker
@@ -58,6 +59,7 @@ worker/              Cloudflare Worker
   portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API
   knowledge/         Knowledge: space membership, objects, revisions, links, search, API
   tasks/             Tasks: project membership, task engine, views, Knowledge references, export, API
+  calendar/          Calendar: membership, events and recurrence, ICS, subscriptions, feeds, leave, notifications, API
   wedding/           Public wedding pages and the RSVP engine
 migrations/          D1 schema
 fixtures/capacities/ Sample Capacities space and mock API (development and tests only)
@@ -80,6 +82,7 @@ docs/                Setup, deployment and operations
 - [Staging](docs/STAGING.md): the separate staging environment and how to set it up
 - [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md): the private knowledge application at `/portal/knowledge`: access model, content format, search, history and roadmap
 - [Daly Tasks & Projects](docs/TASKS_PROJECTS.md): personal and shared tasks and projects at `/portal/tasks`: access model, repeats, Knowledge links, API, export and roadmap
+- [Daly Calendar](docs/CALENDAR.md): calendars, recurrence and time zones, ICS subscriptions (SSRF rules) and private feeds, the Family Planner, NSW holidays and school dates, the leave engine and optimiser, MCP, deployment and rollback
 - [Daly MCP gateway](docs/MCP.md): Tasks and Knowledge for Claude, ChatGPT and Codex through `mcp.daly.id.au` (gateway Worker in `mcp/`): architecture decision, trust model, tools, audit, client set-up and testing
 - [MCP cutover and DalyHub decommissioning](docs/MCP_CUTOVER.md): ordered production cutover, real-client checks, monitoring, rollback and the DalyHub retirement checklist
 - [DalyHub migration](docs/DALYHUB_MIGRATION.md): DalyHub's data model and a previewed, revertible move into Tasks and Knowledge

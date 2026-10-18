@@ -59,6 +59,7 @@
         "@untitledui/file-icons": "^0.0.9",
         "@untitledui/icons": "^0.0.23",
         "agents": "0.24.0",
+        "ical.js": "2.2.1",
         "jose": "6.2.3",
         "motion": "^13.5.1",
         "pdf-lib": "^1.17.1",

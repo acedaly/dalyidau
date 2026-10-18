@@ -13,6 +13,12 @@ Personal site and Capacities-powered blog on a single Cloudflare Worker. Read `R
 - DalyHub migration (`worker/migration`, `scripts/dalyhub-plan.mjs`): see `docs/DALYHUB_MIGRATION.md`. Owner-only, behind the `DALYHUB_MIGRATION` secret (off by default), previewed and revertible. Never import or change production data without the owner. Exports and plans hold real data: keep them in the git-ignored `migration-work/`.
 - Native RSVP, the public wedding site and email delivery are behind feature switches that default off. Never send real email or switch them on without the owner's approval.
 - Daly Intelligence (`/portal/intelligence`, `src/portal/intelligence`, `src/shared/intelligence`, `worker/intelligence`, `worker/mcp/intelligence.ts`): see `docs/INTELLIGENCE.md`. AI proposes, people approve: background work only ever creates suggestions, and approval goes through the portal's own create/update functions with every id re-checked. Every model call goes through `worker/intelligence/provider.ts` (switches, budget, circuit breaker, usage without content). Untrusted text reaches a model only inside `fence()`; model output is schema-validated and grounded. Everything is off by default, the AI and VECTORS bindings aren't in `wrangler.jsonc`, and tests use the stand-ins in `bindings.ts` (never call Workers AI from tests or CI). Never switch features on or add bindings in production without the owner.
+- Daly Calendar (`/portal/calendar`, `src/portal/calendar`, `src/shared/calendar`, `worker/calendar`, `worker/mcp/calendar.ts`): see `docs/CALENDAR.md`.
+    - Access is by calendar membership (non-members get 404). Personal calendars can be shared only as free/busy. Private and sensitive events are "Busy" to everyone but their creator, and sensitive ones are never detailed in feeds, emails, briefings or MCP. Leave is always the person's own.
+    - Leave numbers come only from `src/shared/calendar/leave.ts` and `optimiser.ts`, never from a model. Nothing marks leave approved or taken except the person in the portal.
+    - Subscription addresses are credentials: never return, log or back them up. Fetch only through `worker/calendar/safe-fetch.ts`.
+    - Official NSW dates live in `src/shared/calendar/nsw.ts`, each with its source and verification date.
+    - `calendar.feeds` and `calendar.reminders.email` stay off unless the owner switches them on.
 - Daly Knowledge (`/portal/knowledge`, `src/portal/knowledge`, `src/shared/knowledge`, `worker/knowledge`): see `docs/KNOWLEDGE_ENGINE.md`. Every read and write goes through space membership (`worker/knowledge/access.ts`); non-members get 404, and portal roles never grant access to someone's space. Documents are validated against the allow-listed `daly.doc.v1` format and never rendered as raw HTML. Knowledge audit goes to `knowledge_audit` without titles or text, never `audit_log`. `knowledge_fts` is derived: keep it rebuildable (`KNOWLEDGE_FTS_REBUILD` and `scripts/lib/virtual-tables.mjs` must match) because D1 can't export virtual tables. The repo is public: never commit real notes or exports.
 
 ---
@@ -297,10 +303,10 @@ All components use `opacity-50` for disabled states instead of individual disabl
 
 ```typescript
 // Correct (v8)
-"disabled:cursor-not-allowed disabled:opacity-50"
+"disabled:cursor-not-allowed disabled:opacity-50";
 
 // Incorrect (v7 pattern, do not use)
-"disabled:bg-disabled_subtle disabled:text-disabled disabled:ring-disabled"
+"disabled:bg-disabled_subtle disabled:text-disabled disabled:ring-disabled";
 ```
 
 ## Common Patterns

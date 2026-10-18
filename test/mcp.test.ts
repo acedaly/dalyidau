@@ -110,7 +110,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 46 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 63 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
@@ -160,17 +160,34 @@ describe("who may call the portal through the MCP gateway", () => {
                 "intelligence_capture_text",
                 "intelligence_request_analysis",
                 "intelligence_approve_suggestion",
+                "calendar_list_calendars",
+                "calendar_list_events",
+                "calendar_search_events",
+                "calendar_get_agenda",
+                "calendar_find_conflicts",
+                "calendar_list_subscriptions",
+                "calendar_school_holidays",
+                "leave_get_balances",
+                "leave_list_bookings",
+                "leave_forecast",
+                "leave_find_opportunities",
+                "calendar_create_event",
+                "calendar_update_event",
+                "calendar_create_subscription",
+                "calendar_refresh_subscription",
+                "leave_create_proposal",
+                "leave_update_proposal",
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
         expect(
             writes.every((n) =>
-                /_(create|update|append|reschedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion)/.test(
+                /_(create|update|append|reschedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion|refresh)/.test(
                     n,
                 ),
             ),
         ).toBe(true);
-        expect(writes).toHaveLength(18);
+        expect(writes).toHaveLength(24);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {
@@ -425,8 +442,9 @@ describe("Chief of Staff context", () => {
         await ok("tasks_create", { title: "Return library books", dueDate: addDays(today(), -3) });
         await ok("knowledge_create_daily_note", { text: "Feeling on top of things" });
         const context = await ok<{
-            checked: { tasks: boolean; knowledge: boolean };
+            checked: { tasks: boolean; knowledge: boolean; calendar: boolean };
             notChecked: string[];
+            calendar: { events: { count: number }; failingSubscriptions: unknown[] };
             tasks: {
                 today: string;
                 dueToday: { count: number; tasks: TaskOut[] };
@@ -436,8 +454,12 @@ describe("Chief of Staff context", () => {
             };
             knowledge: { dailyNote: { exists: boolean; content: string } };
         }>("chief_of_staff_daily_context");
-        expect(context.checked).toEqual({ tasks: true, knowledge: true });
-        expect(context.notChecked).toContain("calendar");
+        // Calendar is read now (Milestone 6); email and unsubscribed external calendars still never are.
+        expect(context.checked).toEqual({ tasks: true, knowledge: true, calendar: true });
+        expect(context.notChecked).toContain("email");
+        expect(context.notChecked).not.toContain("calendar");
+        expect(context.calendar.events.count).toBe(0);
+        expect(context.calendar.failingSubscriptions).toEqual([]);
         expect(context.tasks.today).toBe(today());
         expect(context.tasks.dueToday.count).toBe(1);
         expect(context.tasks.dueToday.tasks[0].title).toBe("Pay the electricity bill");

@@ -18,6 +18,7 @@ import type { PortalUser } from "../../src/shared/portal/types";
 import { addDays, localDate } from "../../src/shared/tasks/dates";
 import { EMPTY_FILTER } from "../../src/shared/tasks/filters";
 import type { TaskSummary } from "../../src/shared/tasks/types";
+import { calendarFacts } from "../calendar/chief";
 import type { Env } from "../env";
 import { spaceToday } from "../knowledge/daily";
 import { can } from "../portal/auth";
@@ -317,7 +318,35 @@ export async function briefingFacts(
             sections.push(section("decisions", "Meetings and decisions", [...meetings.items, ...decisions.items], meetings.count + decisions.count));
         }
     }
-    return { period, today, sections, checked: { tasks, knowledge } };
+    // Calendar and leave (facts from worker/calendar/chief.ts: private events are "Busy", sensitive ones "Private event").
+    const calendar = can(user, "calendar.use") && want.has("calendar");
+    if (calendar) {
+        const facts = await calendarFacts(db, user, site, kind === "daily" ? 1 : 7);
+        const items: BriefingItem[] = [
+            ...facts.events.items.map((e) => ({ id: e.id, title: e.title, url: e.url, kind: "event" as const, detail: e.when })),
+            ...facts.overlapping.map((o) => ({
+                id: `${o.first.id}+${o.second.id}`,
+                title: `Overlap: ${o.first.title} and ${o.second.title}`,
+                url: o.first.url,
+                kind: "event" as const,
+                detail: o.first.when,
+            })),
+            ...facts.importantDates.map((e) => ({ id: `date:${e.id}`, title: e.title, url: e.url, kind: "event" as const, detail: e.when })),
+            ...facts.plannedLeave.slice(0, 3).map((l) => ({ id: l.id, title: l.title, url: l.url, kind: "leave" as const, detail: `${l.when} (${l.status})` })),
+            ...facts.schoolHolidays.periods
+                .filter((p) => !p.leavePlanned)
+                .map((p) => ({ id: p.id, title: `${p.title}: no leave planned`, url: p.url, kind: "leave" as const, detail: p.when })),
+            ...facts.failingSubscriptions.map((s) => ({
+                id: s.id,
+                title: `Subscription failing: ${s.title}`,
+                url: s.url,
+                kind: "event" as const,
+                detail: s.error ?? undefined,
+            })),
+        ];
+        sections.push(section("calendar", BRIEFING_SECTION_LABELS.calendar, items, items.length));
+    }
+    return { period, today, sections, checked: { tasks, knowledge, calendar } };
 }
 
 // --- Recommendations -------------------------------------------------------------------------------
@@ -439,7 +468,7 @@ export async function getBriefing(
         period: facts.period,
         generatedAt: nowIso(),
         checked: facts.checked,
-        notChecked: NOT_CHECKED,
+        notChecked: facts.checked.calendar ? NOT_CHECKED.filter((s) => s !== "calendar") : NOT_CHECKED,
         sections: facts.sections,
         recommendations,
         changesSincePrevious: changes,

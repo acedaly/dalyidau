@@ -235,7 +235,7 @@ export interface BriefingItem {
     url: string;
     /** e.g. "Due today", "3 days overdue", "Health: at risk". */
     detail?: string;
-    kind: "task" | "project" | "goal" | "knowledge" | "routine";
+    kind: "task" | "project" | "goal" | "knowledge" | "routine" | "event" | "leave";
 }
 
 export interface BriefingFactSection {
@@ -256,7 +256,7 @@ export interface BriefingView {
     period: string;
     generatedAt: string;
     /** What was read, and what never was: a briefing never implies it looked at email or a calendar. */
-    checked: { tasks: boolean; knowledge: boolean };
+    checked: { tasks: boolean; knowledge: boolean; calendar?: boolean };
     notChecked: string[];
     sections: BriefingFactSection[];
     recommendations: { status: "off" | "not_requested" | "ready" | "unavailable" | "budget"; items: Recommendation[]; model: string | null };
