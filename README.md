@@ -79,3 +79,4 @@ docs/                Setup, deployment and operations
 - [Staging](docs/STAGING.md): the separate staging environment and how to set it up
 - [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md): the private knowledge application at `/portal/knowledge`: access model, content format, search, history and roadmap
 - [Daly Tasks & Projects](docs/TASKS_PROJECTS.md): personal and shared tasks and projects at `/portal/tasks`: access model, repeats, Knowledge links, API, export and roadmap
+- [Daly MCP gateway](docs/MCP.md): Tasks and Knowledge for Claude, ChatGPT and Codex through `mcp.daly.id.au`: trust model, tools, audit, client set-up, deployment and rollback

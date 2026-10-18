@@ -32,6 +32,11 @@ export interface Env {
     ACCESS_DEV_EMAIL?: string;
     /** Local development only: a second identity, chosen with the portal_dev_identity=alt cookie (browser tests). */
     ACCESS_DEV_ALT_EMAIL?: string;
+    /**
+     * AUD tag of the separate Access application in front of mcp.daly.id.au (the MCP gateway).
+     * PortalMcpEntrypoint accepts only tokens for this audience; without it every MCP call is refused.
+     */
+    MCP_ACCESS_AUD?: string;
     /** Tests only, ignored in production: a JWKS document to verify Access tokens against. */
     ACCESS_TEST_JWKS?: string;
     /** Email delivery provider: "fastmail", "smtp", "smtp2go", "cloudflare", or "log" (development only). */
