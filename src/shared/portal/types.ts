@@ -8,6 +8,7 @@ import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
 import type { ImportHistoryEntry } from "./guest-import";
 import type { Permission, Role } from "./permissions";
+import type { PortalSettingsTab } from "./settings-sections";
 import type { FollowUpReason, RsvpTravel } from "./travel";
 
 export interface PortalUser {
@@ -810,6 +811,18 @@ export interface PortalContext {
     environment: string;
 }
 
+/** Shown in Portal settings → Integrations & Security. Never secrets, addresses or AUD tags. */
+export interface PortalIntegrations {
+    /** Provider names, or null when none is configured. */
+    email: string | null;
+    sms: string | null;
+    webhooks: boolean;
+    /** The MCP gateway's Access audience is set, so AI assistants can connect. */
+    mcp: boolean;
+    /** Subscribed calendar addresses are encrypted at rest. */
+    calendarEncryption: boolean;
+}
+
 export type PortalRoute =
     | { route: "portal-home"; applications: ApplicationId[] }
     | { route: "dashboard"; stats: DashboardStats; widgets: DashboardWidget[] }
@@ -891,12 +904,14 @@ export type PortalRoute =
           events: WeddingEvent[];
           rsvp: RsvpSettings;
       }
-    | { route: "wedding-settings"; tab: "general" | "features" | "fields"; customFields: CustomField[] }
+    | { route: "wedding-settings"; tab: "general" | "fields"; customFields: CustomField[] }
     | {
           route: "portal-settings";
-          tab: "general" | "people" | "privacy";
+          tab: PortalSettingsTab;
           users: PortalUserRecord[] | null;
           privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
+          /** What's configured on the Worker, as names and yes/no only. Owners and admins only. */
+          integrations: PortalIntegrations | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
     | KnowledgeRoute

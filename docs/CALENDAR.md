@@ -241,8 +241,8 @@ Nothing here has been run against a remote database or deployed.
 5. Open `/portal/calendar` as each owner. Each gets a default calendar on first visit. Set up leave from a payslip. Create a shared household calendar and add the other owner.
 6. **Optional configuration** (owner's choice; none is needed for the core app):
     - `npx wrangler secret put CALENDAR_ENCRYPTION_KEY --env=""` (e.g. `openssl rand -base64 48`) to encrypt subscription addresses. Set it before adding subscriptions, or they're encrypted at their next refresh.
-    - Wedding settings → Features (where the portal's switches live) → **Calendar subscription addresses** (`calendar.feeds`) to serve private feeds. Off by default because anyone with an address can read it.
-    - Wedding settings → Features (where the portal's switches live) → **Calendar reminder emails** (`calendar.reminders.email`), plus the existing `EMAIL_DELIVERY` secrets. Off by default; send yourself a test reminder first.
+    - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar subscription addresses** (`calendar.feeds`) to serve private feeds. Off by default because anyone with an address can read it.
+    - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar reminder emails** (`calendar.reminders.email`), plus the existing `EMAIL_DELIVERY` secrets. Off by default; send yourself a test reminder first.
 7. **MCP**: the gateway is deployed by hand only (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`), after the portal Worker is live with 0022. It changes code only (Worker `dalyhub-mcp`). Follow [MCP_CUTOVER.md](MCP_CUTOVER.md).
 8. No DNS, `routes` or Access changes. `/calendar/feed/*` is a path on the existing domain outside the Access application's `portal` and `api/portal` paths. That's intended: calendar apps can't sign in, and the token is the credential.
 

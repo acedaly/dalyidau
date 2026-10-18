@@ -2,7 +2,7 @@
 
 How to send every guest communication from Wedding Planner: what each one is for, how to choose who gets it, how to check it and how to send it safely. Provider set-up (Fastmail, ClickSend, secrets) is in [COMMUNICATIONS.md](COMMUNICATIONS.md).
 
-**Nothing is sent until you choose Send on a checked draft**, and only when that channel's switch is on (Wedding settings → Features) and its provider is configured on the Worker. Generating invitations, preparing drafts, previewing, printing and exporting never send anything.
+**Nothing is sent until you choose Send on a checked draft**, and only when that channel's switch is on (Portal settings → Features) and its provider is configured on the Worker. Generating invitations, preparing drafts, previewing, printing and exporting never send anything.
 
 ---
 

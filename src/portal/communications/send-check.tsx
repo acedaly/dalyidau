@@ -61,7 +61,7 @@ export const SendCheck = ({
             </div>
             {!preflight.deliveryAvailable && (
                 <Notice color="brand" title={`${preflight.channel === "sms" ? "SMS" : "Email"} delivery is off`}>
-                    Nothing can be sent until an owner sets up the provider and switches it on in Wedding settings → Features. Tests to the approved test
+                    Nothing can be sent until an owner sets up the provider and switches it on in Portal settings → Features. Tests to the approved test
                     recipients still work once a provider is configured.
                 </Notice>
             )}

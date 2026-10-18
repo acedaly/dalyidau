@@ -33,7 +33,7 @@ const Row = ({
                     <>
                         Provider: <span className="font-medium text-secondary">{provider}</span>
                         {from && <> · From {from}</>}
-                        {!on && <> · Turn on “{flagLabel}” in Wedding settings → Features when you're ready.</>}
+                        {!on && <> · Turn on “{flagLabel}” in Portal settings → Features when you're ready.</>}
                     </>
                 ) : (
                     "No provider is configured on the Worker, so nothing can be sent. See docs/COMMUNICATIONS.md."

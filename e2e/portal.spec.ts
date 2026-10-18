@@ -52,6 +52,10 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/wedding/website",
         "/portal/wedding/settings",
         "/portal/settings",
+        "/portal/settings/access",
+        "/portal/settings/features",
+        "/portal/settings/calendar",
+        "/portal/settings/security",
         "/portal/settings/privacy",
         "/portal/audit",
     ]) {

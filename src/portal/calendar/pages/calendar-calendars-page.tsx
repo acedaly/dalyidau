@@ -27,6 +27,7 @@ import {
     type CalendarRole,
     type FeedScope,
 } from "@/shared/calendar/types";
+import { featuresHref } from "@/shared/portal/settings-sections";
 import { calendarApi } from "../api";
 import { CalendarHeader, Card, ColorDot, ColorPicker, download } from "../shared";
 
@@ -403,8 +404,11 @@ export const CalendarCalendarsPage = ({ data }: { data: PageData<"calendar-calen
             >
                 {!data.switches.feeds && (
                     <Notice color="warning" title="Subscription addresses are switched off">
-                        You can create addresses now, but they answer “not found” until an owner turns on <strong>Calendar subscription addresses</strong> in
-                        Wedding settings → Features (where the portal's switches live).
+                        You can create addresses now, but they answer “not found” until an owner turns on <strong>Calendar subscription addresses</strong> in{" "}
+                        <a href={featuresHref("calendar")} className="font-semibold underline underline-offset-2 outline-focus-ring focus-visible:outline-2">
+                            Portal settings → Features
+                        </a>
+                        .
                     </Notice>
                 )}
                 {address && (

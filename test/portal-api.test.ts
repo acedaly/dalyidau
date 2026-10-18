@@ -331,10 +331,14 @@ describe("portal pages", () => {
         "/portal/wedding/suppliers",
         "/portal/wedding/website",
         "/portal/wedding/settings",
-        "/portal/wedding/settings/features",
         "/portal/wedding/settings/fields",
         "/portal/settings",
-        "/portal/settings/people",
+        "/portal/settings/access",
+        "/portal/settings/features",
+        "/portal/settings/calendar",
+        "/portal/settings/tasks",
+        "/portal/settings/knowledge",
+        "/portal/settings/security",
         "/portal/settings/privacy",
         "/portal/audit",
         "/portal/wedding/website/preview",
@@ -365,12 +369,16 @@ describe("portal pages", () => {
         expect((await call("/portal/wedding/nope", { token })).status).toBe(404);
     });
 
-    it("keeps old wedding settings links working through the new application route", async () => {
+    it("keeps old settings links working: custom fields in Wedding Planner, features and people in Portal settings", async () => {
         const token = await accessToken();
-        for (const tab of ["features", "fields"]) {
-            const response = await call(`/portal/settings/${tab}`, { token });
-            expect(response.status).toBe(302);
-            expect(response.headers.get("Location")).toBe(`${ORIGIN}/portal/wedding/settings/${tab}`);
+        for (const [from, to] of [
+            ["/portal/settings/fields", "/portal/wedding/settings/fields"],
+            ["/portal/wedding/settings/features", "/portal/settings/features#features-wedding"],
+            ["/portal/settings/people", "/portal/settings/access"],
+        ]) {
+            const response = await call(from, { token });
+            expect(response.status, from).toBe(302);
+            expect(response.headers.get("Location")).toBe(`${ORIGIN}${to}`);
             expect(response.headers.get("Cache-Control")).toBe("no-store");
         }
     });

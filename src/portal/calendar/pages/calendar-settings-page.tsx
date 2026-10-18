@@ -1,5 +1,6 @@
-// Calendar settings: time zone and display, overlays, reminders and notifications, one-time ICS
-// import, exports and a portable backup with restore.
+// Calendar settings: time zone and display, overlays, reminders and notifications, the state of the
+// portal's Calendar switches (changed in Portal settings → Features), one-time ICS import, exports
+// and a portable backup with restore.
 import { useState } from "react";
 import { Download01, Upload01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
@@ -9,6 +10,7 @@ import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
+import { SwitchSummary } from "@/portal/settings/switch-summary";
 import type { CalendarPreferences } from "@/shared/calendar/types";
 import { calendarApi } from "../api";
 import { CalendarHeader, Card, REMINDER_CHOICES, TIME_ZONES, download } from "../shared";
@@ -186,6 +188,12 @@ export const CalendarSettingsPage = ({ data }: { data: PageData<"calendar-settin
                             </Notice>
                         )}
                     </div>
+                </Card>
+                <Card
+                    title="Subscription addresses and reminder emails"
+                    description="Two switches for the whole portal. Your own choices above still apply; these decide whether private subscription addresses answer and whether Calendar can email at all."
+                >
+                    <SwitchSummary area="calendar" />
                 </Card>
                 <Card
                     title="Import an ICS file"
