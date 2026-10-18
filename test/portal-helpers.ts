@@ -117,6 +117,11 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "task_import_items",
+    "task_import_batches",
+    "task_templates",
+    "task_recurrence_exceptions",
+    "task_view_preferences",
     "task_reminders",
     "task_knowledge_links",
     "task_comments",

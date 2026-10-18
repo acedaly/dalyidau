@@ -4,13 +4,14 @@
 // to save it on top or discard it. Subtasks, repeats, reminders, Knowledge references, comments
 // and history are all here, in that order.
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen01, Copy06, Link01, Plus, Repeat04, SearchLg, Target04, Trash01, XClose } from "@untitledui/icons";
+import { BookOpen01, CalendarDate, Copy06, File06, Link01, Mail01, Plus, Repeat04, SearchLg, Target04, Trash01, XClose } from "@untitledui/icons";
 import { FeedItem } from "@/components/application/activity-feed/activity-feed";
 import { Dialog, Modal, ModalOverlay, SlideoutMenu } from "@/components/application/slideout-menus/slideout-menu";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
+import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { PortalDialog } from "@/portal/components/dialog";
@@ -92,6 +93,7 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
     const [comment, setComment] = useState("");
     const [addingSubtask, setAddingSubtask] = useState(false);
     const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+    const [templateName, setTemplateName] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -297,14 +299,26 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
                         )}
                     </Field>
                     <Field label="Due">
-                        <DateMenu
-                            label="Due date"
-                            value={task.dueDate}
-                            time={task.dueTime}
-                            isDisabled={!editable}
-                            clearLabel={task.recurrence ? "No date (stops repeating)" : "No date"}
-                            onChange={(dueDate) => void save(dueDate ? { dueDate } : { dueDate: null, dueTime: null, recurrence: null })}
-                        />
+                        {task.recurrence ? (
+                            // A repeating task asks whether the change is for this occurrence or the series.
+                            <Button
+                                size="sm"
+                                color="secondary"
+                                iconLeading={CalendarDate}
+                                isDisabled={!editable || done}
+                                onClick={() => actions.reschedule(task)}
+                            >
+                                {task.dueDate ? relativeDate(task.dueDate, today) : "No date"}
+                            </Button>
+                        ) : (
+                            <DateMenu
+                                label="Due date"
+                                value={task.dueDate}
+                                time={task.dueTime}
+                                isDisabled={!editable}
+                                onChange={(dueDate) => void save(dueDate ? { dueDate } : { dueDate: null, dueTime: null })}
+                            />
+                        )}
                         {task.dueDate && (
                             <Input
                                 aria-label="Due time"
@@ -381,6 +395,15 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
                         ) : null
                     }
                 >
+                    {detail.subtasks.length > 0 && (
+                        <ProgressBar
+                            value={detail.subtasks.filter((s) => s.status === "completed").length}
+                            max={detail.subtasks.length}
+                            labelPosition="right"
+                            valueFormatter={(value) => `${value} of ${detail.subtasks.length}`}
+                            aria-label="Subtasks done"
+                        />
+                    )}
                     {detail.subtasks.length > 0 && (
                         <ul aria-label="Subtasks" className="-mt-1">
                             {detail.subtasks.map((sub) => (
@@ -545,6 +568,30 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
                     )}
                 </Section>
 
+                <Divider />
+                <Section title="Details">
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                        <dt className="text-tertiary">Created</dt>
+                        <dd className="text-secondary">
+                            {formatDateTime(task.createdAt, shell.preferences.timeZone)} by {personLabel(task.createdBy, people)}
+                        </dd>
+                        <dt className="text-tertiary">Last changed</dt>
+                        <dd className="text-secondary">
+                            {formatDateTime(task.updatedAt, shell.preferences.timeZone)} by {personLabel(task.updatedBy, people)}
+                        </dd>
+                        {task.completedAt && (
+                            <>
+                                <dt className="text-tertiary">Completed</dt>
+                                <dd className="text-secondary">
+                                    {formatDateTime(task.completedAt, shell.preferences.timeZone)}
+                                    {task.completedBy ? ` by ${personLabel(task.completedBy, people)}` : ""}
+                                    {task.dueDate ? ` · was due ${shortDate(task.dueDate)}` : ""}
+                                </dd>
+                            </>
+                        )}
+                    </dl>
+                </Section>
+
                 {(detail.completions.length > 0 || detail.activity.length > 0) && (
                     <>
                         <Divider />
@@ -597,6 +644,9 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
                     <Button size="sm" color="tertiary" iconLeading={Copy06} onClick={() => void actions.duplicate(task)}>
                         Duplicate
                     </Button>
+                    <Button size="sm" color="tertiary" iconLeading={File06} onClick={() => setTemplateName(task.title.slice(0, 120))}>
+                        Save as template
+                    </Button>
                     <Button
                         size="sm"
                         className="ml-auto"
@@ -612,6 +662,34 @@ const PanelBody = ({ taskId, onClose }: { taskId: string; onClose: () => void })
                 </SlideoutMenu.Footer>
             )}
             {actions.dialogs}
+            <PortalDialog
+                isOpen={templateName !== null}
+                onOpenChange={(open) => !open && setTemplateName(null)}
+                title="Save as a template"
+                icon={File06}
+                description="The task's title, description, priority and labels, with its subtasks as the checklist. Only you will see it."
+                onSubmit={async () => {
+                    try {
+                        await tasksApi.saveAsTemplate(task.id, templateName!.trim());
+                        toast.show({
+                            title: "Template saved",
+                            description: templateName!,
+                            color: "success",
+                            action: { label: "Templates", run: () => window.location.assign("/portal/tasks/templates") },
+                        });
+                        setTemplateName(null);
+                    } catch (error) {
+                        toast.error("Couldn't save it", errorMessage(error));
+                    }
+                }}
+                footer={
+                    <Button type="submit" size="md" isDisabled={!templateName?.trim()}>
+                        Save template
+                    </Button>
+                }
+            >
+                <Input label="Template name" value={templateName ?? ""} onChange={setTemplateName} autoFocus />
+            </PortalDialog>
         </>
     );
 };
@@ -632,7 +710,7 @@ const Reminders = ({ detail, onChange }: { detail: TaskDetail; onChange: (remind
     return (
         <Section title="Reminders">
             <p className="text-sm text-tertiary">
-                Shown here in Tasks when it's time, on any device where Tasks is open. There are no email or phone notifications yet.
+                Shown here in Tasks when it's time, on any device where Tasks is open, and emailed to you if you've turned on email reminders in Settings.
             </p>
             {detail.reminders.length > 0 && (
                 <ul className="flex flex-col gap-2">
@@ -644,6 +722,12 @@ const Reminders = ({ detail, onChange }: { detail: TaskDetail; onChange: (remind
                                     <span className="text-tertiary"> · {r.offsetMinutes ? `${r.offsetMinutes} min before` : "at the due time"}</span>
                                 )}
                                 {r.dismissedAt && <span className="text-tertiary"> · done</span>}
+                                {r.deliveryStatus === "sent" && (
+                                    <span className="text-tertiary">
+                                        {" "}
+                                        · <Mail01 aria-hidden="true" className="inline size-3.5" /> emailed
+                                    </span>
+                                )}
                             </span>
                             <ButtonUtility
                                 size="xs"

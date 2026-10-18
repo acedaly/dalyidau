@@ -1,23 +1,35 @@
-// Search, Activity and Settings (preferences and export).
+// Search, Activity and Settings (preferences, reminders, import from Todoist and export).
 import { useState } from "react";
-import { Activity, Download01, Folder, SearchLg, Settings01 } from "@untitledui/icons";
+import { Activity, Download01, Folder, SearchLg } from "@untitledui/icons";
 import { FeedItem } from "@/components/application/activity-feed/activity-feed";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { Empty } from "@/portal/components/empty";
+import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { downloadExport } from "@/portal/knowledge/shared";
 import { errorMessage } from "@/portal/lib/api";
 import { formatDateTime, formatRelative, initials } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
-import { PRIORITIES, PRIORITY_LABELS, type Priority, type TaskActivityEntry } from "@/shared/tasks/types";
+import { usePortal } from "@/portal/portal-context";
+import {
+    LANDING_PAGES,
+    type LandingPage,
+    PRIORITIES,
+    PRIORITY_LABELS,
+    type Priority,
+    type TaskActivityEntry,
+    type TaskPreferences,
+} from "@/shared/tasks/types";
 import { activitySentence, takesTitle } from "../activity-text";
 import { projectHref, taskHref, tasksApi } from "../api";
 import { ProjectDot, personLabel } from "../shared";
 import { TaskList } from "../task-list";
 import { useTasks } from "../tasks-context";
 import { TasksHeader, TasksLayout } from "../tasks-layout";
+import { TodoistImport } from "../todoist-import";
 import { useLiveList } from "../use-live-list";
 import { useTaskActions } from "../use-task-actions";
 
@@ -201,17 +213,28 @@ const SettingsBody = ({ data }: { data: PageData<"tasks-settings"> }) => {
     const toast = useToast();
     const [timeZone, setTimeZone] = useState(data.preferences.timeZone);
     const [todayPriority, setTodayPriority] = useState<Priority | null>(data.preferences.todayPriority);
+    const [prefs, setPrefs] = useState<TaskPreferences>(data.preferences);
+    const { isOn } = usePortal();
     const [busy, setBusy] = useState<string | null>(null);
     const zones = ZONES.includes(timeZone) ? ZONES : [timeZone, ...ZONES];
 
     const savePrefs = async (body: Parameters<typeof tasksApi.preferences>[0]) => {
         try {
-            await tasksApi.preferences(body);
+            setPrefs((await tasksApi.preferences(body)).preferences);
             toast.success("Saved");
         } catch (error) {
             toast.error("Couldn't save that", errorMessage(error));
         }
     };
+    const LANDING_LABELS: Record<LandingPage, string> = { today: "Today", upcoming: "Upcoming", inbox: "Inbox", mine: "All my tasks" };
+    const REMINDER_OFFSETS = [
+        { id: "none", label: "No reminder" },
+        { id: "0", label: "At the due time (9 am if there's no time)" },
+        { id: "15", label: "15 minutes before" },
+        { id: "30", label: "30 minutes before" },
+        { id: "60", label: "1 hour before" },
+        { id: "1440", label: "1 day before" },
+    ];
     const exportAs = async (format: "json" | "csv", scope: "all" | "personal") => {
         setBusy(`${format}-${scope}`);
         try {
@@ -320,11 +343,96 @@ const SettingsBody = ({ data }: { data: PageData<"tasks-settings"> }) => {
                 </Card>
                 <Card
                     title="Reminders"
-                    description="Reminders appear in Tasks when they're due, on any device where Tasks is open. There are no email, SMS or phone notifications yet."
+                    description="Reminders appear in Tasks when they're due, on any device where Tasks is open. They can also be emailed to you, even when Tasks isn't open. Only your own reminders are ever sent to you, and an email carries the task's title, date, priority and project, never its description, comments or linked Knowledge."
                 >
-                    <span className="inline-flex items-center gap-2 text-sm text-tertiary">
-                        <Settings01 aria-hidden="true" className="size-4" /> Nothing to set up.
-                    </span>
+                    {!isOn("tasks.reminders.email") && (
+                        <Notice title="Email reminders aren't switched on for the portal" color="gray">
+                            A portal owner can turn on “Task reminder emails” in Portal settings → Features once an email provider is set up. Until then, your
+                            choice is saved and reminders appear in the app only.
+                        </Notice>
+                    )}
+                    <Toggle
+                        size="sm"
+                        className="w-full"
+                        label="Reminders"
+                        hint="Off: no reminders at all, in the app or by email."
+                        isSelected={prefs.remindersEnabled}
+                        onChange={(remindersEnabled) => void savePrefs({ remindersEnabled })}
+                    />
+                    <Toggle
+                        size="sm"
+                        className="w-full"
+                        label="Email my reminders to me"
+                        hint="Sent within about 15 minutes of the reminder time. Rarely, a reminder may arrive twice if delivery was interrupted."
+                        isSelected={prefs.reminderEmail}
+                        isDisabled={!prefs.remindersEnabled}
+                        onChange={(reminderEmail) => void savePrefs({ reminderEmail })}
+                    />
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <Select
+                            label="New dated tasks get a reminder"
+                            size="sm"
+                            value={prefs.defaultReminderMinutes === null ? "none" : String(prefs.defaultReminderMinutes)}
+                            onChange={(key) => key && void savePrefs({ defaultReminderMinutes: key === "none" ? null : Number(key) })}
+                            items={REMINDER_OFFSETS}
+                        >
+                            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                        </Select>
+                        <Input
+                            label="Quiet hours from"
+                            type="time"
+                            size="sm"
+                            value={prefs.quietStart ?? ""}
+                            onChange={(quietStart) => setPrefs((p) => ({ ...p, quietStart: quietStart || null }))}
+                            onBlur={() =>
+                                !!prefs.quietStart === !!prefs.quietEnd ? void savePrefs({ quietStart: prefs.quietStart, quietEnd: prefs.quietEnd }) : undefined
+                            }
+                        />
+                        <Input
+                            label="Until"
+                            type="time"
+                            size="sm"
+                            value={prefs.quietEnd ?? ""}
+                            hint="Emails due then are sent when quiet hours end."
+                            onChange={(quietEnd) => setPrefs((p) => ({ ...p, quietEnd: quietEnd || null }))}
+                            onBlur={() =>
+                                !!prefs.quietStart === !!prefs.quietEnd ? void savePrefs({ quietStart: prefs.quietStart, quietEnd: prefs.quietEnd }) : undefined
+                            }
+                        />
+                    </div>
+                    <p className="text-xs text-tertiary">Browser and phone notifications aren't available yet.</p>
+                </Card>
+                <Card title="First page" description="Which page opens when you go to Tasks.">
+                    <Select
+                        aria-label="First page"
+                        size="sm"
+                        className="w-full sm:w-72"
+                        value={prefs.landingPage}
+                        onChange={(key) => key && void savePrefs({ landingPage: key as LandingPage })}
+                        items={LANDING_PAGES.map((p) => ({ id: p, label: LANDING_LABELS[p] }))}
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
+                </Card>
+                <Card
+                    title="Import from Todoist"
+                    description="Bring your Todoist projects across: export each project as CSV in Todoist (or download a backup zip from Todoist's settings) and choose the files here. You'll see exactly what will happen before anything is imported, and importing the same files again never makes copies."
+                >
+                    <TodoistImport />
+                    {data.imports.length > 0 && (
+                        <details className="text-sm">
+                            <summary className="cursor-pointer font-medium text-secondary">Earlier imports ({data.imports.length})</summary>
+                            <ul className="mt-2 flex flex-col gap-1 text-tertiary">
+                                {data.imports.map((i) => (
+                                    <li key={i.id}>
+                                        {formatDateTime(i.createdAt, data.preferences.timeZone)} ·{" "}
+                                        {i.status === "completed" ? "finished" : i.status === "failed" ? "stopped part-way" : "in progress"}
+                                        {i.summary ? ` · ${i.summary.tasksCreated} tasks added, ${i.summary.tasksUpdated} updated` : ""}
+                                    </li>
+                                ))}
+                            </ul>
+                        </details>
+                    )}
                 </Card>
             </div>
         </>

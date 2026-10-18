@@ -1,3 +1,4 @@
+import { Plus } from "@untitledui/icons";
 import { ToastProvider } from "@/portal/components/toast";
 import { KnowledgeCollectionPage } from "@/portal/knowledge/pages/knowledge-collection-page";
 import { KnowledgeCollectionsPage } from "@/portal/knowledge/pages/knowledge-collections-page";
@@ -36,15 +37,19 @@ import { TasksPage } from "@/portal/pages/tasks-page";
 import { TextsPage } from "@/portal/pages/texts-page";
 import { TimelinePage } from "@/portal/pages/timeline-page";
 import { WebsitePage } from "@/portal/pages/website-page";
-import { PortalProvider } from "@/portal/portal-context";
+import { PortalProvider, usePortal } from "@/portal/portal-context";
+import { GlobalQuickAdd } from "@/portal/tasks/global-quick-add";
 import { TasksCompletedPage } from "@/portal/tasks/pages/tasks-completed-page";
 import { TasksFiltersPage } from "@/portal/tasks/pages/tasks-filters-page";
 import { TasksLabelsPage } from "@/portal/tasks/pages/tasks-labels-page";
+import { TasksMinePage } from "@/portal/tasks/pages/tasks-mine-page";
 import { TasksActivityPage, TasksSearchPage, TasksSettingsPage } from "@/portal/tasks/pages/tasks-misc-pages";
 import { TasksProjectPage } from "@/portal/tasks/pages/tasks-project-page";
 import { TasksProjectsPage } from "@/portal/tasks/pages/tasks-projects-page";
+import { TasksTemplatesPage } from "@/portal/tasks/pages/tasks-templates-page";
 import { TasksUpcomingPage } from "@/portal/tasks/pages/tasks-upcoming-page";
 import { TasksViewPage } from "@/portal/tasks/pages/tasks-view-page";
+import { requestQuickAdd } from "@/portal/tasks/quick-add-events";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
 
@@ -123,7 +128,11 @@ const Page = ({ data }: { data: PortalPageData }) => {
         case "tasks-view":
             return <TasksViewPage key={data.view} data={data} />;
         case "tasks-upcoming":
-            return <TasksUpcomingPage data={data} />;
+            return <TasksUpcomingPage key={`${data.mode}:${data.from}`} data={data} />;
+        case "tasks-mine":
+            return <TasksMinePage data={data} />;
+        case "tasks-templates":
+            return <TasksTemplatesPage data={data} />;
         case "tasks-completed":
             return <TasksCompletedPage data={data} />;
         case "tasks-project":
@@ -173,6 +182,30 @@ const extraNavigation = (data: PortalPageData): ExtraNavSection[] => {
     ];
 };
 
+/**
+ * Quick Add for Tasks from anywhere in the portal. Tasks pages have their own (with the page's
+ * defaults); every other page gets the portal-wide one. On phones a floating button opens it.
+ */
+const TasksCapture = ({ data }: { data: PortalPageData }) => {
+    const { can } = usePortal();
+    if (!can("tasks.use")) return null;
+    const knowledge = data.route === "knowledge-object" && can("knowledge.use") ? { id: data.detail.object.id, title: data.detail.object.title } : null;
+    return (
+        <>
+            {!data.route.startsWith("tasks-") && <GlobalQuickAdd knowledge={knowledge} />}
+            <button
+                type="button"
+                onClick={requestQuickAdd}
+                aria-label="Add task"
+                aria-keyshortcuts="Q"
+                className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 flex size-14 cursor-pointer items-center justify-center rounded-full bg-brand-solid text-white shadow-lg outline-focus-ring transition duration-100 ease-linear hover:bg-brand-solid_hover focus-visible:outline-2 focus-visible:outline-offset-2 lg:hidden print:hidden [body:has([data-bulk-bar])_&]:hidden"
+            >
+                <Plus aria-hidden="true" className="size-6" />
+            </button>
+        </>
+    );
+};
+
 export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }) => (
     <ThemeProvider>
         <PortalProvider value={data.context}>
@@ -197,9 +230,12 @@ export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }
                             <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8 lg:pt-8 lg:pb-12 print:max-w-none print:p-0">
                                 <Page data={data} />
                             </div>
+                            {/* Room for the floating Add task button on phones. */}
+                            <div aria-hidden="true" className="h-16 lg:hidden" />
                         </div>
                     </main>
                 </div>
+                <TasksCapture data={data} />
             </ToastProvider>
         </PortalProvider>
     </ThemeProvider>
