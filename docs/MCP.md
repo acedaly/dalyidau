@@ -61,7 +61,7 @@ The gateway has no database, storage, queue or Durable Object binding (`test/mcp
 
 ## Tools
 
-Thirty-six tools: the 31 the gateway moved with, plus five for projects (October 2026, [below](#daly-tasks-projects)). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
+Forty-six tools: the 31 the gateway moved with, five for projects (October 2026, [below](#daly-tasks-projects)) and ten for Daly Intelligence ([below](#daly-intelligence)). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
 
 ### Daly Knowledge
 
@@ -162,6 +162,10 @@ Ids come only from results, and nothing is reported as created until a result sa
 | `chief_of_staff_weekly_context` | The seven days ending `weekEnding`: completed occurrences, overdue, next 14 days and deadlines, project health, goals, routines, and Knowledge notes, meetings and decisions in the period                                                                                                                                 |
 
 Both are facts only, each with its id and link. `notChecked` names what's never read: calendar, email, and DalyHub, which is retired. There's no model call in either Worker.
+
+### Daly Intelligence
+
+Ten tools, described in [INTELLIGENCE.md](INTELLIGENCE.md#mcp): `knowledge_semantic_search`, `knowledge_find_related`, `intelligence_get_daily_briefing`, `intelligence_get_weekly_review`, `intelligence_list_suggestions`, `intelligence_get_processing_status` and `meetings_get_transcript` (reads), and `intelligence_capture_text`, `intelligence_request_analysis` and `intelligence_approve_suggestion` (writes, through the ledger; `0021` rebuilds `mcp_writes` so a capture or suggestion can be the recorded outcome). Captures only ever create suggestions; applying one needs `intelligence_approve_suggestion` for a suggestion the person explicitly approved, which runs the same code as the portal's Approve button. All need `intelligence.use`; with Intelligence switched off they say so. Reading a briefing never runs a model.
 
 ### Deliberately absent
 
