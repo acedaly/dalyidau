@@ -1,32 +1,107 @@
-// daly.id.au — personal site and Capacities-powered blog.
-// Production deploys from GitHub Actions (see .github/workflows/deploy.yml).
 {
-    "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "dalyidau",
-    "main": "worker/index.ts",
-    "compatibility_date": "2026-10-01",
-    "tsconfig": "tsconfig.worker.json",
-    "keep_vars": false,
-    "minify": true,
-    "define": { "process.env.NODE_ENV": "\"production\"" },
-    "assets": {
-        "directory": "dist/client",
-        "binding": "ASSETS",
-        "html_handling": "none",
-        "not_found_handling": "none",
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dalyidau",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "tsconfig": "tsconfig.worker.json",
+  "keep_vars": false,
+  "minify": true,
+  "define": {
+    "process.env.NODE_ENV": "\"production\""
+  },
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dalyidau-production",
+      "database_id": "a003fec1-8404-4468-a23f-de5fb202bc57",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "dalyidau-media"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SITE_URL": "https://daly.id.au",
+    "WEDDING_URL": "https://wedding.daly.id.au",
+    "CAPACITIES_API_BASE": "https://api.capacities.io",
+    "CAPACITIES_STRUCTURE_NAME": "Blog Post",
+    "SYNC_MAX_REQUESTS": "40",
+    "SYNC_REQUEST_SPACING_MS": "2100",
+    "IMAGE_TRANSFORMS": "off",
+    "EMAIL_DELIVERY": "fastmail",
+    "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
+    "EMAIL_REPLY_TO": "wedding@daly.id.au",
+    "SMS_DELIVERY": "clicksend",
+    "AI_GATEWAY_ID": "daly-intelligence"
+  },
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "daly.id.au",
+      "custom_domain": true
     },
-    "d1_databases": [
+    {
+      "pattern": "www.daly.id.au",
+      "custom_domain": true
+    },
+    {
+      "pattern": "wedding.daly.id.au",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  },
+  "env": {
+    "staging": {
+      "name": "dalyidau-staging",
+      "workers_dev": true,
+      "routes": [],
+      "define": {
+        "process.env.NODE_ENV": "\"production\""
+      },
+      "d1_databases": [
         {
-            "binding": "DB",
-            "database_name": "dalyidau-production",
-            "database_id": "a003fec1-8404-4468-a23f-de5fb202bc57",
-            "migrations_dir": "migrations",
-        },
-    ],
-    "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "dalyidau-media" }],
-    "triggers": { "crons": ["*/15 * * * *"] },
-    "vars": {
-        "ENVIRONMENT": "production",
+          "binding": "DB",
+          "database_name": "dalyidau-staging",
+          "database_id": "a88696eb-3621-4dcb-ac9f-a907a9cd9c06",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "dalyidau-media-staging"
+        }
+      ],
+      "triggers": {
+        "crons": []
+      },
+      "vars": {
+        "ENVIRONMENT": "staging",
         "SITE_URL": "https://daly.id.au",
         "WEDDING_URL": "https://wedding.daly.id.au",
         "CAPACITIES_API_BASE": "https://api.capacities.io",
@@ -34,72 +109,40 @@
         "SYNC_MAX_REQUESTS": "40",
         "SYNC_REQUEST_SPACING_MS": "2100",
         "IMAGE_TRANSFORMS": "off",
-        // The portal's email and SMS providers. "off" means nothing is ever sent (docs/COMMUNICATIONS.md).
-        "EMAIL_DELIVERY": "fastmail",
+        "EMAIL_DELIVERY": "off",
         "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
         "EMAIL_REPLY_TO": "wedding@daly.id.au",
-        "SMS_DELIVERY": "clicksend",
-    },
-    // daly.id.au and www.daly.id.au are Custom Domains on this Worker (cut over 11 October 2026,
-    // see docs/DEPLOYMENT.md). The Worker 301s www to the apex. workers.dev stays on as a
-    // noindex preview host.
-    "workers_dev": true,
-    "routes": [
-        { "pattern": "daly.id.au", "custom_domain": true },
-        { "pattern": "www.daly.id.au", "custom_domain": true },
-        { "pattern": "wedding.daly.id.au", "custom_domain": true },
-    ],
-    "observability": {
+        "SMS_DELIVERY": "off"
+      },
+      "observability": {
         "enabled": true,
-        // RSVP invitation credentials arrive in the URL. Never retain them in request telemetry.
         "redact_query_string": true,
-        "logs": { "enabled": true },
-        "traces": { "enabled": true, "head_sampling_rate": 0.1 },
-    },
-    "env": {
-        "staging": {
-            "name": "dalyidau-staging",
-            "workers_dev": true,
-            // Named environments inherit top-level routes. Without this, deploying staging would move
-            // the production custom domains (daly.id.au, www.daly.id.au) to the staging Worker.
-            "routes": [],
-            "define": { "process.env.NODE_ENV": "\"production\"" },
-            "d1_databases": [
-                {
-                    "binding": "DB",
-                    "database_name": "dalyidau-staging",
-                    "database_id": "a88696eb-3621-4dcb-ac9f-a907a9cd9c06",
-                    "migrations_dir": "migrations",
-                },
-            ],
-            "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "dalyidau-media-staging" }],
-            // No cron on staging: sync it manually through /api/admin/sync.
-            "triggers": { "crons": [] },
-            "vars": {
-                "ENVIRONMENT": "staging",
-                // Replace with the staging workers.dev URL once it exists (docs/STAGING.md), so links
-                // in staging point at staging, not at the live site.
-                "SITE_URL": "https://daly.id.au",
-                // Staging has no wedding custom domain. Set this to "<staging workers.dev URL>/wedding"
-                // with SITE_URL (docs/STAGING.md). Until then staging refuses to make invitation links,
-                // so no staging QR code or email can point guests at the live site.
-                "WEDDING_URL": "https://wedding.daly.id.au",
-                "CAPACITIES_API_BASE": "https://api.capacities.io",
-                "CAPACITIES_STRUCTURE_NAME": "Blog Post",
-                "SYNC_MAX_REQUESTS": "40",
-                "SYNC_REQUEST_SPACING_MS": "2100",
-                "IMAGE_TRANSFORMS": "off",
-                "EMAIL_DELIVERY": "off",
-                "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
-                "EMAIL_REPLY_TO": "wedding@daly.id.au",
-                "SMS_DELIVERY": "off",
-            },
-            "observability": {
-                "enabled": true,
-                "redact_query_string": true,
-                "logs": { "enabled": true },
-                "traces": { "enabled": true, "head_sampling_rate": 0.1 },
-            },
+        "logs": {
+          "enabled": true
         },
-    },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 0.1
+        }
+      },
+      "ai": {
+        "binding": "AI"
+      },
+      "vectorize": [
+        {
+          "binding": "VECTORS",
+          "index_name": "daly-knowledge-staging"
+        }
+      ]
+    }
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORS",
+      "index_name": "daly-knowledge"
+    }
+  ]
 }
