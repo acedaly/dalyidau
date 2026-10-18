@@ -120,6 +120,19 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "ai_transcript_parts",
+    "ai_transcripts",
+    "ai_suggestions",
+    "ai_captures",
+    "ai_jobs",
+    "ai_usage",
+    "ai_alerts",
+    "ai_briefings",
+    "ai_semantic_index",
+    "ai_exclusions",
+    "ai_preferences",
+    "ai_config",
+    "attachments",
     "dalyhub_import_items",
     "dalyhub_import_runs",
     "mcp_writes",
@@ -210,8 +223,10 @@ export const resetPortal = async () => {
         "INSERT OR REPLACE INTO rsvp_questions (id, label, help, type, options, required, scope, audience, published, sort_order, created_at, updated_at) VALUES ('q_bus', 'Would you like a seat on the courtesy bus?', NULL, 'yes_no', '[]', 0, 'guest', 'all', 0, 100, '2026-10-12T00:00:00.000Z', '2026-10-12T00:00:00.000Z')",
     ).run();
     await testEnv.DB.prepare("DELETE FROM rsvp_questions WHERE id != 'q_bus'").run();
-    const listed = await testEnv.MEDIA.list({ prefix: "wedding/" });
-    for (const object of listed.objects) await testEnv.MEDIA.delete(object.key);
+    for (const prefix of ["wedding/", "private/"]) {
+        const listed = await testEnv.MEDIA.list({ prefix });
+        for (const object of listed.objects) await testEnv.MEDIA.delete(object.key);
+    }
 };
 
 export const auditActions = async () =>

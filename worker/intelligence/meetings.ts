@@ -112,7 +112,7 @@ export const id3Length = (bytes: Uint8Array) =>
 
 /** The first valid frame at or after `from`. */
 export function nextFrame(bytes: Uint8Array, from: number): number {
-    for (let i = Math.max(0, from); i < bytes.length - 4; i++) if (mp3FrameBitrate(bytes, i)) return i;
+    for (let i = Math.max(0, from); i <= bytes.length - 4; i++) if (mp3FrameBitrate(bytes, i)) return i;
     return -1;
 }
 
