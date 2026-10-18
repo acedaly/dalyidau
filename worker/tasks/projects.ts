@@ -9,6 +9,7 @@ import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types"
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { isCalendarDate } from "../../src/shared/tasks/dates";
+import { REVIEW_FREQUENCIES } from "../../src/shared/tasks/productivity";
 import { COLORS, LIMITS, PROJECT_ROLES, PROJECT_STATUSES, type TaskMember, type TaskProject, type TaskSection } from "../../src/shared/tasks/types";
 import type { Env } from "../env";
 import { isGuardFailure, newId, nowIso, requireChange } from "../portal/db";
@@ -29,7 +30,9 @@ interface ProjectRow {
     start_date: string | null;
     target_date: string | null;
     default_view: "list" | "board";
+    review_frequency: TaskProject["reviewFrequency"];
     version: number;
+    created_at: string;
     updated_at: string;
     role: TaskProject["role"];
     open_count: number;
@@ -49,14 +52,16 @@ const toProject = (r: ProjectRow): TaskProject => ({
     startDate: r.start_date,
     targetDate: r.target_date,
     defaultView: r.default_view,
+    reviewFrequency: r.review_frequency,
     role: r.role,
     version: r.version,
     counts: { open: r.open_count, completed: r.completed_count, overdue: r.overdue_count },
     memberCount: r.member_count,
+    createdAt: r.created_at,
     updatedAt: r.updated_at,
 });
 
-const PROJECT_COLUMNS = `p.id, p.name, p.description, p.color, p.kind, p.is_inbox, p.status, p.start_date, p.target_date, p.default_view, p.version, p.updated_at, m.role,
+const PROJECT_COLUMNS = `p.id, p.name, p.description, p.color, p.kind, p.is_inbox, p.status, p.start_date, p.target_date, p.default_view, p.review_frequency, p.version, p.created_at, p.updated_at, m.role,
     (SELECT COUNT(*) FROM task_items t WHERE t.project_id = p.id AND t.status = 'open') AS open_count,
     (SELECT COUNT(*) FROM task_items t WHERE t.project_id = p.id AND t.status = 'completed') AS completed_count,
     (SELECT COUNT(*) FROM task_items t WHERE t.project_id = p.id AND t.status = 'open' AND t.due_date < ?) AS overdue_count,
@@ -148,6 +153,7 @@ const updateInput = z
         startDate: optionalDate.optional(),
         targetDate: optionalDate.optional(),
         defaultView: projectFields.defaultView.optional(),
+        reviewFrequency: z.enum(REVIEW_FREQUENCIES).optional(),
         status: z.enum(PROJECT_STATUSES).optional(),
     })
     .strict();
@@ -177,6 +183,7 @@ export async function updateProject(db: D1Database, user: PortalUser, projectId:
         startDate: "start_date",
         targetDate: "target_date",
         defaultView: "default_view",
+        reviewFrequency: "review_frequency",
         status: "status",
     };
     for (const [key, column] of Object.entries(columns)) {
@@ -221,9 +228,23 @@ export async function setProjectKind(db: D1Database, user: PortalUser, projectId
     }
     const now = nowIso();
     await db.batch([
-        // A personal project has no assignees.
+        // A personal project has no assignees, nobody takes turns in it, and no shared goal can draw on it.
         ...(kind === "personal"
-            ? [db.prepare("UPDATE task_items SET assignee_email = NULL WHERE project_id = ? AND assignee_email IS NOT NULL").bind(projectId)]
+            ? [
+                  db.prepare("UPDATE task_items SET assignee_email = NULL WHERE project_id = ? AND assignee_email IS NOT NULL").bind(projectId),
+                  db
+                      .prepare(
+                          `DELETE FROM task_routine_participants WHERE routine_id IN (SELECT r.id FROM task_routines r JOIN task_items t ON t.id = r.task_id WHERE t.project_id = ?)`,
+                      )
+                      .bind(projectId),
+                  db.prepare("UPDATE task_routines SET rotation = 'none' WHERE task_id IN (SELECT id FROM task_items WHERE project_id = ?)").bind(projectId),
+                  db
+                      .prepare(
+                          `DELETE FROM task_goal_links WHERE goal_id IN (SELECT id FROM task_goals WHERE kind = 'shared')
+                           AND (project_id = ? OR task_id IN (SELECT id FROM task_items WHERE project_id = ?))`,
+                      )
+                      .bind(projectId, projectId),
+              ]
             : []),
         db
             .prepare("UPDATE task_projects SET kind = ?, version = version + 1, updated_by = ?, updated_at = ? WHERE id = ?")
@@ -312,6 +333,13 @@ const keepsAnOwner = (db: D1Database, projectId: string) =>
  */
 const loseAccessStatements = (db: D1Database, projectId: string, email: string, leaving: boolean): D1PreparedStatement[] => [
     db.prepare("UPDATE task_items SET assignee_email = NULL WHERE project_id = ? AND assignee_email = ?").bind(projectId, email),
+    // They no longer take turns on the project's routines either.
+    db
+        .prepare(
+            `DELETE FROM task_routine_participants WHERE email = ?
+             AND routine_id IN (SELECT r.id FROM task_routines r JOIN task_items t ON t.id = r.task_id WHERE t.project_id = ?)`,
+        )
+        .bind(email, projectId),
     ...(leaving
         ? [
               db

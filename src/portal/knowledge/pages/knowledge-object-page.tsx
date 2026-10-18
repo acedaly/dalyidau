@@ -34,13 +34,16 @@ import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
+import { usePortal } from "@/portal/portal-context";
 import { type DocNode, normaliseDocument } from "@/shared/knowledge/content";
+import { localDate } from "@/shared/knowledge/dates";
 import type { KnowledgeCollection, KnowledgeLink, KnowledgeRevision, KnowledgeRevisionDetail, KnowledgeType } from "@/shared/knowledge/types";
 import { roleAtLeast } from "@/shared/knowledge/types";
 import { useCreateObject } from "../knowledge-header";
 import { ObjectPicker } from "../object-picker";
 import { PropertyFields } from "../property-fields";
 import { RelatedKnowledge } from "../related-knowledge";
+import { RelatedTasks } from "../related-tasks";
 import { TypeIconFor, collectionHref, downloadExport, keepNotices, knowledgeApi, objectHref, spaceHref, takeNotices, titleOf } from "../shared";
 import { type SaveState, useObjectSaver } from "../use-object-saver";
 
@@ -246,6 +249,7 @@ const HistoryDialog = ({
 export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object"> }) => {
     const { space, types } = data;
     const toast = useToast();
+    const { can } = usePortal();
     const saver = useObjectSaver(data.detail);
     const { queue, flush } = saver;
     // An object page always starts with its object, so the saver always has one.
@@ -439,14 +443,16 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                             </Button>
                         )}
                         {!trashed && (
-                                <ButtonUtility
-                                    size="sm"
-                                    color={favourite ? "secondary" : "tertiary"}
-                                    icon={<Star01 data-icon className={favourite ? "size-4 fill-current text-fg-warning-secondary" : "size-4"} aria-hidden="true" />}
-                                    tooltip={favourite ? "Remove from favourites" : "Add to favourites"}
-                                    aria-pressed={favourite}
-                                    onClick={() => void toggleFavourite()}
-                                />
+                            <ButtonUtility
+                                size="sm"
+                                color={favourite ? "secondary" : "tertiary"}
+                                icon={
+                                    <Star01 data-icon className={favourite ? "size-4 fill-current text-fg-warning-secondary" : "size-4"} aria-hidden="true" />
+                                }
+                                tooltip={favourite ? "Remove from favourites" : "Add to favourites"}
+                                aria-pressed={favourite}
+                                onClick={() => void toggleFavourite()}
+                            />
                         )}
                         <Button size="sm" color="secondary" iconLeading={ClockRewind} onClick={() => setHistoryOpen(true)}>
                             History
@@ -470,12 +476,16 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                                     {editable && <Dropdown.Item id="template" icon={File06} label="Add a template…" />}
                                     <Dropdown.Item id="export-md" icon={Download01} label="Export as Markdown" />
                                     <Dropdown.Item id="export-json" icon={Download01} label="Export as JSON (with history)" />
-                                    {roleAtLeast(space.role, "editor") && object.status === "active" && <Dropdown.Item id="archive" icon={Archive} label="Archive" />}
+                                    {roleAtLeast(space.role, "editor") && object.status === "active" && (
+                                        <Dropdown.Item id="archive" icon={Archive} label="Archive" />
+                                    )}
                                     {roleAtLeast(space.role, "editor") && object.status === "archived" && (
                                         <Dropdown.Item id="unarchive" icon={Archive} label="Unarchive" />
                                     )}
                                     {roleAtLeast(space.role, "editor") && !trashed && <Dropdown.Item id="trash" icon={Trash01} label="Move to trash" />}
-                                    {roleAtLeast(space.role, "editor") && trashed && <Dropdown.Item id="restore" icon={RefreshCcw01} label="Restore from trash" />}
+                                    {roleAtLeast(space.role, "editor") && trashed && (
+                                        <Dropdown.Item id="restore" icon={RefreshCcw01} label="Restore from trash" />
+                                    )}
                                     {trashed && space.role === "owner" && <Dropdown.Item id="delete" icon={Trash01} label="Delete permanently…" />}
                                 </Dropdown.Menu>
                             </Dropdown.Popover>
@@ -734,7 +744,13 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                         title="Collections"
                         actions={
                             editable && (
-                                <ButtonUtility size="xs" color="tertiary" icon={FolderPlus} tooltip="Add to a collection" onClick={() => void openCollections()} />
+                                <ButtonUtility
+                                    size="xs"
+                                    color="tertiary"
+                                    icon={FolderPlus}
+                                    tooltip="Add to a collection"
+                                    onClick={() => void openCollections()}
+                                />
                             )
                         }
                     >
@@ -765,6 +781,8 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                             <p className="text-sm text-tertiary">Not in a collection.</p>
                         )}
                     </Section>
+
+                    {!trashed && can("tasks.use") && <RelatedTasks objectId={object.id} today={localDate(new Date(), space.timeZone)} />}
 
                     {!trashed && <RelatedKnowledge objectId={object.id} types={types} />}
 

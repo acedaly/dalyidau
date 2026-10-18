@@ -3,15 +3,23 @@
  * unanswered remainder as the empty track. Both pairs were checked with the dataviz palette
  * validator: they pass every check, with a colour-blind separation (ΔE ≈ 7) that relies on the
  * direct labels, legend and 2px gaps the charts always draw.
+ *
+ * Tasks reports show completions as two stacked series, on time and late (--chart-done and
+ * --chart-late), validated the same way: light #7f56d9/#c2410c and dark #9e77ed/#ea580c pass all
+ * checks (CVD ΔE ≈ 29). Dark mode steps the brand to 500 because 400 is outside the lightness band.
  */
 :root {
     --chart-attending: #15803d;
     --chart-declined: #c2410c;
     --chart-series: var(--color-brand-600);
+    --chart-done: var(--color-brand-600);
+    --chart-late: #c2410c;
 }
 
 .dark-mode {
     --chart-attending: #16a34a;
     --chart-declined: #ea580c;
     --chart-series: var(--color-brand-400);
+    --chart-done: var(--color-brand-500);
+    --chart-late: #ea580c;
 }

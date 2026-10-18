@@ -34,6 +34,17 @@ const ACTIONS: Record<string, string> = {
     "task.from_template": "added from a template",
     "project.import": "imported the project from Todoist",
     "tasks.import": "imported tasks from Todoist",
+    "project.health": "set the project's status",
+    "project.knowledge.link": "linked Knowledge to the project",
+    "project.knowledge.unlink": "removed a Knowledge link from the project",
+    "review.start": "started a review",
+    "review.complete": "completed a review",
+    "review.discard": "discarded a review draft",
+    "routine.create": "made a routine of",
+    "routine.update": "changed who's responsible for",
+    "routine.pause": "paused the routine",
+    "routine.resume": "resumed the routine",
+    "routine.delete": "stopped treating as a routine",
 };
 
 const FIELD_NAMES: Record<string, string> = {
@@ -67,6 +78,9 @@ export function activitySentence(entry: TaskActivityEntry, today: string): strin
         return what ? `changed ${what}` : "edited";
     }
     if (entry.action === "task.complete" && entry.changes?.next) return `completed an occurrence (next ${relativeDate(String(entry.changes.next), today)})`;
+    if (entry.action === "project.health")
+        return entry.changes?.health ? `set the project's status to ${String(entry.changes.health).replace(/_/g, " ")}` : "went back to the calculated status";
+    if (entry.action === "review.complete" && entry.changes?.health) return `completed a review (${String(entry.changes.health).replace(/_/g, " ")})`;
     if (entry.action === "tasks.import" && typeof entry.changes?.count === "number")
         return `imported ${entry.changes.count} task${entry.changes.count === 1 ? "" : "s"} from Todoist`;
     if (entry.action === "task.occurrence" && entry.changes?.occurrence) {
@@ -84,5 +98,6 @@ export function activitySentence(entry: TaskActivityEntry, today: string): strin
 
 /** Whether the sentence is followed by the task's title ("completed “Pay rent”"). */
 export const takesTitle = (action: string) =>
-    !["project.", "member.", "section.", "task.move_in", "task.move_out", "task.delete", "tasks.import"].some((prefix) => action.startsWith(prefix)) &&
-    !action.startsWith("subtask.");
+    !["project.", "member.", "section.", "review.", "task.move_in", "task.move_out", "task.delete", "tasks.import"].some((prefix) =>
+        action.startsWith(prefix),
+    ) && !action.startsWith("subtask.");

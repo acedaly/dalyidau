@@ -410,7 +410,8 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url }) => loadTasksPage(env, user, url, "home"),
     },
     {
-        pattern: /^\/portal\/tasks\/(inbox|today|upcoming|overdue|mine|completed|projects|labels|filters|search|activity|settings|templates)$/,
+        pattern:
+            /^\/portal\/tasks\/(inbox|today|upcoming|overdue|mine|completed|projects|labels|filters|search|activity|settings|templates|dashboard|goals|routines|workload|reports)$/,
         title: "Tasks",
         application: "tasks",
         load: ({ env, user, url, match }) => loadTasksPage(env, user, url, match[1] as TasksPage),
@@ -420,6 +421,12 @@ const PAGES: PageDef[] = [
         title: "Project",
         application: "tasks",
         load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "project", match[1]),
+    },
+    {
+        pattern: /^\/portal\/tasks\/goals\/(tgl_[a-z0-9]{14})$/,
+        title: "Goal",
+        application: "tasks",
+        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "goal", match[1]),
     },
     {
         pattern: /^\/portal\/tasks\/t\/(tsk_[a-z0-9]{14})$/,

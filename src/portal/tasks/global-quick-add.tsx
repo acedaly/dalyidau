@@ -13,8 +13,16 @@ import { errorMessage } from "@/portal/lib/api";
 import type { TasksShell } from "@/shared/tasks/types";
 import { taskHref, tasksApi } from "./api";
 import { QuickAddForm } from "./quick-add";
-import { QUICK_ADD_EVENT } from "./quick-add-events";
-import { TasksProvider } from "./tasks-context";
+import { QUICK_ADD_EVENT, TASK_CREATED_EVENT } from "./quick-add-events";
+import { TasksProvider, useTaskChanges } from "./tasks-context";
+
+/** Tells the page a task was created (see TASK_CREATED_EVENT). */
+const AnnounceCreated = () => {
+    useTaskChanges((change) => {
+        if (change.type === "created") window.dispatchEvent(new CustomEvent(TASK_CREATED_EVENT, { detail: { id: change.task.id } }));
+    });
+    return null;
+};
 
 let cached: Promise<TasksShell> | null = null;
 
@@ -54,6 +62,7 @@ export const GlobalQuickAdd = ({ knowledge }: { knowledge?: { id: string; title:
                 </Notice>
             ) : shell ? (
                 <TasksProvider shell={shell} syncUrl={false}>
+                    <AnnounceCreated />
                     <QuickAddForm
                         defaults={knowledge ? { knowledge } : {}}
                         onSaved={() => setOpen(false)}

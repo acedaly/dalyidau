@@ -214,6 +214,29 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        // Milestone 3: a goal is reached only through its members, so it must always have an owner.
+        name: "Every goal has an owner, and personal goals only their owner",
+        sql: "SELECT g.id FROM task_goals g WHERE NOT EXISTS (SELECT 1 FROM task_goal_members m WHERE m.goal_id = g.id AND m.role = 'owner') OR (g.kind = 'personal' AND (SELECT COUNT(*) FROM task_goal_members m WHERE m.goal_id = g.id) <> 1) LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Triggers refuse these on insert; a project made personal since would be removed from shared goals by the Worker.
+        name: "Shared goals draw only on shared projects",
+        sql: "SELECT l.id FROM task_goal_links l JOIN task_goals g ON g.id = l.goal_id AND g.kind = 'shared' LEFT JOIN task_projects p ON p.id = l.project_id LEFT JOIN task_items t ON t.id = l.task_id LEFT JOIN task_projects tp ON tp.id = t.project_id WHERE p.kind = 'personal' OR tp.kind = 'personal' LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Routines are built on repeating top-level tasks",
+        sql: "SELECT r.id FROM task_routines r JOIN task_items t ON t.id = r.task_id WHERE t.recurrence_json IS NULL OR t.parent_id IS NOT NULL LIMIT 20",
+        level: "warn",
+    },
+    {
+        // Leaving a project, or being made a viewer, removes someone from its routines' turns in the same batch.
+        name: "People taking turns can be assigned in the routine's project",
+        sql: "SELECT rp.routine_id FROM task_routine_participants rp JOIN task_routines r ON r.id = rp.routine_id JOIN task_items t ON t.id = r.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = rp.email AND m.role <> 'viewer' WHERE m.email IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
@@ -269,4 +292,23 @@ export const TABLES = [
     "knowledge_favourites",
     "knowledge_saved_views",
     "knowledge_templates",
+    // Daly Tasks (0015–0017): counted before the export and compared after the test restore.
+    "task_projects",
+    "task_project_members",
+    "task_sections",
+    "task_items",
+    "task_completions",
+    "task_comments",
+    "task_knowledge_links",
+    "task_reminders",
+    "task_templates",
+    "task_project_reviews",
+    "task_project_knowledge_links",
+    "task_goals",
+    "task_goal_members",
+    "task_goal_links",
+    "task_goal_milestones",
+    "task_goal_progress",
+    "task_routines",
+    "task_routine_participants",
 ];

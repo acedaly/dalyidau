@@ -6,7 +6,7 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates) and every Daly Tasks table (0015, 0016).
+//    templates) and every Daly Tasks table (0015, 0016, 0017).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -117,6 +117,44 @@ INSERT INTO task_templates (id, owner_email, name, title, subtasks_json, created
 INSERT INTO task_import_batches (id, owner_email, source, file_fingerprint, status, options_json, created_at) VALUES ('tib_backuptest0001', 'owner@example.com', 'todoist_csv', 'abc', 'completed', '{}', '${NOW}');
 INSERT INTO task_import_items (owner_email, source, kind, source_key, target_id, batch_id, imported_version, content_hash, created_at) VALUES ('owner@example.com', 'todoist', 'task', 'k1', 'tsk_backuptest0001', 'tib_backuptest0001', 1, 'h', '${NOW}');
 `;
+// Daly Tasks Milestone 3 (0017): health override and review frequency, a completed review with a
+// next action, a project Knowledge link, a shared goal with members, links, a milestone and history,
+// a routine whose people take turns, and dashboard preferences.
+const TASKS_M3 = `
+UPDATE task_projects SET review_frequency = 'fortnightly', health_override = 'on_track', health_note = 'Waiting on the nursery', health_set_by = 'owner@example.com', health_set_at = '${NOW}' WHERE id = 'tpj_backuptest0002';
+INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, due_date, recurrence_json, assignee_email, position, created_by, updated_by, created_at, updated_at) VALUES
+  ('tsk_backuptest0003', 'tpj_backuptest0002', NULL, NULL, 0, 'Put the bins out', '2026-10-21', '{"freq":"weekly","interval":1,"basis":"scheduled","anchor":"2026-10-21","weekdays":[3]}', 'partner@example.com', 2, 'x', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_completions (task_id, kind, occurrence_date, next_date, at, by) VALUES ('tsk_backuptest0003', 'completed', '2026-10-14', '2026-10-21', '${NOW}', 'owner@example.com');
+INSERT INTO task_project_reviews (id, project_id, status, note, health, snapshot_json, started_by, started_at, completed_by, completed_at, updated_at) VALUES
+  ('trv_backuptest0001', 'tpj_backuptest0002', 'completed', 'Roses nearly done', 'on_track', '{"open":3,"completed":1,"overdue":0,"completedSince":1,"unassigned":0,"undated":0,"health":"on_track"}', 'owner@example.com', '${NOW}', 'owner@example.com', '${NOW}', '${NOW}');
+INSERT INTO task_review_actions (review_id, task_id, created_at) VALUES ('trv_backuptest0001', 'tsk_backuptest0001', '${NOW}');
+INSERT INTO task_project_knowledge_links (id, project_id, object_id, added_by, added_at) VALUES ('tpk_backuptest0001', 'tpj_backuptest0002', 'kob_backuptest0003', 'x', '${NOW}');
+INSERT INTO task_goals (id, kind, title, status, progress_mode, unit, start_value, target_value, current_value, target_date, created_by, updated_by, created_at, updated_at) VALUES
+  ('tgl_backuptest0001', 'shared', 'Holiday fund', 'in_progress', 'manual', '$', 0, 5000, 1250, '2027-06-30', 'x', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_goal_members (goal_id, email, role, added_by, created_at) VALUES
+  ('tgl_backuptest0001', 'owner@example.com', 'owner', 'x', '${NOW}'),
+  ('tgl_backuptest0001', 'partner@example.com', 'editor', 'x', '${NOW}');
+INSERT INTO task_goal_links (id, goal_id, project_id, added_by, added_at) VALUES ('tgk_backuptest0001', 'tgl_backuptest0001', 'tpj_backuptest0002', 'x', '${NOW}');
+INSERT INTO task_goal_links (id, goal_id, object_id, added_by, added_at) VALUES ('tgk_backuptest0002', 'tgl_backuptest0001', 'kob_backuptest0003', 'x', '${NOW}');
+INSERT INTO task_goal_milestones (id, goal_id, title, target_date, done_at, done_by, position, created_by, created_at) VALUES ('tgm_backuptest0001', 'tgl_backuptest0001', 'First $1,000', '2026-12-01', '${NOW}', 'x', 1, 'x', '${NOW}');
+INSERT INTO task_goal_progress (goal_id, kind, value, note, at, by) VALUES ('tgl_backuptest0001', 'value', 1250, 'Tax refund', '${NOW}', 'owner@example.com');
+INSERT INTO task_routines (id, task_id, rotation, created_by, created_at, updated_at) VALUES ('trt_backuptest0001', 'tsk_backuptest0003', 'turns', 'x', '${NOW}', '${NOW}');
+INSERT INTO task_routine_participants (routine_id, email, position) VALUES ('trt_backuptest0001', 'owner@example.com', 0), ('trt_backuptest0001', 'partner@example.com', 1);
+INSERT INTO task_dashboard_preferences (email, prefs_json, updated_at) VALUES ('owner@example.com', '{"tab":"household","hidden":["goals"]}', '${NOW}');
+`;
+const TASK_M3_TABLES = [
+    "task_project_reviews",
+    "task_review_actions",
+    "task_project_knowledge_links",
+    "task_goals",
+    "task_goal_members",
+    "task_goal_links",
+    "task_goal_milestones",
+    "task_goal_progress",
+    "task_routines",
+    "task_routine_participants",
+    "task_dashboard_preferences",
+];
 const TASK_TABLES = [
     "task_preferences",
     "task_projects",
@@ -192,9 +230,10 @@ try {
     );
 
     run(TASKS);
+    run(TASKS_M3);
     report.check(
-        TASK_TABLES.every((t) => count(t) > 0),
-        "Every Tasks table has rows",
+        [...TASK_TABLES, ...TASK_M3_TABLES].every((t) => count(t) > 0),
+        "Every Tasks table has rows (Milestones 1–3)",
         "A Tasks table is empty",
     );
 
@@ -230,6 +269,7 @@ try {
             "knowledge_revisions",
             ...M3_TABLES,
             ...TASK_TABLES,
+            ...TASK_M3_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(
@@ -317,6 +357,46 @@ try {
             ),
             "The restored copy still refuses a second task with the same request id",
             "The restored copy accepted a duplicate request id",
+        );
+        // Milestone 3 (0017): reviews, goals, routines, health and their rules.
+        report.check(
+            query("SELECT review_frequency, health_override FROM task_projects WHERE id = 'tpj_backuptest0002'", restored)[0]?.health_override === "on_track" &&
+                query("SELECT snapshot_json FROM task_project_reviews WHERE id = 'trv_backuptest0001'", restored)[0]?.snapshot_json?.includes(
+                    '"completedSince":1',
+                ) &&
+                query("SELECT task_id FROM task_review_actions", restored)[0]?.task_id === "tsk_backuptest0001",
+            "Project health, review history and next actions restore intact",
+            "Health, reviews or next actions were lost",
+        );
+        report.check(
+            query("SELECT current_value, target_value FROM task_goals WHERE id = 'tgl_backuptest0001'", restored)[0]?.current_value === 1250 &&
+                query("SELECT COUNT(*) AS n FROM task_goal_links WHERE goal_id = 'tgl_backuptest0001'", restored)[0]?.n === 2 &&
+                query("SELECT note FROM task_goal_progress WHERE goal_id = 'tgl_backuptest0001'", restored)[0]?.note === "Tax refund",
+            "Goal progress, links, milestones and history restore intact",
+            "Goal data was lost",
+        );
+        report.check(
+            query(
+                "SELECT group_concat(email, ',') AS people FROM (SELECT email FROM task_routine_participants WHERE routine_id = 'trt_backuptest0001' ORDER BY position)",
+                restored,
+            )[0]?.people === "owner@example.com,partner@example.com" &&
+                query("SELECT rotation FROM task_routines WHERE id = 'trt_backuptest0001'", restored)[0]?.rotation === "turns" &&
+                query("SELECT COUNT(*) AS n FROM task_completions WHERE task_id = 'tsk_backuptest0003'", restored)[0]?.n === 1,
+            "Routines, their turn order and completion history restore intact",
+            "Routine data was lost",
+        );
+        report.check(
+            refuses(
+                "INSERT INTO task_routines (id, task_id, created_by, created_at, updated_at) VALUES ('trt_backuptest0009', 'tsk_backuptest0003', 'x', 'x', 'x');",
+            ) &&
+                refuses(
+                    "INSERT INTO task_project_reviews (id, project_id, status, started_by, started_at, updated_at) VALUES ('trv_a', 'tpj_backuptest0002', 'draft', 'x', 'x', 'x'), ('trv_b', 'tpj_backuptest0002', 'draft', 'x', 'x', 'x');",
+                ) &&
+                refuses(
+                    "INSERT INTO task_goal_links (id, goal_id, project_id, added_by, added_at) VALUES ('tgk_x', 'tgl_backuptest0001', 'tpj_backuptest0001', 'x', 'x');",
+                ),
+            "The restored copy still allows one routine per task, one draft review per project, and no personal projects in shared goals",
+            "A Milestone 3 rule was lost in the restored copy",
         );
     }
 } catch (error) {

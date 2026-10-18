@@ -40,15 +40,20 @@ import { WebsitePage } from "@/portal/pages/website-page";
 import { PortalProvider, usePortal } from "@/portal/portal-context";
 import { GlobalQuickAdd } from "@/portal/tasks/global-quick-add";
 import { TasksCompletedPage } from "@/portal/tasks/pages/tasks-completed-page";
+import { TasksDashboardPage } from "@/portal/tasks/pages/tasks-dashboard-page";
 import { TasksFiltersPage } from "@/portal/tasks/pages/tasks-filters-page";
+import { TasksGoalPage, TasksGoalsPage } from "@/portal/tasks/pages/tasks-goals-page";
 import { TasksLabelsPage } from "@/portal/tasks/pages/tasks-labels-page";
 import { TasksMinePage } from "@/portal/tasks/pages/tasks-mine-page";
 import { TasksActivityPage, TasksSearchPage, TasksSettingsPage } from "@/portal/tasks/pages/tasks-misc-pages";
 import { TasksProjectPage } from "@/portal/tasks/pages/tasks-project-page";
 import { TasksProjectsPage } from "@/portal/tasks/pages/tasks-projects-page";
+import { TasksReportsPage } from "@/portal/tasks/pages/tasks-reports-page";
+import { TasksRoutinesPage } from "@/portal/tasks/pages/tasks-routines-page";
 import { TasksTemplatesPage } from "@/portal/tasks/pages/tasks-templates-page";
 import { TasksUpcomingPage } from "@/portal/tasks/pages/tasks-upcoming-page";
 import { TasksViewPage } from "@/portal/tasks/pages/tasks-view-page";
+import { TasksWorkloadPage } from "@/portal/tasks/pages/tasks-workload-page";
 import { requestQuickAdd } from "@/portal/tasks/quick-add-events";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
@@ -149,6 +154,18 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <TasksActivityPage data={data} />;
         case "tasks-settings":
             return <TasksSettingsPage data={data} />;
+        case "tasks-dashboard":
+            return <TasksDashboardPage data={data} />;
+        case "tasks-goals":
+            return <TasksGoalsPage data={data} />;
+        case "tasks-goal":
+            return <TasksGoalPage key={data.detail.goal.id} data={data} />;
+        case "tasks-routines":
+            return <TasksRoutinesPage data={data} />;
+        case "tasks-workload":
+            return <TasksWorkloadPage data={data} />;
+        case "tasks-reports":
+            return <TasksReportsPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:

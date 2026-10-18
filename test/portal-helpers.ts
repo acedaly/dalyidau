@@ -117,6 +117,17 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "task_dashboard_preferences",
+    "task_routine_participants",
+    "task_routines",
+    "task_goal_progress",
+    "task_goal_milestones",
+    "task_goal_links",
+    "task_goal_members",
+    "task_goals",
+    "task_review_actions",
+    "task_project_reviews",
+    "task_project_knowledge_links",
     "task_import_items",
     "task_import_batches",
     "task_templates",

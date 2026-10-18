@@ -14,6 +14,7 @@ import { useToast } from "@/portal/components/toast";
 import { ApiError, errorMessage } from "@/portal/lib/api";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
+import { REVIEW_FREQUENCIES, REVIEW_FREQUENCY_LABELS, type ReviewFrequency } from "@/shared/tasks/productivity";
 import {
     COLORS,
     COLOR_LABELS,
@@ -158,6 +159,7 @@ export const EditProjectDialog = ({
     const [targetDate, setTargetDate] = useState(project.targetDate);
     const [status, setStatus] = useState(project.status);
     const [defaultView, setDefaultView] = useState(project.defaultView);
+    const [reviewFrequency, setReviewFrequency] = useState<ReviewFrequency>(project.reviewFrequency);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isOwner = project.role === "owner";
     return (
@@ -176,6 +178,7 @@ export const EditProjectDialog = ({
                             startDate,
                             targetDate,
                             defaultView,
+                            ...(project.isInbox ? {} : { reviewFrequency }),
                             ...(isOwner && !project.isInbox && status !== project.status ? { status } : {}),
                         });
                         onSaved(saved);
@@ -221,6 +224,18 @@ export const EditProjectDialog = ({
                         onChange={(key) => key && setStatus(key as TaskProject["status"])}
                         items={PROJECT_STATUSES.map((s) => ({ id: s, label: PROJECT_STATUS_LABELS[s] }))}
                         hint="Archived projects are read-only and hidden from everyday lists."
+                    >
+                        {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                    </Select>
+                )}
+                {!project.isInbox && (
+                    <Select
+                        label="Review"
+                        size="sm"
+                        value={reviewFrequency}
+                        onChange={(key) => key && setReviewFrequency(key as ReviewFrequency)}
+                        items={REVIEW_FREQUENCIES.map((f) => ({ id: f, label: REVIEW_FREQUENCY_LABELS[f] }))}
+                        hint="When a review is due it shows on the dashboard and the project's health."
                     >
                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                     </Select>

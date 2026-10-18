@@ -4,7 +4,7 @@
 // to save it on top or discard it. Subtasks, repeats, reminders, Knowledge references, comments
 // and history are all here, in that order.
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen01, CalendarDate, Copy06, File06, Link01, Mail01, Plus, Repeat04, SearchLg, Target04, Trash01, XClose } from "@untitledui/icons";
+import { BookOpen01, CalendarDate, Copy06, File06, Link01, Mail01, Plus, Repeat04, Target04, Trash01, XClose } from "@untitledui/icons";
 import { FeedItem } from "@/components/application/activity-feed/activity-feed";
 import { Dialog, Modal, ModalOverlay, SlideoutMenu } from "@/components/application/slideout-menus/slideout-menu";
 import { Badge } from "@/components/base/badges/badges";
@@ -18,14 +18,14 @@ import { PortalDialog } from "@/portal/components/dialog";
 import { Skeleton } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
-import { ApiError, api, errorMessage } from "@/portal/lib/api";
+import { ApiError, errorMessage } from "@/portal/lib/api";
 import { formatDateTime, formatRelative, initials } from "@/portal/lib/format";
-import type { KnowledgeSearchHit } from "@/shared/knowledge/types";
 import { relativeDate, shortDate } from "@/shared/tasks/dates";
 import { describeRule } from "@/shared/tasks/recurrence";
 import { LIMITS, type Priority, type TaskDetail } from "@/shared/tasks/types";
 import { activitySentence } from "./activity-text";
 import { type TaskFields, tasksApi } from "./api";
+import { KnowledgeLinkDialog } from "./knowledge-link-dialog";
 import { AssigneePicker, DateMenu, LabelPicker, PriorityPicker, ProjectPicker, SectionPicker } from "./pickers";
 import { InlineAdd } from "./quick-add";
 import { RecurrenceEditor } from "./recurrence-editor";
@@ -760,47 +760,5 @@ const Reminders = ({ detail, onChange }: { detail: TaskDetail; onChange: (remind
                 )}
             </div>
         </Section>
-    );
-};
-
-/** Find a Knowledge object to link, using Knowledge's own search: only the caller's spaces are ever searched. */
-const KnowledgeLinkDialog = ({ onClose, onPick }: { onClose: () => void; onPick: (objectId: string) => void }) => {
-    const [query, setQuery] = useState("");
-    const [hits, setHits] = useState<KnowledgeSearchHit[]>([]);
-    const [error, setError] = useState<string | null>(null);
-    useEffect(() => {
-        if (!query.trim()) return setHits([]);
-        const timer = window.setTimeout(() => {
-            api<{ hits: KnowledgeSearchHit[] }>("GET", `/api/portal/knowledge/search?q=${encodeURIComponent(query.trim())}&limit=20`)
-                .then((r) => (setHits(r.hits), setError(null)))
-                .catch((e) => setError(errorMessage(e)));
-        }, 150);
-        return () => window.clearTimeout(timer);
-    }, [query]);
-    return (
-        <PortalDialog
-            isOpen
-            onOpenChange={(open) => !open && onClose()}
-            title="Link Knowledge"
-            icon={BookOpen01}
-            description="Only you and people who can read it in Knowledge will see what it's called."
-        >
-            <Input aria-label="Search Knowledge" icon={SearchLg} placeholder="Search your Knowledge" value={query} onChange={setQuery} autoFocus />
-            {error && <p className="text-sm text-error-primary">{error}</p>}
-            <ul className="flex max-h-80 flex-col gap-1 overflow-y-auto pb-4">
-                {hits.map((hit) => (
-                    <li key={hit.object.id}>
-                        <button
-                            type="button"
-                            onClick={() => onPick(hit.object.id)}
-                            className="flex w-full cursor-pointer flex-col items-start rounded-md px-3 py-2 text-left outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
-                        >
-                            <span className="text-sm font-medium text-primary">{titleOf(hit.object.title)}</span>
-                        </button>
-                    </li>
-                ))}
-                {query.trim() && !hits.length && !error && <li className="px-3 py-2 text-sm text-tertiary">Nothing found.</li>}
-            </ul>
-        </PortalDialog>
     );
 };

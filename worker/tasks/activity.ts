@@ -16,7 +16,24 @@ export interface ActivityInput {
 }
 
 /** Fields whose values may go into the history. Anything else is recorded by name only. */
-const SAFE_VALUES = new Set(["priority", "dueDate", "dueTime", "deadline", "status", "assignee", "isMilestone", "occurrence", "next", "role", "count", "kind"]);
+const SAFE_VALUES = new Set([
+    "priority",
+    "dueDate",
+    "dueTime",
+    "deadline",
+    "status",
+    "assignee",
+    "isMilestone",
+    "occurrence",
+    "next",
+    "role",
+    "count",
+    "kind",
+    "health",
+    "frequency",
+    "rotation",
+    "paused",
+]);
 
 /** Keeps values only for SAFE_VALUES; every other changed field becomes `true`. */
 export const safeChanges = (changes: Record<string, unknown>) =>

@@ -17,13 +17,15 @@ import { likePattern } from "../portal/db";
 import { TASK_COLUMNS, type TaskRow, toSummary } from "./rows";
 import { exceptionsFor } from "./tasks";
 
-const MINE = `FROM task_items t
+export const MINE = `FROM task_items t
     JOIN task_project_members m ON m.project_id = t.project_id AND m.email = ?1
     JOIN task_projects p ON p.id = t.project_id`;
-const MY_DATED = `p.status = 'active' AND m.role <> 'viewer' AND (t.assignee_email IS NULL OR t.assignee_email = ?1) AND t.status = 'open'`;
-const DATE_ORDER = "ORDER BY t.due_date IS NULL, t.due_date, t.due_time IS NULL, t.due_time, t.priority, p.is_inbox DESC, t.position";
+// A paused routine (Milestone 3) keeps its task and date but stays out of the date views until it's resumed.
+export const NOT_PAUSED = "NOT EXISTS (SELECT 1 FROM task_routines r WHERE r.task_id = t.id AND r.paused_at IS NOT NULL)";
+export const MY_DATED = `p.status = 'active' AND m.role <> 'viewer' AND (t.assignee_email IS NULL OR t.assignee_email = ?1) AND t.status = 'open' AND ${NOT_PAUSED}`;
+export const DATE_ORDER = "ORDER BY t.due_date IS NULL, t.due_date, t.due_time IS NULL, t.due_time, t.priority, p.is_inbox DESC, t.position";
 
-const all = async (db: D1Database, sql: string, binds: unknown[]) =>
+export const all = async (db: D1Database, sql: string, binds: unknown[]) =>
     (
         await db
             .prepare(sql)
@@ -52,7 +54,7 @@ export const listOverdue = (db: D1Database, email: string, today: string) =>
     all(db, `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${MY_DATED} AND (t.due_date < ?2 OR t.deadline < ?2) ${DATE_ORDER} LIMIT 500`, [email, today]);
 
 /** Most projected repeats shown per task in Upcoming, however long the window. */
-const PROJECTION_LIMIT = 14;
+export const PROJECTION_LIMIT = 14;
 
 /**
  * How many tasks the caller completed today, in their own time zone: the "done" half of Today's
@@ -75,16 +77,21 @@ export async function completedToday(db: D1Database, email: string, today: strin
  * worked out on the fly (marked `projected`) rather than stored. A week or month that started
  * before today shows open tasks on their (past) dates, but never projects repeats into the past.
  */
-export async function listUpcoming(db: D1Database, email: string, from: string, to: string, today = from): Promise<TaskSummary[]> {
-    const tasks = await all(db, `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${MY_DATED} AND t.due_date BETWEEN ?2 AND ?3 ${DATE_ORDER} LIMIT 1000`, [
-        email,
-        from,
-        to,
-    ]);
+export async function listUpcoming(
+    db: D1Database,
+    email: string,
+    from: string,
+    to: string,
+    today = from,
+    /** Which tasks: by default the caller's own (MY_DATED); the workload view also asks for shared ones. Uses ?1 only. */
+    scope = MY_DATED,
+    projectionLimit = PROJECTION_LIMIT,
+): Promise<TaskSummary[]> {
+    const tasks = await all(db, `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${scope} AND t.due_date BETWEEN ?2 AND ?3 ${DATE_ORDER} LIMIT 1000`, [email, from, to]);
     // Repeating tasks due before the window also repeat inside it.
     const repeating = await all(
         db,
-        `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${MY_DATED} AND t.recurrence_json IS NOT NULL AND t.due_date <= ?2 ${DATE_ORDER} LIMIT 500`,
+        `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${scope} AND t.recurrence_json IS NOT NULL AND t.due_date <= ?2 ${DATE_ORDER} LIMIT 500`,
         [email, to],
     );
     const projected: TaskSummary[] = [];
@@ -97,7 +104,7 @@ export async function listUpcoming(db: D1Database, email: string, from: string, 
         if (!task.recurrence || !task.dueDate) continue;
         const start = from > today ? from : today;
         const after = task.dueDate < start ? addDays(start, -1) : task.dueDate;
-        for (const { date, seriesDate } of projectOccurrences(task.recurrence, after, to, PROJECTION_LIMIT, exceptions.get(task.id))) {
+        for (const { date, seriesDate } of projectOccurrences(task.recurrence, after, to, projectionLimit, exceptions.get(task.id))) {
             if (date === task.dueDate) continue;
             projected.push({ ...task, dueDate: date, projected: true, seriesDate });
         }

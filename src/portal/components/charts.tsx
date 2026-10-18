@@ -4,7 +4,7 @@
 // remainder left as the empty track), with a legend, direct labels and an accessible table, so it
 // server-renders and reads without colour. TrendChart uses Recharts with Untitled UI's chart tooltip
 // and renders after mount, because Recharts measures its container in the browser.
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartTooltipContent } from "@/components/application/charts/charts-base";
 import { Skeleton } from "@/portal/components/empty";
 import { useMounted } from "@/portal/hooks/use-mounted";
@@ -152,6 +152,90 @@ export const TrendChart = ({ points, label, caption }: { points: { date: string;
                         <tr key={p.date}>
                             <td>{formatDate(p.date)}</td>
                             <td>{p.value}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </figure>
+    );
+};
+
+export interface CompletionPoint {
+    /** First day of the period (YYYY-MM-DD). */
+    start: string;
+    label: string;
+    onTime: number;
+    late: number;
+}
+
+/**
+ * Completions per period, stacked: on time and late. Bars sit on the baseline with rounded tops and
+ * a 2px surface gap between the two segments; a legend names both series, the tooltip gives exact
+ * numbers, and an accessible table carries the same figures.
+ */
+export const CompletionBars = ({ points, caption }: { points: CompletionPoint[]; caption: string }) => {
+    const mounted = useMounted();
+    return (
+        <figure className="flex flex-col gap-3">
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-tertiary" aria-hidden="true">
+                <li className="flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full bg-(--chart-done)" /> On time or undated
+                </li>
+                <li className="flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full bg-(--chart-late)" /> After its due date
+                </li>
+            </ul>
+            <div className="h-56 w-full" aria-hidden="true">
+                {mounted ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -16 }} barCategoryGap="25%" accessibilityLayer={false}>
+                            <CartesianGrid vertical={false} stroke="var(--color-border-secondary)" />
+                            <XAxis
+                                dataKey="label"
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fontSize: 12, fill: "var(--color-text-tertiary)" }}
+                                minTickGap={12}
+                            />
+                            <YAxis
+                                allowDecimals={false}
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fontSize: 12, fill: "var(--color-text-tertiary)" }}
+                                width={48}
+                            />
+                            <Tooltip content={<ChartTooltipContent />} cursor={{ fill: "var(--color-bg-secondary)" }} />
+                            <Bar dataKey="onTime" name="On time" stackId="done" fill="var(--chart-done)" stroke="var(--color-bg-primary)" strokeWidth={2} />
+                            <Bar
+                                dataKey="late"
+                                name="Late"
+                                stackId="done"
+                                fill="var(--chart-late)"
+                                stroke="var(--color-bg-primary)"
+                                strokeWidth={2}
+                                radius={[4, 4, 0, 0]}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <Skeleton className="size-full" />
+                )}
+            </div>
+            <table className="sr-only">
+                <caption>{caption}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Period</th>
+                        <th scope="col">On time</th>
+                        <th scope="col">Late</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {points.map((p) => (
+                        <tr key={p.start}>
+                            <th scope="row">{p.label}</th>
+                            <td>{p.onTime}</td>
+                            <td>{p.late}</td>
                         </tr>
                     ))}
                 </tbody>

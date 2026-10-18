@@ -8,3 +8,9 @@ export const requestQuickAdd = () => window.dispatchEvent(new CustomEvent(QUICK_
 
 /** A random id for one Quick Add draft, so a retried save returns the task the first one created. */
 export const draftId = () => `qa-${crypto.randomUUID()}`;
+
+/**
+ * Sent by the portal-wide Quick Add after it creates a task, so a page outside Tasks (a Knowledge
+ * object's related tasks) can refresh what it shows without a page load. Carries the task's id only.
+ */
+export const TASK_CREATED_EVENT = "daly:tasks-created";

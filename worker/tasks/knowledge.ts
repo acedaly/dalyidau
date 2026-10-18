@@ -17,7 +17,7 @@ import { requireObject } from "../knowledge/access";
 import { can } from "../portal/auth";
 import { chunk, newId, nowIso, placeholders } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { notFound, requireTask, requireWritable } from "./access";
+import { notFound, requireProject, requireTask, requireWritable } from "./access";
 import { activity } from "./activity";
 import { TASK_COLUMNS, type TaskRow, toSummary } from "./rows";
 
@@ -103,7 +103,8 @@ export async function unlinkKnowledge(db: D1Database, user: PortalUser, taskId: 
  */
 export async function tasksForObject(db: D1Database, user: PortalUser, objectId: string): Promise<TaskSummary[]> {
     if (!can(user, "knowledge.use")) throw notFound();
-    await requireObject(db, user, objectId);
+    // A trashed object reads as unavailable from Tasks, so nothing is listed against it either.
+    if ((await requireObject(db, user, objectId)).status === "trashed") return [];
     const rows = await db
         .prepare(
             `SELECT ${TASK_COLUMNS} FROM task_knowledge_links l JOIN task_items t ON t.id = l.task_id
@@ -113,4 +114,115 @@ export async function tasksForObject(db: D1Database, user: PortalUser, objectId:
         .bind(user.email, objectId)
         .all<TaskRow>();
     return rows.results.map(toSummary);
+}
+
+// --- Projects ------------------------------------------------------------------------------------
+//
+// A project can reference Knowledge objects too (the Wedding Planning project → its planning notes),
+// with exactly the same rules as tasks: adding needs edit access to the project and read access to
+// the object in Knowledge; reading re-checks the reader's Knowledge membership every time; anyone
+// who can edit the project can remove one. No Knowledge data is copied into Tasks.
+
+interface ProjectReferenceRow {
+    id: string;
+    object_id: string;
+    title: string | null;
+    space_name: string | null;
+    available: number;
+}
+
+/** A project's own Knowledge references, as the caller may see them. The project's access is the caller's concern. */
+export async function projectKnowledgeReferences(db: D1Database, user: PortalUser, projectId: string): Promise<KnowledgeReference[]> {
+    const may = can(user, "knowledge.use") ? 1 : 0;
+    const rows = await db
+        .prepare(
+            `SELECT l.id, l.object_id,
+                    (km.email IS NOT NULL AND o.status <> 'trashed' AND ?1 = 1) AS available,
+                    CASE WHEN km.email IS NOT NULL AND o.status <> 'trashed' AND ?1 = 1 THEN o.title END AS title,
+                    CASE WHEN km.email IS NOT NULL AND o.status <> 'trashed' AND ?1 = 1 THEN s.name END AS space_name
+             FROM task_project_knowledge_links l
+             JOIN knowledge_objects o ON o.id = l.object_id
+             JOIN knowledge_spaces s ON s.id = o.space_id
+             LEFT JOIN knowledge_memberships km ON km.space_id = o.space_id AND km.email = ?2
+             WHERE l.project_id = ?3 ORDER BY l.added_at LIMIT 50`,
+        )
+        .bind(may, user.email, projectId)
+        .all<ProjectReferenceRow>();
+    return rows.results.map((r) =>
+        r.available
+            ? { linkId: r.id, available: true, objectId: r.object_id, title: r.title || "Untitled", spaceName: r.space_name ?? "" }
+            : { linkId: r.id, available: false },
+    );
+}
+
+/** At most this many Knowledge references per project. */
+const PROJECT_LINK_LIMIT = 50;
+
+export async function linkProjectKnowledge(db: D1Database, user: PortalUser, projectId: string, input: unknown): Promise<KnowledgeReference[]> {
+    const { objectId } = linkInput.parse(input);
+    const project = await requireProject(db, user, projectId, "editor");
+    requireWritable(project);
+    if (!can(user, "knowledge.use")) throw new HttpError(403, "forbidden", "You don't have access to Knowledge");
+    const object = await requireObject(db, user, objectId);
+    if (object.status === "trashed") throw notFound();
+    const count = await db.prepare("SELECT COUNT(*) AS n FROM task_project_knowledge_links WHERE project_id = ?").bind(projectId).first<{ n: number }>();
+    if ((count?.n ?? 0) >= PROJECT_LINK_LIMIT) throw new HttpError(422, "validation", `At most ${PROJECT_LINK_LIMIT} Knowledge references per project`);
+    await db.batch([
+        db
+            .prepare("INSERT OR IGNORE INTO task_project_knowledge_links (id, project_id, object_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(newId("tpk"), projectId, objectId, user.email, nowIso()),
+        activity(db, { projectId, actor: user.email, action: "project.knowledge.link" }, "WHERE changes() > 0"),
+    ]);
+    return projectKnowledgeReferences(db, user, projectId);
+}
+
+export async function unlinkProjectKnowledge(db: D1Database, user: PortalUser, projectId: string, linkId: string): Promise<KnowledgeReference[]> {
+    const project = await requireProject(db, user, projectId, "editor");
+    requireWritable(project);
+    const result = await db.prepare("DELETE FROM task_project_knowledge_links WHERE id = ? AND project_id = ?").bind(linkId, projectId).run();
+    if (!result.meta.changes) throw notFound();
+    await activity(db, { projectId, actor: user.email, action: "project.knowledge.unlink" }).run();
+    return projectKnowledgeReferences(db, user, projectId);
+}
+
+export interface RelatedProject {
+    id: string;
+    name: string;
+    color: string;
+    kind: "personal" | "shared";
+    status: string;
+    open: number;
+    completed: number;
+}
+
+/**
+ * Everything in Tasks related to a Knowledge object, for its page: linked tasks and linked projects,
+ * each only if the caller is a member of its project, and nothing at all unless they can read the
+ * object in Knowledge. Counts are over what's returned, never over hidden records.
+ */
+export async function relatedForObject(db: D1Database, user: PortalUser, objectId: string) {
+    const tasks = await tasksForObject(db, user, objectId);
+    if ((await requireObject(db, user, objectId)).status === "trashed") return { tasks, projects: [], taskProjects: [] };
+    const projects = await db
+        .prepare(
+            `SELECT p.id, p.name, p.color, p.kind, p.status,
+                    (SELECT COUNT(*) FROM task_items t WHERE t.project_id = p.id AND t.status = 'open') AS open,
+                    (SELECT COUNT(*) FROM task_items t WHERE t.project_id = p.id AND t.status = 'completed') AS completed
+             FROM task_project_knowledge_links l JOIN task_projects p ON p.id = l.project_id
+             JOIN task_project_members m ON m.project_id = p.id AND m.email = ?
+             WHERE l.object_id = ? ORDER BY p.name COLLATE NOCASE LIMIT 20`,
+        )
+        .bind(user.email, objectId)
+        .all<RelatedProject>();
+    // Names of the tasks' own projects, so the list can say where each one lives (the caller is a member of each).
+    const ids = [...new Set(tasks.map((t) => t.projectId))];
+    const names = ids.length
+        ? (
+              await db
+                  .prepare(`SELECT id, name, color, is_inbox FROM task_projects WHERE id IN (${placeholders(ids.length)})`)
+                  .bind(...ids)
+                  .all<{ id: string; name: string; color: string; is_inbox: number }>()
+          ).results.map((p) => ({ id: p.id, name: p.is_inbox ? "Inbox" : p.name, color: p.color }))
+        : [];
+    return { tasks, projects: projects.results, taskProjects: names };
 }
