@@ -2,7 +2,7 @@
 
 A private task and project manager at `/portal/tasks` for personal work and work shared between two people: Inbox, Today, Upcoming, projects with sections and boards, subtasks, priorities, due dates and deadlines, repeating tasks, labels, saved filters, comments, history, in-app reminders, links to Daly Knowledge, and portable export. It runs on the existing Worker and D1 database, needs no AI or paid service, and is meant to replace Todoist without locking data into a proprietary format.
 
-**Status:** Milestone 1 is built and tested. **Not deployed.** Migration `0015_tasks.sql` has not been applied to any remote database. See [Deploying](#deploying).
+**Status:** Milestone 1 is merged (PR #25). Milestone 2 (planning, background reminders, templates, Todoist import, portal-wide Quick Add) is built and tested on `feature/tasks-milestone-2`. **Neither has been deployed from this branch**, and migration `0016_tasks_planning.sql` has not been applied to any remote database. See [Deploying](#deploying).
 
 The repository is public: tests and fixtures use invented people and tasks only.
 
@@ -13,10 +13,13 @@ The repository is public: tests and fixtures use invented people and tasks only.
 ```
 src/shared/tasks/          Shared by Worker and browser
   types.ts                 Data shapes, limits, roles, priorities
-  recurrence.ts            Repeat rules: validation, next occurrence, RRULE export
-  parse.ts                 Quick Add's deterministic text parser
+  recurrence.ts            Repeat rules: validation, next occurrence, exceptions, moving a series, RRULE export
+  parse.ts                 Quick Add's deterministic text parser (and its "not understood" hints)
   filters.ts               The filter definition (validated on both sides)
   dates.ts                 Calendar dates, relative labels, zoned reminder instants
+  view-preferences.ts      Each person's list choices; Upcoming's agenda/week/month windows
+  templates.ts             Template and checklist validation
+  todoist.ts               Reading Todoist's CSV export; import matching keys
 worker/tasks/
   access.ts                Project membership: the only way to reach a project, task or result
   api.ts                   /api/portal/tasks/* router
@@ -25,11 +28,15 @@ worker/tasks/
   views.ts                 Inbox, Today, Upcoming, Overdue, Completed, filters, search
   labels.ts comments.ts    Labels; comments
   reminders.ts settings.ts Reminders; saved filters and preferences
+  notify.ts                Background reminder emails (run by the existing cron trigger)
+  templates.ts import.ts   Templates; Todoist import (preview, reconcile, bounded resumable runs)
   knowledge.ts             References to Knowledge objects, checked through Knowledge's own access
   activity.ts export.ts    Privacy-safe history; JSON and CSV export
   pages.ts rows.ts         First-render data for each page; row mapping
-src/portal/tasks/          Pages, task row and list, task panel, Quick Add, pickers, dialogs
-migrations/0015_tasks.sql  Schema
+src/portal/tasks/          Pages, task row and list, task panel, Quick Add (also portal-wide), pickers, dialogs,
+                           reschedule dialog, calendar, templates, Todoist import, zip reader
+migrations/0015_tasks.sql  Schema (Milestone 1)
+migrations/0016_tasks_planning.sql  Schema additions (Milestone 2)
 ```
 
 The application is registered in `src/shared/portal/applications.ts` (`tasks`, permission `tasks.use`). Pages render in the browser from data the Worker embeds, like the rest of the portal. It uses Untitled UI PRO throughout: the task panel and filter builder follow the PRO slideout layouts (`create-event-menu`, `filters-menu`), the label picker follows `labels-menu`, project dialogs follow `new-project-modal` and `user-invite-modal`, history and comments use the PRO `activity-feed`, and lists use the PRO dropdowns, badges, tabs, selects, calendar, metrics and progress bars.
@@ -38,41 +45,44 @@ The existing wedding planner's tasks (`/portal/wedding/tasks`, table `tasks`) ar
 
 ## Navigation and views
 
-| View                           | What                                                                                                                                                                                                  |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Inbox**                      | Your own Inbox project: where tasks land when no project is chosen. Nested subtasks, reordering, bulk changes.                                                                                        |
-| **Today**                      | Grouped: overdue (by date or deadline), due today, deadline today, and optionally undated tasks at or above a chosen priority (Settings).                                                             |
-| **Upcoming**                   | The next 14 days, day by day, with overdue first, date navigation (earlier/later/jump), "Add task" per day and later repeats projected in place.                                                      |
-| **Overdue**                    | Everything past its due date or deadline.                                                                                                                                                             |
-| **Completed**                  | Every completion and skip, newest first, grouped by day; reopen or undo the latest.                                                                                                                   |
-| **My / Shared projects**       | Project cards with progress, your own sidebar order, and completed/archived projects kept separately.                                                                                                 |
-| **Project**                    | List (sections, nested subtasks), Board (sections as columns; drag a card or use its menu), Overview (counts, progress, coming up, deadlines, milestones, members, linked Knowledge, recent history). |
-| **Labels**                     | Your labels with open counts; rename, recolour, delete; labels others use on shared tasks.                                                                                                            |
-| **Filters**                    | A filter builder (projects, labels any/all, priorities, due, deadline, assignee, status, personal/shared, words, sort) and saved filters.                                                             |
-| **Search, Activity, Settings** | Search across titles, descriptions, labels and project names; history across your projects; time zone, Today options and export.                                                                      |
+| View                           | What                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Inbox**                      | Your own Inbox project: where tasks land when no project is chosen. Nested subtasks, reordering, bulk changes.                                                                                                                                                                                                                                                                                           |
+| **Today**                      | Grouped: overdue (by date or deadline), due today, deadline today, and optionally undated tasks at or above a chosen priority (Settings). Shows what you've done today against what's left, and moves every overdue task to today in one go.                                                                                                                                                             |
+| **Upcoming**                   | Three layouts, remembered per person: **Agenda** (the next 14 days, as in Milestone 1), **Week** (Monday–Sunday, seven columns on desktop, stacked days on phones) and **Month** (a calendar with the selected day's agenda below). Overdue first, earlier/later/today/jump-to-date, counts per day, deadlines on their own day, completed occurrences struck through, later repeats projected in place. |
+| **All my tasks**               | Every open task you're responsible for (personal, and shared ones assigned to you or to nobody), paged 100 at a time, with your own sort, grouping, priority, project, section and assignee choices; can be saved as a filter.                                                                                                                                                                           |
+| **Templates**                  | Reusable tasks with checklists (below).                                                                                                                                                                                                                                                                                                                                                                  |
+| **Overdue**                    | Everything past its due date or deadline.                                                                                                                                                                                                                                                                                                                                                                |
+| **Completed**                  | Every completion and skip, newest first, grouped by day; reopen or undo the latest.                                                                                                                                                                                                                                                                                                                      |
+| **My / Shared projects**       | Project cards with progress, your own sidebar order, and completed/archived projects kept separately.                                                                                                                                                                                                                                                                                                    |
+| **Project**                    | List (sections, nested subtasks), Board (sections as columns; drag a card or use its menu), Overview (counts, progress, coming up, deadlines, milestones, members, linked Knowledge, recent history).                                                                                                                                                                                                    |
+| **Labels**                     | Your labels with open counts; rename, recolour, delete; labels others use on shared tasks.                                                                                                                                                                                                                                                                                                               |
+| **Filters**                    | A filter builder (projects, labels any/all, priorities, due, deadline, assignee, status, personal/shared, words, sort) and saved filters.                                                                                                                                                                                                                                                                |
+| **Search, Activity, Settings** | Search across titles, descriptions, labels and project names; history across your projects; time zone, Today options and export.                                                                                                                                                                                                                                                                         |
 
 Active projects also appear in the sidebar. "My tasks" views (Today, Upcoming, Overdue) show open tasks in **active** projects you can edit that are **assigned to you or to nobody**; a task assigned to someone else stays in its project. Projects on hold, completed or archived don't feed those views.
 
 ### Quick Add
 
-Press **q** (or **Add task**) anywhere. Type naturally and check the chips under the field before pressing Enter: each says what was understood and can be dismissed, which puts the words back in the title. The pickers set the same things explicitly and always win. If saving fails, the text stays.
+Press **q** (or **Add task**) on any portal page: in Tasks, the sidebar's **Add task** on every other page, and the floating **+** button on phones. Outside Tasks, Quick Add loads the caller's projects and labels the first time it opens (`GET /shell`); on a Knowledge page it offers to link the new task to that page (checked against Knowledge access by the Worker before anything is saved), and you stay on the page you were on. People without `tasks.use` never see the button or the shortcut, and the API refuses them. Type naturally and check the chips under the field before pressing Enter: each says what was understood and can be dismissed, which puts the words back in the title. The pickers set the same things explicitly and always win. If saving fails, the text stays.
 
-| Write                                                                                                                                                                              | Read as                                                                                                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `today`, `tomorrow`, `friday`, `this friday`, `next week`, `next month`, `in 3 days`, `23/11`, `23 nov`, `nov 23 2027`, `2027-01-04`                                               | Due date. Numeric dates are day/month (Australian). A date without a year that has passed means next year. |
-| `next friday`                                                                                                                                                                      | Friday of next week, flagged as ambiguous; the chip shows the exact date.                                  |
-| `at 5pm`, `9:30am`, `17:45`, `noon`                                                                                                                                                | Due time (today if no date).                                                                               |
-| `p1` … `p4`                                                                                                                                                                        | Priority.                                                                                                  |
-| `@errands`                                                                                                                                                                         | Label (several allowed).                                                                                   |
-| `#household`                                                                                                                                                                       | Project, matched by name with spaces ignored; unknown names stay in the title.                             |
-| `every day`, `every weekday`, `every wednesday`, `every mon, wed and fri`, `every 3 days`, `every 2 weeks`, `fortnightly`, `every month`, `every 15th`, `every last day`, `yearly` | Repeat, starting on its first occurrence from today.                                                       |
-| `{31 oct}`                                                                                                                                                                         | Deadline.                                                                                                  |
+| Write                                                                                                                                                                                                                                                           | Read as                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `today`, `tomorrow`, `friday`, `this friday`, `next week`, `next month`, `in 3 days`, `23/11`, `23 nov`, `nov 23 2027`, `2027-01-04`                                                                                                                            | Due date. Numeric dates are day/month (Australian). A date without a year that has passed means next year. |
+| `next friday`                                                                                                                                                                                                                                                   | Friday of next week, flagged as ambiguous; the chip shows the exact date.                                  |
+| `at 5pm`, `9:30am`, `17:45`, `noon`                                                                                                                                                                                                                             | Due time (today if no date).                                                                               |
+| `p1` … `p4`                                                                                                                                                                                                                                                     | Priority.                                                                                                  |
+| `@errands`                                                                                                                                                                                                                                                      | Label (several allowed).                                                                                   |
+| `#household`                                                                                                                                                                                                                                                    | Project, matched by name with spaces ignored; unknown names stay in the title.                             |
+| `every day`, `every weekday`, `every wednesday`, `every mon, wed and fri`, `every 3 days`, `every 2 weeks`, `fortnightly`, `every other monday`, `every month`, `every 15th`, `every last day`, `every 2nd tuesday`, `every last friday of the month`, `yearly` | Repeat, starting on its first occurrence from today (or from the date chosen with the picker).             |
+| `in a week`, `in a fortnight`, `in 2 fortnights`, `in a year`                                                                                                                                                                                                   | Due date.                                                                                                  |
+| `{31 oct}`                                                                                                                                                                                                                                                      | Deadline.                                                                                                  |
 
-There is no language model involved. Anything outside this grammar stays in the title.
+There is no language model involved. Anything outside this grammar stays in the title, and words that look like a date, repeat or project but weren't understood ("end of month", "every 2nd tuesday of the quarter", an unknown `#project`) are pointed out under the field so they're never dropped silently. Choosing a date with the picker replaces only a typed date: a typed repeat then starts from the chosen date, and a time can be set too. Each draft carries a random request id, so a retry after a lost response (or a double press) returns the task already created instead of a copy.
 
 ### Keyboard
 
-`q` add · `/` search · `g` then `i`/`t`/`u`/`p`/`o` go to Inbox/Today/Upcoming/projects/Overdue · `j`/`k` or ↓/↑ move between tasks · Enter open · `e` complete or reopen · Alt+↑/↓ reorder · Esc close · `?` list them. Shortcuts never fire while typing in a field.
+`q` add (any portal page) · `/` search · `g` then `i`/`t`/`u`/`p`/`o`/`m`/`w` go to Inbox/Today/Upcoming/projects/Overdue/all my tasks/this week · `j`/`k` or ↓/↑ move between tasks · Enter open · `e` complete or reopen · `s` reschedule · `1`–`4` priority · Alt+↑/↓ reorder · arrow keys move between days in the month view · Esc close · `?` list them. Shortcuts never fire while typing in a field or in the Knowledge editor. Knowledge keeps `c` (capture) and ⌘K/Ctrl+K; Tasks uses `q`, so they don't clash.
 
 ### Phones
 
@@ -129,7 +139,7 @@ Indexes cover Inbox and project lists (`project_id, status, section_id, position
 - **Move** a task with its subtasks to another project, section or parent, or up/down among its siblings (Alt+↑/↓ or the menu; the board also supports dragging). Moving under its own subtask, or deeper than three levels below a top-level task, is refused. Moving into another project clears assignees and reminders that wouldn't be allowed there.
 - **Complete / reopen.** A one-off task is completed once (a repeat click is recognised and returns "already done"); reopening marks the completion undone, keeping the history. **Completing a task with open subtasks is never silent**: the API answers `open_subtasks` and the app asks whether to complete them too. Subtasks complete and reopen independently.
 - **Duplicate** copies the task, its subtasks and labels (open, without comments, history or reminders). **Delete** asks for confirmation and removes the subtree.
-- **Bulk**: complete, reschedule, priority, move, add/remove label, delete, for up to 100 tasks, in one batch.
+- **Bulk**: complete, reschedule, shift dates by a number of days (deadlines stay; undated tasks are left alone), remove dates, priority, move, add/remove label, delete, for up to 100 tasks, in one batch.
 - **Milestones** are tasks flagged as milestones; the project overview lists them with their dates.
 
 ## Repeating tasks
@@ -143,7 +153,31 @@ A repeating task is one row whose due date moves along a series; nothing is gene
 - **Skip** advances without completing (recorded as skipped). **Undo** reverses the latest completion or skip, if the task hasn't moved on since.
 - A deadline moves along with each occurrence by the same number of days. A repeating task's subtasks are a checklist: they reopen for the next occurrence.
 - Setting or changing a rule moves the due date to the rule's first occurrence on or after it, which becomes the anchor. Clearing the date of a repeating task is refused; stop the repeat first. Rules are exported as stored and as RRULE text.
-- Upcoming projects at most 14 later occurrences per task within the window, computed on the fly.
+- Upcoming projects at most 14 later occurrences per task within the window, computed on the fly, never into the past.
+
+### Milestone 2: more patterns, occurrences and the series
+
+Rules stay one validated JSON object per task; Milestone 1 rules parse unchanged (tested). New, optional fields:
+
+| Pattern                                                                                 | Field                                             | RRULE                              |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------- |
+| The 1st–4th or last weekday of the month ("2nd Tuesday", "last Friday"); every N months | `monthWeekday: { week: 1–4 or -1, weekday: 1–7 }` | `BYDAY=2TU`                        |
+| The last Monday–Friday of the month                                                     | `lastWorkday: true`                               | `BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` |
+| End after N occurrences (counting the first)                                            | `count` (1–1,000)                                 | `COUNT=N`                          |
+
+A "5th Tuesday" isn't offered: most months don't have one, and RFC 5545's answer (skip those months) surprises people. Every N years and every N months were already supported. Count limits and weekday-of-month rules are for repeats on a fixed schedule only.
+
+**One occurrence or the series.** The task row always holds the _current_ occurrence; nothing is stored for later ones except exceptions:
+
+- **Reschedule this occurrence only** (the default when a repeating task's date changes, from the panel, a row, the calendar, dragging or bulk changes): the due date moves, the rule keeps its anchor. Completing it carries on along the original series from the later of its original date and its new one, so nothing is repeated.
+- **This and later occurrences** (`PATCH /tasks/:id` with `scope: "series"`): the rule moves to the new date. Weekdays shift by the same number of days (Mon/Thu moved to a Tuesday becomes Tue/Fri), a day of the month becomes the new date's day (a "last day" stays last), a weekday of the month becomes the new date's ("2nd Tuesday" moved to the 19th becomes "3rd Thursday"), a limited series keeps the occurrences it has left. Recorded in the history as a series change.
+- **Skip or move a later occurrence** (from Upcoming or the calendar: `POST /tasks/:id/occurrences` with `skip`, `move` or `restore`): stored in `task_recurrence_exceptions`, keyed on the series date. Skipped dates are passed over and moved ones land on their new date, both when the task moves along the series and in projections. Only for occurrences after the current one; editors only; Undo restores it. Changing the rule removes its exceptions.
+- **Skip the current occurrence** and **end the series** (set it to "Doesn't repeat", or give it an end date or count) work as in Milestone 1.
+- **Reopening** undoes the latest completion as before; exceptions are untouched.
+- **Missed occurrences** aren't recreated; an overdue repeating task stays one task until it's done or skipped, and completing it moves to the first series date after both its date and today.
+- An occurrence's title, description, priority and checklist are shared by the whole series (one row); changing one occurrence's description alone isn't possible.
+
+Completion stays guarded on the occurrence the person saw, in one batch with the completion record, so double clicks, retries and two people at once still record one completion (tested with exceptions too).
 
 ## Dates and time zones
 
@@ -162,7 +196,32 @@ Due dates and deadlines are calendar dates (`YYYY-MM-DD`) and due times wall-clo
 
 ## Reminders
 
-Each person can add reminders to tasks they can see: at a date and time, or relative to the due time (a date-only task counts as due at 9 am in the owner's zone). Relative reminders follow the task when its date changes or it repeats. **Delivery is in-app only**: due reminders appear at the top of any Tasks page, and ones due within the hour appear when their time comes while a page stays open. There is no email, SMS, push or scheduled Worker yet, so a reminder isn't seen unless Tasks is open. Reminders are found with an indexed `(owner_email, remind_at)` range query; nothing scans the table.
+Each person can add reminders to tasks they can see: at a date and time, or relative to the due time (a date-only task counts as due at 9 am in the owner's zone). Relative reminders follow the task when its date changes or it repeats. Each person can also choose a default reminder for new dated tasks (Settings). Due reminders appear at the top of any Tasks page, and ones due within the hour appear when their time comes while a page stays open. Reminders are found with an indexed `(owner_email, remind_at)` range query; nothing scans the table.
+
+### Background email reminders (Milestone 2)
+
+Reminders can also be emailed, so they arrive when Tasks isn't open. It needs all three:
+
+1. an email provider configured on the Worker (`EMAIL_DELIVERY` and its secrets: the same Fastmail/SMTP/SMTP2Go/Cloudflare providers the portal already uses, `worker/comms/providers.ts`);
+2. the portal feature switch **Task reminder emails** (`tasks.reminders.email`, Portal settings → Features), **off by default**;
+3. the person's own **Email my reminders to me** (Tasks → Settings), also off by default.
+
+**How it runs.** The existing cron trigger (every 15 minutes, `wrangler.jsonc`) calls `processTaskReminders` (`worker/tasks/notify.ts`), alongside the Capacities sync and the scheduled message queue. Nothing new is scheduled per task. Each run takes at most 20 reminders whose `next_attempt_at` has passed (partial index on pending reminders), oldest first. For each it:
+
+- claims it with a conditional `UPDATE` (a token and time), so overlapping runs can't both send it; a claim older than 10 minutes belongs to a run that died and can be taken over;
+- checks everything again as it is now: the recipient is still a member of the task's project and can open Tasks, the task is open, the reminder isn't dismissed, and their reminder and email preferences are on. Otherwise the email is cancelled (the in-app reminder is unaffected);
+- skips (marks `expired`) a reminder more than six hours late, e.g. because delivery was off or the provider was down for a long time, rather than sending something stale;
+- waits out quiet hours: inside them, `next_attempt_at` becomes the end of the quiet hours (local wall-clock time in the person's zone, across midnight and daylight saving) and it's sent then. Nothing is dropped;
+- sends one email to the reminder's owner: the task's title, due date and time, priority, project name, and a link to `/portal/tasks/t/:id`, which still needs the portal sign-in. Never its description, comments, labels, assignee or linked Knowledge (tested);
+- on failure, retries after 5 min, 15 min, 1 h and 4 h (`attempts`, `last_attempt_at`, `last_error`), then marks it `failed`. A rejection the provider says isn't worth retrying fails at once.
+
+Moving a task, its date changing as it repeats, or recalculating a relative reminder puts the email back to `pending` for its new time. Dismissing a reminder in the app, completing the task, leaving the project or turning email reminders off cancels it; turning them back on queues the ones still to come.
+
+**Delivery is at least once, not exactly once.** The claim prevents two runs sending the same reminder, but if the provider accepts a message and the Worker fails before recording it, the next run sends it again. Providers can't tell us whether an earlier attempt got through, so a rare duplicate is preferred to a lost reminder. Emails arrive within about 15 minutes of the reminder time (the cron interval). Delivery failures never affect anything else: completing tasks, the other cron jobs and in-app reminders carry on.
+
+**Not built: browser push.** Web Push needs VAPID keys (new Worker secrets), payload encryption, subscription storage and a service worker, and on iPhone and iPad it works only for a site added to the Home Screen (iOS 16.4+); the portal isn't an installable web app yet. It's deferred rather than half-built; email is the external channel for now.
+
+**Tested with a mock provider only.** No real email has been sent; the tests never send any (the test environment has `EMAIL_DELIVERY=off`, and the processor is given a mock). The switch must stay off until the owner approves.
 
 ## Knowledge integration
 
@@ -174,31 +233,79 @@ A task can reference Knowledge objects (up to 20). Two permission systems apply 
 - The history records that a reference was added or removed, never which.
 - Knowledge isn't changed. `task_knowledge_links` holds ids, with a foreign key that removes the reference when Knowledge permanently deletes the object.
 - **Reverse direction**: `GET /api/portal/tasks/knowledge/:objectId` returns linked tasks the caller can see in Tasks, only if they can read the object in Knowledge. The Knowledge object page doesn't show related tasks yet (Milestone 3 of Tasks); this endpoint is the interface it will use.
+- **Create a task from a Knowledge page** (Milestone 2): portal-wide Quick Add on a Knowledge object page offers "Link to “…”". `POST /tasks` with `knowledge: [objectId]` checks, before writing anything, that the caller can add tasks to the destination project, has `knowledge.use`, and can read the object through Knowledge's own `requireObject` (404 otherwise, so nothing can be probed); the task and the reference are written in one batch. No note content is copied, and reminder emails never mention linked Knowledge.
 
 ## API
 
 All under `/api/portal/tasks`, all requiring Access, `tasks.use` and membership. Writes need a same-origin JSON request. Errors are the portal's usual `{ error, message, issues? }`; conflicts return 409 with `current`, and completing a task with open subtasks returns 409 `open_subtasks` with `count`.
 
-| Method and path                                                                                                                 | What                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `GET /lists/:view`                                                                                                              | `inbox`, `today`, `overdue`, `upcoming?from=&days=`, `completed?before=`                                        |
-| `GET /filter?…`, `GET /search?q=`                                                                                               | Ad-hoc filter (same fields as saved filters, paginated); search                                                 |
-| `POST /tasks`, `GET/PATCH/DELETE /tasks/:id`                                                                                    | Create; detail (subtasks, comments, completions, references, reminders, history); update with `version`; delete |
-| `POST /tasks/:id/complete`, `…/skip`, `…/reopen`                                                                                | `{ occurrence, includeSubtasks }`                                                                               |
-| `POST /tasks/:id/move`, `…/duplicate`, `POST /tasks/bulk`                                                                       | Move (`projectId`, `sectionId`, `parentId`, `afterId`/`beforeId`); duplicate; bulk actions                      |
-| `GET/POST /tasks/:id/comments`, `PATCH/DELETE /comments/:id`                                                                    | Comments                                                                                                        |
-| `POST /tasks/:id/knowledge`, `DELETE /tasks/:id/knowledge/:link`, `GET /knowledge/:object`                                      | Knowledge references and reverse lookup                                                                         |
-| `POST /tasks/:id/reminders`, `DELETE /reminders/:id`, `POST /reminders/:id/dismiss`, `GET /reminders/due`                       | Reminders                                                                                                       |
-| `GET/POST /projects`, `GET/PATCH /projects/:id`, `GET /projects/:id/completed`                                                  | Projects (with counts); update with `version`                                                                   |
-| `POST /projects/:id/kind`, `…/delete` (`{ "confirm": "DELETE" }`), `…/position`                                                 | Share/unshare; delete (owner, never the Inbox); your sidebar order                                              |
-| `GET/POST /projects/:id/members`, `PATCH/DELETE /projects/:id/members/:email`                                                   | Members (owners change; anyone may leave)                                                                       |
-| `POST /projects/:id/sections`, `PATCH /sections/:id`, `POST /sections/:id/position`, `POST /sections/:id/delete` (`{ moveTo }`) | Sections                                                                                                        |
-| `GET/POST /labels`, `PATCH/DELETE /labels/:id`                                                                                  | Labels                                                                                                          |
-| `GET/POST /filters`, `GET/PATCH/DELETE /filters/:id`, `POST /filters/validate`                                                  | Saved filters                                                                                                   |
-| `GET /activity?project=&before=`, `GET/PATCH /preferences`                                                                      | History; time zone and Today option                                                                             |
-| `GET /export?format=json                                                                                                        | csv&scope=all                                                                                                   | personal` | Export |
+| Method and path                                                                                                                 | What                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /lists/:view`                                                                                                              | `inbox`, `today`, `overdue`, `upcoming?from=&days=`, `completed?before=`                                                                                |
+| `GET /filter?…`, `GET /search?q=`                                                                                               | Ad-hoc filter (same fields as saved filters, paginated); search                                                                                         |
+| `POST /tasks`, `GET/PATCH/DELETE /tasks/:id`                                                                                    | Create (optional `clientId` for safe retries, `knowledge` ids to link); detail; update with `version` (and `scope` for a repeating task's date); delete |
+| `POST /tasks/:id/complete`, `…/skip`, `…/reopen`                                                                                | `{ occurrence, includeSubtasks }`                                                                                                                       |
+| `POST /tasks/:id/move`, `…/duplicate`, `POST /tasks/bulk`                                                                       | Move (`projectId`, `sectionId`, `parentId`, `afterId`/`beforeId`); duplicate; bulk actions                                                              |
+| `GET/POST /tasks/:id/comments`, `PATCH/DELETE /comments/:id`                                                                    | Comments                                                                                                                                                |
+| `POST /tasks/:id/knowledge`, `DELETE /tasks/:id/knowledge/:link`, `GET /knowledge/:object`                                      | Knowledge references and reverse lookup                                                                                                                 |
+| `POST /tasks/:id/reminders`, `DELETE /reminders/:id`, `POST /reminders/:id/dismiss`, `GET /reminders/due`                       | Reminders                                                                                                                                               |
+| `GET/POST /projects`, `GET/PATCH /projects/:id`, `GET /projects/:id/completed`                                                  | Projects (with counts); update with `version`                                                                                                           |
+| `POST /projects/:id/kind`, `…/delete` (`{ "confirm": "DELETE" }`), `…/position`                                                 | Share/unshare; delete (owner, never the Inbox); your sidebar order                                                                                      |
+| `GET/POST /projects/:id/members`, `PATCH/DELETE /projects/:id/members/:email`                                                   | Members (owners change; anyone may leave)                                                                                                               |
+| `POST /projects/:id/sections`, `PATCH /sections/:id`, `POST /sections/:id/position`, `POST /sections/:id/delete` (`{ moveTo }`) | Sections                                                                                                                                                |
+| `GET/POST /labels`, `PATCH/DELETE /labels/:id`                                                                                  | Labels                                                                                                                                                  |
+| `GET/POST /filters`, `GET/PATCH/DELETE /filters/:id`, `POST /filters/validate`                                                  | Saved filters                                                                                                                                           |
+| `GET /activity?project=&before=`, `GET/PATCH /preferences`                                                                      | History; time zone, Today option, reminders, quiet hours, first page                                                                                    |
+| `GET /preferences/views`, `PUT /preferences/views/:view`                                                                        | Each person's list choices (`mine`, `today`, `upcoming`, `overdue`, `inbox`)                                                                            |
+| `GET /shell`                                                                                                                    | Projects, sections, labels and people for Quick Add outside Tasks                                                                                       |
+| `GET /lists/upcoming?mode=agenda                                                                                                | week                                                                                                                                                    | month&from=` | Upcoming windows, with `deadlines` and `done` for week and month |
+| `POST /tasks/:id/occurrences`                                                                                                   | Skip, move or restore a later occurrence (`{ action, date, to? }`)                                                                                      |
+| `GET/POST /templates`, `GET/PATCH/DELETE /templates/:id`, `POST /templates/:id/duplicate`, `…/use`, `POST /tasks/:id/template`  | Templates                                                                                                                                               |
+| `GET /import`, `POST /import/todoist/preview`, `POST /import/todoist/run`                                                       | Todoist import (below)                                                                                                                                  |
+| `GET /export?format=json                                                                                                        | csv&scope=all                                                                                                                                           | personal`    | Export                                                           |
 
-Pages: `/portal/tasks` (Today), `/portal/tasks/{inbox,today,upcoming,overdue,completed,projects,labels,filters,search,activity,settings}`, `/portal/tasks/p/:id?view=list|board|overview`, `/portal/tasks/t/:id` (a task, opened in its project).
+Pages: `/portal/tasks` (the person's chosen first page, Today by default), `/portal/tasks/{inbox,today,upcoming,overdue,mine,completed,projects,labels,filters,templates,search,activity,settings}`, `/portal/tasks/p/:id?view=list|board|overview`, `/portal/tasks/t/:id` (a task, opened in its project).
+
+## Templates
+
+A template is a task with a checklist that comes round again: a name, the task's title and description, priority, labels, an optional destination project, an optional due date relative to the day it's used ("the same day", "a week later") with a time and a repeat, and a checklist of up to 100 items nested at most three levels (edited as text: one item per line, two spaces per level). **Use** creates an ordinary, independent task and subtasks in one batch; editing or deleting the template later doesn't touch tasks made from it. Templates can be duplicated, archived, restored and deleted; any task can be **Saved as template** from its panel (its subtasks become the checklist).
+
+Who sees one: a template is private to its owner, whatever their portal role, unless it's shared with a **shared project**, in which case that project's members can see and use it and its editors can change it. Leaving or being removed from the project removes it from view at once. Using a template checks the destination like any new task (an editor of a project that isn't archived); a template's default project that the user can no longer add to falls back to their Inbox. Everything else is a 404.
+
+## Importing from Todoist
+
+Tasks → Settings → **Import from Todoist**. No Todoist account is connected and no credentials are asked for; nothing in Todoist is changed.
+
+**What it reads.** Todoist's own CSV export: "Export as CSV" on a project, or the CSV files inside a backup zip from Todoist's settings (the zip is unpacked in the browser with the platform's `DecompressionStream`; only `.csv` entries are read). One file is one project. The columns are the ones Todoist documents for its CSV format (help article "Format a CSV file to import into Todoist"): `TYPE` (task, section, note, meta), `CONTENT`, `DESCRIPTION`, `PRIORITY`, `INDENT`, `AUTHOR`, `RESPONSIBLE`, `DATE`, `DATE_LANG`, `TIMEZONE`, `DURATION`, `DURATION_UNIT`, `DEADLINE`, `DEADLINE_LANG`, `IS_COLLAPSED`, `meta`.
+
+| Imported                         | How                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project                          | A new **personal** project named after the file (a backup's `Name [1234].csv` gives "Name", and the bracketed id makes re-imports match), or an existing project you can edit, chosen per project in the preview. Never shared automatically; a project of yours with the same name is pointed out. Board layout (`view_style=board`) is kept. |
+| Sections                         | Matched by an earlier import, then by name, else created.                                                                                                                                                                                                                                                                                      |
+| Tasks and subtasks               | `INDENT` 1–4 becomes nesting (at most three levels below a task, as everywhere in Tasks); order is kept.                                                                                                                                                                                                                                       |
+| Description, labels              | `DESCRIPTION`; `@label` words in `CONTENT` become labels.                                                                                                                                                                                                                                                                                      |
+| Priority                         | You choose which way round the numbers go: Todoist's help says 1 is p1, but files made from its API use 4 for p1. The preview shows the numbers found in the file. A blank priority is P4 (Todoist would read it as p1; P4 is the safer default here).                                                                                         |
+| Dates, times, repeats, deadlines | `DATE` and `DEADLINE`, read with Quick Add's grammar (ISO dates too). A repeating date starts from its next occurrence after the import, because Todoist's export drops the start date. Dates in other languages, or phrases outside the grammar, are reported and the task is imported without a date.                                        |
+| Comments                         | `note` rows become comments on the task above, written by you.                                                                                                                                                                                                                                                                                 |
+
+**Not in the export, so not imported** (the preview says so): completed tasks, creation and completion times, Todoist's ids, assignees and authors (they're names, not Daly Portal people), durations, reminders, attachments, and the start of repeating tasks. Columns with data that isn't used are listed per project. **This has been tested with invented files in the documented format, not with a real export from Todoist's servers**; a real export may have quirks these files don't. Please try a real one before relying on it (the preview writes nothing).
+
+**Preview, then import.** The preview (nothing written) shows each project's destination, counts and a sample of its tasks, each marked new, already imported, will be updated, changed in both, deleted here since, or already here (a possible duplicate); every warning; and what the format can't carry. You choose:
+
+- **Possible duplicates** (a task not imported before with the same title as an open task in the same place in the destination): link to the existing task (default; recorded, so later imports find it) or import anyway.
+- **Changed in Todoist since the last import**: keep what's here (default) or update from Todoist, which only ever updates tasks not edited in Daly Tasks since they were imported (the stored version is compared). Tasks changed in both are never overwritten; they're reported as conflicts.
+
+**Importing again never duplicates.** Every imported project, section, task and comment is recorded in `task_import_items` with a key derived from its place in the export (Todoist's CSV has no ids): the project (by backup id, else name), the section and which of that name it is, the titles of its parent tasks, its own title and which of that title it is among its siblings. So renaming or moving a task in Todoist makes it a new task on the next import; changing its description, date or priority is a change to the same task. A task deleted in Daly Tasks after it was imported stays deleted. Each run is recorded in `task_import_batches` with the files' fingerprint.
+
+**Bounded and resumable.** A run writes at most 250 tasks, each task with its labels, comments and record in the same atomic D1 batch, and the browser calls again until it's done (showing progress). If one stops part-way (a network drop, a closed tab), everything before is saved and recorded; importing the same files again carries on from there without duplicating anything (tested by interrupting a 600-task import).
+
+**Limits and safety.** CSV or zip only; each CSV at most 2 MB, 30 projects and 5,000 tasks per import, 8 MB per request; the CSV is parsed by the Worker (never trusted from the browser), with control characters removed and every value stored as plain text and shown escaped (formula-like text is kept as text: it's never evaluated here, and the CSV export neutralises it). Projects you can't edit can't be chosen (404); imports are per person and invisible to anyone else. Errors are plain sentences without file contents; logs record batch ids and counts only.
+
+## Milestone 2 schema
+
+`0016_tasks_planning.sql` is additive: one new column set on `task_preferences` (reminders on/off, email reminders, default reminder, quiet hours, first page), one on `task_reminders` (delivery status, attempts, next and last attempt, delivered time, last error, claim), `task_items.client_id` with a unique index on `(created_by, client_id)`, an index on completions by person and time (Today's progress), and new tables `task_view_preferences`, `task_recurrence_exceptions`, `task_templates`, `task_import_batches` and `task_import_items`. Its single `UPDATE` marks reminders still in the future as pending email delivery (nothing is sent until the switch and the person's choice are on). The Milestone 1 Worker ignores all of it, so rolling the Worker back is safe without touching the database. D1 has no down migrations; reverting the schema would mean restoring a backup, and isn't needed for a Worker rollback.
+
+`npm run test:backup` fills every new table, runs the real FTS-aware backup script, restores twice and checks row counts for every table, that delivery state, request ids, exceptions, templates and import records survive, and that the restored copy still refuses a duplicate request id. `npm run db:verify` gains checks for shared templates, stale exceptions and reminder emails stuck mid-delivery.
 
 ## Export format
 
@@ -224,31 +331,53 @@ Browser tests use a second identity (`ACCESS_DEV_ALT_EMAIL` with a `portal_dev_i
 - Each page load is a handful of indexed queries from the caller's membership rows; lists are bounded (Today/overdue 500, projects 2,000 open tasks, completed and filters paginated at 50–200, search 50, history 50 per page). Repeats are projected in memory, at most 14 per task. Reminders use an indexed range query when a page loads; there's no polling.
 - The Tasks interface adds about 62 KB gzipped to the portal's JavaScript (454 → 517 KB); the blog bundle is unaffected (`check:bundle`).
 
+## Performance and cost (Milestone 2)
+
+- **Cron:** no new trigger. The existing 15-minute cron gains one indexed query (pending reminders due now) and, only when there are due reminders, a few small queries and one email each. With email reminders off it costs a single flag read per run.
+- **Email:** one email per reminder per person who turned email reminders on (plus rare at-least-once duplicates and up to four retries for failures). For two people that's typically a handful a day, well within any of the configured providers' free or existing allowances.
+- **D1:** Quick Add outside Tasks reads the shell once per page load when opened. Upcoming's week and month add two bounded queries (deadlines and completions in the window, 500 rows each). Imports write in bounded batches (at most 250 tasks a request). The test suite exercises 3,000 tasks in one Inbox and checks the lists stay within their bounds and respond quickly.
+- **Bundle:** Tasks is part of the portal bundle, as before; the portal-wide Quick Add reuses it (the portal is a single bundle already, so there's nothing extra to lazy-load), and fetches its data only when opened. The blog bundle is unchanged (`check:bundle`).
+- No new services, bindings, secrets, queues, Durable Objects or dependencies. Background email needs a provider the portal already supports.
+
 ## Known limitations
 
-- Reminders are in-app only (no email, SMS, push or background delivery).
-- Quick Add understands the grammar above only; no free-form language, and no repeat syntax like "every second Tuesday of the month".
-- Repeats: no "nth weekday of the month" rules, no count-limited series, no editing a single occurrence.
-- Upcoming is an agenda, not a calendar grid; dragging between dates isn't supported.
+- Email is the only background reminder channel: no browser push, SMS or phone notifications. Delivery is at least once (a rare duplicate is possible), within about 15 minutes, and has only been tested with a mock provider.
+- Quick Add understands the grammar above only; no free-form language. It points out what it didn't understand.
+- Repeats: no "5th weekday" rules, no hourly repeats, and an occurrence's text and checklist are shared by the whole series.
+- Calendar dragging is desktop-only (HTML5 drag and drop); the reschedule dialog (menu, "s", or tapping a later repeat) does everything dragging does, on every device.
+- Todoist import reads CSV exports only (no live account, no JSON API dump), has been tested with invented files only, and can't bring completed tasks, timestamps, assignees, durations, reminders or attachments, because the export doesn't contain them.
+- Collapsed sections aren't remembered between visits.
 - Board drag-and-drop uses native HTML5 dragging (desktop); the card menu is the keyboard and touch alternative. Reordering within lists is by menu and Alt+↑/↓, not dragging.
 - Labels are per person; there are no shared, centrally managed labels.
-- No mentions, notifications, attachments, task templates or Todoist import yet.
+- No mentions, attachments or comment notifications.
 - Knowledge doesn't show related tasks on object pages yet (the API exists).
 - Deleting a task is permanent (with confirmation); there's no task trash. Completed tasks are always recoverable.
 - Times are floating wall-clock times; two people in different time zones see the same "5 pm".
 
 ## Roadmap
 
-- **Milestone 2: Todoist migration and scheduling.** Import from a real Todoist export with preview, reconciliation and idempotent re-runs; reliable reminder delivery (scheduled Worker with an indexed, idempotent queue; email via the existing providers; browser push), richer repeats, calendar feed, templates, more bulk tools and filters.
+- **Milestone 2 (this branch): planning, reminders, templates, Todoist import.** Built: see above. Deferred from it: browser push (needs an installable portal and VAPID secrets), a calendar (iCal) feed, remembering collapsed sections, and verifying the import against a real Todoist export.
 - **Milestone 3: integrated productivity.** Related tasks on Knowledge pages through `GET /knowledge/:object`, household dashboards, project reviews, goals, shared routines, calendar and timeline views, reporting.
 - **Milestone 4: AI and MCP.** Authenticated, membership-scoped MCP tools; search and capture through assistants; suggestions from Knowledge; summaries and briefings; confirmation before consequential writes; metering and cost limits. Tasks must keep working without any of it.
 
 ## Deploying
 
-Nothing here is deployed. After approval:
+Nothing from Milestone 2 is deployed. After approval:
 
 1. Review and merge the draft PR. **Merging to `main` deploys and applies migrations automatically** (`.github/workflows/deploy.yml`), including `0013`–`0015` if they're still unapplied.
 2. Before merging, take a verified backup: `npm run db:backup -- --env production`.
 3. After deploying: `npm run db:verify -- --env production`, then open `/portal/tasks` as each owner; each gets an Inbox on first visit.
 4. Optionally share a project with the other owner (Project → Share → Add member). Admins added in Portal settings can also be invited; wedding editors and viewers can't open Tasks.
 5. No secrets, flags or Access changes are needed. Don't set `ACCESS_DEV_ALT_EMAIL` anywhere but local development.
+
+**Milestone 2 specifically:**
+
+1. Check the remote migration state first, read-only: `npx wrangler d1 migrations list DB --remote --env=""`. `0016_tasks_planning.sql` (and `0015` if Milestone 1 was never deployed, since the deploy token had expired) will be listed as unapplied.
+2. Take and verify a backup: `npm run db:backup -- --env production`.
+3. Merge the draft PR. The deploy workflow applies `0016` (and anything earlier still unapplied) and deploys the Worker. To apply the migration by hand instead: `npx wrangler d1 migrations apply DB --remote --env=""`, then `npx wrangler deploy --env=""`.
+4. `npm run db:verify -- --env production`: all migrations applied, the new checks pass.
+5. Open `/portal/tasks/upcoming?mode=week`, `/portal/tasks/mine`, `/portal/tasks/templates` and Settings as each owner; press `q` on a Knowledge page.
+6. **Email reminders stay off** until the owner decides. To turn them on: confirm `EMAIL_DELIVERY` and its secrets are set on the production Worker (they're shared with wedding communications), switch on **Task reminder emails** in Portal settings → Features, then each person turns on **Email my reminders to me** in Tasks → Settings. Send yourself a test reminder a few minutes ahead and wait for the next 15-minute cron run.
+7. Try the Todoist import with a real export (the preview writes nothing) before importing everything.
+
+**Rollback:** redeploy the previous Worker (`npx wrangler rollback --env=""` or redeploy `main`'s previous commit). The new columns and tables are ignored by the Milestone 1 code, so the database needn't change. If email reminders misbehave, switch **Task reminder emails** off: nothing more is sent, and pending reminders stay queued.
