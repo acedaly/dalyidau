@@ -1,4 +1,5 @@
 import type { D1Database, Fetcher, R2Bucket, SendEmail } from "@cloudflare/workers-types";
+import type { AiBinding, VectorIndex } from "./intelligence/bindings";
 
 export interface Env {
     DB: D1Database;
@@ -77,4 +78,15 @@ export interface Env {
     DALYHUB_MIGRATION?: string;
     /** HMAC key for long, revocable native RSVP invitation links. */
     RSVP_LINK_SECRET?: string;
+
+    // Daly Intelligence (docs/INTELLIGENCE.md). Neither binding is in wrangler.jsonc yet: until the
+    // owner adds them, every AI feature reports itself unavailable and nothing is called or billed.
+    /** Workers AI. */
+    AI?: AiBinding;
+    /** Vectorize index for semantic Knowledge search (one namespace per Knowledge space). */
+    VECTORS?: VectorIndex;
+    /** Optional AI Gateway id. Calls then go through the gateway for analytics; turn its log collection off. */
+    AI_GATEWAY_ID?: string;
+    /** Local development and browser tests only: "mock" answers with deterministic local responses instead of Workers AI. */
+    AI_PROVIDER?: string;
 }

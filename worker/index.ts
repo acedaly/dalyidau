@@ -8,6 +8,7 @@ import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, Wedd
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
+import { runIntelligenceCron } from "./intelligence/runner";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { loggablePath } from "./lib/log";
@@ -59,6 +60,13 @@ export default {
                 (error) => console.error(JSON.stringify({ event: "task_reminders_error", message: (error as Error).message })),
             ),
         );
+        // Daly Intelligence: retention always; jobs, briefings and the semantic index only when switched on.
+        ctx.waitUntil(
+            runIntelligenceCron(env).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "intelligence_cron_error", message: (error as Error).message })),
+            ),
+        );
     },
 };
 
@@ -91,7 +99,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
         });
     }
 
-    if (path.startsWith("/api/portal/")) return portalApi(request, env);
+    if (path.startsWith("/api/portal/")) return portalApi(request, env, ctx);
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);
@@ -298,7 +306,7 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     });
 }
 
-async function portalApi(request: Request, env: Env): Promise<Response> {
+async function portalApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const auth = await authenticate(request, env);
     // The reason is logged, not returned: it would tell an attacker which check failed.
     if (!auth.ok) return apiJson({ error: auth.status === 401 ? "unauthenticated" : "forbidden" }, auth.status);
@@ -309,7 +317,7 @@ async function portalApi(request: Request, env: Env): Promise<Response> {
         if (!auth.user.permissions.includes("wedding.rsvp.edit")) return apiJson({ error: "forbidden", message: "You can't test RSVPs" }, 403);
         return rsvpEndpoint(request, env, test[1] as "lookup" | "submit");
     }
-    return handlePortalApi(request, env, auth.user);
+    return handlePortalApi(request, env, auth.user, ctx);
 }
 
 /** Plain HTML, no app bundle: nothing about the portal is revealed to someone who isn't signed in. */

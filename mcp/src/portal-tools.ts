@@ -58,6 +58,16 @@ export const PORTAL_TOOL_NAMES = [
     "tasks_unarchive_project",
     "chief_of_staff_daily_context",
     "chief_of_staff_weekly_context",
+    "knowledge_semantic_search",
+    "knowledge_find_related",
+    "intelligence_get_daily_briefing",
+    "intelligence_get_weekly_review",
+    "intelligence_list_suggestions",
+    "intelligence_get_processing_status",
+    "meetings_get_transcript",
+    "intelligence_capture_text",
+    "intelligence_request_analysis",
+    "intelligence_approve_suggestion",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -79,6 +89,9 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "tasks_update_project",
     "tasks_archive_project",
     "tasks_unarchive_project",
+    "intelligence_capture_text",
+    "intelligence_request_analysis",
+    "intelligence_approve_suggestion",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -95,6 +108,8 @@ const spaceId = portalId("ksp", "Knowledge space");
 const objectId = portalId("kob", "Knowledge object");
 const taskId = portalId("tsk", "task");
 const projectId = portalId("tpj", "project");
+const captureId = portalId("aic", "Intelligence capture");
+const suggestionId = portalId("ais", "Intelligence suggestion");
 const date = z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -540,6 +555,66 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
         description: `${SOURCE} Read the facts for a weekly review: what was completed in the seven days ending weekEnding (default today), what is overdue, the next 14 days and their deadlines, project health, goals, routines, and notes, meetings and decisions recorded in the week. Facts only; you propose any follow-ups, and must label them as proposals.`,
         input: z.object({ weekEnding: date.optional() }).strict(),
         annotations: READ,
+    },
+    /* ----------------------------- Daly Intelligence ------------------------ */
+    knowledge_semantic_search: {
+        description: `${SOURCE} Search the person's Knowledge by meaning as well as by words (hybrid: keyword full-text search blended with semantic similarity), for questions like "what did I decide about the household budget?". Results are only objects the person can read, each with an excerpt from the object itself and its link. "mode" says whether meaning was used; when semantic search is off or unavailable the results are keyword-only and "fallbackReason" says why. Cite only the returned objects.`,
+        input: z
+            .object({
+                query: z.string().trim().min(1).max(300),
+                spaceId: spaceId.optional(),
+                type: z.string().max(40).optional().describe("An object type id from knowledge_list_types."),
+                limit: limit(25),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    knowledge_find_related: {
+        description: `${SOURCE} Related Knowledge for one object: shared tags, links, collections, similar wording and (when semantic search is on) similar meaning, with the reasons, and possible duplicates flagged. Suggestions only: nothing is linked or merged.`,
+        input: z.object({ objectId }).strict(),
+        annotations: READ,
+    },
+    intelligence_get_daily_briefing: {
+        description: `${SOURCE} The person's Daily Intelligence briefing as the portal builds it: facts from Tasks and Knowledge (today, overdue, deadlines, priority projects, decisions, follow-ups, waiting on others, household, Knowledge updates) in the sections the person chose, plus AI recommendations only if the portal already prepared them, labelled as suggestions. "notChecked" lists what was never read (email, calendar, finances): never imply otherwise. Reading never runs a model.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    intelligence_get_weekly_review: {
+        description: `${SOURCE} The person's weekly review for the seven days ending weekEnding (default today): completed work, projects at risk or without recent activity, overdue commitments, upcoming milestones, waiting items, Knowledge, meetings and decisions, and housekeeping. Facts with links; recommendations only if already prepared, labelled as suggestions.`,
+        input: z.object({ weekEnding: date.optional() }).strict(),
+        annotations: READ,
+    },
+    intelligence_list_suggestions: {
+        description: `${SOURCE} The person's AI Suggestions Inbox: proposed tasks, follow-ups, projects, notes, decisions, meeting records, tags, links and facts extracted from their captures, each with its reason, a quote from the source (evidence), confidence and version. Pending suggestions have not been applied. Show them to the person; only call intelligence_approve_suggestion for one the person explicitly approves.`,
+        input: z.object({ status: z.enum(["pending", "applied", "dismissed", "all"]).optional(), captureId: captureId.optional(), limit: limit(100) }).strict(),
+        annotations: READ,
+    },
+    intelligence_get_processing_status: {
+        description: `${SOURCE} Whether Intelligence features are available, and the state of the person's recent captures (or one capture): received, extracting, transcribing, analysing, ready or failed, with job progress and error codes.`,
+        input: z.object({ captureId: captureId.optional() }).strict(),
+        annotations: READ,
+    },
+    meetings_get_transcript: {
+        description: `${SOURCE} The transcript of one of the person's recorded meetings (a capture with source "audio"), cut to maxCharacters. Speakers are not identified: never attribute words to a person unless the text names them.`,
+        input: z.object({ captureId, maxCharacters: z.number().int().min(1000).max(60000).optional() }).strict(),
+        annotations: READ,
+    },
+    intelligence_capture_text: {
+        description: `${SOURCE} WRITE: hand text (notes, an email the person pasted, a meeting summary) to Intelligent Capture. It is analysed in the background into suggestions for the person to review; nothing is created in Tasks or Knowledge by this call. Uses the person's AI budget. Send a fresh requestId.`,
+        input: z
+            .object({ text: z.string().trim().min(1).max(60000), title: z.string().trim().max(300).optional(), spaceId: spaceId.optional(), requestId })
+            .strict(),
+        annotations: WRITE,
+    },
+    intelligence_request_analysis: {
+        description: `${SOURCE} WRITE: analyse an existing Knowledge object the person can read into suggestions (tasks, decisions, tags, links) for review. Objects or spaces excluded from AI are refused. Nothing is changed until a suggestion is approved.`,
+        input: z.object({ objectId, requestId }).strict(),
+        annotations: WRITE,
+    },
+    intelligence_approve_suggestion: {
+        description: `${SOURCE} WRITE: apply one suggestion the person has explicitly approved in this conversation (never on your own initiative, never several at once without asking). The portal re-checks every project, space and object in it against the person's access and creates the task, project or Knowledge record exactly as the portal's Approve button would. Approving twice returns the same record. Pass the version you read to avoid applying a suggestion that changed.`,
+        input: z.object({ suggestionId, version: z.number().int().min(1).optional(), requestId }).strict(),
+        annotations: IDEMPOTENT_WRITE,
     },
 };
 

@@ -1,4 +1,4 @@
-// The MCP write ledger (mcp_writes, migrations 0018 and 0020).
+// The MCP write ledger (mcp_writes, migrations 0018, 0020 and 0021).
 //
 // Every write an AI client makes through the gateway is claimed here before anything changes and
 // settled afterwards, so there is always an audit row naming the person, the tool and the record,
@@ -10,7 +10,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { newId, nowIso } from "../portal/db";
 import { HttpError } from "../portal/http";
 
-export type EntityType = "task" | "task_knowledge_link" | "knowledge_object" | "task_project";
+export type EntityType = "task" | "task_knowledge_link" | "knowledge_object" | "task_project" | "ai_capture" | "ai_suggestion";
 
 export interface WriteOutcome {
     entityType: EntityType;

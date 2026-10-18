@@ -237,6 +237,28 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        name: "Intelligence settings and preferences are valid JSON",
+        sql: "SELECT key FROM ai_config WHERE json_valid(value) = 0 UNION ALL SELECT email FROM ai_preferences WHERE json_valid(value) = 0 UNION ALL SELECT id FROM ai_suggestions WHERE json_valid(payload) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // The schema refuses this too; a row here would mean a file could be purged that someone chose to keep.
+        name: "Attachments kept on purpose are permanent and never scheduled for deletion",
+        sql: "SELECT id FROM attachments WHERE keep = 1 AND (retention <> 'permanent' OR purge_after IS NOT NULL) LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Knowledge attachments point at objects that still exist",
+        sql: "SELECT a.id FROM attachments a LEFT JOIN knowledge_objects o ON o.id = a.object_id WHERE a.purpose = 'knowledge' AND a.status <> 'deleted' AND o.id IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
+        // A claim this old belongs to a runner that died; the next cron run takes it over.
+        name: "No Intelligence jobs stuck mid-run",
+        sql: "SELECT id FROM ai_jobs WHERE status = 'running' AND claimed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
@@ -316,4 +338,19 @@ export const TABLES = [
     // DalyHub migration provenance (0019).
     "dalyhub_import_runs",
     "dalyhub_import_items",
+    // Daly Intelligence (0021). ai_semantic_index is derived (Vectorize is rebuilt from Knowledge)
+    // but is an ordinary table, so it's backed up and counted like the rest.
+    "ai_config",
+    "ai_preferences",
+    "ai_exclusions",
+    "ai_usage",
+    "ai_alerts",
+    "ai_jobs",
+    "ai_semantic_index",
+    "ai_captures",
+    "ai_transcripts",
+    "ai_transcript_parts",
+    "ai_suggestions",
+    "ai_briefings",
+    "attachments",
 ];

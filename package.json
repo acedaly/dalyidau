@@ -26,6 +26,8 @@
         "db:backup": "node scripts/db-backup.mjs",
         "test:backup": "node scripts/test-backup.mjs",
         "knowledge:check-export": "node scripts/knowledge-export-check.mjs",
+        "backup:r2": "node scripts/r2-backup.mjs",
+        "intelligence:eval": "node scripts/intelligence-eval.mjs",
         "seed:staging": "node scripts/seed-staging.mjs",
         "mcp:dev": "wrangler dev --config mcp/wrangler.jsonc --port 8798",
         "mcp:deploy:dry-run": "wrangler deploy --dry-run --config mcp/wrangler.jsonc --env production --outdir dist/mcp"

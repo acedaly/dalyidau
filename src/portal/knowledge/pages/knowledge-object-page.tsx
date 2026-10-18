@@ -16,6 +16,7 @@ import {
     Pin02,
     RefreshCcw01,
     Star01,
+    Stars02,
     Trash01,
     XClose,
 } from "@untitledui/icons";
@@ -468,6 +469,7 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                                         else if (key === "template") setTemplateOpen(true);
                                         else if (key === "export-md") void runExport("markdown");
                                         else if (key === "export-json") void runExport("json");
+                                        else if (key === "analyse") window.location.href = `/portal/intelligence/capture?object=${object.id}`;
                                         else void runStatus(key as "archive" | "unarchive" | "trash" | "restore");
                                     }}
                                 >
@@ -476,6 +478,7 @@ export const KnowledgeObjectPage = ({ data }: { data: PageData<"knowledge-object
                                     {editable && <Dropdown.Item id="template" icon={File06} label="Add a template…" />}
                                     <Dropdown.Item id="export-md" icon={Download01} label="Export as Markdown" />
                                     <Dropdown.Item id="export-json" icon={Download01} label="Export as JSON (with history)" />
+                                    {can("intelligence.use") && !trashed && <Dropdown.Item id="analyse" icon={Stars02} label="Analyse with Intelligence…" />}
                                     {roleAtLeast(space.role, "editor") && object.status === "active" && (
                                         <Dropdown.Item id="archive" icon={Archive} label="Archive" />
                                     )}

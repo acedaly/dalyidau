@@ -24,6 +24,7 @@ import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
 import { CHIEF_TOOLS } from "./chief";
+import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { claimWrite, failWrite, settleWrite } from "./ledger";
 import { DuplicateProject, PROJECT_TOOLS, StaleProject } from "./projects";
@@ -54,7 +55,7 @@ export type PortalMcpErrorCode =
 export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
-export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS];
+export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS, ...INTELLIGENCE_TOOLS];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
 const MAX_INPUT_BYTES = 64_000;
@@ -110,7 +111,7 @@ const devEmail = (env: Env, assertion: string): string | null => {
     }
 };
 
-export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promise<PortalMcpResponse> {
+export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: ToolContext["exec"]): Promise<PortalMcpResponse> {
     const started = Date.now();
     const toolName = typeof request?.tool === "string" ? request.tool.slice(0, 64) : "";
     const respond = (response: PortalMcpResponse) => {
@@ -150,7 +151,7 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
     }
     if (size > MAX_INPUT_BYTES) return respond(fail("too_large", "Those arguments are too large."));
 
-    const ctx: ToolContext = { env, db: env.DB, user, site: new URL(env.SITE_URL).origin };
+    const ctx: ToolContext = { env, db: env.DB, user, site: new URL(env.SITE_URL).origin, exec };
     let input: unknown;
     try {
         input = def.input.parse(request.input ?? {});
@@ -199,6 +200,6 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
 /** Reached only through a service binding (the gateway's PORTAL binding, mcp/wrangler.jsonc); it has no route. */
 export class PortalMcpEntrypoint extends WorkerEntrypoint<Env> {
     async invoke(request: PortalMcpRequest): Promise<PortalMcpResponse> {
-        return handleMcpCall(this.env, request);
+        return handleMcpCall(this.env, request, this.ctx);
     }
 }

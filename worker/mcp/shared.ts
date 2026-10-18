@@ -16,6 +16,8 @@ export interface ToolContext {
     user: PortalUser;
     /** The portal's origin, for links back to each record. */
     site: string;
+    /** For work a write starts in the background (an Intelligence capture). */
+    exec?: { waitUntil(promise: Promise<unknown>): void };
 }
 
 export interface ToolResult {

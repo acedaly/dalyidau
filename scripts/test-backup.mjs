@@ -163,6 +163,46 @@ INSERT INTO dalyhub_import_items (owner_email, kind, source_id, target_id, run_i
   ('owner@example.com', 'task', 'dalyhub-task-1', 'tsk_backuptest0001', 'dhr_backuptest0001', 1, '${NOW}');
 `;
 const DALYHUB_TABLES = ["dalyhub_import_runs", "dalyhub_import_items"];
+// Daly Intelligence (0021): configuration, a capture with its transcript, suggestions (one applied,
+// with its result), a job, usage, a briefing, the derived semantic index and a kept attachment, plus
+// an MCP write naming a suggestion (the widened ledger).
+const INTELLIGENCE = `
+INSERT INTO ai_config (key, value, version, updated_at, updated_by) VALUES ('intelligence', '{"features":{"enabled":true}}', 1, '${NOW}', 'owner@example.com');
+INSERT INTO ai_preferences (email, value, version, updated_at) VALUES ('owner@example.com', '{"mode":"concise"}', 1, '${NOW}');
+INSERT INTO ai_exclusions (id, space_id, object_id, excluded_by, created_at) VALUES ('aix_backuptest0001', 'ksp_backuptest0001', 'kob_backuptest0002', 'owner@example.com', '${NOW}');
+INSERT INTO ai_captures (id, email, space_id, source, title, text, status, created_at, updated_at) VALUES
+  ('aic_backuptest0001', 'owner@example.com', 'ksp_backuptest0001', 'audio', 'Site meeting', 'Action: book the electrician.', 'ready', '${NOW}', '${NOW}');
+INSERT INTO ai_transcripts (capture_id, model, language, duration_seconds, chunks_total, chunks_done, created_at, completed_at) VALUES
+  ('aic_backuptest0001', '@cf/openai/whisper-large-v3-turbo', 'en', 60, 1, 1, '${NOW}', '${NOW}');
+INSERT INTO ai_transcript_parts (capture_id, idx, offset_seconds, text, segments) VALUES ('aic_backuptest0001', 0, 0, 'Action: book the electrician.', '[]');
+INSERT INTO ai_suggestions (id, email, capture_id, kind, status, payload, dedupe_key, result_type, result_id, created_at, updated_at) VALUES
+  ('ais_backuptest0001', 'owner@example.com', 'aic_backuptest0001', 'task', 'applied', '{"title":"Book the electrician"}', 'task:1', 'task', 'tsk_backuptest0001', '${NOW}', '${NOW}'),
+  ('ais_backuptest0002', 'owner@example.com', 'aic_backuptest0001', 'decision', 'pending', '{"title":"Keep the switchboard"}', 'decision:1', NULL, NULL, '${NOW}', '${NOW}');
+INSERT INTO ai_jobs (id, email, kind, status, subject_id, run_after, created_at, updated_at) VALUES ('ajb_backuptest0001', 'owner@example.com', 'meeting.transcribe', 'done', 'aic_backuptest0001', '${NOW}', '${NOW}', '${NOW}');
+INSERT INTO ai_usage (at, day, month, email, feature, task, provider, model, input_units, unit, neurons, ok) VALUES ('${NOW}', '2026-10-18', '2026-10', 'owner@example.com', 'meetings', 'transcribe', 'workers-ai', '@cf/openai/whisper-large-v3-turbo', 60, 'audio_seconds', 46.6, 1);
+INSERT INTO ai_alerts (period, scope, threshold, raised_at) VALUES ('2026-10-18', 'daily', 50, '${NOW}');
+INSERT INTO ai_briefings (id, email, kind, period, facts, fingerprint, status, generated_at) VALUES ('abr_backuptest0001', 'owner@example.com', 'daily', '2026-10-18', '[]', 'f', 'facts_only', '${NOW}');
+INSERT INTO ai_semantic_index (object_id, space_id, object_version, content_hash, model, chunk_count, status, indexed_at) VALUES ('kob_backuptest0001', 'ksp_backuptest0001', 1, 'h', '@cf/baai/bge-m3', 1, 'indexed', '${NOW}');
+INSERT INTO attachments (id, owner_email, purpose, space_id, object_id, r2_key, filename, content_type, bytes, retention, keep, status, created_at, updated_at) VALUES
+  ('att_backuptest0001', 'owner@example.com', 'knowledge', 'ksp_backuptest0001', 'kob_backuptest0001', 'private/attachments/att_backuptest0001/x', 'minutes.pdf', 'application/pdf', 1234, 'permanent', 1, 'stored', '${NOW}', '${NOW}');
+INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, created_at, completed_at) VALUES
+  ('mcw_backuptest0004', 'owner@example.com', 'intelligence_approve_suggestion', 'req-backuptest-0004', 'done', 'ai_suggestion', 'ais_backuptest0001', '${NOW}', '${NOW}');
+`;
+const INTELLIGENCE_TABLES = [
+    "ai_config",
+    "ai_preferences",
+    "ai_exclusions",
+    "ai_captures",
+    "ai_transcripts",
+    "ai_transcript_parts",
+    "ai_suggestions",
+    "ai_jobs",
+    "ai_usage",
+    "ai_alerts",
+    "ai_briefings",
+    "ai_semantic_index",
+    "attachments",
+];
 
 const TASK_M3_TABLES = [
     "task_project_reviews",
@@ -270,6 +310,12 @@ try {
         "The DalyHub migration provenance has rows",
         "The DalyHub migration provenance is empty",
     );
+    run(INTELLIGENCE);
+    report.check(
+        INTELLIGENCE_TABLES.every((t) => count(t) > 0),
+        "Every Intelligence table has rows (0021)",
+        "An Intelligence table is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -306,6 +352,7 @@ try {
             ...TASK_M3_TABLES,
             ...MCP_TABLES,
             ...DALYHUB_TABLES,
+            ...INTELLIGENCE_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(

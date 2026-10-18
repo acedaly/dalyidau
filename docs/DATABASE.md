@@ -26,6 +26,7 @@ The Worker uses one D1 database per environment: `dalyidau-production` and `daly
 | `0018_mcp_writes.sql`                  | The MCP gateway's write ledger: one row per AI-client write (person, tool, record id, outcome, request id for retry safety), never titles or text (see [MCP.md](MCP.md#writes-audit-and-retries))                                                                                                                                                  |
 | `0019_dalyhub_import.sql`              | DalyHub migration provenance: which portal records a DalyHub import created, with their versions, so imports are idempotent and revertible. Ids only (see [DALYHUB_MIGRATION.md](DALYHUB_MIGRATION.md))                                                                                                                                            |
 | `0020_mcp_projects.sql`                | MCP project management: `task_projects.client_id` with a unique index per creator (retry-safe project creation), and `mcp_writes` rebuilt, every row copied, so `task_project` can be a write's outcome. The rebuild is the one non-additive step, because SQLite can't widen a CHECK in place (see [MCP.md](MCP.md#releasing-project-management)) |
+| `0021_intelligence.sql`                | Daly Intelligence: configuration and preferences, AI exclusions, usage and alerts, jobs, the derived semantic index, captures, transcripts, suggestions, briefings and shared attachments; `mcp_writes` rebuilt (every row copied) for capture and suggestion outcomes (see [INTELLIGENCE.md](INTELLIGENCE.md))                                    |
 
 Rules:
 
@@ -67,6 +68,10 @@ npm run db:backup -- --env production
 `scripts/lib/ops.mjs` includes every `0014` table in the row-count manifest. `npm run test:backup` is the safe local regression: it migrates a populated `0013` database, adds invented rows to every Milestone 3 table, invokes the real backup command, restores into isolated scratch databases, rebuilds FTS5 and verifies search, relations, schema objects, constraints and unrelated blog/wedding rows. It completed with no problems on 17 October 2026. It never uses a remote binding.
 
 The file contains guests' personal details. `backups/` is git-ignored, and the script makes the folder and every file in it readable by your account only (0700/0600, including older backups). Keep backups somewhere private and delete them when no longer needed: `node scripts/db-backup.mjs --prune 5` keeps the newest five per environment and deletes the rest ([PRIVACY.md](PRIVACY.md#places-the-portal-cant-reach)).
+
+### Files in R2 (Daly Intelligence)
+
+D1 backups hold the `attachments` rows; the files are in R2. `npm run backup:r2 -- --env production --encrypt` (with `BACKUP_PASSPHRASE` set) copies every permanent or kept file to `backups/r2-<env>-<time>/`, verified against D1 and encrypted with AES-256-GCM; `--verify <dir>` re-checks one. Temporary processing files aren't backed up by design. The Vectorize index is derived and is rebuilt from Knowledge, never restored. See [INTELLIGENCE.md](INTELLIGENCE.md#backup-and-recovery).
 
 ## Restoring
 

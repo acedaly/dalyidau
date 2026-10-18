@@ -2,7 +2,7 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with three applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md) and [Daly Tasks](docs/TASKS_PROJECTS.md), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with four applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md) and [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
 Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
@@ -73,6 +73,7 @@ docs/                Setup, deployment and operations
 - [Deployment](docs/DEPLOYMENT.md): Cloudflare resources, secrets, CI, DNS cut-over and rollback
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
 - [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model
+- [Daly Intelligence](docs/INTELLIGENCE.md): Workers AI, Vectorize, suggestions, briefings, meetings, costs, backups and activation
 - [Communications](docs/COMMUNICATIONS.md): SMTP2Go email, ClickSend SMS, webhooks, consent and the activation checklist
 - [Privacy and personal data](docs/PRIVACY.md): what's collected, retention, deleting and erasing
 - [Database](docs/DATABASE.md): migrations, verification, backups, restore and rollback
