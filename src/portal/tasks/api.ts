@@ -138,7 +138,7 @@ export const tasksApi = {
     updateProject: (
         id: string,
         version: number,
-        body: Partial<Pick<TaskProject, "name" | "description" | "color" | "startDate" | "targetDate" | "defaultView" | "status">>,
+        body: Partial<Pick<TaskProject, "name" | "description" | "color" | "startDate" | "targetDate" | "defaultView" | "status" | "reviewFrequency">>,
     ) => api<{ project: TaskProject }>("PATCH", `${T}/projects/${id}`, { version, ...body }),
     setProjectKind: (id: string, kind: "personal" | "shared") => api<{ project: TaskProject }>("POST", `${T}/projects/${id}/kind`, { kind }),
     deleteProject: (id: string) => api<{ ok: true }>("POST", `${T}/projects/${id}/delete`, { confirm: "DELETE" }),
@@ -173,7 +173,7 @@ export const tasksApi = {
 };
 
 export const taskHref = (id: string) => `/portal/tasks/t/${id}`;
-export const projectHref = (id: string, view?: "list" | "board" | "overview") => `/portal/tasks/p/${id}${view ? `?view=${view}` : ""}`;
+export const projectHref = (id: string, view?: "list" | "board" | "overview" | "timeline") => `/portal/tasks/p/${id}${view ? `?view=${view}` : ""}`;
 
 export interface ImportRequest {
     files: { name: string; text: string }[];

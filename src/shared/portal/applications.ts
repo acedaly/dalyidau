@@ -43,7 +43,11 @@ export type NavigationIcon =
     | "filters"
     | "activity"
     | "project"
-    | "mine";
+    | "mine"
+    | "goals"
+    | "routines"
+    | "workload"
+    | "reports";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -191,7 +195,7 @@ export const APPLICATIONS = [
         id: "tasks",
         name: "Daly Tasks",
         description:
-            "Tasks and projects, personal and shared, with Today, Upcoming, repeating tasks and links to Knowledge. Private to you unless you share a project.",
+            "Tasks, projects, goals and household routines, personal and shared, with a dashboard, reviews, reports and links to Knowledge. Private to you unless you share.",
         icon: "tasks",
         baseRoute: "/portal/tasks",
         requiredPermission: "tasks.use",
@@ -200,6 +204,7 @@ export const APPLICATIONS = [
             {
                 label: "My tasks",
                 items: [
+                    { label: "Dashboard", href: "/portal/tasks/dashboard", icon: "dashboard" },
                     { label: "Inbox", href: "/portal/tasks/inbox", icon: "inbox" },
                     { label: "Today", href: "/portal/tasks/today", icon: "today" },
                     { label: "Upcoming", href: "/portal/tasks/upcoming", icon: "upcoming" },
@@ -213,9 +218,18 @@ export const APPLICATIONS = [
                 items: [
                     { label: "My projects", href: "/portal/tasks/projects", icon: "projects" },
                     { label: "Shared projects", href: "/portal/tasks/projects?kind=shared", icon: "shared" },
+                    { label: "Goals", href: "/portal/tasks/goals", icon: "goals" },
+                    { label: "Routines", href: "/portal/tasks/routines", icon: "routines" },
                     { label: "Labels", href: "/portal/tasks/labels", icon: "labels" },
                     { label: "Filters", href: "/portal/tasks/filters", icon: "filters" },
                     { label: "Templates", href: "/portal/tasks/templates", icon: "templates" },
+                ],
+            },
+            {
+                label: "Plan and review",
+                items: [
+                    { label: "Workload", href: "/portal/tasks/workload", icon: "workload" },
+                    { label: "Reports", href: "/portal/tasks/reports", icon: "reports" },
                 ],
             },
             {

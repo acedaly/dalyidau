@@ -1,9 +1,23 @@
 // A project: List (sections with nested tasks), Board (sections as columns; drag a card, or use its
-// menu to move it, which works by keyboard) and Overview (progress, deadlines, milestones, members,
-// linked Knowledge and recent history). Sections can be added, renamed, reordered and deleted;
+// menu to move it, which works by keyboard), Overview (health with its reasons, reviews, progress,
+// deadlines, milestones, goals, members, linked Knowledge and recent history) and Timeline (dated
+// events in order). Sections can be added, renamed, reordered and deleted;
 // deleting one asks where its tasks go and never deletes them.
 import { type DragEvent, useCallback, useState } from "react";
-import { BookOpen01, CheckCircle, DotsVertical, Edit05, Folder, LayersThree01, Plus, Settings01, Target04, UsersPlus } from "@untitledui/icons";
+import {
+    BookOpen01,
+    CheckCircle,
+    ClipboardCheck,
+    DotsVertical,
+    Edit05,
+    Folder,
+    LayersThree01,
+    Plus,
+    Settings01,
+    Target04,
+    UsersPlus,
+    XClose,
+} from "@untitledui/icons";
 import { FeedItem } from "@/components/application/activity-feed/activity-feed";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge, BadgeWithDot } from "@/components/base/badges/badges";
@@ -21,11 +35,17 @@ import { errorMessage } from "@/portal/lib/api";
 import { formatRelative, initials } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { shortDate } from "@/shared/tasks/dates";
-import { PROJECT_STATUS_LABELS, type TaskMember, type TaskProject, type TaskSection, type TaskSummary } from "@/shared/tasks/types";
+import { HEALTH_LABELS, HEALTH_STATUSES, type HealthStatus, type ProjectTimeline, REVIEW_FREQUENCY_LABELS } from "@/shared/tasks/productivity";
+import { type KnowledgeReference, PROJECT_STATUS_LABELS, type TaskMember, type TaskProject, type TaskSection, type TaskSummary } from "@/shared/tasks/types";
 import { cx } from "@/utils/cx";
 import { activitySentence, takesTitle } from "../activity-text";
 import { projectHref, tasksApi } from "../api";
+import { KnowledgeLinkDialog } from "../knowledge-link-dialog";
+import { goalHref, productivityApi } from "../productivity-api";
+import { GoalProgress, HealthBadge, HealthReasons } from "../productivity-ui";
 import { EditProjectDialog, MembersDialog } from "../project-dialogs";
+import { ProjectReviewDialog } from "../project-review";
+import { ProjectTimelineView } from "../project-timeline";
 import { DeadlineBadge, DueBadge, PriorityFlag, ProjectDot, personLabel, titleOf } from "../shared";
 import { TaskList } from "../task-list";
 import { CompleteCircle } from "../task-row";
@@ -34,7 +54,7 @@ import { TasksHeader, TasksLayout } from "../tasks-layout";
 import { useLiveList } from "../use-live-list";
 import { useTaskActions } from "../use-task-actions";
 
-type Tab = "list" | "board" | "overview";
+type Tab = "list" | "board" | "overview" | "timeline";
 
 export const TasksProjectPage = ({ data }: { data: PageData<"tasks-project"> }) => (
     <TasksLayout shell={data} initialTask={data.openTask}>
@@ -49,6 +69,7 @@ const ProjectBody = ({ data }: { data: PageData<"tasks-project"> }) => {
     const [project, setProject] = useState<TaskProject>(data.project);
     const [members, setMembers] = useState<TaskMember[]>(data.members);
     const [tab, setTab] = useState<Tab>(data.tab);
+    const [timeline, setTimeline] = useState<ProjectTimeline | null>(data.timeline);
     const [editOpen, setEditOpen] = useState(false);
     const [membersOpen, setMembersOpen] = useState(false);
     const [showCompleted, setShowCompleted] = useState(false);
@@ -71,6 +92,11 @@ const ProjectBody = ({ data }: { data: PageData<"tasks-project"> }) => {
     const switchTab = (next: Tab) => {
         // Overview needs data the list doesn't; it comes from the server.
         if (next === "overview" && !data.overview) return window.location.assign(projectHref(project.id, "overview"));
+        if (next === "timeline" && !timeline)
+            void productivityApi.timeline(project.id).then(
+                (r) => setTimeline(r.timeline),
+                (e) => toast.error("Couldn't load the timeline", errorMessage(e)),
+            );
         setTab(next);
         const url = new URL(window.location.href);
         url.searchParams.set("view", next);
@@ -144,6 +170,7 @@ const ProjectBody = ({ data }: { data: PageData<"tasks-project"> }) => {
                     <Tabs.Item id="list">List</Tabs.Item>
                     <Tabs.Item id="board">Board</Tabs.Item>
                     <Tabs.Item id="overview">Overview</Tabs.Item>
+                    <Tabs.Item id="timeline">Timeline</Tabs.Item>
                 </Tabs.List>
                 <Tabs.Panel id="list">
                     <ListView
@@ -173,6 +200,9 @@ const ProjectBody = ({ data }: { data: PageData<"tasks-project"> }) => {
                 </Tabs.Panel>
                 <Tabs.Panel id="overview">
                     {data.overview && <OverviewView data={data} project={project} tasks={tasks} members={members} today={today} />}
+                </Tabs.Panel>
+                <Tabs.Panel id="timeline">
+                    <ProjectTimelineView timeline={timeline} />
                 </Tabs.Panel>
             </Tabs>
 
@@ -584,6 +614,7 @@ const OverviewView = ({
     );
     return (
         <div className="flex flex-col gap-6">
+            {!project.isInbox && overview?.health && <HealthCard project={project} overview={overview} />}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Open" value={project.counts.open} icon={Folder} />
                 <MetricCard label="Completed" value={project.counts.completed} icon={CheckCircle} />
@@ -639,7 +670,22 @@ const OverviewView = ({
                         ))}
                     </ul>
                 </Card>
-                <Card title="Linked Knowledge">
+                {!project.isInbox && <ProjectKnowledgeCard project={project} initial={overview?.projectKnowledge ?? []} />}
+                {overview && overview.goals.length > 0 && (
+                    <Card title="Goals">
+                        <ul className="flex flex-col gap-3">
+                            {overview.goals.map((g) => (
+                                <li key={g.id} className="flex flex-col gap-1">
+                                    <a href={goalHref(g.id)} className="truncate text-sm font-medium text-primary hover:underline">
+                                        {titleOf(g.title)}
+                                    </a>
+                                    <GoalProgress goal={g} />
+                                </li>
+                            ))}
+                        </ul>
+                    </Card>
+                )}
+                <Card title="Knowledge linked from tasks">
                     {overview?.knowledge.length ? (
                         <ul className="flex flex-col gap-2">
                             {overview.knowledge.map((ref) => (
@@ -698,5 +744,183 @@ const OverviewView = ({
                 </Card>
             </div>
         </div>
+    );
+};
+
+/**
+ * The project's health, how it was worked out, the manual status a member can set instead, and its
+ * reviews: start or continue one, and see the last.
+ */
+const HealthCard = ({ project, overview }: { project: TaskProject; overview: NonNullable<PageData<"tasks-project">["overview"]> }) => {
+    const { canEdit, today } = useTasks();
+    const toast = useToast();
+    const [health, setHealth] = useState(overview.health!);
+    const [reviewing, setReviewing] = useState(false);
+    const [overriding, setOverriding] = useState(false);
+    const [choice, setChoice] = useState<HealthStatus | "calculated">(health.override?.status ?? "calculated");
+    const [note, setNote] = useState(health.override?.note ?? "");
+    const editable = canEdit(project.id);
+    const review = overview.metrics?.review;
+    return (
+        <section className="flex flex-col gap-4 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset" aria-labelledby="project-health">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <h2 id="project-health" className="text-md font-semibold text-primary">
+                        Health
+                    </h2>
+                    <HealthBadge health={health} size="md" />
+                    {health.override && (
+                        <span className="text-xs text-tertiary">
+                            Set by {health.override.by?.split("@")[0]}
+                            {health.override.at ? ` ${formatRelative(health.override.at)}` : ""} · calculated: {HEALTH_LABELS[health.calculated].toLowerCase()}
+                        </span>
+                    )}
+                </div>
+                {editable && (
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="sm" color="secondary" onClick={() => setOverriding(true)}>
+                            Set status
+                        </Button>
+                        <Button size="sm" iconLeading={ClipboardCheck} onClick={() => setReviewing(true)}>
+                            {overview.draftReview ? "Continue review" : "Review project"}
+                        </Button>
+                    </div>
+                )}
+            </div>
+            {health.override?.note && <p className="text-sm text-secondary">“{health.override.note}”</p>}
+            <HealthReasons reasons={health.reasons} />
+            <p className="text-xs text-tertiary">
+                {REVIEW_FREQUENCY_LABELS[project.reviewFrequency]} review
+                {review?.lastReviewedOn ? ` · last reviewed ${shortDate(review.lastReviewedOn)}` : " · not reviewed yet"}
+                {review?.nextDue ? ` · next due ${review.nextDue <= today ? "now" : shortDate(review.nextDue)}` : ""}
+                {overview.lastReview?.note
+                    ? ` · last note: “${overview.lastReview.note.slice(0, 120)}${overview.lastReview.note.length > 120 ? "…" : ""}”`
+                    : ""}
+            </p>
+            {reviewing && (
+                <ProjectReviewDialog
+                    projectId={project.id}
+                    projectName={project.name}
+                    onClose={() => setReviewing(false)}
+                    onDone={() => window.location.assign(projectHref(project.id, "overview"))}
+                />
+            )}
+            <PortalDialog
+                isOpen={overriding}
+                onOpenChange={setOverriding}
+                title="Project status"
+                icon={ClipboardCheck}
+                description="Override the calculated health when you know better, e.g. an overdue task that's waiting on someone else. Clear it to go back to the calculation."
+                onSubmit={async () => {
+                    try {
+                        const fresh = (await tasksApi.project(project.id)).project;
+                        const result = await productivityApi.setHealth(project.id, fresh.version, choice === "calculated" ? null : choice, note.trim() || null);
+                        setHealth(result.health);
+                        setOverriding(false);
+                    } catch (e) {
+                        toast.error("Couldn't set the status", errorMessage(e));
+                    }
+                }}
+                footer={
+                    <>
+                        <Button color="secondary" size="md" onClick={() => setOverriding(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" size="md">
+                            Save
+                        </Button>
+                    </>
+                }
+            >
+                <Select
+                    label="Status"
+                    size="sm"
+                    value={choice}
+                    onChange={(key) => key && setChoice(key as HealthStatus | "calculated")}
+                    items={[
+                        { id: "calculated", label: `As calculated (${HEALTH_LABELS[health.calculated].toLowerCase()})` },
+                        ...HEALTH_STATUSES.map((h) => ({ id: h, label: HEALTH_LABELS[h] })),
+                    ]}
+                >
+                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                </Select>
+                <Input
+                    label="Why"
+                    value={note}
+                    onChange={setNote}
+                    maxLength={280}
+                    hint="Optional. Members of the project see it."
+                    isDisabled={choice === "calculated"}
+                />
+                <div className="h-2" />
+            </PortalDialog>
+        </section>
+    );
+};
+
+/** Knowledge the project itself references, checked against each reader's own Knowledge access. */
+const ProjectKnowledgeCard = ({ project, initial }: { project: TaskProject; initial: KnowledgeReference[] }) => {
+    const { canEdit, shell } = useTasks();
+    const toast = useToast();
+    const [refs, setRefs] = useState(initial);
+    const [linking, setLinking] = useState(false);
+    const editable = canEdit(project.id) && shell.canUseKnowledge;
+    return (
+        <section className="flex flex-col gap-3 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+            <div className="flex items-center justify-between gap-3">
+                <h2 className="text-md font-semibold text-primary">Project Knowledge</h2>
+                {editable && (
+                    <Button size="sm" color="link-color" iconLeading={Plus} onClick={() => setLinking(true)}>
+                        Link
+                    </Button>
+                )}
+            </div>
+            {refs.length ? (
+                <ul className="flex flex-col gap-2">
+                    {refs.map((ref) => (
+                        <li key={ref.linkId} className="flex items-center gap-2 text-sm">
+                            <BookOpen01 aria-hidden="true" className="size-4 shrink-0 text-fg-quaternary" />
+                            {ref.available ? (
+                                <a href={`/portal/knowledge/o/${ref.objectId}`} className="min-w-0 flex-1 truncate font-medium text-primary hover:underline">
+                                    {ref.title}
+                                </a>
+                            ) : (
+                                <span className="min-w-0 flex-1 text-tertiary">A Knowledge item you don't have access to</span>
+                            )}
+                            {canEdit(project.id) && (
+                                <ButtonUtility
+                                    size="xs"
+                                    color="tertiary"
+                                    icon={XClose}
+                                    tooltip="Remove link"
+                                    onClick={async () => {
+                                        try {
+                                            setRefs((await productivityApi.unlinkProjectKnowledge(project.id, ref.linkId)).knowledge);
+                                        } catch (e) {
+                                            toast.error("Couldn't remove it", errorMessage(e));
+                                        }
+                                    }}
+                                />
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="text-sm text-tertiary">Plans, notes and records for the whole project. Others see only what they can read in Knowledge.</p>
+            )}
+            {linking && (
+                <KnowledgeLinkDialog
+                    onClose={() => setLinking(false)}
+                    onPick={async (objectId) => {
+                        setLinking(false);
+                        try {
+                            setRefs((await productivityApi.linkProjectKnowledge(project.id, objectId)).knowledge);
+                        } catch (e) {
+                            toast.error("Couldn't link it", errorMessage(e));
+                        }
+                    }}
+                />
+            )}
+        </section>
     );
 };
