@@ -117,6 +117,7 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "mcp_writes",
     "task_dashboard_preferences",
     "task_routine_participants",
     "task_routines",

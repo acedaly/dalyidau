@@ -51,13 +51,17 @@ const KEY_REFETCH_COOLDOWN_MS = 30_000;
 
 let keyCache: { teamDomain: string; fetchedAt: number; keys: Map<string, CryptoKey> } | null = null;
 
-/** Reads and normalises the Access settings. Returns null (fail closed) when anything is missing. */
-export const accessConfig = (env: Env): AccessConfig | null => {
+/**
+ * Reads and normalises the Access settings. Returns null (fail closed) when anything is missing.
+ * `audience` picks which application's tokens are accepted: the portal's (ACCESS_AUD) by default,
+ * or the MCP gateway's (MCP_ACCESS_AUD), which is a separate Access application on the same team.
+ */
+export const accessConfig = (env: Env, audience: string | undefined = env.ACCESS_AUD): AccessConfig | null => {
     const team = (env.ACCESS_TEAM_DOMAIN ?? "")
         .trim()
         .replace(/^https?:\/\//, "")
         .replace(/\/+$/, "");
-    const audiences = (env.ACCESS_AUD ?? "")
+    const audiences = (audience ?? "")
         .split(",")
         .map((a) => a.trim())
         .filter(Boolean);
@@ -80,6 +84,18 @@ export async function verifyAccessRequest(request: Request, env: Env, now = Date
     const token = accessToken(request);
     if (!token) return { ok: false, reason: "missing_token" };
     return verifyAccessJwt(token, config, (kid) => signingKey(env, config.teamDomain, kid, now), now);
+}
+
+/**
+ * Verifies a token handed over by the MCP gateway (worker/mcp). It must be an Access token for the
+ * MCP application (MCP_ACCESS_AUD), never the portal's own, with the same signature, issuer, expiry
+ * and email checks as a browser request. Without MCP_ACCESS_AUD nothing is accepted.
+ */
+export async function verifyMcpAssertion(token: string, env: Env, now = Date.now()): Promise<AccessResult> {
+    const config = accessConfig(env, env.MCP_ACCESS_AUD);
+    if (!config) return { ok: false, reason: "not_configured" };
+    if (!token) return { ok: false, reason: "missing_token" };
+    return verifyAccessJwt(token.trim(), config, (kid) => signingKey(env, config.teamDomain, kid, now), now);
 }
 
 export async function verifyAccessJwt(

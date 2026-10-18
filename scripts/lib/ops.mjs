@@ -311,4 +311,6 @@ export const TABLES = [
     "task_goal_progress",
     "task_routines",
     "task_routine_participants",
+    // The MCP gateway's write ledger (0018).
+    "mcp_writes",
 ];

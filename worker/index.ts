@@ -34,6 +34,9 @@ const HTML_EDGE_TTL = 300;
 const PAGE_CACHE_TTL = 86_400;
 const SYNC_LOCK_MINUTES = 15;
 
+// The MCP gateway (mcp.daly.id.au) reaches Tasks and Knowledge through this, over a service binding only.
+export { PortalMcpEntrypoint } from "./mcp/entrypoint";
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         try {

@@ -6,7 +6,7 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates) and every Daly Tasks table (0015, 0016, 0017).
+//    templates), every Daly Tasks table (0015, 0016, 0017) and the MCP write ledger (0018).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -142,6 +142,15 @@ INSERT INTO task_routines (id, task_id, rotation, created_by, created_at, update
 INSERT INTO task_routine_participants (routine_id, email, position) VALUES ('trt_backuptest0001', 'owner@example.com', 0), ('trt_backuptest0001', 'partner@example.com', 1);
 INSERT INTO task_dashboard_preferences (email, prefs_json, updated_at) VALUES ('owner@example.com', '{"tab":"household","hidden":["goals"]}', '${NOW}');
 `;
+// The MCP gateway's write ledger (0018): one settled write with a request id, one failed without.
+const MCP = `
+INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, created_at, completed_at) VALUES
+  ('mcw_backuptest0001', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'done', 'task', 'tsk_backuptest0001', '${NOW}', '${NOW}');
+INSERT INTO mcp_writes (id, email, tool, request_key, status, error_code, created_at, completed_at) VALUES
+  ('mcw_backuptest0002', 'partner@example.com', 'knowledge_create_object', NULL, 'failed', 'validation', '${NOW}', '${NOW}');
+`;
+const MCP_TABLES = ["mcp_writes"];
+
 const TASK_M3_TABLES = [
     "task_project_reviews",
     "task_review_actions",
@@ -236,6 +245,12 @@ try {
         "Every Tasks table has rows (Milestones 1–3)",
         "A Tasks table is empty",
     );
+    run(MCP);
+    report.check(
+        MCP_TABLES.every((t) => count(t) > 0),
+        "The MCP write ledger has rows",
+        "The MCP write ledger is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -270,6 +285,7 @@ try {
             ...M3_TABLES,
             ...TASK_TABLES,
             ...TASK_M3_TABLES,
+            ...MCP_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(
@@ -311,6 +327,16 @@ try {
             refused = true;
         }
         report.check(refused, "The restored copy still refuses a second daily note for a date", "The restored copy accepted a duplicate daily note");
+        let reused = false;
+        try {
+            run(
+                "INSERT INTO mcp_writes (id, email, tool, request_key, created_at) VALUES ('mcw_backuptest0009', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'x');",
+                restored,
+            );
+        } catch {
+            reused = true;
+        }
+        report.check(reused, "The restored copy still refuses a reused MCP request id", "The restored copy accepted a reused MCP request id");
         // Tasks' own rules survive: the personal-project trigger and the composite keys.
         const refuses = (sql) => {
             try {

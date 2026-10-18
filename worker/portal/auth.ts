@@ -51,6 +51,29 @@ export async function authenticate(request: Request, env: Env): Promise<AuthResu
         email = result.identity.email;
     }
 
+    const resolved = await userForEmail(env, email);
+    if (!resolved.ok) return resolved;
+
+    // "Last seen", at most once every ten minutes per user. A configured owner without a row gets
+    // an inactive viewer row: it records the visit but grants nothing on its own, so removing
+    // someone from PORTAL_OWNER_EMAILS removes their access.
+    await env.DB.prepare(
+        `INSERT INTO portal_users (email, name, role, active, created_at, last_seen_at) VALUES (?1, NULL, 'viewer', 0, ?2, ?2)
+         ON CONFLICT(email) DO UPDATE SET last_seen_at = ?2
+         WHERE portal_users.last_seen_at IS NULL OR portal_users.last_seen_at < ?3`,
+    )
+        .bind(email, nowIso(), new Date(Date.now() - 10 * 60_000).toISOString())
+        .run();
+
+    return resolved;
+}
+
+/**
+ * A verified email → the portal user, with the same rules as a browser sign-in: PORTAL_OWNER_EMAILS
+ * first, then an active row in portal_users. Used by authenticate() and by the MCP gateway's
+ * entrypoint (worker/mcp), so an AI client never has more of a role than its person does here.
+ */
+export async function userForEmail(env: Env, email: string): Promise<AuthResult> {
     let role: Role | null = null;
     let name: string | null = null;
     const row = await env.DB.prepare("SELECT role, name, active FROM portal_users WHERE email = ?")
@@ -70,18 +93,6 @@ export async function authenticate(request: Request, env: Env): Promise<AuthResu
         console.log(JSON.stringify({ event: "portal_auth_refused", reason: "no_role" }));
         return { ok: false, status: 403, reason: "no_role" };
     }
-
-    // "Last seen", at most once every ten minutes per user. A configured owner without a row gets
-    // an inactive viewer row: it records the visit but grants nothing on its own, so removing
-    // someone from PORTAL_OWNER_EMAILS removes their access.
-    await env.DB.prepare(
-        `INSERT INTO portal_users (email, name, role, active, created_at, last_seen_at) VALUES (?1, NULL, 'viewer', 0, ?2, ?2)
-         ON CONFLICT(email) DO UPDATE SET last_seen_at = ?2
-         WHERE portal_users.last_seen_at IS NULL OR portal_users.last_seen_at < ?3`,
-    )
-        .bind(email, nowIso(), new Date(Date.now() - 10 * 60_000).toISOString())
-        .run();
-
     return { ok: true, user: { email, name, role, permissions: permissionsFor(role) } };
 }
 
