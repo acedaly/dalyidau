@@ -3,27 +3,33 @@
 // Every write is one D1 batch, so a task, its labels, its subtasks and its history entry change
 // together or not at all. Edits carry the version the editor started from; a stale version
 // changes nothing and returns 409 with the current task. Completing carries the occurrence the
-// person saw, so a double click or two people completing at once records one completion.
+// person saw, so a double click or two people completing at once records one completion. Creating
+// can carry a client id, so a retried request returns the task the first one made instead of a copy.
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { isCalendarDate, isClockTime } from "../../src/shared/tasks/dates";
+import { addDays, isCalendarDate, isClockTime } from "../../src/shared/tasks/dates";
 import {
     type RecurrenceRule,
+    type SeriesExceptions,
     daysBetween,
     firstOnOrAfter,
+    isOccurrence,
     nextOccurrence,
     parseStoredRule,
     recurrenceInput,
+    shiftSeries,
     withAnchor,
 } from "../../src/shared/tasks/recurrence";
 import { LIMITS, MAX_DEPTH, type TaskDetail, type TaskSummary } from "../../src/shared/tasks/types";
+import { requireObject } from "../knowledge/access";
+import { can } from "../portal/auth";
 import { chunk, isGuardFailure, newId, nowIso, placeholders, requireChange } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { type TaskAccessRow, ensureInbox, notFound, requireProject, requireTask, requireWritable, todayFor } from "./access";
+import { type TaskAccessRow, ensureInbox, notFound, preferences, requireProject, requireTask, requireWritable, todayFor } from "./access";
 import { activity, listActivity } from "./activity";
 import { knowledgeReferences } from "./knowledge";
-import { relativeReminderStatements, remindersFor } from "./reminders";
+import { CANCEL, defaultReminderStatement, relativeReminderStatements, remindersFor } from "./reminders";
 import { TASK_COLUMNS, type TaskRow, toSummary } from "./rows";
 
 /** A save based on an out-of-date version. The router answers 409 with the current task. */
@@ -83,6 +89,16 @@ const createInput = z
         assignee: email.nullable().optional(),
         isMilestone: z.boolean().default(false),
         afterId: id("tsk").nullable().optional(),
+        /** A random id from the browser for this draft: sending the same one again returns the same task. */
+        clientId: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]{8,64}$/, "Not a valid request id")
+            .optional(),
+        /** Knowledge objects to reference from the new task (e.g. captured from a Knowledge page). */
+        knowledge: z
+            .array(z.string().regex(/^kob_[a-z0-9]{14}$/, "Not a valid Knowledge object"))
+            .max(5)
+            .default([]),
     })
     .strict() as z.ZodType<{
     title: string;
@@ -99,6 +115,8 @@ const createInput = z
     assignee?: string | null;
     isMilestone: boolean;
     afterId?: string | null;
+    clientId?: string;
+    knowledge: string[];
 }>;
 
 const updateInput = z
@@ -114,6 +132,12 @@ const updateInput = z
         labels: labelList.optional(),
         assignee: email.nullable().optional(),
         isMilestone: z.boolean().optional(),
+        /**
+         * For a repeating task whose due date changes: "occurrence" (the default) moves only the
+         * current occurrence and keeps the series where it was; "series" moves the series too, so
+         * every later occurrence follows the new date.
+         */
+        scope: z.enum(["occurrence", "series"]).optional(),
     })
     .strict();
 
@@ -233,7 +257,7 @@ async function checkAssignee(db: D1Database, projectId: string, kind: "personal"
     return assignee;
 }
 
-async function checkSection(db: D1Database, projectId: string, sectionId: string | null | undefined) {
+export async function checkSection(db: D1Database, projectId: string, sectionId: string | null | undefined) {
     if (!sectionId) return null;
     const row = await db.prepare("SELECT id FROM task_sections WHERE id = ? AND project_id = ?").bind(sectionId, projectId).first();
     if (!row) throw invalid("That section isn't in this project");
@@ -251,10 +275,20 @@ interface Schedule {
  * Works out the stored dates from what's being changed. A repeat always has a date: setting one
  * without a date starts it on its first occurrence from today, and its anchor is the first date it
  * falls on. Clearing the date of a repeating task is refused rather than silently ending the repeat.
+ *
+ * Moving a repeating task's date changes only that occurrence unless `scope` is "series": the rule
+ * keeps its anchor, so completing the moved occurrence carries on along the original series. With
+ * "series" the rule itself moves to the new date (shiftSeries).
  */
-function resolveSchedule(
+export function resolveSchedule(
     current: Schedule,
-    change: { dueDate?: string | null; dueTime?: string | null; deadline?: string | null; recurrence?: z.output<typeof recurrenceInput> | null },
+    change: {
+        dueDate?: string | null;
+        dueTime?: string | null;
+        deadline?: string | null;
+        recurrence?: z.output<typeof recurrenceInput> | null;
+        scope?: "occurrence" | "series";
+    },
     today: string,
 ): Schedule {
     let due = change.dueDate !== undefined ? change.dueDate : current.due_date;
@@ -270,13 +304,18 @@ function resolveSchedule(
         due = first;
         rule = withAnchor(change.recurrence, first);
     } else if (rule && !due) throw invalid("A repeating task needs a date. Stop it repeating first.");
+    else if (rule && due && change.scope === "series" && current.due_date && due !== current.due_date) {
+        const moved = shiftSeries(rule, current.due_date, due);
+        if (!moved) throw invalid("That date is after the repeat ends");
+        rule = moved;
+    }
     if (!due) time = null;
     if (change.dueTime && !due) throw invalid("Choose a date for that time");
     return { due_date: due, due_time: time, deadline, recurrence_json: rule ? JSON.stringify(rule) : null };
 }
 
 /** Sort keys for siblings, with the moved/new task placed after `afterId` (or at the end). */
-async function placement(
+export async function placement(
     db: D1Database,
     where: { projectId: string; sectionId: string | null; parentId: string | null },
     options: { afterId?: string | null; beforeId?: string | null; exclude?: string },
@@ -309,7 +348,7 @@ async function placement(
     return { position, renumber };
 }
 
-const labelStatements = (db: D1Database, taskId: string, labels: string[], actor: string, now: string) => [
+export const labelStatements = (db: D1Database, taskId: string, labels: string[], actor: string, now: string) => [
     ...labels.map((name) =>
         db.prepare("INSERT OR IGNORE INTO task_item_labels (task_id, name, added_by, added_at) VALUES (?, ?, ?, ?)").bind(taskId, name, actor, now),
     ),
@@ -323,8 +362,23 @@ const labelStatements = (db: D1Database, taskId: string, labels: string[], actor
 
 // --- Create --------------------------------------------------------------------------------------
 
-export async function createTask(db: D1Database, user: PortalUser, input: unknown): Promise<TaskSummary> {
+/** The task an earlier request with this client id created, if there was one and the caller can still see it. */
+async function replayed(db: D1Database, user: PortalUser, clientId: string | undefined): Promise<TaskSummary | null> {
+    if (!clientId) return null;
+    const row = await db
+        .prepare(
+            `SELECT t.id FROM task_items t JOIN task_project_members m ON m.project_id = t.project_id AND m.email = ?
+             WHERE t.created_by = ? AND t.client_id = ?`,
+        )
+        .bind(user.email, user.email, clientId)
+        .first<{ id: string }>();
+    return row ? taskSummary(db, row.id) : null;
+}
+
+export async function createTask(db: D1Database, user: PortalUser, input: unknown): Promise<{ task: TaskSummary; replayed: boolean }> {
     const body = createInput.parse(input);
+    const earlier = await replayed(db, user, body.clientId);
+    if (earlier) return { task: earlier, replayed: true };
     let projectId: string;
     let kind: "personal" | "shared";
     let sectionId: string | null = null;
@@ -347,19 +401,24 @@ export async function createTask(db: D1Database, user: PortalUser, input: unknow
         sectionId = await checkSection(db, projectId, body.sectionId);
     }
     const assignee = await checkAssignee(db, projectId, kind, body.assignee);
+    // Knowledge's own check for each object: 404 for anything outside the caller's spaces.
+    const knowledge = [...new Set(body.knowledge)];
+    if (knowledge.length && !can(user, "knowledge.use")) throw new HttpError(403, "forbidden", "You don't have access to Knowledge");
+    for (const objectId of knowledge) if ((await requireObject(db, user, objectId)).status === "trashed") throw notFound();
+    const prefs = await preferences(db, user.email);
     const today = await todayFor(db, user.email);
     const schedule = resolveSchedule({ due_date: null, due_time: null, deadline: null, recurrence_json: null }, body, today);
     const labels = normaliseLabels(body.labels);
     const { position, renumber } = await placement(db, { projectId, sectionId, parentId }, { afterId: body.afterId });
     const taskId = newId("tsk");
     const now = nowIso();
-    await db.batch([
+    const statements = [
         ...renumber,
         db
             .prepare(
                 `INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, description, priority, due_date, due_time, deadline,
-                    recurrence_json, is_milestone, assignee_email, position, created_by, updated_by, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    recurrence_json, is_milestone, assignee_email, position, created_by, updated_by, created_at, updated_at, client_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
                 taskId,
@@ -381,6 +440,7 @@ export async function createTask(db: D1Database, user: PortalUser, input: unknow
                 user.email,
                 now,
                 now,
+                body.clientId ?? null,
             ),
         ...labelStatements(db, taskId, labels, user.email, now),
         activity(db, {
@@ -390,8 +450,29 @@ export async function createTask(db: D1Database, user: PortalUser, input: unknow
             action: parentId ? "subtask.create" : "task.create",
             changes: { dueDate: schedule.due_date, priority: body.priority ?? 4, assignee },
         }),
-    ]);
-    return (await taskSummary(db, taskId))!;
+        ...knowledge.map((objectId) =>
+            db
+                .prepare("INSERT INTO task_knowledge_links (id, task_id, object_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)")
+                .bind(newId("tkl"), taskId, objectId, user.email, now),
+        ),
+        // The history says a reference was added, never which object.
+        ...(knowledge.length ? [activity(db, { projectId, taskId, actor: user.email, action: "knowledge.link" })] : []),
+        // The person's default reminder, on dated tasks.
+        ...(schedule.due_date && prefs.remindersEnabled && prefs.defaultReminderMinutes !== null
+            ? [defaultReminderStatement(db, taskId, user.email, schedule.due_date, schedule.due_time, prefs.defaultReminderMinutes, prefs.timeZone)]
+            : []),
+    ];
+    try {
+        await db.batch(statements);
+    } catch (error) {
+        // Two copies of one request at the same moment: the unique index let only the first insert in.
+        if (body.clientId && /UNIQUE constraint failed: task_items\.created_by, task_items\.client_id/.test(String((error as Error)?.message))) {
+            const first = await replayed(db, user, body.clientId);
+            if (first) return { task: first, replayed: true };
+        }
+        throw error;
+    }
+    return { task: (await taskSummary(db, taskId))!, replayed: false };
 }
 
 // --- Update --------------------------------------------------------------------------------------
@@ -420,6 +501,7 @@ export async function updateTask(db: D1Database, user: PortalUser, taskId: strin
     if (schedule.due_time !== task.due_time) changes.dueTime = schedule.due_time;
     if (schedule.deadline !== task.deadline) changes.deadline = schedule.deadline;
     if (schedule.recurrence_json !== task.recurrence_json) changes.recurrence = true;
+    if (body.scope === "series" && changes.recurrence) changes.series = true;
     if (assignee !== task.assignee_email) changes.assignee = assignee;
     if (next.isMilestone !== !!task.is_milestone) changes.isMilestone = next.isMilestone;
     const labels = body.labels ? normaliseLabels(body.labels) : null;
@@ -452,6 +534,8 @@ export async function updateTask(db: D1Database, user: PortalUser, taskId: strin
     ];
     if (labels)
         statements.push(db.prepare("DELETE FROM task_item_labels WHERE task_id = ?").bind(taskId), ...labelStatements(db, taskId, labels, user.email, now));
+    // Exceptions belong to the series they were made for; a new or moved rule starts without them.
+    if (changes.recurrence) statements.push(db.prepare("DELETE FROM task_recurrence_exceptions WHERE task_id = ?").bind(taskId));
     if ("dueDate" in changes || "dueTime" in changes) statements.push(...(await relativeReminderStatements(db, taskId, schedule.due_date, schedule.due_time)));
     // Typing in the panel saves often; record a field change once, not every keystroke: a title or
     // description edit within ten minutes of the same person's last one adds no new entry.
@@ -613,7 +697,8 @@ async function completionStatements(
     const occurrence = options.occurrence !== undefined ? options.occurrence : task.due_date;
     const statements: D1PreparedStatement[] = [];
     const kind = options.skip ? "skipped" : "completed";
-    const next = rule && occurrence ? nextOccurrence(rule, occurrence, today) : null;
+    const next =
+        rule && occurrence ? nextOccurrence(rule, occurrence, today, rule.basis === "scheduled" ? await seriesExceptions(db, task.id) : undefined) : null;
 
     if (rule && occurrence && next) {
         // Move along the series. Guarded on the occurrence, so a second click (or someone else
@@ -688,7 +773,7 @@ async function completionStatements(
         );
     }
     statements.push(
-        db.prepare("UPDATE task_reminders SET dismissed_at = ? WHERE task_id = ? AND dismissed_at IS NULL").bind(now, task.id),
+        db.prepare(`UPDATE task_reminders SET dismissed_at = ?, ${CANCEL} WHERE task_id = ? AND dismissed_at IS NULL`).bind(now, task.id),
         activity(db, {
             projectId: task.project_id,
             taskId: task.id,
@@ -698,6 +783,72 @@ async function completionStatements(
         }),
     );
     return { statements, nextDate: null };
+}
+
+/** A repeating task's skipped and moved occurrences. */
+export async function seriesExceptions(db: D1Database, taskId: string): Promise<SeriesExceptions> {
+    return (await exceptionsFor(db, [taskId])).get(taskId) ?? { skip: new Set(), moves: new Map() };
+}
+
+/** Exceptions for several repeating tasks at once (Upcoming and the calendar), in chunks. */
+export async function exceptionsFor(db: D1Database, taskIds: string[]): Promise<Map<string, SeriesExceptions>> {
+    const out = new Map<string, SeriesExceptions>();
+    for (const part of chunk(taskIds, 50)) {
+        if (!part.length) continue;
+        const rows = await db
+            .prepare(`SELECT task_id, occurrence_date, kind, moved_to FROM task_recurrence_exceptions WHERE task_id IN (${placeholders(part.length)})`)
+            .bind(...part)
+            .all<{ task_id: string; occurrence_date: string; kind: "skip" | "move"; moved_to: string | null }>();
+        for (const r of rows.results) {
+            const entry = out.get(r.task_id) ?? { skip: new Set<string>(), moves: new Map<string, string>() };
+            if (r.kind === "skip") entry.skip.add(r.occurrence_date);
+            else entry.moves.set(r.occurrence_date, r.moved_to!);
+            out.set(r.task_id, entry);
+        }
+    }
+    return out;
+}
+
+const occurrenceInput = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("skip"), date: calendarDate }).strict(),
+    z.object({ action: z.literal("move"), date: calendarDate, to: calendarDate }).strict(),
+    z.object({ action: z.literal("restore"), date: calendarDate }).strict(),
+]);
+
+/**
+ * Changes one later occurrence of a repeating task without touching the rest of the series: skip
+ * it, move it to another date, or restore it. `date` is the series date (from Upcoming or the
+ * calendar). Only for occurrences after the current one, on a fixed schedule; the current
+ * occurrence is changed by rescheduling or skipping the task itself.
+ */
+export async function changeOccurrence(db: D1Database, user: PortalUser, taskId: string, input: unknown): Promise<TaskSummary> {
+    const body = occurrenceInput.parse(input);
+    const task = await requireTask(db, user, taskId, "editor");
+    requireWritable(task);
+    const rule = parseStoredRule(task.recurrence_json);
+    if (!rule || rule.basis !== "scheduled" || !task.due_date) throw invalid("Only tasks that repeat on a fixed schedule have later occurrences to change");
+    if (body.date <= task.due_date || !isOccurrence(rule, body.date)) throw invalid("That isn't a later occurrence of this task");
+    if (body.action === "move" && body.to <= task.due_date) throw invalid("Move it to a date after the current occurrence");
+    const now = nowIso();
+    await db.batch([
+        body.action === "restore"
+            ? db.prepare("DELETE FROM task_recurrence_exceptions WHERE task_id = ? AND occurrence_date = ?").bind(taskId, body.date)
+            : db
+                  .prepare(
+                      `INSERT INTO task_recurrence_exceptions (task_id, occurrence_date, kind, moved_to, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(task_id, occurrence_date) DO UPDATE SET kind = excluded.kind, moved_to = excluded.moved_to, created_by = excluded.created_by, created_at = excluded.created_at`,
+                  )
+                  .bind(taskId, body.date, body.action, body.action === "move" ? body.to : null, user.email, now),
+        db.prepare("UPDATE task_items SET version = version + 1, updated_by = ?, updated_at = ? WHERE id = ?").bind(user.email, now, taskId),
+        activity(db, {
+            projectId: task.project_id,
+            taskId,
+            actor: user.email,
+            action: "task.occurrence",
+            changes: { occurrence: body.date, change: body.action, ...(body.action === "move" ? { to: body.to } : {}) },
+        }),
+    ]);
+    return (await taskSummary(db, taskId))!;
 }
 
 /** Whether a repeat of this request has already been recorded: the guard failed because it worked the first time. */
@@ -862,6 +1013,18 @@ const bulkInput = z.discriminatedUnion("action", [
     z.object({ action: z.literal("due"), ids: z.array(id("tsk")).min(1).max(LIMITS.bulk), dueDate: calendarDate.nullable() }).strict(),
     z
         .object({
+            action: z.literal("shift"),
+            ids: z.array(id("tsk")).min(1).max(LIMITS.bulk),
+            days: z
+                .number()
+                .int()
+                .min(-366)
+                .max(366)
+                .refine((n) => n !== 0, "Shift by at least one day"),
+        })
+        .strict(),
+    z
+        .object({
             action: z.literal("move"),
             ids: z.array(id("tsk")).min(1).max(LIMITS.bulk),
             projectId: id("tpj"),
@@ -952,6 +1115,23 @@ export async function bulkTasks(db: D1Database, user: PortalUser, input: unknown
                         .bind(body.dueDate, body.dueDate, user.email, now, task.id),
                     ...(await relativeReminderStatements(db, task.id, body.dueDate, body.dueDate ? task.due_time : null)),
                     activity(db, { projectId: task.project_id, taskId: task.id, actor: user.email, action: "task.update", changes: { dueDate: body.dueDate } }),
+                );
+            }
+            break;
+        }
+        case "shift": {
+            // Due dates move by the same number of days; deadlines stay where they are, undated
+            // tasks are left alone, and a repeating task moves only its current occurrence.
+            const offset = `${body.days > 0 ? "+" : ""}${body.days} days`;
+            for (const task of rows) {
+                if (!task.due_date) continue;
+                const moved = addDays(task.due_date, body.days);
+                statements.push(
+                    db
+                        .prepare("UPDATE task_items SET due_date = date(due_date, ?), version = version + 1, updated_by = ?, updated_at = ? WHERE id = ?")
+                        .bind(offset, user.email, now, task.id),
+                    ...(await relativeReminderStatements(db, task.id, moved, task.due_time)),
+                    activity(db, { projectId: task.project_id, taskId: task.id, actor: user.email, action: "task.update", changes: { dueDate: moved } }),
                 );
             }
             break;

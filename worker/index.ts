@@ -22,6 +22,7 @@ import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { type SyncSummary, runSync } from "./sync";
+import { processTaskReminders } from "./tasks/notify";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
 import { serveMedia } from "./wedding/media";
@@ -48,6 +49,13 @@ export default {
     async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
+        // Task reminders: a failure here never affects the other jobs (or anyone completing tasks).
+        ctx.waitUntil(
+            processTaskReminders(env).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "task_reminders_error", message: (error as Error).message })),
+            ),
+        );
     },
 };
 

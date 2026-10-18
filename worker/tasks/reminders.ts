@@ -1,7 +1,8 @@
-// Reminders. Each belongs to one person and is shown to them in the app when it falls due: there
-// is no push, email or SMS delivery yet, and nothing runs on a schedule. Due reminders are found
-// with an indexed range query (owner, remind_at) when a Tasks page loads, and the page keeps a
-// timer for the ones coming up while it stays open.
+// Reminders. Each belongs to one person. It's shown to them in the app when it falls due (found
+// with an indexed range query on (owner, remind_at) when a Tasks page loads, with a timer for the
+// ones coming up while it stays open) and, if they've turned on email reminders and delivery is
+// switched on, emailed by the background processor (notify.ts). delivery_status tracks the email:
+// every new or moved reminder is "pending" until it's sent, given up on, or cancelled.
 //
 // A relative reminder ("30 minutes before") follows its task: it's recalculated whenever the due
 // date or time changes, including when a repeating task moves on. A task with a date but no time
@@ -16,6 +17,29 @@ import { HttpError } from "../portal/http";
 import { DEFAULT_TIME_ZONE, notFound, preferences, requireTask } from "./access";
 
 export const DEFAULT_REMINDER_TIME = "09:00";
+
+/** SET clauses: a reminder (re)scheduled for ?1 waits for delivery afresh; a stopped one won't be emailed. */
+const PENDING = "delivery_status = 'pending', next_attempt_at = ?1, attempts = 0, last_error = NULL, claim_token = NULL, claimed_at = NULL";
+export const CANCEL = "delivery_status = CASE WHEN delivery_status = 'pending' THEN 'cancelled' ELSE delivery_status END";
+
+/** A relative reminder on a new task, from the person's default reminder setting. */
+export const defaultReminderStatement = (
+    db: D1Database,
+    taskId: string,
+    owner: string,
+    due: string,
+    time: string | null,
+    offset: number,
+    timeZone: string,
+): D1PreparedStatement => {
+    const at = relativeInstant(due, time, offset, timeZone);
+    return db
+        .prepare(
+            `INSERT INTO task_reminders (id, task_id, owner_email, kind, offset_minutes, remind_at, created_at, delivery_status, next_attempt_at)
+             VALUES (?, ?, ?, 'relative', ?, ?, ?, 'pending', ?)`,
+        )
+        .bind(newId("trm"), taskId, owner, offset, at, nowIso(), at);
+};
 
 const relativeInstant = (due: string, time: string | null, offset: number, timeZone: string) =>
     new Date(new Date(zonedInstant(due, time ?? DEFAULT_REMINDER_TIME, timeZone)).getTime() - offset * 60_000).toISOString();
@@ -32,10 +56,10 @@ export async function relativeReminderStatements(db: D1Database, taskId: string,
     return rows.results.map((r) =>
         due
             ? db
-                  .prepare("UPDATE task_reminders SET remind_at = ?, dismissed_at = NULL WHERE id = ?")
+                  .prepare(`UPDATE task_reminders SET remind_at = ?1, dismissed_at = NULL, ${PENDING} WHERE id = ?2`)
                   .bind(relativeInstant(due, time, r.offset_minutes, r.time_zone), r.id)
             : // With no date there's nothing to be relative to; keep it, but it can't fire.
-              db.prepare("UPDATE task_reminders SET dismissed_at = COALESCE(dismissed_at, ?) WHERE id = ?").bind(nowIso(), r.id),
+              db.prepare(`UPDATE task_reminders SET dismissed_at = COALESCE(dismissed_at, ?), ${CANCEL} WHERE id = ?`).bind(nowIso(), r.id),
     );
 }
 
@@ -56,18 +80,22 @@ const toReminder = (r: {
     offset_minutes: number | null;
     remind_at: string;
     dismissed_at: string | null;
+    delivery_status: TaskReminder["deliveryStatus"];
 }): TaskReminder => ({
     id: r.id,
     kind: r.kind,
     offsetMinutes: r.offset_minutes,
     remindAt: r.remind_at,
     dismissedAt: r.dismissed_at,
+    deliveryStatus: r.delivery_status,
 });
 
 /** The caller's own reminders on a task. Other people's reminders are never shown. */
 export async function remindersFor(db: D1Database, email: string, taskId: string): Promise<TaskReminder[]> {
     const rows = await db
-        .prepare("SELECT id, kind, offset_minutes, remind_at, dismissed_at FROM task_reminders WHERE task_id = ? AND owner_email = ? ORDER BY remind_at")
+        .prepare(
+            "SELECT id, kind, offset_minutes, remind_at, dismissed_at, delivery_status FROM task_reminders WHERE task_id = ? AND owner_email = ? ORDER BY remind_at",
+        )
         .bind(taskId, email)
         .all<Parameters<typeof toReminder>[0]>();
     return rows.results.map(toReminder);
@@ -90,8 +118,11 @@ export async function addReminder(db: D1Database, user: PortalUser, taskId: stri
         remindAt = relativeInstant(task.due_date, task.due_time, body.offsetMinutes, timeZone);
     }
     await db
-        .prepare("INSERT INTO task_reminders (id, task_id, owner_email, kind, offset_minutes, remind_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(newId("trm"), taskId, user.email, body.kind, body.kind === "relative" ? body.offsetMinutes : null, remindAt, nowIso())
+        .prepare(
+            `INSERT INTO task_reminders (id, task_id, owner_email, kind, offset_minutes, remind_at, created_at, delivery_status, next_attempt_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        )
+        .bind(newId("trm"), taskId, user.email, body.kind, body.kind === "relative" ? body.offsetMinutes : null, remindAt, nowIso(), remindAt)
         .run();
     return remindersFor(db, user.email, taskId);
 }
@@ -117,7 +148,8 @@ export async function deleteReminder(db: D1Database, user: PortalUser, reminderI
 
 export async function dismissReminder(db: D1Database, user: PortalUser, reminderId: string) {
     const row = await ownReminder(db, user, reminderId);
-    await db.prepare("UPDATE task_reminders SET dismissed_at = COALESCE(dismissed_at, ?) WHERE id = ?").bind(nowIso(), row.id).run();
+    // Dismissed in the app: don't email it as well.
+    await db.prepare(`UPDATE task_reminders SET dismissed_at = COALESCE(dismissed_at, ?), ${CANCEL} WHERE id = ?`).bind(nowIso(), row.id).run();
 }
 
 /**

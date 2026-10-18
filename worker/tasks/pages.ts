@@ -2,23 +2,54 @@
 // checked the "tasks.use" permission; these check project membership. Anything the caller can't
 // see returns null, which the router turns into the ordinary 404 page.
 import type { PortalUser } from "../../src/shared/portal/types";
-import { addDays, isCalendarDate } from "../../src/shared/tasks/dates";
+import { addDays } from "../../src/shared/tasks/dates";
 import { EMPTY_FILTER, filterFromParams } from "../../src/shared/tasks/filters";
 import type { TasksRoute, TasksShell } from "../../src/shared/tasks/types";
+import { UPCOMING_MODES, type UpcomingMode, mineFilter, upcomingWindow } from "../../src/shared/tasks/view-preferences";
 import type { Env } from "../env";
 import { can } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { ensureInbox, preferences, requireProject, requireTask, todayFor } from "./access";
 import { listActivity } from "./activity";
+import { listImports } from "./import";
 import { knowledgeReferences } from "./knowledge";
 import { listLabels } from "./labels";
 import { assignableMembers, getProject, listMembers, listProjects, sectionsFor } from "./projects";
 import { dueReminders } from "./reminders";
-import { getView, listViews } from "./settings";
-import { filterTasks, listCompleted, listInbox, listOverdue, listProjectTasks, listToday, listUpcoming, projectHighlights, searchTasks } from "./views";
+import { getView, listViewPreferences, listViews } from "./settings";
+import { listTemplates } from "./templates";
+import {
+    completedBetween,
+    completedToday,
+    filterTasks,
+    listCompleted,
+    listDeadlines,
+    listInbox,
+    listOverdue,
+    listProjectTasks,
+    listToday,
+    listUpcoming,
+    projectHighlights,
+    searchTasks,
+} from "./views";
 
 export type TasksPage =
-    "inbox" | "today" | "upcoming" | "overdue" | "completed" | "projects" | "project" | "task" | "labels" | "filters" | "search" | "activity" | "settings";
+    | "home"
+    | "templates"
+    | "inbox"
+    | "today"
+    | "upcoming"
+    | "overdue"
+    | "mine"
+    | "completed"
+    | "projects"
+    | "project"
+    | "task"
+    | "labels"
+    | "filters"
+    | "search"
+    | "activity"
+    | "settings";
 
 /** Hidden behind 404: a project or task the caller isn't a member of. */
 const visible = async <T>(load: () => Promise<T>): Promise<T | null> => {
@@ -30,11 +61,12 @@ const visible = async <T>(load: () => Promise<T>): Promise<T | null> => {
     }
 };
 
-async function shell(env: Env, user: PortalUser): Promise<TasksShell> {
+/** What every Tasks page needs, and what Quick Add needs anywhere in the portal (GET /shell). */
+export async function shell(env: Env, user: PortalUser): Promise<TasksShell> {
     const inboxId = await ensureInbox(env.DB, user.email);
     const prefs = await preferences(env.DB, user.email);
     const today = await todayFor(env.DB, user.email);
-    const [projects, sections, assignable, labels, views, reminders] = await Promise.all([
+    const [projects, sections, assignable, labels, views, reminders, viewPreferences] = await Promise.all([
         listProjects(env.DB, user.email, today),
         sectionsFor(env.DB, user.email),
         assignableMembers(env.DB, user.email),
@@ -42,29 +74,76 @@ async function shell(env: Env, user: PortalUser): Promise<TasksShell> {
         listViews(env.DB, user.email),
         // Due now or within the hour; the page shows each one when its time comes.
         dueReminders(env.DB, user.email, new Date(Date.now() + 60 * 60_000)),
+        listViewPreferences(env.DB, user.email),
     ]);
-    return { today, preferences: prefs, inboxId, projects, sections, assignable, labels, views, reminders, canUseKnowledge: can(user, "knowledge.use") };
+    return {
+        today,
+        preferences: prefs,
+        inboxId,
+        projects,
+        sections,
+        assignable,
+        labels,
+        views,
+        reminders,
+        canUseKnowledge: can(user, "knowledge.use"),
+        viewPreferences,
+    };
 }
+
+/** Upcoming's layout: from the URL if given, otherwise the person's last choice. */
+export const upcomingMode = (param: string | null, saved: UpcomingMode | undefined): UpcomingMode =>
+    UPCOMING_MODES.includes(param as UpcomingMode) ? (param as UpcomingMode) : (saved ?? "agenda");
 
 export async function loadTasksPage(env: Env, user: PortalUser, url: URL, page: TasksPage, arg?: string): Promise<TasksRoute | null> {
     return visible(async (): Promise<TasksRoute> => {
         const s = await shell(env, user);
+        // /portal/tasks opens the person's chosen first page.
+        if (page === "home") page = s.preferences.landingPage;
         switch (page) {
+            case "templates": {
+                const [templates, archived] = await Promise.all([listTemplates(env.DB, user.email), listTemplates(env.DB, user.email, true)]);
+                return { route: "tasks-templates", ...s, templates, archived };
+            }
             case "inbox":
-                return { route: "tasks-view", ...s, view: "inbox", tasks: await listInbox(env.DB, user.email, s.inboxId) };
-            case "today":
-                return { route: "tasks-view", ...s, view: "today", tasks: await listToday(env.DB, user.email, s.today, s.preferences.todayPriority) };
-            case "overdue":
-                return { route: "tasks-view", ...s, view: "overdue", tasks: await listOverdue(env.DB, user.email, s.today) };
-            case "upcoming": {
-                const fromParam = url.searchParams.get("from");
-                const from = isCalendarDate(fromParam) && fromParam > s.today ? fromParam : s.today;
-                const days = 14;
-                const [tasks, overdue] = await Promise.all([
-                    listUpcoming(env.DB, user.email, from, addDays(from, days - 1)),
-                    from === s.today ? listOverdue(env.DB, user.email, s.today) : Promise.resolve([]),
+                return { route: "tasks-view", ...s, view: "inbox", tasks: await listInbox(env.DB, user.email, s.inboxId), progress: null };
+            case "today": {
+                const [tasks, done] = await Promise.all([
+                    listToday(env.DB, user.email, s.today, s.preferences.todayPriority),
+                    completedToday(env.DB, user.email, s.today, s.preferences.timeZone),
                 ]);
-                return { route: "tasks-upcoming", ...s, from, days, tasks, overdue };
+                return { route: "tasks-view", ...s, view: "today", tasks, progress: { done } };
+            }
+            case "overdue":
+                return { route: "tasks-view", ...s, view: "overdue", tasks: await listOverdue(env.DB, user.email, s.today), progress: null };
+            case "upcoming": {
+                const mode = upcomingMode(url.searchParams.get("mode"), s.viewPreferences.upcoming?.mode);
+                const { from, days } = upcomingWindow(mode, url.searchParams.get("from"), s.today);
+                const to = addDays(from, days - 1);
+                // Overdue tasks come first, unless the window is already showing the days they're due on.
+                const showsToday = from <= s.today && to >= s.today;
+                const [tasks, overdue, deadlines, done] = await Promise.all([
+                    listUpcoming(env.DB, user.email, from, to, s.today),
+                    showsToday ? listOverdue(env.DB, user.email, s.today) : Promise.resolve([]),
+                    mode === "agenda" ? Promise.resolve([]) : listDeadlines(env.DB, user.email, from, to),
+                    mode === "agenda" ? Promise.resolve([]) : completedBetween(env.DB, user.email, from, to),
+                ]);
+                return {
+                    route: "tasks-upcoming",
+                    ...s,
+                    mode,
+                    from,
+                    days,
+                    tasks,
+                    overdue: overdue.filter((t) => !!t.dueDate && t.dueDate < from),
+                    deadlines,
+                    done,
+                };
+            }
+            case "mine": {
+                const filter = mineFilter(s.viewPreferences.mine ?? {});
+                const { tasks, hasMore } = await filterTasks(env.DB, user.email, filter, s.today, { limit: 100, offset: 0 });
+                return { route: "tasks-mine", ...s, filter, tasks, hasMore };
             }
             case "completed": {
                 const { entries, hasMore } = await listCompleted(env.DB, user.email, { limit: 50 });
@@ -101,7 +180,7 @@ export async function loadTasksPage(env: Env, user: PortalUser, url: URL, page: 
                 return { route: "tasks-activity", ...s, projectId, entries: await listActivity(env.DB, user.email, { projectId, limit: 50 }) };
             }
             case "settings":
-                return { route: "tasks-settings", ...s };
+                return { route: "tasks-settings", ...s, imports: await listImports(env.DB, user.email) };
         }
     });
 }

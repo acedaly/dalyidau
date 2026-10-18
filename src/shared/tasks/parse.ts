@@ -5,6 +5,11 @@
 //   Pay electricity bill friday p2 @admin #household
 //   Take bins out every wednesday at 7pm
 //   Book accommodation tomorrow {30 nov}            (braces: a deadline)
+//   Book review every 2nd tuesday                    (monthly, on a weekday of the month)
+//
+// Words that look like a date or repeat but aren't in the grammar ("end of month", "every
+// second tuesday of the quarter", an unknown #project) stay in the title and are reported as hints,
+// so Quick Add can say they weren't understood instead of dropping them or guessing.
 //
 // Dates are read the Australian way (23/10 is 23 October). "next friday" is read as Friday of next
 // week and flagged as ambiguous so the chip says which date it chose. A date without a year that has
@@ -23,6 +28,12 @@ export interface ParsedToken {
     ambiguous?: string;
 }
 
+/** Something in the title that looks like a date, repeat or project but wasn't read as one. */
+export interface ParseHint {
+    text: string;
+    message: string;
+}
+
 export interface ParsedTask {
     title: string;
     dueDate: string | null;
@@ -33,6 +44,7 @@ export interface ParsedTask {
     projectId: string | null;
     recurrence: RecurrenceInput | null;
     tokens: ParsedToken[];
+    hints: ParseHint[];
 }
 
 const WEEKDAYS: Record<string, number> = {
@@ -126,10 +138,12 @@ export function readDate(phrase: string, today: string): DateReading | null {
     }
     if (p === "next week") return { date: addDays(today, 8 - isoWeekday(today)) };
     if (p === "next month") return { date: `${addMonths(today, 1).slice(0, 7)}-01` };
-    if ((m = /^in (\d{1,3}) (day|days|week|weeks|month|months)$/.exec(p))) {
-        const n = Number(m[1]);
+    if ((m = /^in (\d{1,3}|an?) (day|days|week|weeks|fortnight|fortnights|month|months|year)$/.exec(p))) {
+        const n = /^an?$/.test(m[1]) ? 1 : Number(m[1]);
         if (m[2].startsWith("day")) return { date: addDays(today, n) };
         if (m[2].startsWith("week")) return { date: addDays(today, n * 7) };
+        if (m[2].startsWith("fortnight")) return { date: addDays(today, n * 14) };
+        if (m[2] === "year") return { date: addMonths(today, 12) };
         return { date: addMonths(today, n) };
     }
     if ((m = new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)? (${MO})(?:,? (\\d{4}))?$`).exec(p))) {
@@ -155,7 +169,7 @@ const DATE_PHRASE = [
     "today|tod|tomorrow|tom|tmrw|tmr",
     `(?:this |next )?(?:${WD})`,
     "next week|next month",
-    "in \\d{1,3} (?:days?|weeks?|months?)",
+    "in (?:\\d{1,3}|an?) (?:days?|weeks?|fortnights?|months?|year)",
     `\\d{1,2}(?:st|nd|rd|th)? (?:${MO})(?:,? \\d{4})?`,
     `(?:${MO}) \\d{1,2}(?:st|nd|rd|th)?(?:,? \\d{4})?`,
     "\\d{1,2}/\\d{1,2}(?:/(?:\\d{4}|\\d{2}))?",
@@ -179,6 +193,9 @@ const readTime = (text: string): string | null => {
     return null;
 };
 
+const ORDINALS: Record<string, number> = { first: 1, "1st": 1, second: 2, "2nd": 2, third: 3, "3rd": 3, fourth: 4, "4th": 4, last: -1 };
+const ORD = Object.keys(ORDINALS).join("|");
+
 const readRecurrence = (text: string): RecurrenceInput | null => {
     const p = text.toLowerCase().replace(/\s+/g, " ").trim();
     let m: RegExpExecArray | null;
@@ -201,6 +218,9 @@ const readRecurrence = (text: string): RecurrenceInput | null => {
         "every last day": { freq: "monthly", interval: 1, monthDay: -1 },
     };
     if (simple[p]) return simple[p];
+    if ((m = new RegExp(`^every (${ORD}) (${WD})(?: of (?:the|each|every) month)?$`).exec(p)))
+        return { freq: "monthly", interval: 1, monthWeekday: { week: ORDINALS[m[1]], weekday: WEEKDAYS[m[2]] } };
+    if ((m = new RegExp(`^every other (${WD})$`).exec(p))) return { freq: "weekly", interval: 2, weekdays: [WEEKDAYS[m[1]]] };
     if ((m = /^every (\d{1,3}) (days|weeks|months|years)$/.exec(p))) {
         const freq = ({ days: "daily", weeks: "weekly", months: "monthly", years: "yearly" } as const)[m[2] as "days"];
         return { freq, interval: Number(m[1]) };
@@ -217,10 +237,14 @@ const readRecurrence = (text: string): RecurrenceInput | null => {
 };
 
 const RECURRENCE_PHRASE = [
+    // "every 2nd tuesday of the quarter" isn't a monthly repeat: leave it to the hints.
+    `every (?:${ORD}) (?:${WD})(?: of (?:the|each|every) month|(?! of\\b))`,
+    `every other (?:${WD})`,
     "daily|weekly|fortnightly|monthly|yearly|annually",
     "every (?:day|weekday|weekend|week|fortnight|month|year|other week|other day|last day)",
     "every \\d{1,3} (?:days|weeks|months|years)",
-    "every \\d{1,2}(?:st|nd|rd|th)",
+    // "every 2nd" is a day of the month, but "every 2nd tuesday …" is a weekday of the month (or a hint).
+    `every \\d{1,2}(?:st|nd|rd|th)(?! (?:${WD})\\b)`,
     `every (?:${WD})(?:(?:, ?| and |,? and )(?:${WD}))*`,
 ].join("|");
 
@@ -278,6 +302,7 @@ export function parseQuickAdd(input: string, options: ParseOptions): ParsedTask 
         projectId: null,
         recurrence: null,
         tokens: [],
+        hints: [],
     };
     const used: Match[] = [];
     for (const match of matches) {
@@ -341,7 +366,45 @@ export function parseQuickAdd(input: string, options: ParseOptions): ParsedTask 
     // Never leave a task with no title: if everything was read as options, keep the words.
     result.title = title || input.replace(/\s+/g, " ").trim();
     result.tokens.sort((a, b) => input.indexOf(a.text) - input.indexOf(b.text));
+    result.hints = unreadHints(title, disabled);
     return result;
+}
+
+const LOOKS_LIKE_DATE: { kind: "date" | "project"; regex: RegExp; message: string }[] = [
+    { kind: "date", regex: /(?<=^|\s)every(?:\s+[\p{L}\p{N}]+){0,4}/giu, message: "isn't a repeat Quick Add knows" },
+    {
+        kind: "date",
+        regex: new RegExp(
+            `${START}(?:end of (?:the )?(?:day|week|month|year)|tonight|eod|eow|eom|weekend|fortnight|(?:next|this|last) (?:quarter|year))${END}`,
+            "gi",
+        ),
+        message: "isn't a date Quick Add knows",
+    },
+    { kind: "date", regex: new RegExp(`${START}(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)${END}`, "gi"), message: "wasn't read as a date" },
+    {
+        kind: "date",
+        regex: new RegExp(`${START}(?:\\d{1,2}(?:st|nd|rd|th)? (?:of )?(?:${MO})|(?:${MO}) \\d{1,2}(?:st|nd|rd|th)?)${END}`, "gi"),
+        message: "wasn't read as a date",
+    },
+    { kind: "project", regex: new RegExp(`${START}#[\\p{L}\\p{N}_-]{1,120}${END}`, "giu"), message: "isn't one of your projects" },
+];
+
+/**
+ * Words left in the title that look like a date, repeat or project. They stay in the title (nothing
+ * is dropped or guessed); Quick Add shows these so the person can set the date with the pickers.
+ * Kinds the person dismissed are not reported again.
+ */
+function unreadHints(title: string, disabled: TokenKind[]): ParseHint[] {
+    const hints: ParseHint[] = [];
+    for (const { kind, regex, message } of LOOKS_LIKE_DATE) {
+        if (kind === "project" ? disabled.includes("project") : disabled.includes("date") || disabled.includes("recurrence")) continue;
+        regex.lastIndex = 0;
+        for (let m = regex.exec(title); m; m = regex.exec(title)) {
+            const text = m[0].trim();
+            if (!hints.some((h) => h.text.toLowerCase().includes(text.toLowerCase()))) hints.push({ text, message });
+        }
+    }
+    return hints.slice(0, 3);
 }
 
 /** The rule a parsed repeat will be saved with (anchored on its due date), for previews. */

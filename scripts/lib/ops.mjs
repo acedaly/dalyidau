@@ -196,6 +196,24 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        // Only shared projects share templates (worker/tasks/templates.ts checks this on every write).
+        name: "Shared task templates belong to shared projects",
+        sql: "SELECT t.id FROM task_templates t JOIN task_projects p ON p.id = t.shared_project_id WHERE p.kind <> 'shared' LIMIT 20",
+        level: "warn",
+    },
+    {
+        // Exceptions are later occurrences of a repeat; one left on a task that no longer repeats is harmless but stale.
+        name: "Repeat exceptions belong to repeating tasks",
+        sql: "SELECT e.task_id FROM task_recurrence_exceptions e JOIN task_items t ON t.id = e.task_id WHERE t.recurrence_json IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
+        // A claim older than an hour means a delivery run died part-way; the next run takes it over.
+        name: "No reminder emails stuck mid-delivery",
+        sql: "SELECT id FROM task_reminders WHERE delivery_status = 'pending' AND claimed_at IS NOT NULL AND claimed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",

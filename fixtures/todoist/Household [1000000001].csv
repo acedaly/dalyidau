@@ -1,0 +1,10 @@
+TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE,DURATION,DURATION_UNIT,DEADLINE,DEADLINE_LANG,meta
+meta,view_style=list,,,,,,,,,,,,,
+task,Pay water bill @bills,Account details are in the folder,1,1,Alex Example (12345),,2027-03-03,en,Australia/Sydney,,None,2027-03-10,en,
+note,Paid late last time - set a reminder,,,,,,,,,,,,,
+task,Check the meter reading,,4,2,Alex Example (12345),,,en,Australia/Sydney,,None,,,
+task,Take bins out @chores,,3,1,Alex Example (12345),,every tuesday,en,Australia/Sydney,,None,,,
+section,Garden,,,,,,,,,,,,,
+task,Prune the roses,Before spring,2,1,Alex Example (12345),,,en,Australia/Sydney,,None,,,
+task,Buy secateurs,,4,2,Alex Example (12345),,,en,Australia/Sydney,15,minute,,,
+task,Book the gutter clean,,3,1,Alex Example (12345),,sometime soon,en,Australia/Sydney,,None,,,

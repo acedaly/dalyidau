@@ -14,19 +14,24 @@ import { clockLabel } from "@/shared/tasks/dates";
 import type { DueReminder, TasksShell } from "@/shared/tasks/types";
 import { tasksApi } from "./api";
 import { QuickAddDialog } from "./quick-add";
+import { QUICK_ADD_EVENT } from "./quick-add-events";
 import { TaskPanel } from "./task-panel";
 import { type QuickAddDefaults, TasksProvider, useTasks } from "./tasks-context";
 
 const SHORTCUTS: [string, string][] = [
-    ["q", "Add a task"],
+    ["q", "Add a task (on any portal page)"],
     ["/", "Search"],
     ["g then i", "Go to Inbox"],
     ["g then t", "Go to Today"],
     ["g then u", "Go to Upcoming"],
     ["g then p", "Go to projects"],
+    ["g then m", "Go to all my tasks"],
+    ["g then w", "Go to this week"],
     ["j / k or ↓ / ↑", "Move between tasks"],
     ["Enter", "Open the task"],
     ["e", "Complete or reopen the task"],
+    ["s", "Reschedule the task"],
+    ["1 – 4", "Set the task's priority"],
     ["Alt + ↑ / ↓", "Move the task up or down"],
     ["Esc", "Close the panel or dialog"],
     ["?", "Show these shortcuts"],
@@ -38,12 +43,22 @@ const GO: Record<string, string> = {
     u: "/portal/tasks/upcoming",
     p: "/portal/tasks/projects",
     o: "/portal/tasks/overdue",
+    m: "/portal/tasks/mine",
+    w: "/portal/tasks/upcoming?mode=week",
 };
 
 /** Shortcuts never fire while typing in a field (react-hotkeys-hook ignores form fields by default). */
 const Shortcuts = ({ quickAdd, onHelp }: { quickAdd: () => void; onHelp: () => void }) => {
     const pendingG = useRef(0);
     useHotkeys("q", (event) => (event.preventDefault(), quickAdd()));
+    // The sidebar's Add task and the floating button on phones (see quick-add-events.ts).
+    const latest = useRef(quickAdd);
+    latest.current = quickAdd;
+    useEffect(() => {
+        const open = () => latest.current();
+        window.addEventListener(QUICK_ADD_EVENT, open);
+        return () => window.removeEventListener(QUICK_ADD_EVENT, open);
+    }, []);
     useHotkeys("slash", (event) => {
         event.preventDefault();
         document.querySelector<HTMLInputElement>("#tasks-search input, input#tasks-search")?.focus();

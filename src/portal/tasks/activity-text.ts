@@ -30,6 +30,10 @@ const ACTIONS: Record<string, string> = {
     "comment.delete": "deleted a comment on",
     "knowledge.link": "linked Knowledge to",
     "knowledge.unlink": "removed a Knowledge link from",
+    "task.occurrence": "changed a later occurrence of",
+    "task.from_template": "added from a template",
+    "project.import": "imported the project from Todoist",
+    "tasks.import": "imported tasks from Todoist",
 };
 
 const FIELD_NAMES: Record<string, string> = {
@@ -50,6 +54,7 @@ export function describeChanges(entry: TaskActivityEntry, today: string): string
         else if (key === "deadline") parts.push(value ? `the deadline to ${relativeDate(String(value), today)}` : "the deadline (removed)");
         else if (key === "assignee") parts.push(value ? `the assignee to ${String(value).split("@")[0]}` : "the assignee (unassigned)");
         else if (key === "isMilestone") parts.push(value ? "it to a milestone" : "it from a milestone");
+        else if (key === "series") parts.push("the series from then on");
         else if (FIELD_NAMES[key]) parts.push(FIELD_NAMES[key]);
     }
     return parts.length ? parts.join(", ") : "";
@@ -62,10 +67,22 @@ export function activitySentence(entry: TaskActivityEntry, today: string): strin
         return what ? `changed ${what}` : "edited";
     }
     if (entry.action === "task.complete" && entry.changes?.next) return `completed an occurrence (next ${relativeDate(String(entry.changes.next), today)})`;
+    if (entry.action === "tasks.import" && typeof entry.changes?.count === "number")
+        return `imported ${entry.changes.count} task${entry.changes.count === 1 ? "" : "s"} from Todoist`;
+    if (entry.action === "task.occurrence" && entry.changes?.occurrence) {
+        const date = relativeDate(String(entry.changes.occurrence), today);
+        const change =
+            entry.changes.change === "skip"
+                ? `skipped the ${date} occurrence of`
+                : entry.changes.change === "restore"
+                  ? `restored the ${date} occurrence of`
+                  : `moved the ${date} occurrence of`;
+        return change;
+    }
     return verb;
 }
 
 /** Whether the sentence is followed by the task's title ("completed “Pay rent”"). */
 export const takesTitle = (action: string) =>
-    !["project.", "member.", "section.", "task.move_in", "task.move_out", "task.delete"].some((prefix) => action.startsWith(prefix)) &&
+    !["project.", "member.", "section.", "task.move_in", "task.move_out", "task.delete", "tasks.import"].some((prefix) => action.startsWith(prefix)) &&
     !action.startsWith("subtask.");

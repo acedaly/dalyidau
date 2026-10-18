@@ -93,6 +93,8 @@ export const TaskRow = ({
     const { today, project, openTask, canEdit, assignable } = useTasks();
     const owner = project(task.projectId);
     const editable = canEdit(task.projectId) && !task.projected;
+    // A later repeat (Upcoming, the calendar) can be moved or skipped on its own.
+    const occurrenceEditable = canEdit(task.projectId) && !!task.projected && !!task.seriesDate;
     const people = assignable(task.projectId);
     const done = task.status === "completed";
 
@@ -102,6 +104,8 @@ export const TaskRow = ({
         else if (key === "tomorrow") void actions.update(task, { dueDate: addDays(today, 1) });
         else if (key === "week") void actions.update(task, { dueDate: addDays(today, 7) });
         else if (key === "nodate") void actions.update(task, { dueDate: null, dueTime: null, recurrence: null });
+        else if (key === "reschedule") actions.reschedule(task);
+        else if (key === "skip-occurrence") void actions.changeOccurrence(task, { action: "skip" });
         else if (key.startsWith("p")) void actions.update(task, { priority: Number(key.slice(1)) as Priority });
         else if (key === "skip") void actions.skip(task);
         else if (key === "subtask") onAddSubtask?.();
@@ -116,6 +120,9 @@ export const TaskRow = ({
         if (event.target !== event.currentTarget) return;
         if (event.key === "Enter") (event.preventDefault(), openTask(task.id));
         else if ((event.key === "e" || event.key === "x") && editable) (event.preventDefault(), void (done ? actions.reopen(task) : actions.complete(task)));
+        else if (event.key === "s" && (editable || occurrenceEditable) && !done) (event.preventDefault(), actions.reschedule(task));
+        else if (/^[1-4]$/.test(event.key) && editable && !event.altKey && !event.metaKey && !event.ctrlKey)
+            (event.preventDefault(), void actions.update(task, { priority: Number(event.key) as Priority }));
         else if (event.altKey && event.key === "ArrowUp" && onMoveUp) (event.preventDefault(), onMoveUp());
         else if (event.altKey && event.key === "ArrowDown" && onMoveDown) (event.preventDefault(), onMoveDown());
     };
@@ -224,6 +231,24 @@ export const TaskRow = ({
                     {task.assignee && <AssigneeAvatar email={task.assignee} people={people} />}
                 </div>
             </div>
+            {occurrenceEditable && (
+                <Dropdown.Root>
+                    <ButtonUtility
+                        size="sm"
+                        color="tertiary"
+                        icon={DotsVertical}
+                        tooltip={`Change this occurrence of “${titleOf(task.title)}”`}
+                        className="mt-0.5 shrink-0 max-sm:size-9"
+                    />
+                    <Dropdown.Popover className="w-60">
+                        <Dropdown.Menu onAction={(key) => onMenu(String(key))}>
+                            <Dropdown.Item id="open" label="Open the task" />
+                            <Dropdown.Item id="reschedule" label="Move this occurrence…" addon="s" />
+                            <Dropdown.Item id="skip-occurrence" label="Skip this occurrence" />
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown.Root>
+            )}
             {editable && (
                 <Dropdown.Root>
                     <ButtonUtility
@@ -243,6 +268,7 @@ export const TaskRow = ({
                                 <>
                                     <Dropdown.Separator />
                                     <Dropdown.Section>
+                                        <Dropdown.Item id="reschedule" label="Reschedule…" addon="s" />
                                         <Dropdown.Item id="today" label="Due today" />
                                         <Dropdown.Item id="tomorrow" label="Due tomorrow" />
                                         <Dropdown.Item id="week" label="Due in a week" />
@@ -259,7 +285,7 @@ export const TaskRow = ({
                                                 key={p}
                                                 id={`p${p}`}
                                                 label={`${PRIORITY_LABELS[p].short} · ${PRIORITY_LABELS[p].label}`}
-                                                addon={task.priority === p ? "✓" : undefined}
+                                                addon={task.priority === p ? "✓" : String(p)}
                                             />
                                         ))}
                                     </Dropdown.Section>

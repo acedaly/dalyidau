@@ -95,7 +95,7 @@ function EnumSelect<T extends string>({
 }
 
 const FilterBuilder = ({ initial, isOpen, onOpenChange }: { initial: TaskFilter; isOpen: boolean; onOpenChange: (open: boolean) => void }) => {
-    const { projects, labels, shell } = useTasks();
+    const { projects, labels, shell, sections } = useTasks();
     const [f, setF] = useState<TaskFilter>(initial);
     const set = <K extends keyof TaskFilter>(key: K, value: TaskFilter[K]) => setF((x) => ({ ...x, [key]: value }));
     const toggle = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((v) => v !== value));
@@ -198,11 +198,37 @@ const FilterBuilder = ({ initial, isOpen, onOpenChange }: { initial: TaskFilter;
                                         label={p.name}
                                         color={p.color}
                                         isSelected={f.projectIds.includes(p.id)}
-                                        onChange={(on) => set("projectIds", toggle(f.projectIds, p.id, on))}
+                                        onChange={(on) => {
+                                            set("projectIds", toggle(f.projectIds, p.id, on));
+                                            // A section only means something while its project is chosen.
+                                            if (!on)
+                                                set(
+                                                    "sectionIds",
+                                                    f.sectionIds.filter((id) => !sections(p.id).some((x) => x.id === id)),
+                                                );
+                                        }}
                                     />
                                 ))}
                             </div>
                         </div>
+                        {f.projectIds.some((id) => sections(id).length) && (
+                            <div className="flex flex-col gap-3">
+                                <p className="text-sm font-semibold text-primary">Only these sections</p>
+                                <div className="flex flex-col items-start gap-3 pl-1">
+                                    {f.projectIds.flatMap((id) =>
+                                        sections(id).map((section) => (
+                                            <CheckBadge
+                                                key={section.id}
+                                                label={`${projects.find((p) => p.id === id)?.name ?? ""} / ${section.name}`}
+                                                color="gray"
+                                                isSelected={f.sectionIds.includes(section.id)}
+                                                onChange={(on) => set("sectionIds", toggle(f.sectionIds, section.id, on))}
+                                            />
+                                        )),
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </SlideoutMenu.Content>
                     <SlideoutMenu.Footer className="flex w-full items-center justify-end gap-3">
                         <Button size="sm" color="link-color" className="mr-auto" onClick={() => setF({ ...initial, ...filterToDefaults() })}>
@@ -223,6 +249,7 @@ const FilterBuilder = ({ initial, isOpen, onOpenChange }: { initial: TaskFilter;
 
 const filterToDefaults = (): TaskFilter => ({
     projectIds: [],
+    sectionIds: [],
     labels: [],
     labelMode: "any",
     priorities: [],

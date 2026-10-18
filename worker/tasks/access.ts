@@ -128,12 +128,33 @@ export async function canUseTasks(env: Env, db: D1Database, email: string) {
 
 export const DEFAULT_TIME_ZONE = "Australia/Sydney";
 
+export interface PreferenceRow {
+    time_zone: string;
+    today_priority: number | null;
+    reminders_enabled: number;
+    reminder_email: number;
+    default_reminder_minutes: number | null;
+    quiet_start: string | null;
+    quiet_end: string | null;
+    landing_page: TaskPreferences["landingPage"];
+}
+
+export const PREFERENCE_COLUMNS =
+    "time_zone, today_priority, reminders_enabled, reminder_email, default_reminder_minutes, quiet_start, quiet_end, landing_page";
+
+export const toPreferences = (row: PreferenceRow | null): TaskPreferences => ({
+    timeZone: row?.time_zone ?? DEFAULT_TIME_ZONE,
+    todayPriority: (row?.today_priority ?? null) as TaskPreferences["todayPriority"],
+    remindersEnabled: row ? !!row.reminders_enabled : true,
+    reminderEmail: row ? !!row.reminder_email : false,
+    defaultReminderMinutes: row?.default_reminder_minutes ?? null,
+    quietStart: row?.quiet_start ?? null,
+    quietEnd: row?.quiet_end ?? null,
+    landingPage: row?.landing_page ?? "today",
+});
+
 export async function preferences(db: D1Database, email: string): Promise<TaskPreferences> {
-    const row = await db
-        .prepare("SELECT time_zone, today_priority FROM task_preferences WHERE email = ?")
-        .bind(email)
-        .first<{ time_zone: string; today_priority: number | null }>();
-    return { timeZone: row?.time_zone ?? DEFAULT_TIME_ZONE, todayPriority: (row?.today_priority ?? null) as TaskPreferences["todayPriority"] };
+    return toPreferences(await db.prepare(`SELECT ${PREFERENCE_COLUMNS} FROM task_preferences WHERE email = ?`).bind(email).first<PreferenceRow>());
 }
 
 /** Today's date for this person, in their own time zone. */

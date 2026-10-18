@@ -11,17 +11,21 @@ interface EmptyProps {
     size?: "sm" | "md";
 }
 
+// The header's decorative circles are wider than a phone; clipping them at the full width of the
+// container keeps them on wide screens and stops them widening (and zooming out) a narrow page.
 export const Empty = ({ icon, title, description, actions, size = "md" }: EmptyProps) => (
-    <EmptyState size={size}>
-        <EmptyState.Header pattern="circle">
-            <EmptyState.FeaturedIcon icon={icon} color="gray" theme="modern" />
-        </EmptyState.Header>
-        <EmptyState.Content>
-            <EmptyState.Title>{title}</EmptyState.Title>
-            <EmptyState.Description>{description}</EmptyState.Description>
-        </EmptyState.Content>
-        {actions && <EmptyState.Footer>{actions}</EmptyState.Footer>}
-    </EmptyState>
+    <div className="w-full overflow-x-clip">
+        <EmptyState size={size}>
+            <EmptyState.Header pattern="circle">
+                <EmptyState.FeaturedIcon icon={icon} color="gray" theme="modern" />
+            </EmptyState.Header>
+            <EmptyState.Content>
+                <EmptyState.Title>{title}</EmptyState.Title>
+                <EmptyState.Description>{description}</EmptyState.Description>
+            </EmptyState.Content>
+            {actions && <EmptyState.Footer>{actions}</EmptyState.Footer>}
+        </EmptyState>
+    </div>
 );
 
 /** Placeholder block for content that renders only in the browser (charts) or is loading. */

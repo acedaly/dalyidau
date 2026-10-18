@@ -1,6 +1,7 @@
 // Choosing how a task repeats: common patterns in one list, and "Custom" for any interval, chosen
-// weekdays, the day of the month (or the last day), an end date, and whether the next date counts
-// from the schedule or from when it was completed. The sentence underneath always says exactly
+// weekdays, the day of the month (or the last day), a weekday of the month ("the 2nd Tuesday", "the
+// last Friday", "the last weekday"), an end date or a number of times, and whether the next date
+// counts from the schedule or from when it was completed. The sentence underneath always says exactly
 // what was chosen, using the same wording the task shows.
 import { useState } from "react";
 import { Repeat04 } from "@untitledui/icons";
@@ -31,7 +32,7 @@ const UNITS: Record<Frequency, string> = { daily: "days", weekly: "weeks", month
 const presetFor = (rule: RecurrenceRule | null) => {
     if (!rule) return "none";
     const days = (rule.weekdays ?? []).join();
-    if (rule.until || rule.basis === "completion") return "custom";
+    if (rule.until || rule.count || rule.basis === "completion" || rule.monthWeekday || rule.lastWorkday) return "custom";
     if (rule.freq === "daily" && rule.interval === 1) return "daily";
     if (rule.freq === "weekly" && rule.interval === 1 && days === "1,2,3,4,5") return "weekdays";
     if (rule.freq === "weekly" && rule.interval === 1 && (rule.weekdays?.length ?? 1) === 1) return "weekly";
@@ -95,17 +96,42 @@ const CustomRepeat = ({
     const [freq, setFreq] = useState<Frequency>(rule?.freq ?? "weekly");
     const [interval, setInterval] = useState(String(rule?.interval ?? 1));
     const [weekdays, setWeekdays] = useState<number[]>(rule?.weekdays ?? [isoWeekday(anchor)]);
-    const [monthDay, setMonthDay] = useState<"same" | "last">(rule?.monthDay === -1 ? "last" : "same");
+    type MonthChoice = "same" | "last" | "weekday" | "lastWeekday" | "lastWorkday";
+    const [monthDay, setMonthDay] = useState<MonthChoice>(
+        rule?.lastWorkday
+            ? "lastWorkday"
+            : rule?.monthWeekday
+              ? rule.monthWeekday.week === -1
+                  ? "lastWeekday"
+                  : "weekday"
+              : rule?.monthDay === -1
+                ? "last"
+                : "same",
+    );
     const [basis, setBasis] = useState<"scheduled" | "completion">(rule?.basis ?? "scheduled");
     const [until, setUntil] = useState<string | null>(rule?.until ?? null);
+    const [ends, setEnds] = useState<"never" | "date" | "count">(rule?.count ? "count" : rule?.until ? "date" : "never");
+    const [count, setCount] = useState(String(rule?.count ?? 10));
+    const day = Number(anchor.slice(8));
+    const week = Math.ceil(day / 7) > 4 ? -1 : Math.ceil(day / 7);
+    const weekdayName = WEEKDAYS[isoWeekday(anchor) - 1];
+    const ordinal = ["1st", "2nd", "3rd", "4th"][week - 1] ?? "last";
+    const scheduledMonthly = basis === "scheduled";
 
+    const monthly = (): Partial<RecurrenceInput> => {
+        if (!scheduledMonthly || monthDay === "same") return { monthDay: day };
+        if (monthDay === "last") return { monthDay: -1 };
+        if (monthDay === "lastWorkday") return { lastWorkday: true };
+        return { monthWeekday: { week: monthDay === "lastWeekday" ? -1 : week, weekday: isoWeekday(anchor) } };
+    };
     const draft: RecurrenceInput = {
         freq,
         interval: Number(interval) || 1,
         basis,
-        until,
+        until: ends === "date" ? until : null,
+        ...(ends === "count" && basis === "scheduled" ? { count: Number(count) || 1 } : {}),
         ...(freq === "weekly" && basis === "scheduled" ? { weekdays: [...weekdays].sort() } : {}),
-        ...(freq === "monthly" ? { monthDay: monthDay === "last" ? -1 : Number(anchor.slice(8)) } : {}),
+        ...(freq === "monthly" ? monthly() : {}),
     };
     const check = recurrenceInput.safeParse(draft);
     const summary = check.success ? describeRule(withAnchor(check.data, anchor)) : (check.error.issues[0]?.message ?? "Check the repeat");
@@ -162,19 +188,27 @@ const CustomRepeat = ({
                 </div>
             )}
             {freq === "monthly" && (
-                <RadioGroup aria-label="Day of the month" value={monthDay} onChange={(v) => setMonthDay(v as "same" | "last")}>
-                    <RadioButton value="same" label={`On day ${Number(anchor.slice(8))} (the last day in shorter months)`} />
+                <RadioGroup aria-label="Day of the month" value={monthDay} onChange={(v) => setMonthDay(v as MonthChoice)}>
+                    <RadioButton value="same" label={`On day ${day} (the last day in shorter months)`} />
                     <RadioButton value="last" label="On the last day of the month" />
+                    {scheduledMonthly && week !== -1 && <RadioButton value="weekday" label={`On the ${ordinal} ${weekdayName}`} />}
+                    {scheduledMonthly && <RadioButton value="lastWeekday" label={`On the last ${weekdayName}`} />}
+                    {scheduledMonthly && <RadioButton value="lastWorkday" label="On the last weekday (Monday to Friday)" />}
                 </RadioGroup>
             )}
             <RadioGroup aria-label="Count from" value={basis} onChange={(v) => setBasis(v as "scheduled" | "completion")}>
                 <RadioButton value="scheduled" label="On a fixed schedule" hint="If it's done late, the next date stays on the schedule." />
                 <RadioButton value="completion" label="After it's completed" hint="The next date counts from the day you complete it." />
             </RadioGroup>
-            <div className="flex flex-col gap-1.5">
-                <p className="text-sm font-medium text-secondary">Ends</p>
-                <DateMenu label="End date" value={until} onChange={setUntil} placeholder="Never" clearLabel="Never ends" />
-            </div>
+            <RadioGroup aria-label="Ends" value={ends} onChange={(v) => setEnds(v as typeof ends)}>
+                <RadioButton value="never" label="Never ends" />
+                <RadioButton value="date" label="Ends on a date" />
+                {basis === "scheduled" && <RadioButton value="count" label="Ends after a number of times" />}
+            </RadioGroup>
+            {ends === "date" && <DateMenu label="End date" value={until} onChange={setUntil} placeholder="Choose the end date" clearLabel="No end date" />}
+            {ends === "count" && basis === "scheduled" && (
+                <Input label="Times, including the first" type="number" size="sm" className="w-40" value={count} onChange={setCount} inputMode="numeric" />
+            )}
         </PortalDialog>
     );
 };

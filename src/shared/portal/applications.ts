@@ -42,7 +42,8 @@ export type NavigationIcon =
     | "labels"
     | "filters"
     | "activity"
-    | "project";
+    | "project"
+    | "mine";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -202,6 +203,7 @@ export const APPLICATIONS = [
                     { label: "Inbox", href: "/portal/tasks/inbox", icon: "inbox" },
                     { label: "Today", href: "/portal/tasks/today", icon: "today" },
                     { label: "Upcoming", href: "/portal/tasks/upcoming", icon: "upcoming" },
+                    { label: "All my tasks", href: "/portal/tasks/mine", icon: "mine" },
                     { label: "Overdue", href: "/portal/tasks/overdue", icon: "overdue" },
                     { label: "Completed", href: "/portal/tasks/completed", icon: "completed" },
                 ],
@@ -213,6 +215,7 @@ export const APPLICATIONS = [
                     { label: "Shared projects", href: "/portal/tasks/projects?kind=shared", icon: "shared" },
                     { label: "Labels", href: "/portal/tasks/labels", icon: "labels" },
                     { label: "Filters", href: "/portal/tasks/filters", icon: "filters" },
+                    { label: "Templates", href: "/portal/tasks/templates", icon: "templates" },
                 ],
             },
             {

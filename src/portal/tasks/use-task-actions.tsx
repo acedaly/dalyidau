@@ -1,14 +1,15 @@
-// What you can do to a task from any list: complete (with Undo), reopen, skip, reschedule, change
-// priority, duplicate and delete. Each action tells the rest of the page through the change feed.
+// What you can do to a task from any list: complete (with Undo), reopen, skip, reschedule (one
+// occurrence or the series; or one later occurrence on its own), change priority, duplicate and delete. Each action tells the rest of the page through the change feed.
 // Completing a task with open subtasks asks first instead of completing them silently, and a
 // change that lost a race with someone else's says so and reloads the task rather than overwriting.
 import { useState } from "react";
 import { ConfirmDialog } from "@/portal/components/dialog";
 import { useToast } from "@/portal/components/toast";
 import { ApiError, errorMessage } from "@/portal/lib/api";
-import { relativeDate } from "@/shared/tasks/dates";
+import { relativeDate, shortDate } from "@/shared/tasks/dates";
 import type { TaskSummary } from "@/shared/tasks/types";
 import { type TaskFields, tasksApi } from "./api";
+import { type RescheduleChoice, RescheduleDialog } from "./reschedule-dialog";
 import { useTasks } from "./tasks-context";
 
 export const useTaskActions = () => {
@@ -16,6 +17,7 @@ export const useTaskActions = () => {
     const toast = useToast();
     const [askSubtasks, setAskSubtasks] = useState<{ task: TaskSummary; message: string } | null>(null);
     const [askDelete, setAskDelete] = useState<TaskSummary | null>(null);
+    const [rescheduling, setRescheduling] = useState<TaskSummary | null>(null);
 
     const conflict = (error: unknown, task: TaskSummary) => {
         if (error instanceof ApiError && error.status === 409 && error.code === "conflict") {
@@ -72,9 +74,9 @@ export const useTaskActions = () => {
     };
 
     /** Saves fields on a task. Returns the saved task, or null if it didn't save (the reason has been shown). */
-    const update = async (task: TaskSummary, fields: TaskFields): Promise<TaskSummary | null> => {
+    const update = async (task: TaskSummary, fields: TaskFields, scope?: "occurrence" | "series"): Promise<TaskSummary | null> => {
         try {
-            const { task: next } = await tasksApi.update(task.id, task.version, fields);
+            const { task: next } = await tasksApi.update(task.id, task.version, fields, scope);
             emit({ type: "saved", task: next });
             return next;
         } catch (error) {
@@ -95,6 +97,55 @@ export const useTaskActions = () => {
         }
     };
 
+    /** A later occurrence of a repeating task, shown in Upcoming or the calendar: move or skip just that one. */
+    const changeOccurrence = async (task: TaskSummary, change: { action: "skip" } | { action: "move"; to: string }) => {
+        if (!task.seriesDate) return;
+        const date = task.seriesDate;
+        try {
+            const { task: next } = await tasksApi.occurrence(task.id, { ...change, date });
+            emit({ type: "saved", task: next });
+            emit({ type: "refresh" });
+            toast.show({
+                title: change.action === "skip" ? `Skipped ${shortDate(date)}` : `Moved to ${shortDate(change.to)}`,
+                description: task.title,
+                color: "success",
+                action: {
+                    label: "Undo",
+                    run: () =>
+                        void tasksApi.occurrence(task.id, { action: "restore", date }).then(
+                            () => emit({ type: "refresh" }),
+                            (error) => toast.error("Couldn't undo that", errorMessage(error)),
+                        ),
+                },
+            });
+        } catch (error) {
+            toast.error("Couldn't change that occurrence", errorMessage(error));
+        }
+    };
+
+    const applyReschedule = async (task: TaskSummary, choice: RescheduleChoice) => {
+        if (choice.kind === "occurrence") return changeOccurrence(task, choice.action === "move" ? { action: "move", to: choice.to } : { action: "skip" });
+        const saved = await update(
+            task,
+            choice.date ? { dueDate: choice.date } : { dueDate: null, dueTime: null },
+            choice.scope === "series" ? "series" : undefined,
+        );
+        if (saved)
+            toast.show({
+                title: choice.date ? `Moved to ${relativeDate(choice.date, today)}` : "Date removed",
+                description: choice.scope === "series" ? `${task.title} · the series moved too` : task.title,
+                color: "success",
+                action:
+                    task.dueDate !== choice.date
+                        ? { label: "Undo", run: () => void update(saved, { dueDate: task.dueDate, dueTime: task.dueTime }) }
+                        : undefined,
+            });
+    };
+
+    /** Straight to a date (dragging in the calendar): only this occurrence of a repeating task. */
+    const moveTo = (task: TaskSummary, date: string) =>
+        task.projected ? changeOccurrence(task, { action: "move", to: date }) : applyReschedule(task, { kind: "date", date, scope: "occurrence" });
+
     const duplicate = async (task: TaskSummary) => {
         try {
             const { task: copy } = await tasksApi.duplicate(task.id);
@@ -108,6 +159,9 @@ export const useTaskActions = () => {
 
     const dialogs = (
         <>
+            {rescheduling && (
+                <RescheduleDialog task={rescheduling} onClose={() => setRescheduling(null)} onChoose={(choice) => void applyReschedule(rescheduling, choice)} />
+            )}
             <ConfirmDialog
                 isOpen={!!askSubtasks}
                 onOpenChange={(open) => !open && setAskSubtasks(null)}
@@ -143,5 +197,17 @@ export const useTaskActions = () => {
         </>
     );
 
-    return { complete, reopen, skip, update, move, duplicate, remove: (task: TaskSummary) => setAskDelete(task), dialogs };
+    return {
+        complete,
+        reopen,
+        skip,
+        update,
+        move,
+        duplicate,
+        remove: (task: TaskSummary) => setAskDelete(task),
+        reschedule: (task: TaskSummary) => setRescheduling(task),
+        moveTo,
+        changeOccurrence,
+        dialogs,
+    };
 };

@@ -33,6 +33,7 @@ import {
     LogOut01,
     Mail01,
     Menu02,
+    Plus,
     Receipt,
     SearchLg,
     Settings01,
@@ -41,6 +42,7 @@ import {
     Sun,
     Tag01,
     Trash01,
+    UserCheck01,
     Users01,
     Users03,
     Wallet02,
@@ -54,11 +56,13 @@ import {
 } from "react-aria-components";
 import { NavItemBase } from "@/components/application/app-navigation/base-components/nav-item";
 import { AvatarLabelGroup } from "@/components/base/avatar/avatar-label-group";
+import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 import { site } from "@/content/site";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
+import { requestQuickAdd } from "@/portal/tasks/quick-add-events";
 import { type ApplicationIcon, type NavigationIcon, applicationForPath } from "@/shared/portal/applications";
 import type { FlagKey } from "@/shared/portal/flags";
 import { ROLE_LABELS } from "@/shared/portal/permissions";
@@ -112,6 +116,7 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     filters: FilterLines,
     activity: Activity,
     project: Folder,
+    mine: UserCheck01,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -219,6 +224,16 @@ const SidebarContent = ({ path, extra }: { path: string; extra: ExtraNavSection[
                         <span className="block text-xs font-medium text-brand-secondary">Active application</span>
                         <span className="block truncate text-sm font-semibold text-primary">{application.name}</span>
                     </span>
+                </div>
+            )}
+
+            {/* Tasks' Quick Add from any page (q). Phones use the floating button instead. */}
+            {can("tasks.use") && (
+                <div className="mx-4 mt-3 max-lg:hidden">
+                    <Button size="sm" color="secondary" iconLeading={Plus} className="w-full" onClick={requestQuickAdd} aria-keyshortcuts="Q">
+                        <span className="flex-1 text-left">Add task</span>
+                        <kbd className="rounded-sm px-1.5 text-xs font-medium text-quaternary ring-1 ring-secondary ring-inset">Q</kbd>
+                    </Button>
                 </div>
             )}
 

@@ -85,12 +85,16 @@ test("every Tasks page loads without errors, fits the screen and passes axe", as
         await expect(page.getByRole("main")).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, path).toBeLessThanOrEqual(0);
+        // A phone zooms out instead of scrolling sideways when something is too wide; catch that too.
+        expect(await page.evaluate(() => window.innerWidth), path).toBeLessThanOrEqual(page.viewportSize()!.width);
         const results = await new AxeBuilder({ page }).include("main").exclude("main p.bg-warning-primary").analyze();
         const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
         expect(serious.map((v) => `${path} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
     }
     // The task link opens its panel, and the panel passes axe too.
     await expect(page.getByRole("dialog").getByRole("textbox", { name: "Task name" })).toHaveValue(`Layout task ${info.project.name}`);
+    // Checked once the slideout has finished animating in (mid-fade colours aren't what anyone sees).
+    await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running"));
     const panel = await new AxeBuilder({ page }).include("[role=dialog]").analyze();
     expect(panel.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
     expect(errors).toEqual([]);
