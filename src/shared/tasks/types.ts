@@ -1,5 +1,21 @@
 // Daly Tasks & Projects: shapes shared by the Worker and the browser.
 import type { TaskFilter } from "./filters";
+import type {
+    DashboardPreferences,
+    GoalDetail,
+    HouseholdDashboard,
+    PersonalDashboard,
+    ProjectHealth,
+    ProjectMetrics,
+    ProjectTimeline,
+    ReportRange,
+    ReviewFrequency,
+    TaskGoal,
+    TaskRoutine,
+    TasksReport,
+    Workload,
+    WorkloadGroup,
+} from "./productivity";
 import type { RecurrenceRule } from "./recurrence";
 import type { TaskTemplate } from "./templates";
 import type { UpcomingMode, ViewPreferenceMap } from "./view-preferences";
@@ -68,11 +84,14 @@ export interface TaskProject {
     startDate: string | null;
     targetDate: string | null;
     defaultView: "list" | "board";
+    /** How often it should be reviewed (Milestone 3). */
+    reviewFrequency: ReviewFrequency;
     role: ProjectRole;
     version: number;
     /** Open and completed top-level and subtasks, for progress. */
     counts: { open: number; completed: number; overdue: number };
     memberCount: number;
+    createdAt: string;
     updatedAt: string;
 }
 
@@ -271,11 +290,12 @@ export type TasksRoute =
     | (TasksShell & {
           route: "tasks-project";
           project: TaskProject;
-          tab: "list" | "board" | "overview";
+          tab: "list" | "board" | "overview" | "timeline";
           tasks: TaskSummary[];
           completedCount: number;
           members: TaskMember[];
           overview: ProjectOverview | null;
+          timeline: ProjectTimeline | null;
           openTask: string | null;
       })
     | (TasksShell & { route: "tasks-projects"; kind: "personal" | "shared"; archived: TaskProject[] })
@@ -284,7 +304,19 @@ export type TasksRoute =
     | (TasksShell & { route: "tasks-search"; query: string; tasks: TaskSummary[]; matchedProjects: { id: string; name: string }[] })
     | (TasksShell & { route: "tasks-activity"; entries: TaskActivityEntry[]; projectId: string | null })
     | (TasksShell & { route: "tasks-settings"; imports: ImportRecord[] })
-    | (TasksShell & { route: "tasks-templates"; templates: TaskTemplate[]; archived: TaskTemplate[] });
+    | (TasksShell & { route: "tasks-templates"; templates: TaskTemplate[]; archived: TaskTemplate[] })
+    | (TasksShell & {
+          route: "tasks-dashboard";
+          tab: "personal" | "household";
+          dashboardPreferences: DashboardPreferences;
+          personal: PersonalDashboard | null;
+          household: HouseholdDashboard | null;
+      })
+    | (TasksShell & { route: "tasks-goals"; goals: TaskGoal[]; archived: TaskGoal[] })
+    | (TasksShell & { route: "tasks-goal"; detail: GoalDetail })
+    | (TasksShell & { route: "tasks-routines"; routines: TaskRoutine[] })
+    | (TasksShell & { route: "tasks-workload"; workload: Workload; group: WorkloadGroup })
+    | (TasksShell & { route: "tasks-reports"; report: TasksReport; range: ReportRange });
 
 /** One import run, as listed in Settings. */
 export interface ImportRecord {
@@ -310,6 +342,15 @@ export interface ImportRecord {
 export interface ProjectOverview {
     upcomingDeadlines: TaskSummary[];
     milestones: TaskSummary[];
+    /** References from the project's tasks. */
     knowledge: KnowledgeReference[];
+    /** References from the project itself (Milestone 3). */
+    projectKnowledge: KnowledgeReference[];
     activity: TaskActivityEntry[];
+    health: ProjectHealth | null;
+    metrics: ProjectMetrics | null;
+    /** A review in progress, if there is one. */
+    draftReview: { id: string; startedBy: string } | null;
+    lastReview: { id: string; completedAt: string; completedBy: string; note: string } | null;
+    goals: TaskGoal[];
 }

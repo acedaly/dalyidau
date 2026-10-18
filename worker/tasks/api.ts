@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { addDays } from "../../src/shared/tasks/dates";
 import { filterFromParams, taskFilter } from "../../src/shared/tasks/filters";
+import { HOUSEHOLD_FILTERS, type HouseholdFilter, REPORT_RANGES, type ReportRange } from "../../src/shared/tasks/productivity";
 import { upcomingWindow } from "../../src/shared/tasks/view-preferences";
 import type { Env } from "../env";
 import { can } from "../portal/auth";
@@ -13,11 +14,33 @@ import { HttpError, json, readJson } from "../portal/http";
 import { ensureInbox, preferences, requireProject, requireTask, todayFor } from "./access";
 import { listActivity } from "./activity";
 import { addComment, deleteComment, editComment, listComments } from "./comments";
+import { getDashboardPreferences, householdDashboard, personalDashboard, setDashboardPreferences } from "./dashboard";
 import { exportCsv, exportTasks } from "./export";
+import {
+    addGoalMember,
+    addMilestone,
+    archiveGoal,
+    createGoal,
+    deleteGoal,
+    deleteMilestone,
+    goalDetail,
+    linkGoal,
+    listGoalMembers,
+    listGoals,
+    recordProgress,
+    removeGoalMember,
+    setGoalKind,
+    unlinkGoal,
+    updateGoal,
+    updateGoalMember,
+    updateMilestone,
+} from "./goals";
+import { measureProject, setProjectHealth } from "./health";
 import { listImports, previewImport, runImport } from "./import";
-import { linkKnowledge, tasksForObject, unlinkKnowledge } from "./knowledge";
+import { linkKnowledge, linkProjectKnowledge, projectKnowledgeReferences, relatedForObject, unlinkKnowledge, unlinkProjectKnowledge } from "./knowledge";
 import { createLabel, deleteLabel, listLabels, otherLabels, updateLabel } from "./labels";
 import { shell, upcomingMode } from "./pages";
+import { projectTimeline, workload } from "./planning";
 import {
     addMember,
     createProject,
@@ -37,6 +60,9 @@ import {
     updateProject,
 } from "./projects";
 import { addReminder, deleteReminder, dismissReminder, dueReminders } from "./reminders";
+import { reportCsv, tasksReport } from "./reports";
+import { addReviewAction, completeReview, discardReview, draftFor, getReview, listReviews, startReview, updateReview } from "./reviews";
+import { createRoutine, deleteRoutine, getRoutine, listRoutines, pauseRoutine, routineHistory, updateRoutine } from "./routines";
 import { createView, deleteView, getView, listViewPreferences, listViews, setViewPreferences, updatePreferences, updateView } from "./settings";
 import {
     OpenSubtasks,
@@ -217,7 +243,8 @@ add("POST", "/tasks/:id/knowledge", async ({ env, request, user, params }) =>
     json({ knowledge: await linkKnowledge(env.DB, user, params.id, await readJson(request)) }, 201),
 );
 add("DELETE", "/tasks/:id/knowledge/:link", async ({ env, user, params }) => json({ knowledge: await unlinkKnowledge(env.DB, user, params.id, params.link) }));
-add("GET", "/knowledge/:object", async ({ env, user, params }) => json({ tasks: await tasksForObject(env.DB, user, params.object) }));
+// Everything in Tasks related to a Knowledge object (its page's "Tasks" section): linked tasks and projects the caller can see.
+add("GET", "/knowledge/:object", async ({ env, user, params }) => json(await relatedForObject(env.DB, user, params.object)));
 
 add("POST", "/tasks/:id/reminders", async ({ env, request, user, params }) =>
     json({ reminders: await addReminder(env.DB, user, params.id, await readJson(request)) }, 201),
@@ -362,6 +389,173 @@ add("PUT", "/preferences/views/:view", async ({ env, request, user, params }) =>
 add("GET", "/shell", async ({ env, user }) => json({ shell: await shell(env, user) }));
 add("PATCH", "/preferences", async ({ env, request, user }) => json({ preferences: await updatePreferences(env.DB, user, await readJson(request)) }));
 
+// --- Milestone 3: dashboard ----------------------------------------------------------------------
+
+add("GET", "/dashboard", async ({ env, url, user }) => {
+    const saved = await getDashboardPreferences(env.DB, user.email);
+    const tab = url.searchParams.get("tab") === "household" ? "household" : url.searchParams.get("tab") === "personal" ? "personal" : (saved.tab ?? "personal");
+    const param = url.searchParams.get("filter");
+    const filter: HouseholdFilter = HOUSEHOLD_FILTERS.includes(param as HouseholdFilter) ? (param as HouseholdFilter) : (saved.household ?? "all");
+    return json(
+        tab === "household"
+            ? { tab, preferences: saved, household: await householdDashboard(env.DB, user, filter) }
+            : { tab, preferences: saved, personal: await personalDashboard(env.DB, user) },
+    );
+});
+add("PUT", "/preferences/dashboard", async ({ env, request, user }) =>
+    json({ preferences: await setDashboardPreferences(env.DB, user.email, await readJson(request)) }),
+);
+
+// --- Milestone 3: project health, reviews, Knowledge and timeline --------------------------------
+
+add("GET", "/projects/:id/health", async ({ env, user, params }) => {
+    await requireProject(env.DB, user, params.id);
+    const prefs = await preferences(env.DB, user.email);
+    const measured = await measureProject(env.DB, user.email, params.id, await todayFor(env.DB, user.email), prefs.timeZone);
+    return json({ health: measured!.health, metrics: measured!.metrics, draft: await draftFor(env.DB, user, params.id) });
+});
+add("PATCH", "/projects/:id/health", async ({ env, request, user, params }) => {
+    await setProjectHealth(env.DB, user, params.id, await readJson(request));
+    const prefs = await preferences(env.DB, user.email);
+    const measured = await measureProject(env.DB, user.email, params.id, await todayFor(env.DB, user.email), prefs.timeZone);
+    return json({ health: measured!.health, metrics: measured!.metrics });
+});
+add("GET", "/projects/:id/timeline", async ({ env, user, params }) => json({ timeline: await projectTimeline(env.DB, user, params.id) }));
+add("GET", "/projects/:id/knowledge", async ({ env, user, params }) => {
+    await requireProject(env.DB, user, params.id);
+    return json({ knowledge: await projectKnowledgeReferences(env.DB, user, params.id) });
+});
+add("POST", "/projects/:id/knowledge", async ({ env, request, user, params }) =>
+    json({ knowledge: await linkProjectKnowledge(env.DB, user, params.id, await readJson(request)) }, 201),
+);
+add("DELETE", "/projects/:id/knowledge/:link", async ({ env, user, params }) =>
+    json({ knowledge: await unlinkProjectKnowledge(env.DB, user, params.id, params.link) }),
+);
+add("POST", "/projects/:id/reviews", async ({ env, user, params }) => json(await startReview(env.DB, user, params.id), 201));
+add("GET", "/projects/:id/reviews", async ({ env, url, user, params }) => json(await listReviews(env.DB, user, params.id, url.searchParams.get("before"))));
+add("GET", "/reviews/:id", async ({ env, user, params }) => json(await getReview(env.DB, user, params.id)));
+add("PATCH", "/reviews/:id", async ({ env, request, user, params }) => json({ review: await updateReview(env.DB, user, params.id, await readJson(request)) }));
+add("POST", "/reviews/:id/complete", async ({ env, request, user, params }) =>
+    json({ review: await completeReview(env.DB, user, params.id, await readJson(request)) }),
+);
+add("POST", "/reviews/:id/discard", async ({ env, user, params }) => {
+    await discardReview(env.DB, user, params.id);
+    return json({ ok: true });
+});
+add("POST", "/reviews/:id/actions", async ({ env, request, user, params }) =>
+    json({ review: await addReviewAction(env.DB, user, params.id, await readJson(request, 64_000)) }, 201),
+);
+
+// --- Milestone 3: goals --------------------------------------------------------------------------
+
+add("GET", "/goals", async ({ env, url, user }) =>
+    json({ goals: await listGoals(env.DB, user.email, await todayFor(env.DB, user.email), { archived: url.searchParams.get("archived") === "1" }) }),
+);
+add("POST", "/goals", async ({ env, request, user }) => {
+    const id = await createGoal(env.DB, user, await readJson(request));
+    return json(await goalDetail(env.DB, user, id), 201);
+});
+add("GET", "/goals/:id", async ({ env, user, params }) => json(await goalDetail(env.DB, user, params.id)));
+add("PATCH", "/goals/:id", async ({ env, request, user, params }) => {
+    await updateGoal(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id));
+});
+add("POST", "/goals/:id/progress", async ({ env, request, user, params }) => {
+    await recordProgress(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id));
+});
+add("POST", "/goals/:id/archive", async ({ env, request, user, params }) => {
+    await archiveGoal(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id));
+});
+add("POST", "/goals/:id/delete", async ({ env, request, user, params }) => {
+    await deleteGoal(env.DB, user, params.id, await readJson(request));
+    return json({ ok: true });
+});
+add("POST", "/goals/:id/kind", async ({ env, request, user, params }) => {
+    await setGoalKind(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id));
+});
+add("GET", "/goals/:id/members", async ({ env, user, params }) => {
+    await goalDetail(env.DB, user, params.id);
+    return json({ members: await listGoalMembers(env.DB, params.id) });
+});
+add("POST", "/goals/:id/members", async ({ env, request, user, params }) => {
+    await addGoalMember(env, env.DB, user, params.id, await readJson(request));
+    return json({ members: await listGoalMembers(env.DB, params.id) }, 201);
+});
+add("PATCH", "/goals/:id/members/:email", async ({ env, request, user, params }) => {
+    await updateGoalMember(env.DB, user, params.id, params.email.toLowerCase(), await readJson(request));
+    return json({ members: await listGoalMembers(env.DB, params.id) });
+});
+add("DELETE", "/goals/:id/members/:email", async ({ env, user, params }) => {
+    const email = params.email.toLowerCase();
+    await removeGoalMember(env.DB, user, params.id, email);
+    return json(email === user.email ? { ok: true } : { members: await listGoalMembers(env.DB, params.id) });
+});
+add("POST", "/goals/:id/links", async ({ env, request, user, params }) => {
+    await linkGoal(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id), 201);
+});
+add("DELETE", "/goals/:id/links/:link", async ({ env, user, params }) => {
+    await unlinkGoal(env.DB, user, params.id, params.link);
+    return json(await goalDetail(env.DB, user, params.id));
+});
+add("POST", "/goals/:id/milestones", async ({ env, request, user, params }) => {
+    await addMilestone(env.DB, user, params.id, await readJson(request));
+    return json(await goalDetail(env.DB, user, params.id), 201);
+});
+add("PATCH", "/goal-milestones/:id", async ({ env, request, user, params }) => {
+    await updateMilestone(env.DB, user, params.id, await readJson(request));
+    return json({ ok: true });
+});
+add("DELETE", "/goal-milestones/:id", async ({ env, user, params }) => {
+    await deleteMilestone(env.DB, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Milestone 3: routines -----------------------------------------------------------------------
+
+add("GET", "/routines", async ({ env, url, user }) => {
+    const scope = url.searchParams.get("scope");
+    return json({ routines: await listRoutines(env.DB, user.email, { scope: scope === "personal" || scope === "shared" ? scope : undefined }) });
+});
+add("POST", "/routines", async ({ env, request, user }) => json({ routine: await createRoutine(env.DB, user, await readJson(request, 64_000)) }, 201));
+add("GET", "/routines/:id", async ({ env, user, params }) => json({ routine: await getRoutine(env.DB, user, params.id) }));
+add("PATCH", "/routines/:id", async ({ env, request, user, params }) =>
+    json({ routine: await updateRoutine(env.DB, user, params.id, await readJson(request)) }),
+);
+add("DELETE", "/routines/:id", async ({ env, user, params }) => {
+    await deleteRoutine(env.DB, user, params.id);
+    return json({ ok: true });
+});
+add("POST", "/routines/:id/pause", async ({ env, request, user, params }) =>
+    json({ routine: await pauseRoutine(env.DB, user, params.id, await readJson(request)) }),
+);
+add("GET", "/routines/:id/history", async ({ env, url, user, params }) =>
+    json(await routineHistory(env.DB, user, params.id, boundedInteger(url.searchParams.get("before"), 0, 0, Number.MAX_SAFE_INTEGER) || null)),
+);
+
+// --- Milestone 3: workload and reports -----------------------------------------------------------
+
+add("GET", "/workload", async ({ env, url, user }) =>
+    json({
+        workload: await workload(env.DB, user, {
+            scope: url.searchParams.get("scope") === "shared" ? "shared" : "mine",
+            weeks: boundedInteger(url.searchParams.get("weeks"), 2, 1, 4),
+            from: url.searchParams.get("from"),
+        }),
+    }),
+);
+const reportParams = (url: URL) => ({
+    scope: url.searchParams.get("scope") === "shared" ? ("shared" as const) : ("personal" as const),
+    range: (Object.keys(REPORT_RANGES).includes(url.searchParams.get("range") ?? "") ? url.searchParams.get("range") : "12w") as ReportRange,
+});
+add("GET", "/reports", async ({ env, url, user }) => {
+    const { scope, range } = reportParams(url);
+    return json({ report: await tasksReport(env.DB, user, scope, range) });
+});
+
 // --- Export --------------------------------------------------------------------------------------
 
 /** Exports are private downloads: never cached, never rendered, never sniffed. */
@@ -384,6 +578,12 @@ add("GET", "/export", async ({ env, url, user }) => {
     return url.searchParams.get("format") === "csv"
         ? download(exportCsv(data), "text/csv; charset=utf-8", `${stem}.csv`)
         : download(JSON.stringify(data, null, 2), "application/json; charset=utf-8", `${stem}.json`);
+});
+
+add("GET", "/reports/export", async ({ env, url, user }) => {
+    const { scope, range } = reportParams(url);
+    const report = await tasksReport(env.DB, user, scope, range);
+    return download(reportCsv(report), "text/csv; charset=utf-8", `daly-tasks-report-${scope}-${report.to}.csv`);
 });
 
 // --- Dispatch ------------------------------------------------------------------------------------

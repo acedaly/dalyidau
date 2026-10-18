@@ -31,6 +31,7 @@ import { activity, listActivity } from "./activity";
 import { knowledgeReferences } from "./knowledge";
 import { CANCEL, defaultReminderStatement, relativeReminderStatements, remindersFor } from "./reminders";
 import { TASK_COLUMNS, type TaskRow, toSummary } from "./rows";
+import { turnStatement, undoTurnStatement } from "./turns";
 
 /** A save based on an out-of-date version. The router answers 409 with the current task. */
 export class TaskConflict extends Error {
@@ -246,7 +247,7 @@ export async function subtree(db: D1Database, rootId: string): Promise<{ id: str
 // --- Shared checks -------------------------------------------------------------------------------
 
 /** An assignee must be an editor or owner of the task's project. Personal projects have no assignees. */
-async function checkAssignee(db: D1Database, projectId: string, kind: "personal" | "shared", assignee: string | null | undefined) {
+export async function checkAssignee(db: D1Database, projectId: string, kind: "personal" | "shared", assignee: string | null | undefined) {
     if (!assignee) return null;
     if (kind === "personal") throw invalid("Only tasks in shared projects can be assigned");
     const member = await db
@@ -375,7 +376,21 @@ async function replayed(db: D1Database, user: PortalUser, clientId: string | und
     return row ? taskSummary(db, row.id) : null;
 }
 
-export async function createTask(db: D1Database, user: PortalUser, input: unknown): Promise<{ task: TaskSummary; replayed: boolean }> {
+export interface CreateOptions {
+    /** Statements written in the same batch as the new task (e.g. remembering it as a review's next action). */
+    extra?: (taskId: string, projectId: string) => D1PreparedStatement[];
+    /** Refuse anything but this project (a review's next actions belong to the reviewed project). */
+    requireProjectId?: string;
+    /** More checks against the destination project, before anything is written. */
+    check?: (projectId: string, kind: "personal" | "shared") => Promise<void>;
+}
+
+export async function createTask(
+    db: D1Database,
+    user: PortalUser,
+    input: unknown,
+    options: CreateOptions = {},
+): Promise<{ task: TaskSummary; replayed: boolean }> {
     const body = createInput.parse(input);
     const earlier = await replayed(db, user, body.clientId);
     if (earlier) return { task: earlier, replayed: true };
@@ -400,6 +415,8 @@ export async function createTask(db: D1Database, user: PortalUser, input: unknow
         kind = project.kind;
         sectionId = await checkSection(db, projectId, body.sectionId);
     }
+    if (options.requireProjectId && projectId !== options.requireProjectId) throw invalid("This task has to go in the project being reviewed");
+    await options.check?.(projectId, kind);
     const assignee = await checkAssignee(db, projectId, kind, body.assignee);
     // Knowledge's own check for each object: 404 for anything outside the caller's spaces.
     const knowledge = [...new Set(body.knowledge)];
@@ -461,6 +478,7 @@ export async function createTask(db: D1Database, user: PortalUser, input: unknow
         ...(schedule.due_date && prefs.remindersEnabled && prefs.defaultReminderMinutes !== null
             ? [defaultReminderStatement(db, taskId, user.email, schedule.due_date, schedule.due_time, prefs.defaultReminderMinutes, prefs.timeZone)]
             : []),
+        ...(options.extra?.(taskId, projectId) ?? []),
     ];
     try {
         await db.batch(statements);
@@ -635,6 +653,24 @@ export async function moveTask(db: D1Database, user: PortalUser, taskId: string,
                          AND owner_email NOT IN (SELECT email FROM task_project_members WHERE project_id = ?)`,
                     )
                     .bind(...part, projectId),
+                // Routines: only people who can be assigned there keep taking turns.
+                db
+                    .prepare(
+                        `DELETE FROM task_routine_participants WHERE routine_id IN (SELECT id FROM task_routines WHERE task_id IN (${placeholders(part.length)}))
+                         AND (? = 'personal' OR email NOT IN (SELECT email FROM task_project_members WHERE project_id = ? AND role <> 'viewer'))`,
+                    )
+                    .bind(...part, kind, projectId),
+                // Shared goals never draw on personal projects, so a task moved into one leaves them.
+                ...(kind === "personal"
+                    ? [
+                          db
+                              .prepare(
+                                  `DELETE FROM task_goal_links WHERE task_id IN (${placeholders(part.length)})
+                                   AND goal_id IN (SELECT id FROM task_goals WHERE kind = 'shared')`,
+                              )
+                              .bind(...part),
+                      ]
+                    : []),
             );
         }
     }
@@ -729,13 +765,16 @@ async function completionStatements(
             );
         }
         statements.push(...(await relativeReminderStatements(db, task.id, next, task.due_time)));
+        // A routine whose people take turns passes to the next person when an occurrence is done (not skipped).
+        const turn = options.skip ? null : await turnStatement(db, task.id, task.project_id, task.assignee_email);
+        if (turn) statements.push(turn.statement);
         statements.push(
             activity(db, {
                 projectId: task.project_id,
                 taskId: task.id,
                 actor: user.email,
                 action: options.skip ? "task.skip" : "task.complete",
-                changes: { occurrence, next },
+                changes: { occurrence, next, ...(turn ? { assignee: turn.next } : {}) },
             }),
         );
         return { statements, nextDate: next };
@@ -891,9 +930,9 @@ export async function reopenTask(db: D1Database, user: PortalUser, taskId: strin
     const task = await requireTask(db, user, taskId, "editor");
     requireWritable(task);
     const latest = await db
-        .prepare("SELECT id, occurrence_date, next_date FROM task_completions WHERE task_id = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1")
+        .prepare("SELECT id, kind, occurrence_date, next_date FROM task_completions WHERE task_id = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1")
         .bind(taskId)
-        .first<{ id: number; occurrence_date: string | null; next_date: string | null }>();
+        .first<{ id: number; kind: "completed" | "skipped"; occurrence_date: string | null; next_date: string | null }>();
     const now = nowIso();
     const statements: D1PreparedStatement[] = [];
     if (task.status === "completed") {
@@ -918,6 +957,9 @@ export async function reopenTask(db: D1Database, user: PortalUser, taskId: strin
             requireChange(db),
             ...(await relativeReminderStatements(db, taskId, latest.occurrence_date, task.due_time)),
         );
+        // A routine's turn passed on with the completion; undoing it gives the turn back.
+        const back = latest.kind === "completed" ? await undoTurnStatement(db, taskId, task.project_id, task.assignee_email) : null;
+        if (back) statements.push(back);
     } else {
         throw invalid("There's no completion to undo");
     }

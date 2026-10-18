@@ -48,6 +48,7 @@ interface DueRow {
     project_kind: "personal" | "shared";
     is_inbox: number;
     is_member: number;
+    paused: number;
     name: string | null;
     time_zone: string | null;
     reminders_enabled: number | null;
@@ -140,6 +141,7 @@ async function deliver(env: Env, db: D1Database, provider: EmailProvider, id: st
         .prepare(
             `SELECT r.id, r.task_id, r.owner_email, r.remind_at, r.attempts, r.dismissed_at, t.title, t.status, t.due_date, t.due_time, t.priority,
                     p.name AS project_name, p.kind AS project_kind, p.is_inbox, (m.email IS NOT NULL) AS is_member, u.name,
+                    EXISTS (SELECT 1 FROM task_routines ro WHERE ro.task_id = t.id AND ro.paused_at IS NOT NULL) AS paused,
                     pr.time_zone, pr.reminders_enabled, pr.reminder_email, pr.quiet_start, pr.quiet_end
              FROM task_reminders r JOIN task_items t ON t.id = r.task_id JOIN task_projects p ON p.id = t.project_id
              LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = r.owner_email
@@ -162,8 +164,19 @@ async function deliver(env: Env, db: D1Database, provider: EmailProvider, id: st
 
     // Access and wishes as they are now.
     const allowed = !!row.is_member && (await canUseTasks(env, db, row.owner_email));
-    if (!allowed || row.status !== "open" || row.dismissed_at || !row.reminders_enabled || !row.reminder_email) {
-        await finish("cancelled", !allowed ? "no access" : row.status !== "open" ? "task completed" : row.dismissed_at ? "dismissed" : "reminder emails off");
+    if (!allowed || row.status !== "open" || row.dismissed_at || row.paused || !row.reminders_enabled || !row.reminder_email) {
+        await finish(
+            "cancelled",
+            !allowed
+                ? "no access"
+                : row.status !== "open"
+                  ? "task completed"
+                  : row.dismissed_at
+                    ? "dismissed"
+                    : row.paused
+                      ? "routine paused"
+                      : "reminder emails off",
+        );
         return "cancelled";
     }
     if (new Date(row.remind_at).getTime() < now.getTime() - STALE_HOURS * 3_600_000) {
