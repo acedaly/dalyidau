@@ -254,6 +254,13 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
+        // Daily Planner (0023): triggers remove blocks when someone leaves a project or a task moves.
+        // A row here is a block whose owner was since made a viewer (the planner already hides those).
+        name: "Time blocks belong to people who can still work on their task",
+        sql: "SELECT b.id FROM task_time_blocks b JOIN task_items t ON t.id = b.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = b.owner_email AND m.role <> 'viewer' WHERE b.status = 'scheduled' AND m.email IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
         name: "Intelligence settings and preferences are valid JSON",
         sql: "SELECT key FROM ai_config WHERE json_valid(value) = 0 UNION ALL SELECT email FROM ai_preferences WHERE json_valid(value) = 0 UNION ALL SELECT id FROM ai_suggestions WHERE json_valid(payload) = 0 LIMIT 20",
         level: "fail",
@@ -389,4 +396,8 @@ export const TABLES = [
     "leave_scenarios",
     "leave_bookings",
     "leave_shares",
+    // The Daily Planner (0023).
+    "planner_preferences",
+    "task_estimates",
+    "task_time_blocks",
 ];

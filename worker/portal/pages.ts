@@ -456,7 +456,7 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url, flags }) => loadCalendarPage(env, user, url, "view", flags),
     },
     {
-        pattern: /^\/portal\/calendar\/(year|family|leave|calendars|subscriptions|holidays|settings)$/,
+        pattern: /^\/portal\/calendar\/(planner|year|family|leave|calendars|subscriptions|holidays|settings)$/,
         title: "Calendar",
         application: "calendar",
         load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, match[1] as CalendarPage, flags),

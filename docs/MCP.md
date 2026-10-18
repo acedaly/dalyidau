@@ -169,9 +169,13 @@ Ten tools, described in [INTELLIGENCE.md](INTELLIGENCE.md#mcp): `knowledge_seman
 
 ### Daly Calendar and Leave
 
-Seventeen tools (63 in all), described in [CALENDAR.md](CALENDAR.md#mcp-tools-17-63-in-total). The reads are `calendar_list_calendars`, `calendar_list_events`, `calendar_search_events`, `calendar_get_agenda`, `calendar_find_conflicts`, `calendar_list_subscriptions`, `calendar_school_holidays`, `leave_get_balances`, `leave_list_bookings`, `leave_forecast` and `leave_find_opportunities`. The writes go through the ledger: `calendar_create_event`, `calendar_update_event`, `calendar_create_subscription`, `calendar_refresh_subscription`, `leave_create_proposal` and `leave_update_proposal`. `0022` rebuilds `mcp_writes` for the outcomes `calendar_event`, `calendar_subscription` and `leave_booking`.
+Seventeen tools, described in [CALENDAR.md](CALENDAR.md#mcp-tools-17-63-in-total). The reads are `calendar_list_calendars`, `calendar_list_events`, `calendar_search_events`, `calendar_get_agenda`, `calendar_find_conflicts`, `calendar_list_subscriptions`, `calendar_school_holidays`, `leave_get_balances`, `leave_list_bookings`, `leave_forecast` and `leave_find_opportunities`. The writes go through the ledger: `calendar_create_event`, `calendar_update_event`, `calendar_create_subscription`, `calendar_refresh_subscription`, `leave_create_proposal` and `leave_update_proposal`. `0022` rebuilds `mcp_writes` for the outcomes `calendar_event`, `calendar_subscription` and `leave_booking`.
 
 All of them need `calendar.use`, and the leave numbers come from the deterministic leave engine. Other people's private events are "Busy", and sensitive events are "Private event" even to their creator. Subscription addresses are never returned. Leave written through MCP is a draft or a proposal and is never requested, approved or taken. There's no delete tool.
+
+### Daily Planner
+
+Four tools (67 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-tools-4-67-in-total): `planner_get_day` and `planner_suggest_slots` (reads; suggestions create nothing), and `planner_schedule_task` and `planner_update_block` (writes through the ledger; move, resize or cancel, never delete). `0023` rebuilds `mcp_writes` for the `task_time_block` outcome. They need both `calendar.use` and `tasks.use`, and every task is checked through Tasks' own access. Scheduling never changes a task's dates or status. The gateway is 2.4.0.
 
 ### Deliberately absent
 

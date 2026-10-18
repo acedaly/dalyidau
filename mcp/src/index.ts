@@ -23,7 +23,7 @@ export interface GatewayEnv extends McpAuthEnv {
     readonly MCP_WRITES?: RateLimit;
 }
 
-export const SERVER_INFO = { name: "daly-portal", version: "2.3.0" } as const;
+export const SERVER_INFO = { name: "daly-portal", version: "2.4.0" } as const;
 
 /**
  * How to work with these tools, sent to every client at initialize. The portal enforces the rules
@@ -40,6 +40,7 @@ export const SERVER_INSTRUCTIONS = [
     "Archiving is reversible and keeps everything; confirm with the person before archiving. Nothing can be deleted through these tools: permanent deletion is done by the person in the portal.",
     "Daly Intelligence proposes, the person approves. intelligence_capture_text and intelligence_request_analysis only create suggestions; show them with intelligence_list_suggestions and call intelligence_approve_suggestion only for a suggestion the person explicitly approves. Briefing recommendations are suggestions, never facts.",
     'Daly Calendar: dates, balances, leave opportunities and school holidays come from the portal\'s deterministic calculations (calendar_get_agenda, leave_get_balances, leave_forecast, leave_find_opportunities). Report them as given; never estimate a balance or invent an event. Leave you record is a draft or proposal, never requested or approved. Private and sensitive events stay "Busy" or "Private event": don\'t ask for or guess their details.',
+    "Daily Planner: planner_get_day and planner_suggest_slots only read. Suggested sessions are proposals: show them to the person and call planner_schedule_task only for times they accept. Never move or cancel a time block (planner_update_block) without asking. Scheduling never changes a task's due date or status.",
 ].join("\n");
 
 function jsonError(status: number, error: string): Response {

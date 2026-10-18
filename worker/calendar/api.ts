@@ -10,6 +10,8 @@ import { daysBetween, isCalendarDate } from "../../src/shared/calendar/time";
 import { LIMITS, calendarPreferences } from "../../src/shared/calendar/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { BlockConflict, createBlock, getBlock, plannerPrefs, requirePlanner, savePlannerPrefs, setEstimate, updateBlock } from "../planner/blocks";
+import { checkTime, conflictsForBlock, dayPlan, plannerTasks, suggest, viewPlanner } from "../planner/planning";
 import { can } from "../portal/auth";
 import { nowIso } from "../portal/db";
 import { loadFlags } from "../portal/flags";
@@ -360,6 +362,87 @@ add("POST", "/restore", async ({ env, request, user }) => {
     return json({ result: await restore(env.DB, user, body.backup, body.dryRun) });
 });
 
+// --- Daily Planner and time blocks (docs/DAILY_PLANNER.md) ----------------------------------------
+
+// The planner needs Tasks as well as Calendar; each handler then checks the task through Tasks' own access.
+const planner =
+    (handler: Handler): Handler =>
+    (ctx) => {
+        requirePlanner(ctx.user);
+        return handler(ctx);
+    };
+const dateParam = async (env: Env, user: PortalUser, url: URL) => {
+    const value = url.searchParams.get("date");
+    if (value === null) return todayFor(env.DB, user.email);
+    if (!isCalendarDate(value)) throw new HttpError(400, "bad_date", "Give a date like 2026-10-19");
+    return value;
+};
+
+add(
+    "GET",
+    "/planner/day",
+    planner(async ({ env, url, user }) => json({ plan: await dayPlan(env.DB, user, await dateParam(env, user, url)) })),
+);
+add(
+    "GET",
+    "/planner/window",
+    planner(async ({ env, url, user }) => {
+        const { from, to } = windowParams(url);
+        return json({ planner: await viewPlanner(env.DB, user, from, to) });
+    }),
+);
+add(
+    "GET",
+    "/planner/tasks",
+    planner(async ({ env, user }) => json({ lists: await plannerTasks(env.DB, user, await todayFor(env.DB, user.email)) })),
+);
+add(
+    "GET",
+    "/planner/preferences",
+    planner(async ({ env, user }) => json(await plannerPrefs(env.DB, user.email))),
+);
+add(
+    "PUT",
+    "/planner/preferences",
+    planner(async ({ env, request, user }) => json(await savePlannerPrefs(env.DB, user, await readJson(request)))),
+);
+add(
+    "PUT",
+    "/planner/estimates/:taskId",
+    planner(async ({ env, request, user, params }) => json(await setEstimate(env.DB, user, params.taskId, await readJson(request)))),
+);
+add(
+    "POST",
+    "/planner/check",
+    planner(async ({ env, request, user }) => json({ conflicts: await checkTime(env.DB, user, await readJson(request)) })),
+);
+add(
+    "POST",
+    "/planner/suggest",
+    planner(async ({ env, request, user }) => json({ plan: await suggest(env.DB, user, await readJson(request)) })),
+);
+add(
+    "POST",
+    "/planner/blocks",
+    planner(async ({ env, request, user }) => {
+        const block = await createBlock(env.DB, user, await readJson(request));
+        return json({ block, conflicts: await conflictsForBlock(env.DB, user, block) }, 201);
+    }),
+);
+add(
+    "GET",
+    "/planner/blocks/:id",
+    planner(async ({ env, user, params }) => json({ block: await getBlock(env.DB, user, params.id) })),
+);
+add(
+    "PATCH",
+    "/planner/blocks/:id",
+    planner(async ({ env, request, user, params }) => {
+        const block = await updateBlock(env.DB, user, params.id, await readJson(request));
+        return json({ block, conflicts: await conflictsForBlock(env.DB, user, block) });
+    }),
+);
+
 // --- Dispatch ------------------------------------------------------------------------------------
 
 export async function handleCalendarApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
@@ -378,6 +461,7 @@ export async function handleCalendarApi(request: Request, env: Env, user: Portal
         } catch (error) {
             // The panel needs the current event to offer a way forward.
             if (error instanceof EventConflict) return json({ error: error.code, message: error.message, current: error.current }, 409);
+            if (error instanceof BlockConflict) return json({ error: error.code, message: error.message, current: error.current }, 409);
             if (error instanceof SyntaxError) throw new HttpError(400, "bad_json", "Request body is not valid JSON");
             throw error;
         }

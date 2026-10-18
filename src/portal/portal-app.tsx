@@ -2,6 +2,7 @@ import { Plus } from "@untitledui/icons";
 import { CalendarCalendarsPage } from "@/portal/calendar/pages/calendar-calendars-page";
 import { CalendarFamilyPage } from "@/portal/calendar/pages/calendar-family-page";
 import { CalendarHolidaysPage } from "@/portal/calendar/pages/calendar-holidays-page";
+import { CalendarPlannerPage } from "@/portal/calendar/pages/calendar-planner-page";
 import { CalendarSettingsPage } from "@/portal/calendar/pages/calendar-settings-page";
 import { CalendarSubscriptionsPage } from "@/portal/calendar/pages/calendar-subscriptions-page";
 import { CalendarViewPage } from "@/portal/calendar/pages/calendar-view-page";
@@ -197,6 +198,8 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <CalendarHolidaysPage data={data} />;
         case "calendar-settings":
             return <CalendarSettingsPage data={data} />;
+        case "calendar-planner":
+            return <CalendarPlannerPage data={data} />;
         case "calendar-leave":
             return <LeavePage data={data} />;
         case "calendar-leave-planner":

@@ -1,5 +1,6 @@
 // Data shapes for Daly Calendar and the Leave Planner, shared by the Worker and the browser.
 import { z } from "zod";
+import type { DayPlan, FeedTimeBlocks, PlannerData, PlannerPreferences, PlannerTaskLists } from "../planner/types";
 import type { LeaveAccrual, LeaveSettings, WorkPattern } from "./leave";
 import type { HolidayKind, SchoolDivision } from "./nsw";
 import type { RepeatRule } from "./recurrence";
@@ -351,6 +352,8 @@ export interface CalendarFeedInfo {
     id: string;
     name: string;
     scope: FeedScope;
+    /** The owner's time blocks: never, as "Busy" or as "Focus time" (never a task's title). */
+    timeBlocks: FeedTimeBlocks;
     tokenHint: string;
     createdAt: string;
     rotatedAt: string | null;
@@ -516,6 +519,17 @@ export type CalendarRoute =
           overlays: Overlays;
           openEvent: string | null;
           truncated: boolean;
+          /** The Tasks panel and time blocks (day and week views, for people who can open Tasks). */
+          planner: PlannerData | null;
+      })
+    | (CalendarShell & {
+          route: "calendar-planner";
+          date: string;
+          occurrences: EventOccurrence[];
+          overlays: Overlays;
+          plan: DayPlan & { lists: PlannerTaskLists };
+          plannerPreferences: { preferences: PlannerPreferences; version: number };
+          openBlock: string | null;
       })
     | (CalendarShell & { route: "calendar-year"; year: number; overlays: Overlays; busy: Record<string, number> })
     | (CalendarShell & {

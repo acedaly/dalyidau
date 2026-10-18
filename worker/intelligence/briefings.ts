@@ -21,6 +21,7 @@ import type { TaskSummary } from "../../src/shared/tasks/types";
 import { calendarFacts } from "../calendar/chief";
 import type { Env } from "../env";
 import { spaceToday } from "../knowledge/daily";
+import { plannerFacts } from "../planner/facts";
 import { can } from "../portal/auth";
 import { newId, nowIso, parseJson, placeholders } from "../portal/db";
 import { preferences as taskPreferences, todayFor } from "../tasks/access";
@@ -344,6 +345,23 @@ export async function briefingFacts(
                 detail: s.error ?? undefined,
             })),
         ];
+        // The day's plan (Daily Planner): planned sessions, conflicts and what's due but not yet planned.
+        if (kind === "daily" && tasks) {
+            const plan = await plannerFacts(db, user, site);
+            if (plan) {
+                items.push(
+                    ...plan.scheduled.map((b) => ({ id: b.id, title: `Planned: ${b.title}`, url: b.url, kind: "task" as const, detail: b.when })),
+                    ...plan.conflicts.map((c, i) => ({ id: `conflict:${c.blockId ?? i}:${c.kind}`, title: c.message, url: plan.url, kind: "event" as const })),
+                    ...plan.dueNotPlanned.slice(0, 5).map((t) => ({
+                        id: `unplanned:${t.id}`,
+                        title: `Not planned yet: ${t.title}`,
+                        url: t.url,
+                        kind: "task" as const,
+                        detail: t.estimateMinutes ? `About ${t.estimateMinutes} min` : undefined,
+                    })),
+                );
+            }
+        }
         sections.push(section("calendar", BRIEFING_SECTION_LABELS.calendar, items, items.length));
     }
     return { period, today, sections, checked: { tasks, knowledge, calendar } };
