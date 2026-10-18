@@ -3,6 +3,8 @@
 // retry-safe creation behave exactly as they do in the browser. Nothing here touches the database
 // except through those functions, apart from the read-only project-name lookup in shared.ts.
 //
+// Project creation, editing, archiving and restoring are in projects.ts.
+//
 // Deliberately absent: deleting tasks or projects, bulk changes, moving tasks between projects,
 // membership and sharing changes, imports and templates. Those stay in the portal, where a person
 // makes them directly.
@@ -38,7 +40,7 @@ const clockTime = z.string().regex(/^\d{2}:\d{2}$/, "Use a time like 09:30");
 const priority = z.number().int().min(1).max(4);
 const scope = z.enum(["occurrence", "series"]).optional();
 
-const projectOut = (ctx: ToolContext, p: TaskProject) => ({
+export const projectOut = (ctx: ToolContext, p: TaskProject) => ({
     id: p.id,
     name: p.isInbox ? "Inbox" : p.name,
     kind: p.kind,
@@ -49,6 +51,8 @@ const projectOut = (ctx: ToolContext, p: TaskProject) => ({
     targetDate: p.targetDate,
     counts: p.counts,
     memberCount: p.memberCount,
+    /** Needed to update, archive or restore it: a stale version is refused as a conflict. */
+    version: p.version,
     url: portalUrl(ctx, `/portal/tasks/p/${p.id}`),
 });
 

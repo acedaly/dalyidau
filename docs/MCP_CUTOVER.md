@@ -11,17 +11,17 @@ The ordered plan for moving `mcp.daly.id.au` from the DalyHub-V2 gateway to the 
 | `MCP_ACCESS_AUD` on dalyidau | Not set as far as known; step 2 checks by name                                                                                                                                                           |
 | This branch                  | Gateway in `mcp/`, migration tooling, `0019` (additive), tests. Not merged, not deployed                                                                                                                 |
 
-**Consequence.** For anyone connected today, the cutover swaps the entire tool list: the 34 DalyHub tools go and 31 Daly Portal tools arrive. So the order is: **portal first, then data migration, then the gateway**. That way the owner's open work is already in the portal when the DalyHub tools disappear.
+**Consequence.** For anyone connected today, the cutover swaps the entire tool list: the 34 DalyHub tools go and the Daly Portal tools arrive (31, or 36 once the project tools are merged: [MCP.md](MCP.md#releasing-project-management)). So the order is: **portal first, then data migration, then the gateway**. That way the owner's open work is already in the portal when the DalyHub tools disappear.
 
 ## What's implemented, what needs activation, what waits
 
-| Implemented and tested in this branch                                                | Needs production activation (owner approval)                            | Waits until the data migration is verified                                   |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Gateway Worker `mcp/` with no DalyHub dependency                                     | Merge, then deploy `dalyidau` (CI or by hand), applying `0018` + `0019` | Deleting any DalyHub Worker, database, bucket or secret                      |
-| 31 portal tools, double token check, permissions, retries, logs, rate limits         | `MCP_ACCESS_AUD` secret on dalyidau                                     | Adding further people to the MCP Access policy (safe after step 5; optional) |
-| Removal of the 34 DalyHub tools                                                      | Gateway deploy over `dalyhub-mcp`                                       | Archiving DalyHub-V2 and closing #311                                        |
-| Migration planner, preview/apply/revert routes (off by default), provenance tables   | `DALYHUB_MIGRATION` secret while migrating                              | Removing `DALYHUB_OWNER_EMAILS` from `dalyhub-mcp`                           |
-| Tests: protocol, isolation from DalyHub, two identities, contract, migration, backup | Access redirect URIs for Claude Code / Codex / ChatGPT, if wanted       |                                                                              |
+| Implemented and tested in this branch                                                           | Needs production activation (owner approval)                            | Waits until the data migration is verified                                   |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Gateway Worker `mcp/` with no DalyHub dependency                                                | Merge, then deploy `dalyidau` (CI or by hand), applying `0018` + `0019` | Deleting any DalyHub Worker, database, bucket or secret                      |
+| 31 portal tools (36 with projects), double token check, permissions, retries, logs, rate limits | `MCP_ACCESS_AUD` secret on dalyidau                                     | Adding further people to the MCP Access policy (safe after step 5; optional) |
+| Removal of the 34 DalyHub tools                                                                 | Gateway deploy over `dalyhub-mcp`                                       | Archiving DalyHub-V2 and closing #311                                        |
+| Migration planner, preview/apply/revert routes (off by default), provenance tables              | `DALYHUB_MIGRATION` secret while migrating                              | Removing `DALYHUB_OWNER_EMAILS` from `dalyhub-mcp`                           |
+| Tests: protocol, isolation from DalyHub, two identities, contract, migration, backup            | Access redirect URIs for Claude Code / Codex / ChatGPT, if wanted       |                                                                              |
 
 ## Ordered production cutover
 
@@ -42,9 +42,9 @@ Run from a clean checkout of `main` after this branch is merged. Record the time
 
 ### 2. Portal: deploy (approval: deploy and remote migrations)
 
-Merging to `main` makes the deploy workflow record a D1 bookmark, apply `0018_mcp_writes.sql` and `0019_dalyhub_import.sql` (both additive) and deploy `dalyidau`. While its token is broken, run by hand: `npx wrangler d1 migrations apply DB --remote --env=""`, then `npx wrangler deploy --env=""`. Then check:
+Merging to `main` makes the deploy workflow record a D1 bookmark, apply `0018_mcp_writes.sql` and `0019_dalyhub_import.sql` (both additive), plus `0020_mcp_projects.sql` if the project tools are merged by then (additive apart from rebuilding `mcp_writes` with every row kept), and deploy `dalyidau`. While its token is broken, run by hand: `npx wrangler d1 migrations apply DB --remote --env=""`, then `npx wrangler deploy --env=""`. Then check:
 
-- `npx wrangler d1 migrations list DB --remote --env=""` shows `0018` and `0019` applied.
+- `npx wrangler d1 migrations list DB --remote --env=""` shows `0018` and `0019` (and `0020`, if merged) applied.
 - `node scripts/db-verify.mjs --env production` passes.
 - The site, portal and wedding pages load. The Wedding Planner is untouched by this change, but check it anyway.
 
@@ -84,19 +84,22 @@ Renaming `dalyhub-mcp` to `daly-mcp` is cosmetic. If wanted, do it once everythi
 
 Do these in order, in **Claude (web)** first, then **Claude Code**, **ChatGPT** (developer mode) and **Codex**. Check each client's redirect URI is allowed in the Access application before trying it. Record pass/fail per client.
 
-| #   | Ask the client                                            | Expect                                                                                       |
-| --- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 1   | List your tools                                           | 31 tools, all Daly Portal (`tasks_*`, `knowledge_*`, `chief_of_staff_*`); no `get_today`     |
-| 2   | "Brief me from my Daly Portal tasks and notes"            | Calls `chief_of_staff_daily_context`; numbers match the portal dashboard                     |
-| 3   | "What's overdue?"                                         | `tasks_overdue`; matches Tasks → Overdue                                                     |
-| 4   | "Search my notes for <a word in a migrated DalyHub note>" | `knowledge_search` finds the `dalyhub`-tagged page                                           |
-| 5   | "Add 'MCP cutover test' to my Inbox for tomorrow"         | Client asks before writing; one task appears; `mcp_writes` has one `done` row                |
-| 6   | Ask it to do 5 again in the same conversation             | No duplicate if the client reused its requestId; otherwise a second task (delete it by hand) |
-| 7   | "Complete 'MCP cutover test'"                             | Completed in the portal                                                                      |
-| 8   | "Append 'checked from <client>' to today's daily note"    | Text appears at the end of the daily note; nothing else changed                              |
-| 9   | Second person (if admitted): "List my projects"           | Only their own and shared projects; never the owner's personal ones                          |
-| 10  | Second person: ask for the owner's private task by its id | `not_found`                                                                                  |
-| 11  | Sign out of Access, then call a tool                      | The client asks to sign in again; no data                                                    |
+| #   | Ask the client                                            | Expect                                                                                                      |
+| --- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1   | List your tools                                           | 31 tools (36 with projects), all Daly Portal (`tasks_*`, `knowledge_*`, `chief_of_staff_*`); no `get_today` |
+| 2   | "Brief me from my Daly Portal tasks and notes"            | Calls `chief_of_staff_daily_context`; numbers match the portal dashboard                                    |
+| 3   | "What's overdue?"                                         | `tasks_overdue`; matches Tasks → Overdue                                                                    |
+| 4   | "Search my notes for <a word in a migrated DalyHub note>" | `knowledge_search` finds the `dalyhub`-tagged page                                                          |
+| 5   | "Add 'MCP cutover test' to my Inbox for tomorrow"         | Client asks before writing; one task appears; `mcp_writes` has one `done` row                               |
+| 6   | Ask it to do 5 again in the same conversation             | No duplicate if the client reused its requestId; otherwise a second task (delete it by hand)                |
+| 7   | "Complete 'MCP cutover test'"                             | Completed in the portal                                                                                     |
+| 8   | "Append 'checked from <client>' to today's daily note"    | Text appears at the end of the daily note; nothing else changed                                             |
+| 9   | Second person (if admitted): "List my projects"           | Only their own and shared projects; never the owner's personal ones                                         |
+| 10  | Second person: ask for the owner's private task by its id | `not_found`                                                                                                 |
+| 11  | Sign out of Access, then call a tool                      | The client asks to sign in again; no data                                                                   |
+| 12  | "Make a project for the MCP cutover test with two tasks"  | Searches projects first, asks before creating, one project with both tasks; its link works                  |
+| 13  | Ask it to create a project with the same name again       | Refused as a duplicate and offered the existing one; creates only if you insist                             |
+| 14  | "Archive that project", then "restore it"                 | Asks first; archived then active, with both tasks still there; there's no way to delete it                  |
 
 ## Monitoring
 
@@ -119,7 +122,7 @@ Fastest first. None of these touch DNS or Access.
 
 1. **Stop portal access through MCP at once:** `npx wrangler secret delete MCP_ACCESS_AUD --env=""`. Every portal tool call is refused (`unauthenticated`). The rest of the portal is unaffected.
 2. **Gateway back to the DalyHub gateway:** `npx wrangler rollback <version id from step 0> --name dalyhub-mcp`. That version serves DalyHub's 34 tools to **everyone the Access policy admits, without an owner gate**. So **if anyone besides the owner was added in step 6, remove them from the Access policy first.** DalyHub itself must still exist for this to work, which is one reason decommissioning waits.
-3. **Portal:** `npx wrangler rollback <version id> --env=""`. Leave `0018` and `0019` in place: they're additive and earlier Workers never read them.
+3. **Portal:** `npx wrangler rollback <version id> --env=""`. Leave `0018`, `0019` and `0020` in place: earlier Workers never read them (`0020`'s rebuilt `mcp_writes` accepts everything an earlier Worker writes).
 4. **Migrated data:** revert the run ([DALYHUB_MIGRATION.md](DALYHUB_MIGRATION.md#8-revert-if-needed)). Last resort for the whole portal database: D1 Time Travel to the bookmark from step 0, which also undoes every other change since.
 
 ## DalyHub decommissioning checklist

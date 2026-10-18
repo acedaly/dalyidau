@@ -23,7 +23,22 @@ export interface GatewayEnv extends McpAuthEnv {
     readonly MCP_WRITES?: RateLimit;
 }
 
-export const SERVER_INFO = { name: "daly-portal", version: "2.0.0" } as const;
+export const SERVER_INFO = { name: "daly-portal", version: "2.1.0" } as const;
+
+/**
+ * How to work with these tools, sent to every client at initialize. The portal enforces the rules
+ * that matter (membership, roles, duplicates, versions, retries); this tells an assistant, the
+ * Chief of Staff included, how to use them without surprising the person.
+ */
+export const SERVER_INSTRUCTIONS = [
+    "Daly Portal: the signed-in person's Daly Tasks and Daly Knowledge. Results only ever include what that person can see in the portal.",
+    "Ids and links come only from tool results. Never invent an id, and never say something was created or changed until the tool's result confirms it.",
+    "Tasks can go in the person's Inbox (tasks_create with no projectId) or an existing project. Don't create a project for every task.",
+    "When a request calls for a project: search first with tasks_search_projects. If a suitable project exists, offer to reuse it. Otherwise propose a new one (name, personal or shared, any sections) and create it with tasks_create_project only after the person agrees.",
+    "Then add each task once with tasks_create (projectId, sectionId), checking tasks_list or tasks_search first if the tasks may already exist. Link Knowledge records the person can read with knowledgeObjectIds or tasks_link_knowledge. Finish with the project's url.",
+    "Send a fresh requestId with every write and reuse it only when retrying that same write.",
+    "Archiving is reversible and keeps everything; confirm with the person before archiving. Nothing can be deleted through these tools: permanent deletion is done by the person in the portal.",
+].join("\n");
 
 function jsonError(status: number, error: string): Response {
     const headers = new Headers({ "cache-control": "no-store" });
@@ -34,7 +49,7 @@ function jsonError(status: number, error: string): Response {
 
 /** A fresh server per request, holding only this caller's credentials: nothing is shared between people or requests. */
 export function createGatewayMcpServer(env: GatewayEnv, actor: AuthenticatedMcpActor): McpServer {
-    const server = new McpServer(SERVER_INFO);
+    const server = new McpServer(SERVER_INFO, { instructions: SERVER_INSTRUCTIONS });
     const portal = env.PORTAL;
     registerPortalTools(
         server,

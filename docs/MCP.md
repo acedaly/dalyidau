@@ -61,7 +61,7 @@ The gateway has no database, storage, queue or Durable Object binding (`test/mcp
 
 ## Tools
 
-Thirty-one tools. Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
+Thirty-six tools: the 31 the gateway moved with, plus five for projects (October 2026, [below](#daly-tasks-projects)). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
 
 ### Daly Knowledge
 
@@ -103,6 +103,57 @@ Text from an AI client is never parsed as markup: `paragraphsFromText` stores `<
 | `tasks_add_comment`                  | write | A comment on a task the caller can edit                                                                       |
 | `tasks_link_knowledge`               | write | A task → Knowledge reference, checked by both permission systems                                              |
 
+### Daly Tasks projects
+
+`worker/mcp/projects.ts`. Each tool calls the portal's own `worker/tasks/projects.ts` (`createProject`, `updateProject`, `listProjects`, `getProject`) and `linkProjectKnowledge`, so the rules are exactly the browser's.
+
+| Tool                      | Mode  | What it does                                                                                                                                                                                    |
+| ------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tasks_search_projects`   | read  | The caller's projects matching a name: `exact` (same name once case, punctuation and spacing are ignored), `similar` (shares a significant word) or `description`. Archived included by default |
+| `tasks_create_project`    | write | A personal or shared project owned by the caller, with optional description, colour, dates, view, up to 20 sections and up to 10 Knowledge references. Refuses an identical name (`duplicate`)  |
+| `tasks_update_project`    | write | Name, description, colour, dates (null clears), view, review frequency, status (active, on hold, completed). **Needs the version**                                                              |
+| `tasks_archive_project`   | write | Status → archived. Owners only, never the Inbox. **Needs the version.** Everything in the project is kept                                                                                       |
+| `tasks_unarchive_project` | write | Status → active (or on hold or completed). Owners only. **Needs the version**                                                                                                                   |
+
+Every project result carries the id, name, `kind` (personal or shared), the caller's `role`, `status`, `version`, counts and `url`. Write results also carry the description, the sections (ids for `tasks_create`'s `sectionId`) and the Knowledge references the caller can read. `tasks_list_projects` and `tasks_project_summary` now include `version` too.
+
+**Who may do what.** Exactly the portal's rules. Anyone with `tasks.use` (owner or admin today) may create a personal or shared project. The creator becomes its only member and owner. **A shared project starts with nobody else in it**: members are added in the portal, never through MCP. Editors change details, only owners change status, archive or restore, and viewers change nothing. Someone else's private project is `not_found` for every tool, whatever their portal role.
+
+**No spoofed owners.** The owner is the person the Access token proves. There's no owner, email, member or creator argument: an extra field is a validation error (`test/mcp-projects.test.ts`, `test/mcp-contract.test.ts`).
+
+**No second Inbox.** `createProject` never makes an Inbox (only `ensureInbox` does, once per person, under a unique index). The MCP tools also refuse "Inbox" as a name for a new or renamed project, in any case or punctuation, so there's never a look-alike. The Inbox itself can't be renamed or archived.
+
+**Duplicates.** Before creating, an assistant should call `tasks_search_projects`. `tasks_create_project` checks too: if the caller already has a project (archived included) with the same normalised name, it's refused with `duplicate`, and `details.matches` lists each one's id, name, kind, role, status, version and link. A similar name isn't a duplicate. When the person confirms they want a second project with the same name, the assistant retries with `allowDuplicateName: true`. Two different requests racing with the same new name can both succeed. That's rare, needs two concurrent writes from one person, and the second shows up in search.
+
+**Validation** is the portal's: name 1–120 characters, description up to 2,000, real dates, target not before start, sections up to 120 characters. Everything that could refuse (validation, permissions, Knowledge access, duplicates) is checked before anything is written, so a refusal never leaves half a project behind. A Knowledge object the caller can't read is `not_found`, and no project is made.
+
+**Versions.** Edits, archive and restore carry the version from the last read. A stale one is `conflict` with `details.current` (`version`, `updatedAt`, `status`), and nothing changes. Archiving an archived project or restoring an active one changes nothing and says so (`alreadyArchived`, `alreadyRestored`).
+
+**Retries.** The request-id ledger applies as for every write. A create also stores the request id as the project's `client_id` (migration `0020`, the same pattern as tasks' Quick Add). So even a request that died after writing, whose ledger claim was abandoned, gets the first project back rather than a second one (or a `duplicate` refusal of itself).
+
+### Archiving is not deleting
+
+|                                                                   | Archive (MCP and portal)                                                                          | Permanent delete (portal only)                                                             |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Who                                                               | Project owners                                                                                    | Project owners, typing DELETE to confirm                                                   |
+| What happens                                                      | `status` becomes `archived`. The project is read-only and leaves the sidebar and "My tasks" views | The project row is deleted and its tasks, sections, comments, history and links go with it |
+| Tasks, sections, comments, history, Knowledge references, members | All kept, unchanged                                                                               | Gone                                                                                       |
+| Reversible                                                        | Yes: `tasks_unarchive_project`, or Settings in the portal                                         | No, except by restoring the database from a backup                                         |
+| Through MCP                                                       | `tasks_archive_project`, `tasks_unarchive_project`                                                | **Never.** There's no delete tool, and `PORTAL_MCP_TOOLS` is the whole list                |
+
+### Chief of Staff and other assistants: working with projects
+
+The gateway sends working instructions at `initialize` (`SERVER_INSTRUCTIONS` in `mcp/src/index.ts`), and each tool's description repeats what matters. For a request like _"Create a project to organise the Hilux maintenance, add the tasks we discussed and link any relevant Knowledge records"_:
+
+1. `tasks_search_projects` for the name.
+2. If a suitable project exists, offer to reuse it. Otherwise propose one (name, personal or shared, sections).
+3. Create it only after the person agrees: `tasks_create_project` with a fresh `requestId` (and `knowledgeObjectIds` found with `knowledge_search`).
+4. Add each task once with `tasks_create` (`projectId`, `sectionId`, its own `requestId`). Check `tasks_list` or `tasks_search` first if they may already exist.
+5. Link more Knowledge with `tasks_link_knowledge` where the person can read it.
+6. Reply with the project's `url` from the result.
+
+Ids come only from results, and nothing is reported as created until a result says so. The Inbox (`tasks_create` with no `projectId`) and existing projects remain the normal destinations: a project is for work that needs one. `test/mcp-gateway/projects.test.ts` runs this flow through the real gateway.
+
 ### Chief of Staff
 
 | Tool                            | What it returns                                                                                                                                                                                                                                                                                                            |
@@ -114,7 +165,7 @@ Both are facts only, each with its id and link. `notChecked` names what's never 
 
 ### Deliberately absent
 
-Deleting, trashing or erasing anything. Bulk changes. Moving tasks between projects. Administering projects, goals, spaces or types. Members and sharing. Imports, exports and templates. Revision restore. SQL, files and arbitrary HTTP. These stay in the portal, where a person does them directly. The enforcement is that these operations don't exist in `PORTAL_MCP_TOOLS`, and the portal refuses any tool name not in it.
+Deleting, trashing or erasing anything, including projects (archiving is the reversible alternative). Bulk changes. Moving tasks between projects. Administering goals, spaces or types. Members and sharing, including turning a personal project into a shared one or back. Imports, exports and templates. Revision restore. SQL, files and arbitrary HTTP. These stay in the portal, where a person does them directly. The enforcement is that these operations don't exist in `PORTAL_MCP_TOOLS`, and the portal refuses any tool name not in it.
 
 ## The 34 DalyHub tools: retired
 
@@ -128,7 +179,7 @@ The DalyHub-backed gateway served 34 tools against DalyHub's single-owner D1. Th
 | `capture_item`                                                 | `tasks_create` (Inbox) or `knowledge_create_object` with `inInbox`                                  | None. DalyHub's capture kinds become "task" or "note"                                                                                                  |
 | `create_task`, `update_task`, `complete_task`, `reopen_task`   | `tasks_create`, `tasks_update`, `tasks_complete`, `tasks_reopen`                                    | None                                                                                                                                                   |
 | `get_projects`, `get_project`                                  | `tasks_list_projects`, `tasks_project_summary`                                                      | None                                                                                                                                                   |
-| `create_project`, `update_project`                             | Portal UI only                                                                                      | **Owner decision:** project creation and settings are deliberately not MCP tools. Add `tasks_create_project` only if wanted                            |
+| `create_project`, `update_project`                             | `tasks_create_project`, `tasks_update_project` (plus `tasks_search_projects`, archive and restore)  | None. Added October 2026, after the owner asked for it                                                                                                 |
 | `get_goals`, `get_goal`                                        | `tasks_list_goals`, `tasks_get_goal`                                                                | None                                                                                                                                                   |
 | `create_goal`, `update_goal`                                   | Portal UI only                                                                                      | **Owner decision**, as for projects                                                                                                                    |
 | `get_note(s)`, `create_note`                                   | `knowledge_get_object`, `knowledge_list_objects`, `knowledge_search`, `knowledge_create_object`     | None                                                                                                                                                   |
@@ -138,11 +189,11 @@ The DalyHub-backed gateway served 34 tools against DalyHub's single-owner D1. Th
 | `get_waiting_for`, `create_waiting_for`, `resolve_waiting_for` | Convention: label `waiting`. `tasks_list` with `labels: ["waiting"]`, `tasks_create`/`tasks_update` | No first-class "waiting on" field. The migration applies the convention; a dedicated field is a possible later Tasks feature                           |
 | `get_people`, `get_person`, `create_person`, `update_person`   | Knowledge `person` objects (name and notes only)                                                    | **Owner decision:** DalyHub People hold contact details and aren't migrated by default. Nothing essential is lost from Tasks or Knowledge without them |
 
-Nothing essential has to be built before the cutover. The three **owner decisions** are whether to add MCP project/goal creation and whether to migrate People. Each can be answered after the cutover, because the DalyHub data stays in its backups.
+Nothing essential has to be built before the cutover. The remaining **owner decisions** are whether to add MCP goal creation and whether to migrate People (MCP project management was added in October 2026). Each can be answered after the cutover, because the DalyHub data stays in its backups.
 
 ## Writes: audit and retries
 
-`mcp_writes` (migration `0018_mcp_writes.sql`) gets one row per write: id, email, tool, request id, status, entity, error code and timestamps. It never holds titles, text or arguments. `knowledge_audit` and `task_activity` record every MCP write as the person who made it.
+`mcp_writes` (migration `0018_mcp_writes.sql`, rebuilt by `0020_mcp_projects.sql` so a project can be the recorded outcome) gets one row per write: id, email, tool, request id, status, entity (`task`, `task_knowledge_link`, `knowledge_object` or `task_project`), error code and timestamps. It never holds titles, text or arguments. Project writes also go into the project's own history (`task_activity`: `project.create`, `project.update`, `project.status`) with field names only, never the name, description or sections. `knowledge_audit` and `task_activity` record every MCP write as the person who made it.
 
 A write that carries `requestId` is claimed first, under a unique `(email, request_key)` index:
 
@@ -167,6 +218,22 @@ Request ids are per person: the same id from two people creates two records and 
 
 `DALYHUB_OWNER_EMAILS`, if it was ever set on `dalyhub-mcp`, is unused by this code. Removing it is on the decommissioning checklist.
 
+## Releasing project management
+
+The five project tools need the portal and the gateway, in that order. Each step needs the owner's approval. The gateway is never deployed by CI.
+
+1. **Portal.** Merging to `main` makes the deploy workflow record a D1 bookmark, apply `0020_mcp_projects.sql`, then deploy `dalyidau` (while CI's token is broken: `npx wrangler d1 migrations apply DB --remote --env=""`, then `npx wrangler deploy --env=""`). `0020` adds `task_projects.client_id` with its unique index (additive) and rebuilds `mcp_writes` to allow `task_project` as an outcome, copying every row (the one non-additive step: SQLite can't widen a CHECK constraint in place. No table refers to `mcp_writes`, and columns and indexes are unchanged). If `0018` isn't applied yet (see [MCP_CUTOVER.md](MCP_CUTOVER.md)), both run in order. Check `npx wrangler d1 migrations list DB --remote --env=""` and `node scripts/db-verify.mjs --env production`.
+    - The live gateway keeps working throughout. It advertises only its existing tools, which behave as before (project results gain a `version` field).
+2. **Gateway.** `npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production` (Worker `dalyhub-mcp`; record the current version id first with `npx wrangler deployments list --name dalyhub-mcp`). Clients may need to reconnect, or refresh their tool list, to see 36 tools.
+    - If the gateway goes out before the portal, the new tools answer `unknown_tool` and nothing is written.
+
+**Rollback.**
+
+- **Hide the project tools:** `npx wrangler rollback <previous version id> --name dalyhub-mcp`. The previous gateway lists 31 tools. Projects already made stay in the portal as ordinary projects.
+- **Portal code:** `npx wrangler rollback <version id> --env=""`. Leave `0020` in place. The previous Worker never reads `client_id`, writes only entity types the rebuilt ledger still accepts, and refuses the new tool names as `unknown_tool` before the ledger is touched.
+- **Stop all portal access through MCP** at once: `npx wrangler secret delete MCP_ACCESS_AUD --env=""`.
+- **Undo a project made by mistake:** archive it (`tasks_archive_project` or the portal). Deleting it is a deliberate owner action in the portal (Settings → Delete, typing DELETE).
+
 ## Connecting AI clients
 
 Server URL: `https://mcp.daly.id.au/mcp` (Streamable HTTP). Authentication: OAuth through Cloudflare Access Managed OAuth with dynamic client registration. There's no client secret, bearer token or API key. Each person signs in as themselves.
@@ -185,9 +252,11 @@ No new paid service. The gateway replaces an existing Worker. Service binding ca
 
 - `npm test` runs both Vitest projects.
 - `test/mcp-gateway/` (`vitest.mcp.config.ts`, workerd with `nodejs_compat`, as the gateway runs) drives real MCP JSON-RPC through `mcp/src` into the portal's real `handleMcpCall` and a local D1. The PORTAL hop structured-clones like Worker RPC. Every outbound fetch except the Access key set is refused and recorded.
-    - `protocol.test.ts`: initialize, `tools/list` (exactly 31, with annotations), calls, none of the 34 legacy tools, `/mcp` only, 401/503 failures, development token limits and Host validation.
+    - `protocol.test.ts`: initialize (with the working instructions), `tools/list` (exactly 36, with annotations), calls, none of the 34 legacy tools, `/mcp` only, 401/503 failures, development token limits and Host validation.
     - `isolation.test.ts`: the deployable config binds only `PORTAL` (no D1/KV/R2/DO/queues, nothing named DalyHub, no routes). The source imports nothing from DalyHub, and imports the portal only as types. A whole session (reads, writes, retries, briefings) runs with nothing but the binding and fetches only the Access keys. Also an unreachable or missing portal, per-person and write rate limits, and logs that hold no person, token or content.
     - `identities.test.ts`: two independent identities, both portal owners. Private tasks and notes stay invisible by id, list, search and both briefings. Every write tool is refused on the other person's records. Arguments can't name someone else, and request ids don't cross people. Shared projects and spaces work for editors, viewers can read but not write, a private note on a shared task shows only as `{ available: false }`, and removal cuts access on the next call. A person without a portal role and a service token get nothing.
+    - `projects.test.ts`: the Chief of Staff project flow end to end (search, create once with a retry, tasks in sections, Knowledge, link), edit/archive/restore with versions, a second person's isolation, and project writes counted against the write limit.
+- `test/mcp-projects.test.ts` covers the project tools against the portal directly: personal and shared creation, who may create, spoofed owners, validation, no second Inbox, matching and duplicates (archived too, per person), replays (including an abandoned ledger claim), stale versions, roles, private-project isolation, archive and restore keeping tasks, sections, comments and both kinds of Knowledge link, Knowledge access on create, and an audit trail without names or text.
 - `test/mcp.test.ts` covers the portal entrypoint directly (tokens, roles, isolation, retries, recurrence, Knowledge safety, Chief of Staff).
 - `test/mcp-contract.test.ts` compares the gateway's tools with the portal's: names, write set, every argument name, annotations, no identity fields.
 - `npm run mcp:deploy:dry-run` builds the production gateway bundle and lists its bindings.

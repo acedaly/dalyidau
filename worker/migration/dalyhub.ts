@@ -266,7 +266,7 @@ export async function applyMigration(db: D1Database, user: PortalUser, input: un
             if (created >= APPLY_LIMIT) break;
             if (step.kind === "project") {
                 const p = plan.projects.find((x) => x.sourceId === step.sourceId)!;
-                await record("project", p.sourceId, await createProject(db, user, { name: p.name, description: p.description }), 1);
+                await record("project", p.sourceId, (await createProject(db, user, { name: p.name, description: p.description })).id, 1);
             } else if (step.kind === "goal") {
                 const g = plan.goals.find((x) => x.sourceId === step.sourceId)!;
                 const projectIds = g.projectSourceIds.map((s) => target("project", s)).filter((x): x is string => !!x);

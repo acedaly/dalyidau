@@ -49,18 +49,27 @@ const LEGACY_DALYHUB_TOOLS = [
 ];
 
 describe("MCP protocol", () => {
-    it("initializes and lists exactly the 31 Daly Portal tools with their annotations", async () => {
+    it("initializes with the working instructions and lists exactly the 36 Daly Portal tools with their annotations", async () => {
         const s = await session(OWNER);
         expect(s.init.status).toBe(200);
-        const init = s.init.body.result as { serverInfo: { name: string }; protocolVersion: string; capabilities: Record<string, unknown> };
+        const init = s.init.body.result as {
+            serverInfo: { name: string };
+            protocolVersion: string;
+            capabilities: Record<string, unknown>;
+            instructions?: string;
+        };
         expect(init.serverInfo.name).toBe("daly-portal");
+        // How to find, propose and create projects without duplicates or invented ids.
+        expect(init.instructions).toContain("tasks_search_projects");
+        expect(init.instructions).toContain("only after the person agrees");
+        expect(init.instructions).toMatch(/Never invent an id/);
         expect(init.protocolVersion).toBe(PROTOCOL_VERSION);
         expect(init.capabilities.tools).toBeDefined();
 
         const listed = await s.rpc("tools/list");
         const tools = (listed.body.result as { tools: { name: string; inputSchema: { type: string }; annotations?: { readOnlyHint?: boolean } }[] }).tools;
         expect(tools.map((t) => t.name).sort()).toEqual([...PORTAL_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(31);
+        expect(tools).toHaveLength(36);
         for (const t of tools) expect(t.inputSchema.type).toBe("object");
         expect(tools.find((t) => t.name === "tasks_today")?.annotations?.readOnlyHint).toBe(true);
         expect(tools.find((t) => t.name === "tasks_create")?.annotations?.readOnlyHint).toBe(false);

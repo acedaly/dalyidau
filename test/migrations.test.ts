@@ -120,3 +120,99 @@ describe("migration 0010", () => {
         await expect(insert("to", -1)).rejects.toThrow();
     });
 });
+
+describe("migration 0020", () => {
+    const statementsOf = (sql: string) =>
+        sql
+            .split("\n")
+            .filter((line: string) => !line.trim().startsWith("--"))
+            .join("\n")
+            .split(";")
+            .map((statement: string) => statement.trim())
+            .filter(Boolean);
+
+    it("adds a retry key to projects, unique per creator", async () => {
+        const columns = (await db().prepare("PRAGMA table_info(task_projects)").all<{ name: string }>()).results.map((c) => c.name);
+        expect(columns).toContain("client_id");
+        const indexes = await db().prepare("PRAGMA index_list(task_projects)").all<{ name: string; unique: number }>();
+        expect(indexes.results).toContainEqual(expect.objectContaining({ name: "task_projects_client", unique: 1 }));
+        const insert = (id: string, by: string) =>
+            db()
+                .prepare(
+                    "INSERT INTO task_projects (id, name, kind, created_by, updated_by, created_at, updated_at, client_id) VALUES (?, 'P', 'personal', ?, ?, 'now', 'now', 'retry-key-0001')",
+                )
+                .bind(id, by, by)
+                .run();
+        await insert("tpj_aaaaaaaaaaaaaa", "one@example.com");
+        await expect(insert("tpj_bbbbbbbbbbbbbb", "one@example.com")).rejects.toThrow(/UNIQUE/);
+        await expect(insert("tpj_cccccccccccccc", "two@example.com")).resolves.toBeTruthy();
+    });
+
+    it("rebuilds mcp_writes with every row, column and index kept, and accepts projects as an outcome", async () => {
+        const { default: sql } = await import("../migrations/0020_mcp_projects.sql?raw");
+        const all = statementsOf(sql);
+        // Everything but the two ALTER/CREATE INDEX lines for task_projects; the rebuild is what's tested here.
+        const rebuild = all.slice(all.findIndex((s: string) => s.startsWith("CREATE TABLE mcp_writes_next")));
+        expect(rebuild.join("\n")).not.toMatch(/\bDELETE\b|\bUPDATE\b/);
+
+        const rows = [
+            [
+                "mcw_aaaaaaaaaaaaaa",
+                "one@example.com",
+                "tasks_create",
+                "req-one-000001",
+                "done",
+                "task",
+                "tsk_aaaaaaaaaaaaaa",
+                null,
+                "2026-10-01T00:00:00.000Z",
+                "2026-10-01T00:00:01.000Z",
+            ],
+            [
+                "mcw_bbbbbbbbbbbbbb",
+                "one@example.com",
+                "knowledge_create_object",
+                null,
+                "failed",
+                null,
+                null,
+                "validation",
+                "2026-10-02T00:00:00.000Z",
+                "2026-10-02T00:00:01.000Z",
+            ],
+            ["mcw_cccccccccccccc", "two@example.com", "tasks_link_knowledge", "req-two-000001", "pending", null, null, null, "2026-10-03T00:00:00.000Z", null],
+        ];
+        for (const row of rows)
+            await db()
+                .prepare(
+                    "INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, error_code, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(...row)
+                .run();
+        const columnsBefore = (await db().prepare("PRAGMA table_info(mcp_writes)").all()).results;
+
+        // Run the rebuild again over a populated table, as it would run over production's.
+        await db().batch(rebuild.map((statement: string) => db().prepare(statement)));
+
+        expect((await db().prepare("PRAGMA table_info(mcp_writes)").all()).results).toEqual(columnsBefore);
+        const after = await db().prepare("SELECT * FROM mcp_writes ORDER BY id").all<Record<string, unknown>>();
+        expect(after.results.map((r) => Object.values(r))).toEqual(rows);
+        const indexes = (await db().prepare("PRAGMA index_list(mcp_writes)").all<{ name: string; unique: number }>()).results;
+        expect(indexes).toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: "mcp_writes_request", unique: 1 }), expect.objectContaining({ name: "mcp_writes_email" })]),
+        );
+        expect((await db().prepare("SELECT name FROM sqlite_master WHERE name = 'mcp_writes_next'").all()).results).toHaveLength(0);
+
+        const settle = (type: string) => db().prepare("UPDATE mcp_writes SET entity_type = ? WHERE id = 'mcw_cccccccccccccc'").bind(type).run();
+        await expect(settle("task_project")).resolves.toBeTruthy();
+        await expect(settle("anything_else")).rejects.toThrow(/CHECK/);
+        // The request-id index still refuses a second use by the same person.
+        await expect(
+            db()
+                .prepare(
+                    "INSERT INTO mcp_writes (id, email, tool, request_key, created_at) VALUES ('mcw_dddddddddddddd', 'one@example.com', 'tasks_create', 'req-one-000001', 'now')",
+                )
+                .run(),
+        ).rejects.toThrow(/UNIQUE/);
+    });
+});
