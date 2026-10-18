@@ -31,10 +31,12 @@ import {
     Inbox01,
     LayersThree01,
     LayoutGrid01,
+    Lightning01,
     LineChartUp01,
     LogOut01,
     Mail01,
     Menu02,
+    Microphone01,
     Plus,
     Receipt,
     Repeat04,
@@ -42,7 +44,9 @@ import {
     Settings01,
     ShieldTick,
     Star01,
+    Stars02,
     Sun,
+    Sunrise,
     Tag01,
     Target04,
     Trash01,
@@ -125,6 +129,12 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     routines: Repeat04,
     workload: CalendarHeart01,
     reports: LineChartUp01,
+    intelligence: Stars02,
+    capture: Lightning01,
+    suggestions: Inbox01,
+    briefing: Sunrise,
+    review: CalendarCheck01,
+    meetings: Microphone01,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -135,7 +145,12 @@ export interface ExtraNavSection {
     items: { label: string; href: string; icon: NavigationIcon }[];
 }
 
-const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = { wedding: HeartRounded, knowledge: BookOpen01, tasks: CheckDone01 };
+const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
+    wedding: HeartRounded,
+    knowledge: BookOpen01,
+    tasks: CheckDone01,
+    intelligence: Stars02,
+};
 
 /**
  * Whether a navigation item is the current page. Items with a query (Tasks' "Shared projects") match

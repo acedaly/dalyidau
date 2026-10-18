@@ -23,7 +23,7 @@ export interface GatewayEnv extends McpAuthEnv {
     readonly MCP_WRITES?: RateLimit;
 }
 
-export const SERVER_INFO = { name: "daly-portal", version: "2.1.0" } as const;
+export const SERVER_INFO = { name: "daly-portal", version: "2.2.0" } as const;
 
 /**
  * How to work with these tools, sent to every client at initialize. The portal enforces the rules
@@ -38,6 +38,7 @@ export const SERVER_INSTRUCTIONS = [
     "Then add each task once with tasks_create (projectId, sectionId), checking tasks_list or tasks_search first if the tasks may already exist. Link Knowledge records the person can read with knowledgeObjectIds or tasks_link_knowledge. Finish with the project's url.",
     "Send a fresh requestId with every write and reuse it only when retrying that same write.",
     "Archiving is reversible and keeps everything; confirm with the person before archiving. Nothing can be deleted through these tools: permanent deletion is done by the person in the portal.",
+    "Daly Intelligence proposes, the person approves. intelligence_capture_text and intelligence_request_analysis only create suggestions; show them with intelligence_list_suggestions and call intelligence_approve_suggestion only for a suggestion the person explicitly approves. Briefing recommendations are suggestions, never facts.",
 ].join("\n");
 
 function jsonError(status: number, error: string): Response {

@@ -20,6 +20,8 @@ export const PERMISSIONS = [
     "knowledge.use",
     /** Opening Daly Tasks. What each person can see inside it is decided by project membership, not by this. */
     "tasks.use",
+    /** Opening Daly Intelligence. Every capture, suggestion and briefing is still the person's own, and Knowledge and Tasks keep their membership rules. */
+    "intelligence.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

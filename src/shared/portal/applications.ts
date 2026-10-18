@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "knowledge" | "tasks";
+export type ApplicationId = "wedding" | "knowledge" | "tasks" | "intelligence";
 
-export type ApplicationIcon = "wedding" | "knowledge" | "tasks";
+export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "intelligence";
 
 export type NavigationIcon =
     | "dashboard"
@@ -47,7 +47,13 @@ export type NavigationIcon =
     | "goals"
     | "routines"
     | "workload"
-    | "reports";
+    | "reports"
+    | "intelligence"
+    | "capture"
+    | "suggestions"
+    | "briefing"
+    | "review"
+    | "meetings";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -239,6 +245,33 @@ export const APPLICATIONS = [
                     { label: "Activity", href: "/portal/tasks/activity", icon: "activity" },
                     { label: "Settings and export", href: "/portal/tasks/settings", icon: "settings" },
                 ],
+            },
+        ],
+    },
+    {
+        id: "intelligence",
+        name: "Daly Intelligence",
+        description:
+            "Capture notes, documents and recordings and review what AI suggests: tasks, decisions and Knowledge records. Daily briefings, weekly reviews and meaning-based search. Nothing is saved until you approve it.",
+        icon: "intelligence",
+        baseRoute: "/portal/intelligence",
+        requiredPermission: "intelligence.use",
+        enabled: true,
+        navigation: [
+            {
+                label: "Intelligence",
+                items: [
+                    { label: "Overview", href: "/portal/intelligence", icon: "intelligence" },
+                    { label: "Capture", href: "/portal/intelligence/capture", icon: "capture", active: "prefix" },
+                    { label: "Suggestions", href: "/portal/intelligence/inbox", icon: "suggestions" },
+                    { label: "Daily briefing", href: "/portal/intelligence/briefing", icon: "briefing" },
+                    { label: "Weekly review", href: "/portal/intelligence/briefing/weekly", icon: "review" },
+                    { label: "Meetings", href: "/portal/intelligence/meetings", icon: "meetings" },
+                ],
+            },
+            {
+                label: "Application",
+                items: [{ label: "AI and storage settings", href: "/portal/intelligence/settings", icon: "settings" }],
             },
         ],
     },

@@ -1,6 +1,7 @@
 // JSON API for the portal (/api/portal/*). Every route declares the permission it needs and, where
 // relevant, the module flag that must be on. Authentication has already happened by the time a
 // handler runs; the router only adds authorisation, CSRF checks and error mapping.
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
@@ -8,6 +9,7 @@ import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
+import { handleIntelligenceApi } from "../intelligence/api";
 import { handleKnowledgeApi } from "../knowledge/api";
 import { applyMigration, listMigrationRuns, previewMigration, revertMigration } from "../migration/dalyhub";
 import { handleTasksApi } from "../tasks/api";
@@ -880,7 +882,7 @@ async function withoutCredentials(response: Response) {
     return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
 }
 
-export async function handlePortalApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
+export async function handlePortalApi(request: Request, env: Env, user: PortalUser, exec?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
     const url = new URL(request.url);
     try {
         checkCrossSite(request);
@@ -889,6 +891,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         if (url.pathname.startsWith("/api/portal/knowledge/")) return await handleKnowledgeApi(request, env, user);
         // So does Tasks: access there is by project membership.
         if (url.pathname.startsWith("/api/portal/tasks/")) return await handleTasksApi(request, env, user);
+        // And Intelligence: everything there is the caller's own, or reached through their memberships.
+        if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user, exec);
         const method = request.method === "HEAD" ? "GET" : request.method;
         let pathMatched = false;
         for (const route of routes) {

@@ -362,8 +362,37 @@ const createInput = z.object({
     useDefaultTemplate: z.boolean().default(false),
 });
 
-export async function createObject(db: D1Database, user: PortalUser, spaceId: string, input: unknown): Promise<KnowledgeObjectDetail> {
+export interface CreateObjectOptions {
+    /**
+     * Where the object came from (e.g. an approved Daly Intelligence suggestion). Unique per space:
+     * creating again with the same source returns the object already made instead of a second one.
+     */
+    source?: { system: string; id: string };
+}
+
+/** The object an earlier create with this source made, if the caller can still read it. */
+async function objectFromSource(db: D1Database, user: PortalUser, spaceId: string, source: { system: string; id: string }) {
+    const row = await db
+        .prepare("SELECT id FROM knowledge_objects WHERE space_id = ? AND source_system = ? AND source_id = ?")
+        .bind(spaceId, source.system, source.id)
+        .first<{ id: string }>();
+    if (!row) return null;
+    await requireObject(db, user, row.id);
+    return objectDetail(db, row.id);
+}
+
+export async function createObject(
+    db: D1Database,
+    user: PortalUser,
+    spaceId: string,
+    input: unknown,
+    options: CreateObjectOptions = {},
+): Promise<KnowledgeObjectDetail> {
     const space = await requireSpace(db, user, spaceId, "editor");
+    if (options.source) {
+        const earlier = await objectFromSource(db, user, spaceId, options.source);
+        if (earlier) return earlier;
+    }
     const body = createInput.parse(input);
     let type = await getTypeInSpace(db, spaceId, body.typeId ?? (await defaultTypeId(db, spaceId)));
     const templateId = body.templateId ?? (body.useDefaultTemplate ? await defaultTemplateId(db, type.id) : null);
@@ -384,12 +413,12 @@ export async function createObject(db: D1Database, user: PortalUser, spaceId: st
     const id = newId("kob");
     const now = nowIso();
     const snap: Snapshot = { typeId: type.id, title, contentJson: JSON.stringify(content.doc), propertiesJson: JSON.stringify(values) };
-    await db.batch([
+    const statements = [
         db
             .prepare(
                 `INSERT INTO knowledge_objects (id, space_id, type_id, title, content_json, content_format, body_text, properties_json, in_inbox, search_rowid,
-                    created_by, updated_by, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(search_rowid), 0) + 1 FROM knowledge_objects), ?, ?, ?, ?)`,
+                    created_by, updated_by, created_at, updated_at, source_system, source_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(search_rowid), 0) + 1 FROM knowledge_objects), ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
                 id,
@@ -405,6 +434,8 @@ export async function createObject(db: D1Database, user: PortalUser, spaceId: st
                 user.email,
                 now,
                 now,
+                options.source?.system ?? null,
+                options.source?.id ?? null,
             ),
         revisionInsert(db, { id, space_id: spaceId }, 1, "create", snap, user.email, now),
         ...tagStatements(db, spaceId, id, tags, now),
@@ -420,7 +451,17 @@ export async function createObject(db: D1Database, user: PortalUser, spaceId: st
             summary: templateId ? "Created an object from a template" : "Created an object",
             ...(templateId ? { changes: { templateId } } : {}),
         }),
-    ]);
+    ];
+    try {
+        await db.batch(statements);
+    } catch (error) {
+        // Two copies of one sourced create at the same moment: the unique index let only the first in.
+        if (options.source && /UNIQUE constraint failed: knowledge_objects\.space_id, knowledge_objects\.source_system/.test(String((error as Error)?.message))) {
+            const first = await objectFromSource(db, user, spaceId, options.source);
+            if (first) return first;
+        }
+        throw error;
+    }
     const detail = await objectDetail(db, id);
     return start?.notices.length ? { ...detail, notices: start.notices } : detail;
 }

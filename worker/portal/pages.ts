@@ -6,6 +6,7 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
+import { loadIntelligencePage } from "../intelligence/pages";
 import { loadKnowledgePage } from "../knowledge/pages";
 import { type TasksPage, loadTasksPage } from "../tasks/pages";
 import { invitationLinksConfigured } from "../wedding/invitations";
@@ -433,6 +434,31 @@ const PAGES: PageDef[] = [
         title: "Task",
         application: "tasks",
         load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "task", match[1]),
+    },
+    // Daly Intelligence. The application's permission is checked here; ownership and memberships in the loaders.
+    {
+        pattern: /^\/portal\/intelligence$/,
+        title: "Intelligence",
+        application: "intelligence",
+        load: ({ env, user, url }) => loadIntelligencePage(env, user, url, "home"),
+    },
+    {
+        pattern: /^\/portal\/intelligence\/(inbox|capture|meetings|settings)$/,
+        title: "Intelligence",
+        application: "intelligence",
+        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, match[1] as "inbox" | "capture" | "meetings" | "settings"),
+    },
+    {
+        pattern: /^\/portal\/intelligence\/briefing(\/weekly)?$/,
+        title: "Briefing",
+        application: "intelligence",
+        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, match[1] ? "weekly" : "briefing"),
+    },
+    {
+        pattern: /^\/portal\/intelligence\/captures\/(aic_[a-z0-9]{14})$/,
+        title: "Capture",
+        application: "intelligence",
+        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, "capture-detail", match[1]),
     },
     {
         pattern: /^\/portal\/audit$/,

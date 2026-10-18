@@ -13,7 +13,7 @@ describe("MCP tool contract", () => {
 
     it("advertises exactly the tools the portal serves", () => {
         expect([...PORTAL_TOOL_NAMES].sort()).toEqual([...portal.keys()].sort());
-        expect(PORTAL_TOOL_NAMES).toHaveLength(36);
+        expect(PORTAL_TOOL_NAMES).toHaveLength(46);
     });
 
     it("rate-limits as writes exactly the tools the portal audits as writes", () => {
