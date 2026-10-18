@@ -266,7 +266,7 @@ add("GET", "/projects", async ({ env, user }) => {
     return json({ projects: await listProjects(env.DB, user.email, await todayFor(env.DB, user.email)) });
 });
 add("POST", "/projects", async ({ env, request, user }) => {
-    const id = await createProject(env.DB, user, await readJson(request));
+    const { id } = await createProject(env.DB, user, await readJson(request));
     return json({ project: await getProject(env.DB, user, id, await todayFor(env.DB, user.email)) }, 201);
 });
 add("GET", "/projects/:id", async ({ env, user, params }) => {

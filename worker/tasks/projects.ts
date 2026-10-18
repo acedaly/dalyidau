@@ -109,6 +109,11 @@ const createInput = z
         kind: z.enum(["personal", "shared"]).default("personal"),
         /** Sections to start with, e.g. from a template. */
         sections: z.array(z.string().trim().min(1).max(LIMITS.sectionName)).max(20).default([]),
+        /** A random id for this one intended create: sending the same one again returns the same project. */
+        clientId: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]{8,64}$/, "Not a valid request id")
+            .optional(),
     })
     .strict();
 
@@ -116,18 +121,48 @@ const checkDates = (start: string | null, target: string | null) => {
     if (start && target && target < start) throw invalid("The target date can't be before the start date");
 };
 
-export async function createProject(db: D1Database, user: PortalUser, input: unknown): Promise<string> {
+/** The project an earlier create with this client id made, if there was one and the caller is still a member. */
+export async function replayedProject(db: D1Database, user: PortalUser, clientId: string | undefined): Promise<string | null> {
+    if (!clientId) return null;
+    const row = await db
+        .prepare(
+            `SELECT p.id FROM task_projects p JOIN task_project_members m ON m.project_id = p.id AND m.email = ?
+             WHERE p.created_by = ? AND p.client_id = ?`,
+        )
+        .bind(user.email, user.email, clientId)
+        .first<{ id: string }>();
+    return row?.id ?? null;
+}
+
+/** Creates a project with the caller as its only member and owner. Never an Inbox: that's only ever made by ensureInbox. */
+export async function createProject(db: D1Database, user: PortalUser, input: unknown): Promise<{ id: string; replayed: boolean }> {
     const body = createInput.parse(input);
+    const earlier = await replayedProject(db, user, body.clientId);
+    if (earlier) return { id: earlier, replayed: true };
     checkDates(body.startDate, body.targetDate);
     const id = newId("tpj");
     const now = nowIso();
-    await db.batch([
+    const statements = [
         db
             .prepare(
-                `INSERT INTO task_projects (id, name, description, color, kind, start_date, target_date, default_view, created_by, updated_by, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO task_projects (id, name, description, color, kind, start_date, target_date, default_view, created_by, updated_by, created_at, updated_at, client_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
-            .bind(id, body.name, body.description, body.color, body.kind, body.startDate, body.targetDate, body.defaultView, user.email, user.email, now, now),
+            .bind(
+                id,
+                body.name,
+                body.description,
+                body.color,
+                body.kind,
+                body.startDate,
+                body.targetDate,
+                body.defaultView,
+                user.email,
+                user.email,
+                now,
+                now,
+                body.clientId ?? null,
+            ),
         db
             .prepare(
                 `INSERT INTO task_project_members (project_id, email, role, position, added_by, created_at, updated_at)
@@ -140,8 +175,18 @@ export async function createProject(db: D1Database, user: PortalUser, input: unk
                 .bind(newId("tsc"), id, name, i + 1, user.email, now, now),
         ),
         activity(db, { projectId: id, actor: user.email, action: "project.create", changes: { kind: body.kind } }),
-    ]);
-    return id;
+    ];
+    try {
+        await db.batch(statements);
+    } catch (error) {
+        // Two copies of one request at the same moment: the unique index let only the first insert in.
+        if (body.clientId && /UNIQUE constraint failed: task_projects\.created_by, task_projects\.client_id/.test(String((error as Error)?.message))) {
+            const first = await replayedProject(db, user, body.clientId);
+            if (first) return { id: first, replayed: true };
+        }
+        throw error;
+    }
+    return { id, replayed: false };
 }
 
 const updateInput = z

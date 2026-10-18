@@ -6,7 +6,8 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates), every Daly Tasks table (0015, 0016, 0017) the MCP write ledger (0018) and DalyHub migration provenance (0019).
+//    templates), every Daly Tasks table (0015, 0016, 0017) the MCP write ledger (0018, rebuilt in 0020), DalyHub migration provenance (0019) and
+//    project request ids (0020).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -142,10 +143,14 @@ INSERT INTO task_routines (id, task_id, rotation, created_by, created_at, update
 INSERT INTO task_routine_participants (routine_id, email, position) VALUES ('trt_backuptest0001', 'owner@example.com', 0), ('trt_backuptest0001', 'partner@example.com', 1);
 INSERT INTO task_dashboard_preferences (email, prefs_json, updated_at) VALUES ('owner@example.com', '{"tab":"household","hidden":["goals"]}', '${NOW}');
 `;
-// The MCP gateway's write ledger (0018): one settled write with a request id, one failed without.
+// The MCP gateway's write ledger (0018, rebuilt in 0020): settled writes with request ids (a task
+// and a project created through MCP), and one failed without. The project carries its request id
+// (0020) too.
 const MCP = `
+UPDATE task_projects SET client_id = 'req-backuptest-0003' WHERE id = 'tpj_backuptest0002';
 INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, created_at, completed_at) VALUES
-  ('mcw_backuptest0001', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'done', 'task', 'tsk_backuptest0001', '${NOW}', '${NOW}');
+  ('mcw_backuptest0001', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'done', 'task', 'tsk_backuptest0001', '${NOW}', '${NOW}'),
+  ('mcw_backuptest0003', 'owner@example.com', 'tasks_create_project', 'req-backuptest-0003', 'done', 'task_project', 'tpj_backuptest0002', '${NOW}', '${NOW}');
 INSERT INTO mcp_writes (id, email, tool, request_key, status, error_code, created_at, completed_at) VALUES
   ('mcw_backuptest0002', 'partner@example.com', 'knowledge_create_object', NULL, 'failed', 'validation', '${NOW}', '${NOW}');
 `;
@@ -398,6 +403,16 @@ try {
             ),
             "The restored copy still refuses a second task with the same request id",
             "The restored copy accepted a duplicate request id",
+        );
+        // MCP project management (0020): a project's request id and the ledger's project outcome.
+        report.check(
+            query("SELECT entity_type FROM mcp_writes WHERE id = 'mcw_backuptest0003'", restored)[0]?.entity_type === "task_project" &&
+                refuses(
+                    "INSERT INTO task_projects (id, name, kind, created_by, updated_by, created_at, updated_at, client_id) VALUES ('tpj_backuptest0009', 'Copy', 'personal', 'x', 'x', 'x', 'x', 'req-backuptest-0003');",
+                ) &&
+                refuses("UPDATE mcp_writes SET entity_type = 'something_else' WHERE id = 'mcw_backuptest0003';"),
+            "Project request ids and project outcomes in the MCP ledger restore intact, with their rules",
+            "Project request ids or the MCP ledger's project outcomes were lost",
         );
         // Milestone 3 (0017): reviews, goals, routines, health and their rules.
         report.check(

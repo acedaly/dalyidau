@@ -73,6 +73,13 @@ The existing wedding planner's tasks (`/portal/wedding/tasks`, table `tasks`) ar
 
 Active projects also appear in the sidebar. "My tasks" views (Today, Upcoming, Overdue) show open tasks in **active** projects you can edit that are **assigned to you or to nobody**; a task assigned to someone else stays in its project. Projects on hold, completed or archived don't feed those views.
 
+### Archiving and deleting projects
+
+- **Archive** (owners, project Settings → Status, or `tasks_archive_project` through MCP) sets the status to archived. Nothing is removed: tasks, subtasks, sections, comments, completions, history, members, goal links and Knowledge references all stay. The project becomes read-only and moves to the completed/archived group. **Restore** (Settings, or `tasks_unarchive_project`) makes it active again exactly as it was. The Inbox can't be archived.
+- **Delete** (owners, Settings → Delete, typing DELETE) removes the project with all its tasks, sections, comments and history, permanently. It's only possible in the portal. AI clients have no way to delete anything ([MCP.md](MCP.md#archiving-is-not-deleting)).
+
+`POST /projects` accepts an optional `clientId` (8–64 letters, digits, `-` or `_`). Sending the same one again returns the first project instead of creating another (`task_projects.client_id`, migration `0020`), the same pattern as Quick Add's tasks. The MCP `tasks_create_project` tool sends its request id here.
+
 ### Quick Add
 
 Press **q** (or **Add task**) on any portal page: in Tasks, the sidebar's **Add task** on every other page, and the floating **+** button on phones. Outside Tasks, Quick Add loads the caller's projects and labels the first time it opens (`GET /shell`); on a Knowledge page it offers to link the new task to that page (checked against Knowledge access by the Worker before anything is saved), and you stay on the page you were on. People without `tasks.use` never see the button or the shortcut, and the API refuses them. Type naturally and check the chips under the field before pressing Enter: each says what was understood and can be dismissed, which puts the words back in the title. The pickers set the same things explicitly and always win. If saving fails, the text stays.
@@ -537,7 +544,7 @@ Browser tests use a second identity (`ACCESS_DEV_ALT_EMAIL` with a `portal_dev_i
 
 - **Milestone 2: planning, reminders, templates, Todoist import.** Merged (#26). Deferred from it: browser push (needs an installable portal and VAPID secrets), a calendar (iCal) feed, remembering collapsed sections, and verifying the import against a real Todoist export.
 - **Milestone 3 (this branch): integrated productivity.** Built: see above. Deferred: optional task estimates (and then capacity), calendar-fixed rotas, reminders for due reviews and goals, Knowledge links on reviews, dashboard card ordering and pinned/favourite projects, bulk "move all overdue" across projects from the dashboard (Today already does it for your tasks), waiting-on indicators, a daily planning checklist.
-- **Milestone 4: AI and MCP.** The first part is built (draft PR, not deployed): authenticated, membership-scoped MCP tools through the `mcp.daly.id.au` gateway (`mcp/` in this repository), covering reads, search, capture, bounded edits and daily and weekly briefings. Destructive and bulk tools are left out entirely. See [MCP.md](MCP.md). Still to come: suggestions from Knowledge, and metering if any AI inference is ever added server-side. Tasks keeps working without any of it.
+- **Milestone 4: AI and MCP.** The first part is built (draft PR, not deployed): authenticated, membership-scoped MCP tools through the `mcp.daly.id.au` gateway (`mcp/` in this repository), covering reads, search, capture, bounded edits and daily and weekly briefings. Since October 2026 it also covers finding, creating, editing, archiving and restoring projects (same rules as the portal, duplicate checks, never deleting). Destructive and bulk tools are left out entirely. See [MCP.md](MCP.md). Still to come: suggestions from Knowledge, and metering if any AI inference is ever added server-side. Tasks keeps working without any of it.
 
 ## Deploying
 

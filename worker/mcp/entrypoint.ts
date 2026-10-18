@@ -26,6 +26,7 @@ import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
 import { CHIEF_TOOLS } from "./chief";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { claimWrite, failWrite, settleWrite } from "./ledger";
+import { DuplicateProject, PROJECT_TOOLS, StaleProject } from "./projects";
 import type { ToolContext, ToolDef } from "./shared";
 import { TASK_TOOLS } from "./tasks";
 
@@ -42,6 +43,7 @@ export type PortalMcpErrorCode =
     | "not_found"
     | "validation"
     | "conflict"
+    | "duplicate"
     | "open_subtasks"
     | "in_progress"
     | "request_id_reused"
@@ -52,7 +54,7 @@ export type PortalMcpErrorCode =
 export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
-export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...CHIEF_TOOLS];
+export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
 const MAX_INPUT_BYTES = 64_000;
@@ -67,6 +69,8 @@ export function toFailure(error: unknown): PortalMcpResponse {
     if (error instanceof KnowledgeConflict) return fail("conflict", error.message, { current: error.current });
     if (error instanceof TaskConflict)
         return fail("conflict", error.message, { current: error.current ? { version: error.current.version, updatedAt: error.current.updatedAt } : null });
+    if (error instanceof StaleProject) return fail("conflict", error.message, { current: error.current });
+    if (error instanceof DuplicateProject) return fail("duplicate", error.message, { matches: error.matches });
     if (error instanceof OpenSubtasks)
         return fail("open_subtasks", `${error.message} Ask whether to complete them too, then retry with includeSubtasks.`, { count: error.count });
     if (error instanceof ZodError) {

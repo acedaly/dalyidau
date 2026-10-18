@@ -51,6 +51,11 @@ export const PORTAL_TOOL_NAMES = [
     "tasks_reopen",
     "tasks_add_comment",
     "tasks_link_knowledge",
+    "tasks_search_projects",
+    "tasks_create_project",
+    "tasks_update_project",
+    "tasks_archive_project",
+    "tasks_unarchive_project",
     "chief_of_staff_daily_context",
     "chief_of_staff_weekly_context",
 ] as const;
@@ -70,6 +75,10 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "tasks_reopen",
     "tasks_add_comment",
     "tasks_link_knowledge",
+    "tasks_create_project",
+    "tasks_update_project",
+    "tasks_archive_project",
+    "tasks_unarchive_project",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -127,6 +136,9 @@ const recurrence = z
         count: z.number().int().min(1).max(1000).nullable().optional(),
     })
     .describe("How the task repeats. The portal's recurrence engine applies it.");
+const projectName = z.string().trim().min(1).max(120);
+const projectColor = z.enum(["gray", "brand", "error", "warning", "success", "blue", "indigo", "purple", "pink", "orange"]);
+const openProjectStatus = z.enum(["active", "on_hold", "completed"]);
 const occurrenceScope = z
     .enum(["occurrence", "series"])
     .optional()
@@ -446,6 +458,76 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
     tasks_link_knowledge: {
         description: `${SOURCE} WRITE: reference a Knowledge object from a task. The person must be able to edit the task AND read the object; others in the project only see that a reference exists unless they can read it too.`,
         input: z.object({ taskId, objectId, requestId }).strict(),
+        annotations: IDEMPOTENT_WRITE,
+    },
+    /* ---------------------------- Tasks projects ---------------------------- */
+    tasks_search_projects: {
+        description: `${SOURCE} Find the person's existing projects by name before creating one or choosing where tasks go. Matches are "exact" (the same name, ignoring case and punctuation), "similar" (shares a significant word or contains the name) or "description" (only the description mentions it), best first, archived ones included by default. Each has its id, name, personal or shared, the person's role, status, version and link. Read-only.`,
+        input: z
+            .object({
+                query: projectName.describe("The name, or a few words of it."),
+                includeArchived: z.boolean().optional(),
+                limit: limit(50),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    tasks_create_project: {
+        description: `${SOURCE} WRITE: create a Tasks project owned by the signed-in person. Search first with tasks_search_projects and prefer an existing project; ask the person before creating a new one, and never claim it exists until this returns its id. A shared project starts with only its creator in it (members are added in the portal). Refused with duplicate (listing the matches) if the person already has a project with the same name, unless they confirm a separate one and you pass allowDuplicateName: true. "Inbox" is reserved. Returns the project, its sections (for tasks_create's sectionId) and its link. Send a requestId so a retry can't create two.`,
+        input: z
+            .object({
+                name: projectName,
+                description: z.string().trim().max(2_000).optional(),
+                kind: z
+                    .enum(["personal", "shared"])
+                    .optional()
+                    .describe('"personal" (the default): only the person can see it. "shared": ready for members, who are added in the portal.'),
+                color: projectColor.optional(),
+                startDate: date.optional(),
+                targetDate: date.optional().describe("Not before startDate."),
+                defaultView: z.enum(["list", "board"]).optional(),
+                sections: z.array(z.string().trim().min(1).max(120)).max(20).optional().describe("Sections to start with, in order."),
+                knowledgeObjectIds: z
+                    .array(objectId)
+                    .max(10)
+                    .optional()
+                    .describe("Knowledge objects to reference from the project. Each must be readable by the person; otherwise nothing is created."),
+                allowDuplicateName: z
+                    .boolean()
+                    .optional()
+                    .describe("Only after the person confirms they want a second project with the same name as an existing one."),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    tasks_update_project: {
+        description: `${SOURCE} WRITE: change a project's name, description, colour, start or target date (null clears), default view, review frequency, or status (active, on hold, completed; owners only). Editors can change details. Needs the current version; a stale one is refused as a conflict carrying the current version. It can't archive, restore, delete, share or change members.`,
+        input: z
+            .object({
+                projectId,
+                version,
+                name: projectName.optional(),
+                description: z.string().trim().max(2_000).optional(),
+                color: projectColor.optional(),
+                startDate: date.nullable().optional(),
+                targetDate: date.nullable().optional(),
+                defaultView: z.enum(["list", "board"]).optional(),
+                reviewFrequency: z.enum(["none", "weekly", "fortnightly", "monthly"]).optional(),
+                status: openProjectStatus.optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    tasks_archive_project: {
+        description: `${SOURCE} WRITE: archive a project (owners only; never the Inbox). Archiving is not deleting: every task, section, comment, history entry and Knowledge reference is kept, read-only, and tasks_unarchive_project brings it all back. Confirm with the person first. Needs the current version. Permanent deletion is only possible in the portal.`,
+        input: z.object({ projectId, version, requestId }).strict(),
+        annotations: IDEMPOTENT_WRITE,
+    },
+    tasks_unarchive_project: {
+        description: `${SOURCE} WRITE: restore an archived project (owners only) with everything it had, as active unless another status is given. Needs the current version.`,
+        input: z.object({ projectId, version, status: openProjectStatus.optional(), requestId }).strict(),
         annotations: IDEMPOTENT_WRITE,
     },
     /* ----------------------------- Chief of Staff --------------------------- */
