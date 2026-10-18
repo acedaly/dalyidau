@@ -237,6 +237,23 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
+        // Daly Calendar (0022): every calendar reachable by its owner, subscriptions only on subscription calendars.
+        name: "Every calendar has an owner member, and each subscription has a subscription calendar",
+        sql: "SELECT c.id FROM calendars c WHERE NOT EXISTS (SELECT 1 FROM calendar_members m WHERE m.calendar_id = c.id AND m.role = 'owner') UNION ALL SELECT s.id FROM calendar_subscriptions s JOIN calendars c ON c.id = s.calendar_id WHERE c.source <> 'subscription' LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Leaving a calendar deletes the person's reminders on it in the same batch.
+        name: "Calendar reminders belong to current members of the event's calendar",
+        sql: "SELECT r.id FROM calendar_reminders r JOIN calendar_events e ON e.id = r.event_id LEFT JOIN calendar_members m ON m.calendar_id = e.calendar_id AND m.email = r.email WHERE m.email IS NULL LIMIT 20",
+        level: "warn",
+    },
+    {
+        name: "Leave bookings use the same person's leave types, and leave settings are valid JSON",
+        sql: "SELECT b.id FROM leave_bookings b JOIN leave_types t ON t.id = b.leave_type_id WHERE t.email <> b.email UNION ALL SELECT email FROM leave_profiles WHERE json_valid(pattern) = 0 OR json_valid(settings) = 0 UNION ALL SELECT id FROM leave_types WHERE json_valid(accrual) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
         name: "Intelligence settings and preferences are valid JSON",
         sql: "SELECT key FROM ai_config WHERE json_valid(value) = 0 UNION ALL SELECT email FROM ai_preferences WHERE json_valid(value) = 0 UNION ALL SELECT id FROM ai_suggestions WHERE json_valid(payload) = 0 LIMIT 20",
         level: "fail",
@@ -353,4 +370,23 @@ export const TABLES = [
     "ai_suggestions",
     "ai_briefings",
     "attachments",
+    // Daly Calendar and the Leave Planner (0022).
+    "calendar_preferences",
+    "calendars",
+    "calendar_members",
+    "calendar_events",
+    "calendar_event_overrides",
+    "calendar_event_links",
+    "calendar_reminders",
+    "calendar_notifications",
+    "calendar_subscriptions",
+    "calendar_feeds",
+    "calendar_custom_dates",
+    "calendar_activity",
+    "leave_profiles",
+    "leave_types",
+    "leave_adjustments",
+    "leave_scenarios",
+    "leave_bookings",
+    "leave_shares",
 ];

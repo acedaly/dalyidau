@@ -17,12 +17,14 @@
 // list.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZodError } from "zod";
+import { EventConflict } from "../calendar/events";
 import type { Env } from "../env";
 import { KnowledgeConflict } from "../knowledge/objects";
 import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
+import { CALENDAR_TOOLS } from "./calendar";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
@@ -55,7 +57,7 @@ export type PortalMcpErrorCode =
 export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
-export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS, ...INTELLIGENCE_TOOLS];
+export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS, ...INTELLIGENCE_TOOLS, ...CALENDAR_TOOLS];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
 const MAX_INPUT_BYTES = 64_000;
@@ -70,6 +72,8 @@ export function toFailure(error: unknown): PortalMcpResponse {
     if (error instanceof KnowledgeConflict) return fail("conflict", error.message, { current: error.current });
     if (error instanceof TaskConflict)
         return fail("conflict", error.message, { current: error.current ? { version: error.current.version, updatedAt: error.current.updatedAt } : null });
+    if (error instanceof EventConflict)
+        return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
     if (error instanceof StaleProject) return fail("conflict", error.message, { current: error.current });
     if (error instanceof DuplicateProject) return fail("duplicate", error.message, { matches: error.matches });
     if (error instanceof OpenSubtasks)
@@ -140,7 +144,8 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: 
     // 2. Which tool, and may this person use that application at all.
     const def = TOOLS.get(toolName);
     if (!def) return respond(fail("unknown_tool", "That tool isn't available from Daly Portal."));
-    const allowed = def.permission === "any_productivity" ? can(user, "tasks.use") || can(user, "knowledge.use") : can(user, def.permission);
+    const allowed =
+        def.permission === "any_productivity" ? can(user, "tasks.use") || can(user, "knowledge.use") || can(user, "calendar.use") : can(user, def.permission);
     if (!allowed) return respond(fail("forbidden", "You don't have access to that part of Daly Portal."));
 
     let size = 0;

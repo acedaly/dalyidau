@@ -6,6 +6,9 @@ import { applicationById, canAccessApplication } from "../src/shared/portal/appl
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
 import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
+import { serveFeed } from "./calendar/feeds";
+import { processCalendarNotifications } from "./calendar/notify";
+import { processDueSubscriptions } from "./calendar/subscriptions";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { runIntelligenceCron } from "./intelligence/runner";
@@ -60,6 +63,16 @@ export default {
                 (error) => console.error(JSON.stringify({ event: "task_reminders_error", message: (error as Error).message })),
             ),
         );
+        // Daly Calendar: subscription refreshes, then reminders and notices. Each failure stays contained.
+        ctx.waitUntil(
+            processDueSubscriptions(env)
+                .catch((error) => console.error(JSON.stringify({ event: "calendar_subscriptions_error", message: (error as Error).message })))
+                .then(() => processCalendarNotifications(env))
+                .then(
+                    () => undefined,
+                    (error) => console.error(JSON.stringify({ event: "calendar_notifications_error", message: (error as Error).message })),
+                ),
+        );
         // Daly Intelligence: retention always; jobs, briefings and the semantic index only when switched on.
         ctx.waitUntil(
             runIntelligenceCron(env).then(
@@ -100,6 +113,13 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     }
 
     if (path.startsWith("/api/portal/")) return portalApi(request, env, ctx);
+    // Private calendar feeds for Apple Calendar, Outlook and Google Calendar: a token in the path,
+    // outside Cloudflare Access (calendar apps can't sign in). See worker/calendar/feeds.ts.
+    const feed = /^\/calendar\/feed\/([A-Za-z0-9_-]{1,64})\.ics$/.exec(path);
+    if (feed)
+        return request.method === "GET" || request.method === "HEAD"
+            ? serveFeed(env, feed[1])
+            : new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);

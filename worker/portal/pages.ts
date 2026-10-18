@@ -4,6 +4,7 @@ import { type ApplicationId, applicationById, availableApplications, canAccessAp
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
+import { type CalendarPage, loadCalendarPage } from "../calendar/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { loadIntelligencePage } from "../intelligence/pages";
@@ -434,6 +435,25 @@ const PAGES: PageDef[] = [
         title: "Task",
         application: "tasks",
         load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "task", match[1]),
+    },
+    // Daly Calendar. The application's permission is checked here; calendar membership in the loaders.
+    {
+        pattern: /^\/portal\/calendar$/,
+        title: "Calendar",
+        application: "calendar",
+        load: ({ env, user, url, flags }) => loadCalendarPage(env, user, url, "view", flags),
+    },
+    {
+        pattern: /^\/portal\/calendar\/(year|family|leave|calendars|subscriptions|holidays|settings)$/,
+        title: "Calendar",
+        application: "calendar",
+        load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, match[1] as CalendarPage, flags),
+    },
+    {
+        pattern: /^\/portal\/calendar\/leave\/(planner|settings)$/,
+        title: "Leave",
+        application: "calendar",
+        load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, `leave-${match[1]}` as CalendarPage, flags),
     },
     // Daly Intelligence. The application's permission is checked here; ownership and memberships in the loaders.
     {

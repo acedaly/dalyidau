@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "knowledge" | "tasks" | "intelligence";
+export type ApplicationId = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence";
 
-export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "intelligence";
+export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence";
 
 export type NavigationIcon =
     | "dashboard"
@@ -53,7 +53,15 @@ export type NavigationIcon =
     | "suggestions"
     | "briefing"
     | "review"
-    | "meetings";
+    | "meetings"
+    | "calendar"
+    | "year"
+    | "agenda"
+    | "subscriptions"
+    | "family"
+    | "leave"
+    | "planner"
+    | "holidays";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -78,6 +86,8 @@ export interface ApplicationStatusConfig {
 export interface PortalApplication {
     id: ApplicationId;
     name: string;
+    /** One line for the launcher card. */
+    summary: string;
     description: string;
     icon: ApplicationIcon;
     baseRoute: string;
@@ -91,6 +101,7 @@ export const APPLICATIONS = [
     {
         id: "wedding",
         name: "Wedding Planner",
+        summary: "Guests, RSVPs, seating and budget.",
         description: "Manage our wedding, including guests, RSVPs, seating, catering, planning, budget and communications.",
         icon: "wedding",
         baseRoute: "/portal/wedding",
@@ -158,6 +169,7 @@ export const APPLICATIONS = [
     {
         id: "knowledge",
         name: "Daly Knowledge",
+        summary: "Linked notes, people, meetings and decisions.",
         description: "Notes, people, projects, meetings and decisions, linked together and searchable. Private to you unless you share a space.",
         icon: "knowledge",
         baseRoute: "/portal/knowledge",
@@ -200,6 +212,7 @@ export const APPLICATIONS = [
     {
         id: "tasks",
         name: "Daly Tasks",
+        summary: "Tasks, projects, goals and household routines.",
         description:
             "Tasks, projects, goals and household routines, personal and shared, with a dashboard, reviews, reports and links to Knowledge. Private to you unless you share.",
         icon: "tasks",
@@ -249,8 +262,48 @@ export const APPLICATIONS = [
         ],
     },
     {
+        id: "calendar",
+        name: "Daly Calendar",
+        summary: "Calendars, family planning, school holidays and leave.",
+        description:
+            "Personal and shared calendars, subscribed feeds, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
+        icon: "calendar",
+        baseRoute: "/portal/calendar",
+        requiredPermission: "calendar.use",
+        enabled: true,
+        navigation: [
+            {
+                label: "Calendar",
+                items: [
+                    { label: "Calendar", href: "/portal/calendar", icon: "calendar" },
+                    { label: "Agenda", href: "/portal/calendar?view=agenda", icon: "agenda" },
+                    { label: "Year planner", href: "/portal/calendar/year", icon: "year" },
+                    { label: "Family planner", href: "/portal/calendar/family", icon: "family" },
+                ],
+            },
+            {
+                label: "Leave",
+                items: [
+                    { label: "Leave and balances", href: "/portal/calendar/leave", icon: "leave" },
+                    { label: "Plan time off", href: "/portal/calendar/leave/planner", icon: "planner" },
+                    { label: "Leave settings", href: "/portal/calendar/leave/settings", icon: "settings" },
+                ],
+            },
+            {
+                label: "Manage",
+                items: [
+                    { label: "Calendars and sharing", href: "/portal/calendar/calendars", icon: "shared" },
+                    { label: "Subscriptions", href: "/portal/calendar/subscriptions", icon: "subscriptions" },
+                    { label: "Holidays and school dates", href: "/portal/calendar/holidays", icon: "holidays" },
+                    { label: "Settings, import and export", href: "/portal/calendar/settings", icon: "settings" },
+                ],
+            },
+        ],
+    },
+    {
         id: "intelligence",
         name: "Daly Intelligence",
+        summary: "Capture, AI suggestions to approve, and briefings.",
         description:
             "Capture notes, documents and recordings and review what AI suggests: tasks, decisions and Knowledge records. Daily briefings, weekly reviews and meaning-based search. Nothing is saved until you approve it.",
         icon: "intelligence",

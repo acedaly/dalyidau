@@ -79,6 +79,10 @@ export interface Env {
     /** HMAC key for long, revocable native RSVP invitation links. */
     RSVP_LINK_SECRET?: string;
 
+    // Daly Calendar (docs/CALENDAR.md).
+    /** Secret, optional: encrypts subscription addresses at rest (AES-GCM). At least 32 characters. */
+    CALENDAR_ENCRYPTION_KEY?: string;
+
     // Daly Intelligence (docs/INTELLIGENCE.md). Neither binding is in wrangler.jsonc yet: until the
     // owner adds them, every AI feature reports itself unavailable and nothing is called or billed.
     /** Workers AI. */

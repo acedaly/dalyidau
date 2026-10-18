@@ -1,4 +1,14 @@
 import { Plus } from "@untitledui/icons";
+import { CalendarCalendarsPage } from "@/portal/calendar/pages/calendar-calendars-page";
+import { CalendarFamilyPage } from "@/portal/calendar/pages/calendar-family-page";
+import { CalendarHolidaysPage } from "@/portal/calendar/pages/calendar-holidays-page";
+import { CalendarSettingsPage } from "@/portal/calendar/pages/calendar-settings-page";
+import { CalendarSubscriptionsPage } from "@/portal/calendar/pages/calendar-subscriptions-page";
+import { CalendarViewPage } from "@/portal/calendar/pages/calendar-view-page";
+import { CalendarYearPage } from "@/portal/calendar/pages/calendar-year-page";
+import { LeavePage } from "@/portal/calendar/pages/leave-page";
+import { LeavePlannerPage } from "@/portal/calendar/pages/leave-planner-page";
+import { LeaveSettingsPage } from "@/portal/calendar/pages/leave-settings-page";
 import { ToastProvider } from "@/portal/components/toast";
 import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
 import { IntelligenceCaptureDetailPage } from "@/portal/intelligence/pages/intelligence-capture-detail-page";
@@ -173,6 +183,26 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <TasksWorkloadPage data={data} />;
         case "tasks-reports":
             return <TasksReportsPage data={data} />;
+        case "calendar-view":
+            return <CalendarViewPage key={`${data.view}:${data.anchor}`} data={data} />;
+        case "calendar-year":
+            return <CalendarYearPage data={data} />;
+        case "calendar-family":
+            return <CalendarFamilyPage data={data} />;
+        case "calendar-calendars":
+            return <CalendarCalendarsPage data={data} />;
+        case "calendar-subscriptions":
+            return <CalendarSubscriptionsPage data={data} />;
+        case "calendar-holidays":
+            return <CalendarHolidaysPage data={data} />;
+        case "calendar-settings":
+            return <CalendarSettingsPage data={data} />;
+        case "calendar-leave":
+            return <LeavePage data={data} />;
+        case "calendar-leave-planner":
+            return <LeavePlannerPage data={data} />;
+        case "calendar-leave-settings":
+            return <LeaveSettingsPage data={data} />;
         case "intelligence-home":
             return <IntelligenceHomePage data={data} />;
         case "intelligence-inbox":

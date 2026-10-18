@@ -7,6 +7,7 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
+import { handleCalendarApi } from "../calendar/api";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
 import { handleIntelligenceApi } from "../intelligence/api";
@@ -891,6 +892,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         if (url.pathname.startsWith("/api/portal/knowledge/")) return await handleKnowledgeApi(request, env, user);
         // So does Tasks: access there is by project membership.
         if (url.pathname.startsWith("/api/portal/tasks/")) return await handleTasksApi(request, env, user);
+        // And Calendar: access there is by calendar membership, and leave is always the caller's own.
+        if (url.pathname.startsWith("/api/portal/calendar/")) return await handleCalendarApi(request, env, user);
         // And Intelligence: everything there is the caller's own, or reached through their memberships.
         if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user, exec);
         const method = request.method === "HEAD" ? "GET" : request.method;

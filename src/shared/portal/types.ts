@@ -1,4 +1,5 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
+import type { CalendarRoute } from "../calendar/types";
 import type { IntelligenceRoute } from "../intelligence/types";
 import type { KnowledgeRoute } from "../knowledge/types";
 import type { TasksRoute } from "../tasks/types";
@@ -900,6 +901,7 @@ export type PortalRoute =
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
     | KnowledgeRoute
     | TasksRoute
+    | CalendarRoute
     | IntelligenceRoute
     | { route: "forbidden"; message: string }
     | { route: "not-found"; path: string };

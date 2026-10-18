@@ -1,5 +1,5 @@
 // Chief of Staff context for AI clients: bounded, permission-scoped snapshots of what is recorded in
-// Daly Tasks and Daly Knowledge. They are facts only. Nothing here is inferred, summarised by a
+// Daly Tasks, Daly Knowledge and Daly Calendar. They are facts only. Nothing here is inferred, summarised by a
 // model or made up: every item carries its id and a link to the record, a source that wasn't
 // checked is listed as not checked, and a module the caller can't use is simply absent. The AI
 // client does the reasoning.
@@ -13,6 +13,7 @@ import { documentToMarkdown } from "../../src/shared/knowledge/markdown";
 import type { KnowledgeObjectSummary } from "../../src/shared/knowledge/types";
 import { addDays } from "../../src/shared/tasks/dates";
 import type { Bucket, ProjectCard, TaskGoal, TaskRoutine } from "../../src/shared/tasks/productivity";
+import { calendarFacts } from "../calendar/chief";
 import { dailyNote, spaceToday } from "../knowledge/daily";
 import { listObjects } from "../knowledge/objects";
 import { can } from "../portal/auth";
@@ -28,7 +29,7 @@ import { type ToolContext, type ToolDef, calendarDate, portalUrl, projectNames, 
 /** Items shown per list; every list also says how many there are in total. */
 const SHOWN = 10;
 /** Sources these tools never look at, named so a briefing can't imply they were checked. */
-const NOT_CHECKED = ["calendar", "email", "DalyHub (retired: never read, and not available through this connector)"];
+const NOT_CHECKED = ["email", "external calendars not subscribed in Daly Calendar", "DalyHub (retired: never read, and not available through this connector)"];
 
 const bucketOut = async (ctx: ToolContext, bucket: Bucket) => {
     const names = await projectNames(ctx, bucket.tasks);
@@ -139,6 +140,7 @@ async function personalDailyNote(ctx: ToolContext, date: string | null) {
 const sources = (ctx: ToolContext) => ({
     tasks: can(ctx.user, "tasks.use"),
     knowledge: can(ctx.user, "knowledge.use"),
+    calendar: can(ctx.user, "calendar.use"),
 });
 
 const chiefDaily = tool({
@@ -189,6 +191,8 @@ const chiefDaily = tool({
                 decisionsLast14Days: await recentObjects(ctx, ctx.db, addDays(yesterday, -13), { typeSlug: "decision", max: 5 }),
             };
         }
+        // Calendar and leave: what's on in the next week, clashes, important dates, leave and school holidays.
+        if (checked.calendar) data.calendar = await calendarFacts(ctx.db, ctx.user, ctx.site, 7);
         return { data };
     },
 });
@@ -250,6 +254,7 @@ const chiefWeekly = tool({
                 decisionsInPeriod: await recentObjects(ctx, ctx.db, start, { to: end, typeSlug: "decision", max: 10 }),
             };
         }
+        if (checked.calendar) data.calendar = await calendarFacts(ctx.db, ctx.user, ctx.site, 14);
         // Possible follow-ups are for the AI client to propose from these facts, and to label as proposals.
         return { data };
     },

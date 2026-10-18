@@ -338,6 +338,7 @@ export const BRIEFING_SECTIONS = [
     "waiting",
     "household",
     "knowledge",
+    "calendar",
     "changes",
     "suggestions",
 ] as const;
@@ -353,6 +354,7 @@ export const BRIEFING_SECTION_LABELS: Record<BriefingSection, string> = {
     waiting: "Waiting on others",
     household: "Household",
     knowledge: "Knowledge updates",
+    calendar: "Calendar and leave",
     changes: "Changes since last briefing",
     suggestions: "Suggested next actions",
 };
@@ -383,7 +385,20 @@ export const preferencesSchema = z
 export type IntelligencePreferences = z.output<typeof preferencesSchema>;
 
 export const DEFAULT_PREFERENCES: IntelligencePreferences = {
-    sections: ["today", "overdue", "deadlines", "projects", "decisions", "follow_ups", "waiting", "household", "knowledge", "changes", "suggestions"],
+    sections: [
+        "today",
+        "overdue",
+        "deadlines",
+        "projects",
+        "decisions",
+        "follow_ups",
+        "waiting",
+        "household",
+        "knowledge",
+        "calendar",
+        "changes",
+        "suggestions",
+    ],
     mode: "concise",
     scope: "all",
     dailyTime: "07:00",

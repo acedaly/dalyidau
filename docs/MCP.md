@@ -1,6 +1,6 @@
-# Daly MCP: Tasks and Knowledge for AI clients
+# Daly MCP: Tasks, Knowledge and Calendar for AI clients
 
-AI clients (Claude, ChatGPT, Codex and other MCP clients) reach Daly Tasks and Daly Knowledge at `https://mcp.daly.id.au/mcp`. The whole service lives in this repository:
+AI clients (Claude, ChatGPT, Codex and other MCP clients) reach Daly Tasks, Daly Knowledge, Daly Intelligence and Daly Calendar at `https://mcp.daly.id.au/mcp`. The whole service lives in this repository:
 
 - `mcp/`: the gateway Worker. It handles the MCP protocol, tool descriptions, Access token checks and per-person rate limits.
 - `worker/mcp/`: `PortalMcpEntrypoint` in the portal Worker. It handles identity, permissions, membership, data and the write ledger.
@@ -161,11 +161,17 @@ Ids come only from results, and nothing is reported as created until a result sa
 | `chief_of_staff_daily_context`  | From the personal and household dashboards: due today, overdue, next 7 days, high priority, unsorted Inbox, milestones, routines, reviews due, projects and goals needing attention, shared household work (members only), today's personal daily note, Knowledge updated since yesterday, decisions from the last 14 days |
 | `chief_of_staff_weekly_context` | The seven days ending `weekEnding`: completed occurrences, overdue, next 14 days and deadlines, project health, goals, routines, and Knowledge notes, meetings and decisions in the period                                                                                                                                 |
 
-Both are facts only, each with its id and link. `notChecked` names what's never read: calendar, email, and DalyHub, which is retired. There's no model call in either Worker.
+Both are facts only, each with its id and link. For people with Calendar, both also carry `calendar`: events for the next 7 (daily) or 14 (weekly) days, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected leave balances and failing subscriptions (worker/calendar/chief.ts). `notChecked` names what's never read: email, external calendars that aren't subscribed in Daly Calendar, and DalyHub, which is retired. There's no model call in either Worker.
 
 ### Daly Intelligence
 
 Ten tools, described in [INTELLIGENCE.md](INTELLIGENCE.md#mcp): `knowledge_semantic_search`, `knowledge_find_related`, `intelligence_get_daily_briefing`, `intelligence_get_weekly_review`, `intelligence_list_suggestions`, `intelligence_get_processing_status` and `meetings_get_transcript` (reads), and `intelligence_capture_text`, `intelligence_request_analysis` and `intelligence_approve_suggestion` (writes, through the ledger; `0021` rebuilds `mcp_writes` so a capture or suggestion can be the recorded outcome). Captures only ever create suggestions; applying one needs `intelligence_approve_suggestion` for a suggestion the person explicitly approved, which runs the same code as the portal's Approve button. All need `intelligence.use`; with Intelligence switched off they say so. Reading a briefing never runs a model.
+
+### Daly Calendar and Leave
+
+Seventeen tools (63 in all), described in [CALENDAR.md](CALENDAR.md#mcp-tools-17-63-in-total). The reads are `calendar_list_calendars`, `calendar_list_events`, `calendar_search_events`, `calendar_get_agenda`, `calendar_find_conflicts`, `calendar_list_subscriptions`, `calendar_school_holidays`, `leave_get_balances`, `leave_list_bookings`, `leave_forecast` and `leave_find_opportunities`. The writes go through the ledger: `calendar_create_event`, `calendar_update_event`, `calendar_create_subscription`, `calendar_refresh_subscription`, `leave_create_proposal` and `leave_update_proposal`. `0022` rebuilds `mcp_writes` for the outcomes `calendar_event`, `calendar_subscription` and `leave_booking`.
+
+All of them need `calendar.use`, and the leave numbers come from the deterministic leave engine. Other people's private events are "Busy", and sensitive events are "Private event" even to their creator. Subscription addresses are never returned. Leave written through MCP is a draft or a proposal and is never requested, approved or taken. There's no delete tool.
 
 ### Deliberately absent
 

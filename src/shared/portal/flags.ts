@@ -44,6 +44,20 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Communications",
     },
+    "calendar.feeds": {
+        label: "Calendar subscription addresses",
+        description:
+            "Serve the private ICS addresses people create in Calendar → Calendars (for Apple Calendar, Outlook and Google Calendar). Anyone holding an address can read what it publishes, so it starts off. While off, every address answers 404; nothing is deleted.",
+        default: false,
+        group: "Calendar",
+    },
+    "calendar.reminders.email": {
+        label: "Calendar reminder emails",
+        description:
+            "Email Calendar reminders, upcoming leave, school holiday and subscription failure notices to people who turned on email in Calendar → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, notifications appear only in the app.",
+        default: false,
+        group: "Calendar",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

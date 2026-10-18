@@ -51,6 +51,12 @@ describe("settings and availability", () => {
         expect(refused.status).toBe(409);
     });
 
+    it("reports AI Gateway only when one is configured", async () => {
+        const { env } = await aiEnv({}, { AI_GATEWAY_ID: "test-gateway" });
+        const status = (await iCall<{ status: IntelligenceStatus }>(env, "GET", "/status")).json.status;
+        expect(status.bindings).toEqual({ ai: true, vectors: true, gateway: true });
+    });
+
     it("lets only owners and admins change the account settings, with versions and validation", async () => {
         const { env } = await aiEnv();
         await apiCall("POST", "/api/portal/users", { email: "editor@example.com", role: "editor" });

@@ -87,5 +87,7 @@ test("the briefing separates facts from AI suggestions and says what it didn't c
     await switchOn(request);
     await page.goto("/portal/intelligence/briefing");
     await expect(page.getByText("AI suggestions, not facts")).toBeVisible();
-    await expect(page.getByText(/Not checked: email, calendar/)).toBeVisible();
+    // Calendar is part of the briefing since Milestone 6; email and finances never are.
+    await expect(page.getByText(/Not checked: email, bank accounts/)).toBeVisible();
+    await expect(page.getByText(/Not checked:.*calendar/)).toHaveCount(0);
 });

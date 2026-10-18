@@ -7,7 +7,7 @@
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
 //    templates), every Daly Tasks table (0015, 0016, 0017) the MCP write ledger (0018, rebuilt in 0020), DalyHub migration provenance (0019) and
-//    project request ids (0020).
+//    project request ids (0020), Daly Intelligence (0021) and Daly Calendar and the Leave Planner (0022).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -204,6 +204,62 @@ const INTELLIGENCE_TABLES = [
     "attachments",
 ];
 
+// Daly Calendar and the Leave Planner (0022): a shared calendar with a repeating event, a moved
+// occurrence, a link to a task, a reminder and a notification, a subscription (address stored the
+// way an unencrypted one is), a feed (only its hash), custom dates, leave with a booking in a
+// scenario, a share, and an MCP write naming an event (the widened ledger).
+const CALENDAR = `
+INSERT INTO calendar_preferences (email, value, updated_at) VALUES ('owner@example.com', '{"timeZone":"Australia/Sydney"}', '${NOW}');
+INSERT INTO calendars (id, name, kind, purpose, owner_email, created_by, created_at, updated_by, updated_at) VALUES
+  ('cal_backuptest0001', 'Household', 'shared', 'family', 'owner@example.com', 'owner@example.com', '${NOW}', 'owner@example.com', '${NOW}'),
+  ('cal_backuptest0002', 'School', 'personal', 'subscription', 'owner@example.com', 'owner@example.com', '${NOW}', 'owner@example.com', '${NOW}');
+UPDATE calendars SET source = 'subscription' WHERE id = 'cal_backuptest0002';
+INSERT INTO calendar_members (calendar_id, email, role, added_by, created_at, updated_at) VALUES
+  ('cal_backuptest0001', 'owner@example.com', 'owner', 'owner@example.com', '${NOW}', '${NOW}'),
+  ('cal_backuptest0001', 'partner@example.com', 'editor', 'owner@example.com', '${NOW}', '${NOW}'),
+  ('cal_backuptest0002', 'owner@example.com', 'owner', 'owner@example.com', '${NOW}', '${NOW}');
+INSERT INTO calendar_events (id, calendar_id, uid, title, all_day, start_date, start_time, end_date, end_time, time_zone, start_at, end_at, rrule, series_end_at, category, created_by, created_at, updated_by, updated_at) VALUES
+  ('cev_backuptest0001', 'cal_backuptest0001', 'cev_backuptest0001@daly.id.au', 'Swimming', 0, '2026-10-05', '17:00', '2026-10-05', '18:00', 'Australia/Sydney', '2026-10-05T06:00:00.000Z', '2026-10-05T07:00:00.000Z', 'FREQ=WEEKLY;BYDAY=MO', '9999-12-31T00:00:00.000Z', 'family', 'owner@example.com', '${NOW}', 'owner@example.com', '${NOW}');
+INSERT INTO calendar_event_overrides (event_id, occurrence_key, fields, start_at, end_at, updated_by, updated_at) VALUES ('cev_backuptest0001', '2026-10-12T17:00', '{"startTime":"16:00"}', '2026-10-12T05:00:00.000Z', '2026-10-12T06:00:00.000Z', 'owner@example.com', '${NOW}');
+INSERT INTO calendar_event_links (id, event_id, task_id, added_by, added_at) VALUES ('cel_backuptest0001', 'cev_backuptest0001', 'tsk_backuptest0001', 'owner@example.com', '${NOW}');
+INSERT INTO calendar_reminders (id, event_id, email, minutes_before, created_at) VALUES ('crm_backuptest0001', 'cev_backuptest0001', 'owner@example.com', 30, '${NOW}');
+INSERT INTO calendar_notifications (id, email, kind, ref_id, occurrence_key, fire_at, title, created_at) VALUES ('cnt_backuptest0001', 'owner@example.com', 'event', 'cev_backuptest0001', '2026-10-05T17:00:30', '${NOW}', 'Swimming', '${NOW}');
+INSERT INTO calendar_subscriptions (id, calendar_id, owner_email, url_secret, url_hash, url_display, next_refresh_at, created_at, updated_at) VALUES ('csb_backuptest0001', 'cal_backuptest0002', 'owner@example.com', 'plain:https://calendar.example.com/x.ics', '${"a".repeat(64)}', 'calendar.example.com/…', '${NOW}', '${NOW}', '${NOW}');
+INSERT INTO calendar_feeds (id, owner_email, name, token_hash, token_hint, scope, created_at) VALUES ('cfd_backuptest0001', 'owner@example.com', 'Work', '${"b".repeat(64)}', 'abcd', '{"calendarIds":[],"leave":true,"tasks":"none","detail":"busy"}', '${NOW}');
+INSERT INTO calendar_custom_dates (id, owner_email, kind, name, start_date, end_date, school, created_at, updated_at) VALUES ('ccd_backuptest0001', 'owner@example.com', 'development_day', 'Pupil-free day', '2026-11-02', '2026-11-02', 'Riverside PS', '${NOW}', '${NOW}');
+INSERT INTO calendar_activity (at, actor, action, entity_type, entity_id) VALUES ('${NOW}', 'owner@example.com', 'event.create', 'event', 'cev_backuptest0001');
+INSERT INTO leave_profiles (email, pattern, settings, updated_at) VALUES ('owner@example.com', '{"kind":"weekly","hours":[7.6,7.6,7.6,7.6,7.6,0,0]}', '{}', '${NOW}');
+INSERT INTO leave_types (id, email, kind, name, balance_hours, balance_date, accrual, created_at, updated_at) VALUES ('lvt_backuptest0001', 'owner@example.com', 'annual', 'Annual leave', 120, '2026-09-30', '{"method":"per_hour","rate":0.076923}', '${NOW}', '${NOW}');
+INSERT INTO leave_adjustments (id, leave_type_id, email, date, hours, reason, created_at) VALUES ('lva_backuptest0001', 'lvt_backuptest0001', 'owner@example.com', '2026-10-01', 7.6, 'Payslip correction', '${NOW}');
+INSERT INTO leave_scenarios (id, email, name, created_at, updated_at) VALUES ('lvs_backuptest0001', 'owner@example.com', 'Japan in April', '${NOW}', '${NOW}');
+INSERT INTO leave_bookings (id, email, leave_type_id, scenario_id, start_date, end_date, status, created_at, updated_at) VALUES
+  ('lvb_backuptest0001', 'owner@example.com', 'lvt_backuptest0001', NULL, '2026-12-21', '2026-12-24', 'approved', '${NOW}', '${NOW}'),
+  ('lvb_backuptest0002', 'owner@example.com', 'lvt_backuptest0001', 'lvs_backuptest0001', '2027-04-12', '2027-04-23', 'draft', '${NOW}', '${NOW}');
+INSERT INTO leave_shares (owner_email, viewer_email, created_at) VALUES ('owner@example.com', 'partner@example.com', '${NOW}');
+INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, created_at, completed_at) VALUES
+  ('mcw_backuptest0005', 'owner@example.com', 'calendar_create_event', 'req-backuptest-0005', 'done', 'calendar_event', 'cev_backuptest0001', '${NOW}', '${NOW}');
+`;
+const CALENDAR_TABLES = [
+    "calendar_preferences",
+    "calendars",
+    "calendar_members",
+    "calendar_events",
+    "calendar_event_overrides",
+    "calendar_event_links",
+    "calendar_reminders",
+    "calendar_notifications",
+    "calendar_subscriptions",
+    "calendar_feeds",
+    "calendar_custom_dates",
+    "calendar_activity",
+    "leave_profiles",
+    "leave_types",
+    "leave_adjustments",
+    "leave_scenarios",
+    "leave_bookings",
+    "leave_shares",
+];
+
 const TASK_M3_TABLES = [
     "task_project_reviews",
     "task_review_actions",
@@ -316,6 +372,12 @@ try {
         "Every Intelligence table has rows (0021)",
         "An Intelligence table is empty",
     );
+    run(CALENDAR);
+    report.check(
+        CALENDAR_TABLES.every((t) => count(t) > 0),
+        "Every Calendar and Leave table has rows (0022)",
+        "A Calendar or Leave table is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -353,6 +415,7 @@ try {
             ...MCP_TABLES,
             ...DALYHUB_TABLES,
             ...INTELLIGENCE_TABLES,
+            ...CALENDAR_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(
@@ -419,6 +482,13 @@ try {
             ),
             "The restored copy still keeps personal projects to one member",
             "The restored copy let a second person into a personal project",
+        );
+        report.check(
+            refuses(
+                "INSERT INTO calendar_members (calendar_id, email, role, added_by, created_at, updated_at) VALUES ('cal_backuptest0002', 'partner@example.com', 'editor', 'x', 'x', 'x');",
+            ) && query("SELECT COUNT(*) AS n FROM calendar_events WHERE rrule IS NOT NULL", restored)[0].n === 1,
+            "The restored copy still refuses editors on subscribed calendars, and keeps repeat rules",
+            "The restored copy lost a calendar rule",
         );
         report.check(
             refuses("UPDATE task_items SET project_id = 'tpj_backuptest0001' WHERE id = 'tsk_backuptest0002';"),
