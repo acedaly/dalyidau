@@ -32,3 +32,6 @@ playwright-report
 
 # Database backups contain personal data (scripts/db-backup.mjs)
 backups/
+
+# DalyHub migration plans and exports hold real data; this repository is public.
+/migration-work/

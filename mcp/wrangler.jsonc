@@ -1,0 +1,46 @@
+// The Daly MCP gateway, https://mcp.daly.id.au/mcp (docs/MCP.md). Deployed by hand, never by CI:
+//   npx wrangler deploy --config mcp/wrangler.jsonc --env production
+// It has no database, storage, queue or Durable Object binding, and no binding to anything except
+// Daly Portal's PortalMcpEntrypoint. test/mcp-gateway/isolation.test.ts holds it to that.
+{
+    "$schema": "../node_modules/wrangler/config-schema.json",
+    // Local development only. `wrangler deploy` without --env production is refused by the
+    // development auth mode anywhere but localhost, and this name owns no domain.
+    "name": "daly-mcp-dev",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-10-01",
+    // agents/mcp/server uses AsyncLocalStorage (node:async_hooks).
+    "compatibility_flags": ["nodejs_compat"],
+    "workers_dev": false,
+    "preview_urls": false,
+    "upload_source_maps": true,
+    "observability": { "enabled": true, "head_sampling_rate": 1 },
+    "vars": { "ENVIRONMENT": "development", "AUTH_MODE": "development" },
+    "secrets": { "required": ["DEV_MCP_TOKEN"] },
+    // Locally the portal runs as its staging Worker name (`wrangler dev --env staging`, docs/MCP.md).
+    "services": [{ "binding": "PORTAL", "service": "dalyidau-staging", "entrypoint": "PortalMcpEntrypoint" }],
+    // Per-person limits keyed by the Access subject. Free with Workers; the namespace ids are the
+    // ones the gateway has always used, so live counters carry over.
+    "ratelimits": [
+        { "name": "MCP_CALLS", "namespace_id": "4401", "simple": { "limit": 120, "period": 60 } },
+        { "name": "MCP_WRITES", "namespace_id": "4402", "simple": { "limit": 30, "period": 60 } },
+    ],
+    "env": {
+        "production": {
+            // The existing Worker that already owns the mcp.daly.id.au Custom Domain, sits behind the
+            // mcp.daly.id.au Access application and holds TEAM_DOMAIN and POLICY_AUD. Deploying this
+            // code under the same name changes the code only: no DNS, Access or secret change, and
+            // `wrangler rollback` returns to the previous version (docs/MCP_CUTOVER.md).
+            "name": "dalyhub-mcp",
+            "workers_dev": false,
+            "preview_urls": false,
+            "vars": { "ENVIRONMENT": "production", "AUTH_MODE": "cloudflare-access" },
+            "secrets": { "required": ["TEAM_DOMAIN", "POLICY_AUD"] },
+            "services": [{ "binding": "PORTAL", "service": "dalyidau", "entrypoint": "PortalMcpEntrypoint" }],
+            "ratelimits": [
+                { "name": "MCP_CALLS", "namespace_id": "4401", "simple": { "limit": 120, "period": 60 } },
+                { "name": "MCP_WRITES", "namespace_id": "4402", "simple": { "limit": 30, "period": 60 } },
+            ],
+        },
+    },
+}

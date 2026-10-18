@@ -9,6 +9,7 @@ import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
 import { handleKnowledgeApi } from "../knowledge/api";
+import { applyMigration, listMigrationRuns, previewMigration, revertMigration } from "../migration/dalyhub";
 import { handleTasksApi } from "../tasks/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
@@ -225,6 +226,49 @@ add("DELETE", "/api/portal/users/:email", "portal.users.manage", async ({ env, u
 });
 
 add("GET", "/api/portal/audit", "portal.audit.view", async ({ env, url }) => json(await listAudit(env.DB, url)));
+
+// --- DalyHub migration (docs/DALYHUB_MIGRATION.md) ---------------------------------------------------
+// Owners only, into their own records, and only while DALYHUB_MIGRATION is "on" (off by default).
+// The audit log records counts and run ids, never titles.
+
+const migration = (env: Env) => {
+    if (env.DALYHUB_MIGRATION !== "on") throw new HttpError(404, "not_found", "Not found");
+};
+add("GET", "/api/portal/migrations/dalyhub/runs", "portal.settings.manage", async ({ env, user }) => {
+    migration(env);
+    return json({ runs: await listMigrationRuns(env.DB, user) });
+});
+add("POST", "/api/portal/migrations/dalyhub/preview", "portal.settings.manage", async ({ env, request, user }) => {
+    migration(env);
+    return json(await previewMigration(env.DB, user, await readJson(request, 8_000_000)));
+});
+add("POST", "/api/portal/migrations/dalyhub/apply", "portal.settings.manage", async ({ env, request, user }) => {
+    migration(env);
+    const result = await applyMigration(env.DB, user, await readJson(request, 8_000_000));
+    await audit(env.DB, {
+        actor: user.email,
+        action: "dalyhub_migration.apply",
+        entityType: "dalyhub_migration",
+        entityId: result.runId,
+        summary: `Imported ${result.created} DalyHub records`,
+        changes: result,
+    });
+    return json(result);
+});
+add("POST", "/api/portal/migrations/dalyhub/runs/:id/revert", "portal.settings.manage", async ({ env, request, user, params }) => {
+    migration(env);
+    const result = await revertMigration(env.DB, user, params.id, await readJson(request));
+    if (!result.dryRun)
+        await audit(env.DB, {
+            actor: user.email,
+            action: "dalyhub_migration.revert",
+            entityType: "dalyhub_migration",
+            entityId: params.id,
+            summary: `Reverted ${result.removed} DalyHub records, kept ${result.kept.length}`,
+            changes: { removed: result.removed, kept: result.kept.length, alreadyGone: result.alreadyGone },
+        });
+    return json(result);
+});
 
 // --- Exports --------------------------------------------------------------------------------------
 

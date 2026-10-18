@@ -537,7 +537,7 @@ Browser tests use a second identity (`ACCESS_DEV_ALT_EMAIL` with a `portal_dev_i
 
 - **Milestone 2: planning, reminders, templates, Todoist import.** Merged (#26). Deferred from it: browser push (needs an installable portal and VAPID secrets), a calendar (iCal) feed, remembering collapsed sections, and verifying the import against a real Todoist export.
 - **Milestone 3 (this branch): integrated productivity.** Built: see above. Deferred: optional task estimates (and then capacity), calendar-fixed rotas, reminders for due reviews and goals, Knowledge links on reviews, dashboard card ordering and pinned/favourite projects, bulk "move all overdue" across projects from the dashboard (Today already does it for your tasks), waiting-on indicators, a daily planning checklist.
-- **Milestone 4: AI and MCP.** The first part is built (draft PR, not deployed): authenticated, membership-scoped MCP tools through the existing `mcp.daly.id.au` gateway, covering reads, search, capture, bounded edits and daily and weekly briefings. Destructive and bulk tools are left out entirely. See [MCP.md](MCP.md). Still to come: suggestions from Knowledge, and metering if any AI inference is ever added server-side. Tasks keeps working without any of it.
+- **Milestone 4: AI and MCP.** The first part is built (draft PR, not deployed): authenticated, membership-scoped MCP tools through the `mcp.daly.id.au` gateway (`mcp/` in this repository), covering reads, search, capture, bounded edits and daily and weekly briefings. Destructive and bulk tools are left out entirely. See [MCP.md](MCP.md). Still to come: suggestions from Knowledge, and metering if any AI inference is ever added server-side. Tasks keeps working without any of it.
 
 ## Deploying
 

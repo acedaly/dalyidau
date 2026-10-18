@@ -1,7 +1,7 @@
 // The portal's end of the Daly MCP gateway (docs/MCP.md).
 //
-// mcp.daly.id.au (the dalyhub-mcp Worker, in the DalyHub-V2 repository) holds the MCP protocol, the
-// tool descriptions and Cloudflare Access OAuth. It reaches the portal only through this named
+// mcp.daly.id.au (the gateway Worker in mcp/, in this repository) holds the MCP protocol, the tool
+// descriptions and Cloudflare Access OAuth. It reaches the portal only through this named
 // entrypoint, over a private service binding, with one method and a closed set of tools. It has
 // no database binding of its own.
 //
@@ -192,7 +192,7 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
     }
 }
 
-/** Reached only through a service binding (dalyhub-mcp's PORTAL binding); it has no route. */
+/** Reached only through a service binding (the gateway's PORTAL binding, mcp/wrangler.jsonc); it has no route. */
 export class PortalMcpEntrypoint extends WorkerEntrypoint<Env> {
     async invoke(request: PortalMcpRequest): Promise<PortalMcpResponse> {
         return handleMcpCall(this.env, request);

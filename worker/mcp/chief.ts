@@ -28,7 +28,7 @@ import { type ToolContext, type ToolDef, calendarDate, portalUrl, projectNames, 
 /** Items shown per list; every list also says how many there are in total. */
 const SHOWN = 10;
 /** Sources these tools never look at, named so a briefing can't imply they were checked. */
-const NOT_CHECKED = ["calendar", "email", "DalyHub (the older system; its own tools cover it)"];
+const NOT_CHECKED = ["calendar", "email", "DalyHub (retired: never read, and not available through this connector)"];
 
 const bucketOut = async (ctx: ToolContext, bucket: Bucket) => {
     const names = await projectNames(ctx, bucket.tasks);

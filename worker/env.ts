@@ -73,6 +73,8 @@ export interface Env {
     COMMS_WEBHOOK_SECRET?: string;
     /** Optional Cloudflare Email Service binding. Add it only after the sending domain is approved. */
     EMAIL?: SendEmail;
+    /** "on" enables the owner-only DalyHub migration routes (docs/DALYHUB_MIGRATION.md). Off when unset. */
+    DALYHUB_MIGRATION?: string;
     /** HMAC key for long, revocable native RSVP invitation links. */
     RSVP_LINK_SECRET?: string;
 }
