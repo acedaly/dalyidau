@@ -29,6 +29,7 @@ import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { claimWrite, failWrite, settleWrite } from "./ledger";
+import { PLANNER_TOOLS } from "./planner";
 import { DuplicateProject, PROJECT_TOOLS, StaleProject } from "./projects";
 import type { ToolContext, ToolDef } from "./shared";
 import { TASK_TOOLS } from "./tasks";
@@ -57,7 +58,15 @@ export type PortalMcpErrorCode =
 export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
-export const PORTAL_MCP_TOOLS: ToolDef[] = [...KNOWLEDGE_TOOLS, ...TASK_TOOLS, ...PROJECT_TOOLS, ...CHIEF_TOOLS, ...INTELLIGENCE_TOOLS, ...CALENDAR_TOOLS];
+export const PORTAL_MCP_TOOLS: ToolDef[] = [
+    ...KNOWLEDGE_TOOLS,
+    ...TASK_TOOLS,
+    ...PROJECT_TOOLS,
+    ...CHIEF_TOOLS,
+    ...INTELLIGENCE_TOOLS,
+    ...CALENDAR_TOOLS,
+    ...PLANNER_TOOLS,
+];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
 const MAX_INPUT_BYTES = 64_000;

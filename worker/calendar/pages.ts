@@ -8,6 +8,8 @@ import { isCalendarView, viewWindow } from "../../src/shared/calendar/views";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { plannerPrefs } from "../planner/blocks";
+import { dayPlan, viewPlanner } from "../planner/planning";
 import { can } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { preferences, todayFor } from "./access";
@@ -19,7 +21,8 @@ import { loadLeave } from "./leave";
 import { listNotifications } from "./notify";
 import { listSubscriptions } from "./subscriptions";
 
-export type CalendarPage = "view" | "year" | "family" | "leave" | "leave-planner" | "leave-settings" | "calendars" | "subscriptions" | "holidays" | "settings";
+export type CalendarPage =
+    "view" | "planner" | "year" | "family" | "leave" | "leave-planner" | "leave-settings" | "calendars" | "subscriptions" | "holidays" | "settings";
 
 const visible = async <T>(load: () => Promise<T>): Promise<T | null> => {
     try {
@@ -74,8 +77,11 @@ export async function loadCalendarPage(env: Env, user: PortalUser, url: URL, pag
                     overlaysFor(db, user, s.preferences, leave, from, to, s.today),
                 ]);
                 const event = url.searchParams.get("event");
+                // The Tasks panel and time blocks sit beside the day and week views.
+                const planner = (view === "day" || view === "week") && s.canUseTasks ? await viewPlanner(db, user, from, to) : null;
                 return {
                     route: "calendar-view",
+                    planner,
                     ...s,
                     view,
                     anchor,
@@ -85,6 +91,30 @@ export async function loadCalendarPage(env: Env, user: PortalUser, url: URL, pag
                     overlays,
                     openEvent: event && /^cev_[a-z0-9]{14}$/.test(event) ? event : null,
                     truncated,
+                };
+            }
+            case "planner": {
+                // The planner needs Tasks too; without it the page doesn't exist.
+                if (!s.canUseTasks) throw new HttpError(404, "not_found", "Not found");
+                const dateParam = url.searchParams.get("date");
+                const date = dateParam && isCalendarDate(dateParam) ? dateParam : s.today;
+                const leave = await loadLeave(db, user);
+                const [plan, plannerPreferences, { occurrences }, overlays] = await Promise.all([
+                    dayPlan(db, user, date),
+                    plannerPrefs(db, user.email),
+                    occurrencesInWindow(db, user, { from: date, to: date, timeZone: s.preferences.timeZone }),
+                    overlaysFor(db, user, { ...s.preferences, overlays: { ...s.preferences.overlays, tasks: false } }, leave, date, date, s.today),
+                ]);
+                const block = url.searchParams.get("block");
+                return {
+                    route: "calendar-planner",
+                    ...s,
+                    date,
+                    occurrences,
+                    overlays,
+                    plan,
+                    plannerPreferences,
+                    openBlock: block && /^ttb_[a-z0-9]{14}$/.test(block) ? block : null,
                 };
             }
             case "year": {

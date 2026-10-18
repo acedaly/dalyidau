@@ -6,6 +6,8 @@ A personal and household calendar at `/portal/calendar`, built on the existing W
 
 The repository is public, so tests and fixtures only use invented people, events and calendars.
 
+**Daily Planner (Milestone 6.2)**: time blocking for tasks, the Tasks panel in the day and week views, and `/portal/calendar/planner`, with free time, capacity, conflicts and deterministic suggestions. See [DAILY_PLANNER.md](DAILY_PLANNER.md).
+
 ---
 
 ## How it fits together
@@ -154,7 +156,7 @@ Answers list exact dates and hours. Years without official holiday data are flag
 - **Links** to tasks, projects and Knowledge objects hold ids only, checked through `requireTask`/`requireProject`/`requireObject` when added and on every read. They're removed when the record is deleted (foreign keys).
 - **Chief of Staff** (`chief_of_staff_daily_context` / `weekly_context`) and **Intelligence briefings** (the new "Calendar and leave" section) include: the next 7 or 14 days of events, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected balances, and failing subscriptions. Calendar is no longer listed under `notChecked` for people with Calendar. Every fact is deterministic and linked. Private events are "Busy" and sensitive ones "Private event". AI can explain them, but never supplies dates, balances or approvals.
 
-## MCP tools (17; 63 in total)
+## MCP tools (17; 63 in total, 67 with the Daily Planner's)
 
 | Tool                                                                                                                                                                                                               | Notes                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |

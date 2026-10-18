@@ -264,9 +264,9 @@ export const APPLICATIONS = [
     {
         id: "calendar",
         name: "Daly Calendar",
-        summary: "Calendars, family planning, school holidays and leave.",
+        summary: "Calendars, daily planning, school holidays and leave.",
         description:
-            "Personal and shared calendars, subscribed feeds, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
+            "Personal and shared calendars, subscribed feeds, a daily planner that blocks time for your tasks, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
         icon: "calendar",
         baseRoute: "/portal/calendar",
         requiredPermission: "calendar.use",
@@ -277,6 +277,8 @@ export const APPLICATIONS = [
                 items: [
                     { label: "Calendar", href: "/portal/calendar", icon: "calendar" },
                     { label: "Agenda", href: "/portal/calendar?view=agenda", icon: "agenda" },
+                    // The Daily Planner plans Tasks, so it's only there for people who can open Tasks.
+                    { label: "Daily planner", href: "/portal/calendar/planner", icon: "today", permission: "tasks.use" },
                     { label: "Year planner", href: "/portal/calendar/year", icon: "year" },
                     { label: "Family planner", href: "/portal/calendar/family", icon: "family" },
                 ],

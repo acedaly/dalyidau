@@ -1,8 +1,9 @@
 // Daly Calendar's main page: day, week, month and agenda views. Moving between dates and views is
 // a plain link (the portal has no client router), so every view is a fresh, shareable URL.
-// Changes made here (new events, edits, show/hide) are applied in place without reloading.
-import { useState } from "react";
-import { ArrowLeft, ArrowRight, Plus, SearchLg } from "@untitledui/icons";
+// Changes made here (new events, edits, show/hide) are applied in place without reloading. The day
+// and week views also carry the Daily Planner's Tasks panel and time blocks (planner-ui.tsx).
+import { useCallback, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, CalendarCheck01, Plus, SearchLg } from "@untitledui/icons";
 import { CalendarDateIcon } from "@/components/application/calendar/base-components/calendar-date-icon";
 import { CalendarViewDropdown } from "@/components/application/calendar/base-components/calendar-view-dropdown";
 import { Badge } from "@/components/base/badges/badges";
@@ -19,6 +20,8 @@ import { stepAnchor } from "@/shared/calendar/views";
 import { cx } from "@/utils/cx";
 import { calendarApi } from "../api";
 import { EventPanel, type PanelTarget } from "../event-panel";
+import { plannerApi } from "../planner-api";
+import { BlockPanel, type PlannerState, ScheduleDialog, TasksPanel, usePlanner } from "../planner-ui";
 import { CalendarHeader, ColorDot } from "../shared";
 import { AgendaList, MonthGrid, TimeGrid, WeekList } from "../views";
 
@@ -29,6 +32,12 @@ const VIEW_OPTIONS = [
     { value: "agenda", label: "Agenda" },
     { value: "year", label: "Year planner" },
 ];
+
+const EMPTY_PLAN: PlannerState = {
+    lists: { tasks: [], buckets: { today: [], overdue: [], upcoming: [], priority: [], unscheduled: [] } },
+    blocks: [],
+    conflicts: [],
+};
 
 const viewHref = (view: string, date: string) =>
     view === "year" ? `/portal/calendar/year?year=${date.slice(0, 4)}` : `/portal/calendar?view=${view}&date=${date}`;
@@ -55,6 +64,16 @@ export const CalendarViewPage = ({ data }: { data: PageData<"calendar-view"> }) 
             toast.error("Couldn't refresh the calendar", errorMessage(error));
         }
     };
+    // The Tasks panel and time blocks (day and week views, for people who can open Tasks).
+    const loadPlanner = useCallback(async (): Promise<PlannerState> => {
+        const { planner: p } = await plannerApi.window(data.from, data.to);
+        return { lists: p.lists, blocks: p.blocks, conflicts: p.conflicts };
+    }, [data.from, data.to]);
+    const planner = usePlanner(
+        data.planner ? { lists: data.planner.lists, blocks: data.planner.blocks, conflicts: data.planner.conflicts } : EMPTY_PLAN,
+        loadPlanner,
+    );
+    const conflicted = useMemo(() => new Set(planner.state.conflicts.map((c) => c.blockId).filter((id): id is string => !!id)), [planner.state.conflicts]);
     const toggle = async (c: CalendarInfo) => {
         try {
             const { calendar } = await calendarApi.personal(c.id, { hidden: !c.hidden });
@@ -82,6 +101,14 @@ export const CalendarViewPage = ({ data }: { data: PageData<"calendar-view"> }) 
         overlays,
         onOpen: (o: EventOccurrence) => setTarget({ kind: "open", eventId: o.eventId, occurrence: o }),
         onCreate: (date: string, time: string | null) => canAdd && setTarget({ kind: "new", date, time }),
+        ...(data.planner
+            ? {
+                  blocks: planner.state.blocks,
+                  conflicted,
+                  onOpenBlock: planner.setOpenBlock,
+                  onDropPlan: (payload: Parameters<typeof planner.drop>[0], date: string, time: string) => void planner.drop(payload, date, time),
+              }
+            : {}),
     };
     const heading =
         data.view === "day"
@@ -98,15 +125,27 @@ export const CalendarViewPage = ({ data }: { data: PageData<"calendar-view"> }) 
                 description={`Times in ${tz.replace(/_/g, " ")} (${zoneAbbreviation(tz)}).`}
                 crumb={{ label: VIEW_OPTIONS.find((v) => v.value === data.view)?.label ?? "Calendar" }}
                 actions={
-                    canAdd && (
-                        <Button
-                            size="md"
-                            iconLeading={Plus}
-                            onClick={() => setTarget({ kind: "new", date: data.view === "day" ? data.anchor : data.today, time: null })}
-                        >
-                            Add event
-                        </Button>
-                    )
+                    <>
+                        {data.canUseTasks && (
+                            <Button
+                                size="md"
+                                color="secondary"
+                                iconLeading={CalendarCheck01}
+                                href={`/portal/calendar/planner?date=${data.view === "day" ? data.anchor : data.today}`}
+                            >
+                                Daily planner
+                            </Button>
+                        )}
+                        {canAdd && (
+                            <Button
+                                size="md"
+                                iconLeading={Plus}
+                                onClick={() => setTarget({ kind: "new", date: data.view === "day" ? data.anchor : data.today, time: null })}
+                            >
+                                Add event
+                            </Button>
+                        )}
+                    </>
                 }
             />
 
@@ -236,19 +275,41 @@ export const CalendarViewPage = ({ data }: { data: PageData<"calendar-view"> }) 
 
             {!calendars.some((c) => !c.hidden) && <Notice title="Every calendar is hidden">Choose a calendar above to show its events.</Notice>}
 
-            {data.view === "day" && <TimeGrid {...props} startHour={Number(data.preferences.workingHours.start.slice(0, 2))} />}
-            {data.view === "week" && (
-                <>
-                    <div className="max-md:hidden">
-                        <TimeGrid {...props} startHour={Number(data.preferences.workingHours.start.slice(0, 2))} />
+            {(data.view === "day" || data.view === "week") && (
+                <div className={cx("grid grid-cols-1 gap-4", data.planner && "xl:grid-cols-[minmax(0,1fr)_22rem]")}>
+                    <div className="min-w-0">
+                        {data.view === "day" && <TimeGrid {...props} startHour={Number(data.preferences.workingHours.start.slice(0, 2))} />}
+                        {data.view === "week" && (
+                            <>
+                                <div className="max-md:hidden">
+                                    <TimeGrid {...props} startHour={Number(data.preferences.workingHours.start.slice(0, 2))} />
+                                </div>
+                                <div className="md:hidden">
+                                    <WeekList {...props} />
+                                </div>
+                            </>
+                        )}
                     </div>
-                    <div className="md:hidden">
-                        <WeekList {...props} />
-                    </div>
-                </>
+                    {data.planner && (
+                        <TasksPanel
+                            planner={planner}
+                            today={data.today}
+                            defaultDate={data.view === "day" ? data.anchor : data.today >= data.from && data.today <= data.to ? data.today : data.from}
+                            collapsible
+                            className="xl:sticky xl:top-4 xl:self-start"
+                        />
+                    )}
+                </div>
             )}
             {data.view === "month" && <MonthGrid {...props} month={data.anchor.slice(0, 7)} />}
             {data.view === "agenda" && <AgendaList {...props} />}
+
+            {data.planner && (
+                <>
+                    <ScheduleDialog planner={planner} today={data.today} />
+                    <BlockPanel planner={planner} />
+                </>
+            )}
 
             <EventPanel
                 target={target}

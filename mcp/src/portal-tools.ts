@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { PortalMcpRequest, PortalMcpResponse } from "../../worker/mcp/entrypoint";
 
 /**
- * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence and Daly Calendar in Daly Portal) and how each one is advertised.
+ * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence, Daly Calendar and the Daily Planner in Daly Portal) and how each one is advertised.
  *
  * This Worker holds the MCP descriptions and a first round of input validation only. Every call
  * goes over the private `PORTAL` service binding to the portal Worker's `PortalMcpEntrypoint`
@@ -85,6 +85,10 @@ export const PORTAL_TOOL_NAMES = [
     "calendar_refresh_subscription",
     "leave_create_proposal",
     "leave_update_proposal",
+    "planner_get_day",
+    "planner_suggest_slots",
+    "planner_schedule_task",
+    "planner_update_block",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -115,6 +119,8 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "calendar_refresh_subscription",
     "leave_create_proposal",
     "leave_update_proposal",
+    "planner_schedule_task",
+    "planner_update_block",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -146,6 +152,9 @@ const CAL =
     "Daly Calendar (daly.id.au/portal/calendar). Shows only calendars the person belongs to; other people's private events appear as Busy and sensitive events (children, care, health) as Private event, with no details.";
 const LEAVE =
     "Daly Calendar's leave planner. Balances and dates are worked out by the portal's deterministic leave engine from the person's own settings and NSW public holidays: report them as given, never estimate or invent them, and never describe leave as approved unless its status says so.";
+const PLAN =
+    "Daily Planner (daly.id.au/portal/calendar/planner): time blocks are sessions the person sets aside for their own tasks. Tasks stay the source of truth: a block never changes a task's due date or status. Free time, capacity, conflicts and suggestions come from the portal's deterministic planner; report them as given.";
+const blockId = portalId("ttb", "time block");
 const suggestionId = portalId("ais", "Intelligence suggestion");
 const date = z
     .string()
@@ -389,6 +398,48 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
                 hours: z.number().min(0).max(24).optional(),
                 status: z.enum(["draft", "proposed", "cancelled"]).optional(),
                 title: z.string().trim().max(120).optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+
+    planner_get_day: {
+        description: `${PLAN} A day's plan (default today): sessions already scheduled, capacity (planning hours, events, blocks, free time), free slots, conflicts (overlaps with events, including subscribed and shared calendars, leave and days off), tasks due and not yet planned, and a few suggested sessions. Suggested sessions are not scheduled. Read-only.`,
+        input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
+    },
+    planner_suggest_slots: {
+        description: `${PLAN} Suggests when to work on tasks in the person's free time over 1–14 days from a date (default today): earliest free time first, before each task is due where possible, within their planning hours and daily focus limit, sessions split by their shortest and longest lengths. Default tasks: today's, overdue, upcoming and P1–P2. Suggestions only: nothing is created. Offer them to the person and schedule only the ones they accept. Read-only.`,
+        input: z
+            .object({ from: date.optional(), days: z.number().int().min(1).max(14).optional(), taskIds: z.array(taskId).min(1).max(50).optional() })
+            .strict(),
+        annotations: READ,
+    },
+    planner_schedule_task: {
+        description: `${PLAN} WRITE: block time for one of the person's tasks (startDate and startTime in their time zone, durationMinutes in 5-minute steps, at most 12 hours). Call it only for a time the person agreed to. Conflicts are returned as warnings; the block is still created. Doesn't change the task. Send a fresh requestId.`,
+        input: z
+            .object({
+                taskId,
+                startDate: date,
+                startTime: time,
+                durationMinutes: z.number().int().min(5).max(720),
+                occurrenceDate: date.optional().describe("For a repeating task: the occurrence this session is for (default: the one due now)."),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    planner_update_block: {
+        description: `${PLAN} WRITE: move (startDate, startTime), resize (durationMinutes) or cancel (cancel: true) one of the person's time blocks. Cancelling frees the time and keeps the record; nothing is deleted. Pass the version you read. Confirm with the person first.`,
+        input: z
+            .object({
+                blockId,
+                version,
+                startDate: date.optional(),
+                startTime: time.optional(),
+                durationMinutes: z.number().int().min(5).max(720).optional(),
+                cancel: z.literal(true).optional(),
                 requestId,
             })
             .strict(),

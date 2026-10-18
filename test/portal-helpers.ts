@@ -125,6 +125,9 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "task_time_blocks",
+    "task_estimates",
+    "planner_preferences",
     "calendar_activity",
     "calendar_notifications",
     "calendar_reminders",

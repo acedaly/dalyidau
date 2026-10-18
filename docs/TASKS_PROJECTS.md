@@ -241,6 +241,10 @@ Moving a task, its date changing as it repeats, or recalculating a relative remi
 
 **Tested with a mock provider only.** No real email has been sent; the tests never send any (the test environment has `EMAIL_DELIVERY=off`, and the processor is given a mock). The switch must stay off until the owner approves.
 
+## Calendar and the Daily Planner
+
+Daly Calendar shows open tasks due in its views, and the [Daily Planner](DAILY_PLANNER.md) blocks time for them. Tasks stays the source of truth: a time block or an effort estimate is stored apart from the task (`task_time_blocks`, `task_estimates`), refers to it by id, and is removed with it. Scheduling, moving or cancelling time never changes a task's dates, priority or status. Completing a task from Calendar calls this API (`POST /tasks/:id/complete`), with its usual rules for repeats and subtasks. Leaving a project, or a task moving to a project you're not in, removes your planned time for it.
+
 ## Knowledge integration
 
 A task can reference Knowledge objects (up to 20). Two permission systems apply and neither implies the other:

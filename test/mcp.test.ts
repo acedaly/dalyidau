@@ -110,7 +110,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 63 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 67 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
@@ -177,17 +177,21 @@ describe("who may call the portal through the MCP gateway", () => {
                 "calendar_refresh_subscription",
                 "leave_create_proposal",
                 "leave_update_proposal",
+                "planner_get_day",
+                "planner_suggest_slots",
+                "planner_schedule_task",
+                "planner_update_block",
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
         expect(
             writes.every((n) =>
-                /_(create|update|append|reschedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion|refresh)/.test(
+                /_(create|update|append|reschedule|schedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion|refresh)/.test(
                     n,
                 ),
             ),
         ).toBe(true);
-        expect(writes).toHaveLength(24);
+        expect(writes).toHaveLength(26);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {

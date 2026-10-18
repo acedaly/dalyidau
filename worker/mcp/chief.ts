@@ -16,6 +16,7 @@ import type { Bucket, ProjectCard, TaskGoal, TaskRoutine } from "../../src/share
 import { calendarFacts } from "../calendar/chief";
 import { dailyNote, spaceToday } from "../knowledge/daily";
 import { listObjects } from "../knowledge/objects";
+import { plannerFacts } from "../planner/facts";
 import { can } from "../portal/auth";
 import { preferences, todayFor } from "../tasks/access";
 import { householdDashboard, personalDashboard } from "../tasks/dashboard";
@@ -193,6 +194,9 @@ const chiefDaily = tool({
         }
         // Calendar and leave: what's on in the next week, clashes, important dates, leave and school holidays.
         if (checked.calendar) data.calendar = await calendarFacts(ctx.db, ctx.user, ctx.site, 7);
+        // Today's plan: sessions, capacity, free time, conflicts, what's due and not planned, and
+        // suggested sessions (suggestions only: nothing is scheduled unless the person accepts one).
+        if (checked.calendar && checked.tasks) data.planner = await plannerFacts(ctx.db, ctx.user, ctx.site);
         return { data };
     },
 });

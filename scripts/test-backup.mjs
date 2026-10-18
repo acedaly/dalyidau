@@ -260,6 +260,20 @@ const CALENDAR_TABLES = [
     "leave_shares",
 ];
 
+// The Daily Planner (0023): planning preferences, an estimate and a time block on a shared task (the
+// database checks the person is a member who can work on it), a feed that publishes blocks as
+// "Focus time", and an MCP write naming a block (the widened ledger).
+const PLANNER = `
+INSERT INTO planner_preferences (email, value, updated_at) VALUES ('partner@example.com', '{"bufferMinutes":15}', '${NOW}');
+INSERT INTO task_estimates (task_id, minutes, updated_by, updated_at) VALUES ('tsk_backuptest0001', 90, 'partner@example.com', '${NOW}');
+INSERT INTO task_time_blocks (id, task_id, owner_email, start_date, start_time, duration_minutes, time_zone, start_at, end_at, created_at, updated_at) VALUES
+  ('ttb_backuptest0001', 'tsk_backuptest0001', 'partner@example.com', '2026-10-20', '09:00', 90, 'Australia/Sydney', '2026-10-19T22:00:00.000Z', '2026-10-19T23:30:00.000Z', '${NOW}', '${NOW}');
+UPDATE calendar_feeds SET time_blocks = 'focus' WHERE id = 'cfd_backuptest0001';
+INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entity_id, created_at, completed_at) VALUES
+  ('mcw_backuptest0006', 'partner@example.com', 'planner_schedule_task', 'req-backuptest-0006', 'done', 'task_time_block', 'ttb_backuptest0001', '${NOW}', '${NOW}');
+`;
+const PLANNER_TABLES = ["planner_preferences", "task_estimates", "task_time_blocks"];
+
 const TASK_M3_TABLES = [
     "task_project_reviews",
     "task_review_actions",
@@ -378,6 +392,12 @@ try {
         "Every Calendar and Leave table has rows (0022)",
         "A Calendar or Leave table is empty",
     );
+    run(PLANNER);
+    report.check(
+        PLANNER_TABLES.every((t) => count(t) > 0),
+        "Every Daily Planner table has rows (0023)",
+        "A Daily Planner table is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -416,6 +436,7 @@ try {
             ...DALYHUB_TABLES,
             ...INTELLIGENCE_TABLES,
             ...CALENDAR_TABLES,
+            ...PLANNER_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(

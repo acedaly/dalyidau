@@ -21,7 +21,8 @@ export const RecordPanel = ({ isOpen, onOpenChange, title, description, leading,
     // overlay as well as the panel, so a width there would shrink the overlay.
     <ModalOverlay isOpen={isOpen} onOpenChange={onOpenChange} isDismissable className="z-50">
         <Modal className={cx(width === "lg" ? "max-w-140" : "max-w-110")}>
-            <Dialog className="gap-0">
+            {/* Named by its title: the PRO Dialog otherwise calls every panel "Slideout menu". */}
+            <Dialog className="gap-0" aria-label={title}>
                 {({ close }) => {
                     const content = (
                         <>
