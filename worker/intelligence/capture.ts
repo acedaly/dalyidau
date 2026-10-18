@@ -414,7 +414,7 @@ async function recordDrafts(env: Env, user: PortalUser, capture: CaptureRow, out
         ).results.map((r) => r.name.toLowerCase());
         const fresh = tags.filter((t) => !existing.includes(t));
         if (fresh.length)
-            drafts.push({ kind: "tags", payload: payloadSchemas.tags.parse({ objectId: capture.source_object_id, tags: fresh }), reason: "Topics in this note", evidence: null, confidence: null, key: `tags:${fresh.join(",")}` });
+            drafts.push({ kind: "tags", payload: payloadSchemas.tags.parse({ objectId: capture.source_object_id, tags: fresh }), reason: "Topics in this note", evidence: null, confidence: null, key: `tags:${capture.source_object_id}:${fresh.join(",")}` });
         // Links come from the existing, explainable related-content engine: nothing a model made up.
         const access = await requireObject(env.DB, user, capture.source_object_id);
         for (const related of (await relatedObjects(env.DB, access.id, access.space_id, 5)).filter((r) => r.strength === "strong").slice(0, 3))
@@ -424,7 +424,7 @@ async function recordDrafts(env: Env, user: PortalUser, capture: CaptureRow, out
                 reason: related.reasons.join("; "),
                 evidence: null,
                 confidence: null,
-                key: `link:${related.object.id}`,
+                key: `link:${access.id}:${related.object.id}`,
             });
         return drafts;
     }
@@ -436,7 +436,7 @@ async function recordDrafts(env: Env, user: PortalUser, capture: CaptureRow, out
             reason: "Keep this meeting in Knowledge with its summary and transcript",
             evidence: null,
             confidence: null,
-            key: "record:meeting",
+            key: `record:${capture.id}`,
         });
     else
         drafts.push({
@@ -451,7 +451,7 @@ async function recordDrafts(env: Env, user: PortalUser, capture: CaptureRow, out
             reason: capture.source === "document" ? "Keep this document's text (and the file) in Knowledge" : "Keep what you captured as a note",
             evidence: null,
             confidence: null,
-            key: "record:note",
+            key: `record:${capture.id}`,
         });
     return drafts;
 }

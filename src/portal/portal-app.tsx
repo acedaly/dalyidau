@@ -1,5 +1,12 @@
 import { Plus } from "@untitledui/icons";
 import { ToastProvider } from "@/portal/components/toast";
+import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
+import { IntelligenceCaptureDetailPage } from "@/portal/intelligence/pages/intelligence-capture-detail-page";
+import { IntelligenceCapturePage } from "@/portal/intelligence/pages/intelligence-capture-page";
+import { IntelligenceHomePage } from "@/portal/intelligence/pages/intelligence-home-page";
+import { IntelligenceInboxPage } from "@/portal/intelligence/pages/intelligence-inbox-page";
+import { IntelligenceMeetingsPage } from "@/portal/intelligence/pages/intelligence-meetings-page";
+import { IntelligenceSettingsPage } from "@/portal/intelligence/pages/intelligence-settings-page";
 import { KnowledgeCollectionPage } from "@/portal/knowledge/pages/knowledge-collection-page";
 import { KnowledgeCollectionsPage } from "@/portal/knowledge/pages/knowledge-collections-page";
 import { KnowledgeDailyPage } from "@/portal/knowledge/pages/knowledge-daily-page";
@@ -166,6 +173,20 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <TasksWorkloadPage data={data} />;
         case "tasks-reports":
             return <TasksReportsPage data={data} />;
+        case "intelligence-home":
+            return <IntelligenceHomePage data={data} />;
+        case "intelligence-inbox":
+            return <IntelligenceInboxPage key={data.filter} data={data} />;
+        case "intelligence-capture":
+            return <IntelligenceCapturePage data={data} />;
+        case "intelligence-capture-detail":
+            return <IntelligenceCaptureDetailPage key={data.capture.id} data={data} />;
+        case "intelligence-briefing":
+            return <IntelligenceBriefingPage key={data.kind} data={data} />;
+        case "intelligence-meetings":
+            return <IntelligenceMeetingsPage data={data} />;
+        case "intelligence-settings":
+            return <IntelligenceSettingsPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:

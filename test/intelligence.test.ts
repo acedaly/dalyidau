@@ -318,6 +318,14 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect(titles).toEqual(["Check the downpipes"]);
     });
 
+    it("offers to keep every capture as a note, not just the first one", async () => {
+        const { env } = await aiEnv();
+        await configure(env);
+        await capture(env, "First thing to remember");
+        const { captureId } = await capture(env, "Second thing to remember");
+        expect((await detail(env, captureId)).suggestions.map((s) => s.kind)).toContain("knowledge_object");
+    });
+
     it("dismissing a proposed project sends its tasks to the Inbox instead", async () => {
         const { env } = await aiEnv();
         await configure(env);
