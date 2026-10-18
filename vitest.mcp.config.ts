@@ -15,6 +15,9 @@ export default defineConfig(async () => {
         plugins: [
             cloudflareTest({
                 wrangler: { configPath: "./wrangler.jsonc", environment: "" },
+                // Workers AI and Vectorize (docs/INTELLIGENCE.md) only exist remotely. Tests never call them:
+                // they pass deterministic stand-ins, and need no Cloudflare login.
+                remoteBindings: false,
                 miniflare: {
                     compatibilityFlags: ["nodejs_compat"],
                     bindings: {

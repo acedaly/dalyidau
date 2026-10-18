@@ -35,8 +35,10 @@ export const mockAllowed = (env: Env) => {
 
 let mockIndex: MemoryVectorIndex | null = null;
 
-export const aiBinding = (env: Env): AiBinding | null => env.AI ?? (mockAllowed(env) ? mockAi() : null);
-export const vectorIndex = (env: Env): VectorIndex | null => env.VECTORS ?? (mockAllowed(env) ? (mockIndex ??= new MemoryVectorIndex()) : null);
+// In local development with AI_PROVIDER=mock the stand-ins win even over declared bindings, so
+// `wrangler dev --local` and the browser tests never reach Cloudflare.
+export const aiBinding = (env: Env): AiBinding | null => (mockAllowed(env) ? mockAi() : (env.AI ?? null));
+export const vectorIndex = (env: Env): VectorIndex | null => (mockAllowed(env) ? (mockIndex ??= new MemoryVectorIndex()) : (env.VECTORS ?? null));
 
 // --- Account configuration -------------------------------------------------------------------------
 
