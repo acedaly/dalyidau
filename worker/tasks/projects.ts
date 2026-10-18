@@ -353,7 +353,7 @@ const sharedProject = async (db: D1Database, user: PortalUser, projectId: string
 export async function addMember(env: Env, db: D1Database, user: PortalUser, projectId: string, input: unknown) {
     await sharedProject(db, user, projectId);
     const body = memberInput.parse(input);
-    if (!(await canUseTasks(env, db, body.email))) throw invalid("Add them to the portal as an owner or admin first (Portal settings → People and roles)");
+    if (!(await canUseTasks(env, db, body.email))) throw invalid("Add them to the portal as an owner or admin first (Portal settings → Household & Access)");
     const now = nowIso();
     const [result] = await db.batch([
         db

@@ -3,17 +3,14 @@ import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
-import { Toggle } from "@/components/base/toggle/toggle";
 import { DateField } from "@/portal/components/date-field";
 import { FormGrid, FormSection, useSubmit } from "@/portal/components/form";
-import { Notice } from "@/portal/components/notice";
 import { PageHeader } from "@/portal/components/page-header";
-import { useToast } from "@/portal/components/toast";
-import { api, errorMessage } from "@/portal/lib/api";
+import { api } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { CustomFieldsPanel } from "@/portal/settings/custom-fields-panel";
-import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey, type Flags } from "@/shared/portal/flags";
+import { SwitchSummary } from "@/portal/settings/switch-summary";
 import type { WeddingDetails } from "@/shared/portal/types";
 
 const TIME_ZONES = [
@@ -117,48 +114,6 @@ const GeneralTab = () => {
     );
 };
 
-const FeaturesTab = () => {
-    const { flags, setFlags, can } = usePortal();
-    const toast = useToast();
-    const [busy, setBusy] = useState<FlagKey | null>(null);
-    const canEdit = can("portal.settings.manage");
-    const groups = [...new Set(FLAG_KEYS.map((key) => FLAG_DEFINITIONS[key].group))];
-
-    const toggle = async (key: FlagKey, enabled: boolean) => {
-        setBusy(key);
-        try {
-            const result = await api<{ flags: Flags }>("PUT", `/api/portal/flags/${key}`, { enabled });
-            setFlags(result.flags);
-            toast.success(`${FLAG_DEFINITIONS[key].label} ${enabled ? "on" : "off"}`);
-        } catch (e) {
-            toast.error("Couldn't change the feature", errorMessage(e));
-        } finally {
-            setBusy(null);
-        }
-    };
-
-    return (
-        <div className="flex max-w-4xl flex-col gap-8">
-            {!canEdit && <Notice title="Read only">Only owners and admins can change features.</Notice>}
-            {groups.map((group) => (
-                <FormSection key={group} title={group}>
-                    {FLAG_KEYS.filter((key) => FLAG_DEFINITIONS[key].group === group).map((key) => (
-                        <Toggle
-                            key={key}
-                            size="md"
-                            label={FLAG_DEFINITIONS[key].label}
-                            hint={FLAG_DEFINITIONS[key].description}
-                            isSelected={flags[key]}
-                            isDisabled={!canEdit || busy === key}
-                            onChange={(on) => toggle(key, on)}
-                        />
-                    ))}
-                </FormSection>
-            ))}
-        </div>
-    );
-};
-
 export const WeddingSettingsPage = ({ data }: { data: PageData<"wedding-settings"> }) => {
     const [tab, setTab] = useState<Tab>(data.tab);
     const select = (next: Tab) => {
@@ -171,20 +126,25 @@ export const WeddingSettingsPage = ({ data }: { data: PageData<"wedding-settings
         <>
             <PageHeader
                 title="Wedding settings"
-                description="Wedding details, guest fields and features specific to Wedding Planner."
+                description="Wedding details and custom guest fields. Feature switches are in Portal settings → Features."
                 breadcrumbs={[{ label: "Wedding Planner", href: "/portal/wedding" }, { label: "Settings" }]}
             />
             <Tabs selectedKey={tab} onSelectionChange={(k) => select(k as Tab)}>
                 <Tabs.List type="underline" size="sm" className="overflow-x-auto">
                     <Tabs.Item id="general">General</Tabs.Item>
-                    <Tabs.Item id="features">Features</Tabs.Item>
                     <Tabs.Item id="fields">Custom fields</Tabs.Item>
                 </Tabs.List>
-                <Tabs.Panel id="general" className="pt-8">
+                <Tabs.Panel id="general" className="flex max-w-4xl flex-col gap-8 pt-8">
                     <GeneralTab />
-                </Tabs.Panel>
-                <Tabs.Panel id="features" className="pt-8">
-                    <FeaturesTab />
+                    {/* Switches are portal-wide and changed in one place; this shows the Wedding Planner ones. */}
+                    <div className="border-t border-secondary pt-8">
+                        <FormSection
+                            title="Feature switches"
+                            description="The website, RSVP, sending and modules are switched on or off for the whole portal, in Portal settings → Features."
+                        >
+                            <SwitchSummary area="wedding" />
+                        </FormSection>
+                    </div>
                 </Tabs.Panel>
                 <Tabs.Panel id="fields" className="pt-8">
                     <CustomFieldsPanel initial={data.customFields} />

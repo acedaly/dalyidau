@@ -52,7 +52,7 @@ The critical guest journey (one household: Invitation Studio → Communications 
 
 ## 3. Blocked by provider or Cloudflare configuration
 
-- **Feature switches** (Wedding settings → Features): Email delivery, SMS delivery, Public wedding website, Public Save the Date page and Native RSVP are all off. The invitation link opens the native RSVP only when both of the last two are on; the send check warns about this.
+- **Feature switches** (Portal settings → Features): Email delivery, SMS delivery, Public wedding website, Public Save the Date page and Native RSVP are all off. The invitation link opens the native RSVP only when both of the last two are on; the send check warns about this.
 - **Fastmail**: `EMAIL_DELIVERY` is `fastmail` in `wrangler.jsonc`; `FASTMAIL_API_TOKEN` must be a Worker secret with Mail and Email Submission scopes, and `wedding@daly.id.au` must be an identity. Validate under Communications → Email & SMS settings.
 - **ClickSend**: `SMS_DELIVERY` is `clicksend`; credentials, the dedicated number (`SMS_FROM`) and ClickSend's approval of `wedding.daly.id.au` links are still to be confirmed (COMMUNICATIONS.md).
 - **Test recipients**: none are set. An owner adds their own addresses and mobiles in Email & SMS settings before any test send.
@@ -98,7 +98,7 @@ Upgrade compatibility: older Workers ignore the new columns and tables; the new 
 
 - **Code**: revert the merge commit on `main` (deploys the previous Worker). The new columns and tables are ignored by the old code.
 - **Data**: restore the backup, or use D1 Time Travel to the recorded bookmark (`npx wrangler d1 time-travel restore dalyidau-production --bookmark <id>`), following DATABASE.md. Time Travel also reverts any RSVPs received since, so prefer a code revert unless data is damaged.
-- **Stop sending immediately**: switch off Email delivery and SMS delivery (Wedding settings → Features). Queued messages stay queued and are re-checked when the switches come back on.
+- **Stop sending immediately**: switch off Email delivery and SMS delivery (Portal settings → Features). Queued messages stay queued and are re-checked when the switches come back on.
 
 ---
 

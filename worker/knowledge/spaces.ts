@@ -79,7 +79,7 @@ export async function addMember(env: Env, db: D1Database, user: PortalUser, spac
     await sharedSpace(db, user, spaceId);
     const body = memberInput.parse(input);
     if (!(await canUseKnowledge(env, db, body.email)))
-        throw new HttpError(422, "validation", "Add them to the portal as an owner or admin first (Portal settings → People and roles)");
+        throw new HttpError(422, "validation", "Add them to the portal as an owner or admin first (Portal settings → Household & Access)");
     const now = nowIso();
     const [result] = await db.batch([
         db

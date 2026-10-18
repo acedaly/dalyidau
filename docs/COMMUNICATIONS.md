@@ -6,10 +6,10 @@ so the portal never depends on a particular service.
 
 **Nothing is sent today.** Sending needs, per channel, all of:
 
-| Channel | Worker setting                                 | Secrets                                   | Switch (Wedding settings → Features) |
-| ------- | ---------------------------------------------- | ----------------------------------------- | ------------------------------------ |
-| Email   | `EMAIL_DELIVERY = "fastmail"` and `EMAIL_FROM` | `FASTMAIL_API_TOKEN`                      | Email delivery                       |
-| SMS     | `SMS_DELIVERY = "clicksend"` and `SMS_FROM`    | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | SMS delivery                         |
+| Channel | Worker setting                                 | Secrets                                   | Switch (Portal settings → Features) |
+| ------- | ---------------------------------------------- | ----------------------------------------- | ----------------------------------- |
+| Email   | `EMAIL_DELIVERY = "fastmail"` and `EMAIL_FROM` | `FASTMAIL_API_TOKEN`                      | Email delivery                      |
+| SMS     | `SMS_DELIVERY = "clicksend"` and `SMS_FROM`    | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | SMS delivery                        |
 
 Both start `off` in `wrangler.jsonc`, and both switches default off. `log` modes exist for tests and local development and are ignored in production.
 

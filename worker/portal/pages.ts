@@ -3,6 +3,7 @@
 import { type ApplicationId, applicationById, availableApplications, canAccessApplication } from "../../src/shared/portal/applications";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
+import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import { type CalendarPage, loadCalendarPage } from "../calendar/pages";
 import { providerStatus } from "../comms/providers";
@@ -336,28 +337,39 @@ const PAGES: PageDef[] = [
         },
     },
     {
-        pattern: /^\/portal\/wedding\/settings(?:\/(general|features|fields))?$/,
+        pattern: /^\/portal\/wedding\/settings(?:\/(general|fields))?$/,
         title: "Wedding settings",
         permission: "wedding.view",
         application: "wedding",
         load: async ({ env, match }) => {
-            const tab = (match[1] ?? "general") as "general" | "features" | "fields";
+            const tab = (match[1] ?? "general") as "general" | "fields";
             return { route: "wedding-settings", tab, customFields: await listEntities(env.DB, customFieldDef) };
         },
     },
     {
-        pattern: /^\/portal\/settings(?:\/(general|people|privacy))?$/,
+        pattern: new RegExp(`^/portal/settings(?:/(${PORTAL_SETTINGS_TABS.join("|")}))?$`),
         title: "Portal settings",
         load: async ({ env, user, match }) => {
-            const requested = (match[1] ?? "general") as "general" | "people" | "privacy";
+            const requested = (match[1] ?? "general") as PortalSettingsTab;
             const [users, privacy, deleted, retention] = await Promise.all([
                 can(user, "portal.users.manage") ? listUsers(env, env.DB) : Promise.resolve(null),
                 getSettings(env.DB, "privacy"),
                 can(user, "wedding.guests.edit") ? listDeleted(env.DB) : Promise.resolve(null),
                 can(user, "portal.data.erase") ? retentionPreview(env.DB) : Promise.resolve(null),
             ]);
-            const tab = (requested === "people" && !users) || (requested === "privacy" && !deleted) ? "general" : requested;
-            return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null };
+            // A section this person can't see opens General instead, as before.
+            const tab = canSeeSettingsTab(user, requested) ? requested : "general";
+            const status = providerStatus(env);
+            const integrations = can(user, "portal.settings.manage")
+                ? {
+                      email: status.email,
+                      sms: status.sms,
+                      webhooks: status.webhooks,
+                      mcp: !!env.MCP_ACCESS_AUD,
+                      calendarEncryption: !!env.CALENDAR_ENCRYPTION_KEY,
+                  }
+                : null;
+            return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null, integrations };
         },
     },
     // Daly Knowledge. The application's permission is checked here; space membership in the loaders.
@@ -501,7 +513,7 @@ export async function loadPortalPage(path: string, url: URL, env: Env, user: Por
         }
         if (page.flag && !flags[page.flag]) {
             return {
-                data: { route: "forbidden", message: "This module is switched off. An owner or admin can turn it on in Wedding settings → Features." },
+                data: { route: "forbidden", message: "This module is switched off. An owner or admin can turn it on in Portal settings → Features." },
                 status: 404,
                 title: page.title,
             };

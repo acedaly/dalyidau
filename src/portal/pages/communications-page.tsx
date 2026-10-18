@@ -136,7 +136,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
             {!data.deliveryAvailable && (
                 <Notice color="brand" title="Nothing is sent from the portal yet">
                     You can write messages, choose recipients, preview them for each guest and export a mail-merge file. Email and texts are only sent once a
-                    provider is set up and its switch is turned on in Wedding settings → Features.
+                    provider is set up and its switch is turned on in Portal settings → Features.
                 </Notice>
             )}
             {canEdit && (

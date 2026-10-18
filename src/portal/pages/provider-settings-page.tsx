@@ -9,6 +9,7 @@ import { PageHeader } from "@/portal/components/page-header";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
+import { featuresHref } from "@/shared/portal/settings-sections";
 
 const SecretList = ({ names }: { names: string[] }) => (
     <ul className="list-disc space-y-1 pl-5 text-sm text-tertiary">
@@ -140,7 +141,7 @@ export const ProviderSettingsPage = ({ data }: { data: PageData<"provider-settin
                         <Button color="secondary" onClick={() => void validate("email")} isLoading={busy === "email-validate"}>
                             Validate connection
                         </Button>
-                        <Button color="link-gray" href="/portal/wedding/settings/features">
+                        <Button color="link-gray" href={featuresHref("wedding")}>
                             Review sending switch
                         </Button>
                     </div>

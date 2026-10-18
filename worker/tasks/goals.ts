@@ -522,7 +522,7 @@ export async function addGoalMember(env: Env, db: D1Database, user: PortalUser, 
     const goal = await requireGoal(db, user, goalId, "owner");
     if (goal.kind === "personal") throw invalid("Share the goal first, then add people");
     const body = memberInput.parse(input);
-    if (!(await canUseTasks(env, db, body.email))) throw invalid("Add them to the portal as an owner or admin first (Portal settings → People and roles)");
+    if (!(await canUseTasks(env, db, body.email))) throw invalid("Add them to the portal as an owner or admin first (Portal settings → Household & Access)");
     const [result] = await db.batch([
         db
             .prepare("INSERT OR IGNORE INTO task_goal_members (goal_id, email, role, added_by, created_at) VALUES (?, ?, ?, ?, ?)")

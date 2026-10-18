@@ -4,6 +4,7 @@ import { render, renderWedding } from "../src/entry-server";
 import { portalBootShell } from "../src/portal/boot-shell";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
+import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
 import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { serveFeed } from "./calendar/feeds";
@@ -291,9 +292,10 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     const auth = await authenticate(request, env);
     if (!auth.ok) return accessDenied(auth);
     const path = url.pathname;
-    const legacyWeddingSettings = /^\/portal\/settings\/(features|fields)$/.exec(path);
-    if (legacyWeddingSettings) {
-        const response = Response.redirect(`${url.origin}/portal/wedding/settings/${legacyWeddingSettings[1]}`, 302);
+    // Old settings addresses. Checked after sign-in, so a redirect reveals nothing to strangers.
+    const moved = Object.hasOwn(SETTINGS_REDIRECTS, path) ? SETTINGS_REDIRECTS[path] : null;
+    if (moved) {
+        const response = Response.redirect(`${url.origin}${moved}`, 302);
         const redirected = new Response(response.body, response);
         for (const [key, value] of Object.entries(PRIVATE_HEADERS)) redirected.headers.set(key, value);
         return redirected;
