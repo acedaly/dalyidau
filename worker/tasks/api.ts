@@ -4,8 +4,9 @@
 // it touches (worker/tasks/access.ts).
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { addDays, isCalendarDate } from "../../src/shared/tasks/dates";
+import { addDays } from "../../src/shared/tasks/dates";
 import { filterFromParams, taskFilter } from "../../src/shared/tasks/filters";
+import { upcomingWindow } from "../../src/shared/tasks/view-preferences";
 import type { Env } from "../env";
 import { can } from "../portal/auth";
 import { HttpError, json, readJson } from "../portal/http";
@@ -13,8 +14,10 @@ import { ensureInbox, preferences, requireProject, requireTask, todayFor } from 
 import { listActivity } from "./activity";
 import { addComment, deleteComment, editComment, listComments } from "./comments";
 import { exportCsv, exportTasks } from "./export";
+import { listImports, previewImport, runImport } from "./import";
 import { linkKnowledge, tasksForObject, unlinkKnowledge } from "./knowledge";
 import { createLabel, deleteLabel, listLabels, otherLabels, updateLabel } from "./labels";
+import { shell, upcomingMode } from "./pages";
 import {
     addMember,
     createProject,
@@ -34,11 +37,12 @@ import {
     updateProject,
 } from "./projects";
 import { addReminder, deleteReminder, dismissReminder, dueReminders } from "./reminders";
-import { createView, deleteView, getView, listViews, updatePreferences, updateView } from "./settings";
+import { createView, deleteView, getView, listViewPreferences, listViews, setViewPreferences, updatePreferences, updateView } from "./settings";
 import {
     OpenSubtasks,
     TaskConflict,
     bulkTasks,
+    changeOccurrence,
     completeTask,
     createTask,
     deleteTask,
@@ -48,7 +52,20 @@ import {
     taskDetail,
     updateTask,
 } from "./tasks";
-import { filterTasks, listCompleted, listInbox, listOverdue, listProjectTasks, listToday, listUpcoming, searchTasks } from "./views";
+import { createTemplate, deleteTemplate, duplicateTemplate, getTemplate, listTemplates, templateFromTask, updateTemplate, useTemplate } from "./templates";
+import {
+    completedBetween,
+    completedToday,
+    filterTasks,
+    listCompleted,
+    listDeadlines,
+    listInbox,
+    listOverdue,
+    listProjectTasks,
+    listToday,
+    listUpcoming,
+    searchTasks,
+} from "./views";
 
 interface Ctx {
     env: Env;
@@ -85,15 +102,29 @@ add("GET", "/lists/:view", async ({ env, url, user, params }) => {
     switch (params.view) {
         case "inbox":
             return json({ tasks: await listInbox(env.DB, user.email, await ensureInbox(env.DB, user.email)) });
-        case "today":
-            return json({ today, tasks: await listToday(env.DB, user.email, today, prefs.todayPriority) });
+        case "today": {
+            const [tasks, done] = await Promise.all([
+                listToday(env.DB, user.email, today, prefs.todayPriority),
+                completedToday(env.DB, user.email, today, prefs.timeZone),
+            ]);
+            return json({ today, tasks, progress: { done } });
+        }
         case "overdue":
             return json({ today, tasks: await listOverdue(env.DB, user.email, today) });
         case "upcoming": {
-            const fromParam = url.searchParams.get("from");
-            const from = isCalendarDate(fromParam) && fromParam > today ? fromParam : today;
-            const days = boundedInteger(url.searchParams.get("days"), 14, 1, 62);
-            return json({ today, from, days, tasks: await listUpcoming(env.DB, user.email, from, addDays(from, days - 1)) });
+            // The same window the page shows: an agenda, a week or a month, never before this week or month.
+            const mode = upcomingMode(url.searchParams.get("mode"), "agenda");
+            const window = upcomingWindow(mode, url.searchParams.get("from"), today);
+            const from = window.from;
+            // The agenda's length can be chosen, as in Milestone 1; weeks and months are fixed.
+            const days = mode === "agenda" ? boundedInteger(url.searchParams.get("days"), window.days, 1, 62) : window.days;
+            const to = addDays(from, days - 1);
+            const [tasks, deadlines, done] = await Promise.all([
+                listUpcoming(env.DB, user.email, from, to, today),
+                mode === "agenda" ? [] : listDeadlines(env.DB, user.email, from, to),
+                mode === "agenda" ? [] : completedBetween(env.DB, user.email, from, to),
+            ]);
+            return json({ today, mode, from, days, tasks, deadlines, done });
         }
         case "completed":
             return json(
@@ -121,7 +152,11 @@ add("GET", "/search", async ({ env, url, user }) => json(await searchTasks(env.D
 
 // --- Tasks ---------------------------------------------------------------------------------------
 
-add("POST", "/tasks", async ({ env, request, user }) => json({ task: await createTask(env.DB, user, await readJson(request, 64_000)) }, 201));
+// 201 for a new task; 200 with the same task when a retry repeats a request that already created it.
+add("POST", "/tasks", async ({ env, request, user }) => {
+    const { task, replayed } = await createTask(env.DB, user, await readJson(request, 64_000));
+    return json({ task, replayed }, replayed ? 200 : 201);
+});
 add("POST", "/tasks/bulk", async ({ env, request, user }) => json(await bulkTasks(env.DB, user, await readJson(request))));
 add("GET", "/tasks/:id", async ({ env, user, params }) => json(await taskDetail(env.DB, user, await requireTask(env.DB, user, params.id))));
 add("PATCH", "/tasks/:id", async ({ env, request, user, params }) =>
@@ -136,6 +171,38 @@ add("POST", "/tasks/:id/skip", async ({ env, request, user, params }) => json(aw
 add("POST", "/tasks/:id/reopen", async ({ env, user, params }) => json({ task: await reopenTask(env.DB, user, params.id) }));
 add("POST", "/tasks/:id/move", async ({ env, request, user, params }) => json({ task: await moveTask(env.DB, user, params.id, await readJson(request)) }));
 add("POST", "/tasks/:id/duplicate", async ({ env, user, params }) => json({ task: await duplicateTask(env.DB, user, params.id) }, 201));
+// One later occurrence of a repeating task: skip it, move it, or restore it.
+add("POST", "/tasks/:id/occurrences", async ({ env, request, user, params }) =>
+    json({ task: await changeOccurrence(env.DB, user, params.id, await readJson(request)) }),
+);
+add("POST", "/tasks/:id/template", async ({ env, request, user, params }) =>
+    json({ template: await templateFromTask(env.DB, user, params.id, await readJson(request)) }, 201),
+);
+
+// --- Templates -----------------------------------------------------------------------------------
+
+add("GET", "/templates", async ({ env, url, user }) => json({ templates: await listTemplates(env.DB, user.email, url.searchParams.get("archived") === "1") }));
+add("POST", "/templates", async ({ env, request, user }) => json({ template: await createTemplate(env.DB, user, await readJson(request, 128_000)) }, 201));
+add("GET", "/templates/:id", async ({ env, user, params }) => json({ template: await getTemplate(env.DB, user, params.id) }));
+add("PATCH", "/templates/:id", async ({ env, request, user, params }) =>
+    json({ template: await updateTemplate(env.DB, user, params.id, await readJson(request, 128_000)) }),
+);
+add("DELETE", "/templates/:id", async ({ env, user, params }) => {
+    await deleteTemplate(env.DB, user, params.id);
+    return json({ ok: true });
+});
+add("POST", "/templates/:id/duplicate", async ({ env, user, params }) => json({ template: await duplicateTemplate(env.DB, user, params.id) }, 201));
+add("POST", "/templates/:id/use", async ({ env, request, user, params }) =>
+    json({ task: await useTemplate(env.DB, user, params.id, await readJson(request)) }, 201),
+);
+
+// --- Import --------------------------------------------------------------------------------------
+
+/** Up to 8 MB of CSV text per request (each file at most 2 MB). */
+const IMPORT_BYTES = 8_000_000;
+add("GET", "/import", async ({ env, user }) => json({ imports: await listImports(env.DB, user.email) }));
+add("POST", "/import/todoist/preview", async ({ env, request, user }) => json(await previewImport(env.DB, user, await readJson(request, IMPORT_BYTES))));
+add("POST", "/import/todoist/run", async ({ env, request, user }) => json(await runImport(env.DB, user, await readJson(request, IMPORT_BYTES))));
 
 add("GET", "/tasks/:id/comments", async ({ env, user, params }) => json({ comments: await listComments(env.DB, user, params.id) }));
 add("POST", "/tasks/:id/comments", async ({ env, request, user, params }) =>
@@ -286,6 +353,13 @@ add("GET", "/activity", async ({ env, url, user }) => {
 });
 
 add("GET", "/preferences", async ({ env, user }) => json({ preferences: await preferences(env.DB, user.email) }));
+add("GET", "/preferences/views", async ({ env, user }) => json({ views: await listViewPreferences(env.DB, user.email) }));
+add("PUT", "/preferences/views/:view", async ({ env, request, user, params }) =>
+    json({ preferences: await setViewPreferences(env.DB, user, params.view, await readJson(request)) }),
+);
+
+// Projects, sections, labels and people for Quick Add on pages outside Tasks.
+add("GET", "/shell", async ({ env, user }) => json({ shell: await shell(env, user) }));
 add("PATCH", "/preferences", async ({ env, request, user }) => json({ preferences: await updatePreferences(env.DB, user, await readJson(request)) }));
 
 // --- Export --------------------------------------------------------------------------------------

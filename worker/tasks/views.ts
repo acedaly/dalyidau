@@ -9,12 +9,13 @@
 // caller's Today. The Inbox is the caller's own Inbox project only: shared tasks assigned to them
 // never become Inbox records, and no task is ever copied to appear in two places.
 import type { D1Database } from "@cloudflare/workers-types";
-import { addDays } from "../../src/shared/tasks/dates";
+import { addDays, zonedInstant } from "../../src/shared/tasks/dates";
 import type { TaskFilter } from "../../src/shared/tasks/filters";
-import { occurrencesBetween } from "../../src/shared/tasks/recurrence";
+import { projectOccurrences } from "../../src/shared/tasks/recurrence";
 import type { CompletedEntry, TaskSummary } from "../../src/shared/tasks/types";
 import { likePattern } from "../portal/db";
 import { TASK_COLUMNS, type TaskRow, toSummary } from "./rows";
+import { exceptionsFor } from "./tasks";
 
 const MINE = `FROM task_items t
     JOIN task_project_members m ON m.project_id = t.project_id AND m.email = ?1
@@ -54,10 +55,27 @@ export const listOverdue = (db: D1Database, email: string, today: string) =>
 const PROJECTION_LIMIT = 14;
 
 /**
- * Upcoming: tasks due from `from` to `to`, plus later repeats of repeating tasks in that window,
- * worked out on the fly (marked `projected`) rather than stored.
+ * How many tasks the caller completed today, in their own time zone: the "done" half of Today's
+ * progress. Undone completions and skips don't count; tasks they can no longer see don't either.
  */
-export async function listUpcoming(db: D1Database, email: string, from: string, to: string): Promise<TaskSummary[]> {
+export async function completedToday(db: D1Database, email: string, today: string, timeZone: string): Promise<number> {
+    const row = await db
+        .prepare(
+            `SELECT COUNT(*) AS n FROM task_completions c JOIN task_items t ON t.id = c.task_id
+             JOIN task_project_members m ON m.project_id = t.project_id AND m.email = ?1
+             WHERE c.by = ?1 AND c.kind = 'completed' AND c.undone_at IS NULL AND c.at >= ?2 AND c.at < ?3`,
+        )
+        .bind(email, zonedInstant(today, "00:00", timeZone), zonedInstant(addDays(today, 1), "00:00", timeZone))
+        .first<{ n: number }>();
+    return row?.n ?? 0;
+}
+
+/**
+ * Upcoming: tasks due from `from` to `to`, plus later repeats of repeating tasks in that window,
+ * worked out on the fly (marked `projected`) rather than stored. A week or month that started
+ * before today shows open tasks on their (past) dates, but never projects repeats into the past.
+ */
+export async function listUpcoming(db: D1Database, email: string, from: string, to: string, today = from): Promise<TaskSummary[]> {
     const tasks = await all(db, `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${MY_DATED} AND t.due_date BETWEEN ?2 AND ?3 ${DATE_ORDER} LIMIT 1000`, [
         email,
         from,
@@ -70,17 +88,47 @@ export async function listUpcoming(db: D1Database, email: string, from: string, 
         [email, to],
     );
     const projected: TaskSummary[] = [];
+    // Skipped and moved occurrences, for every repeating task in one pass.
+    const exceptions = await exceptionsFor(
+        db,
+        repeating.filter((t) => t.recurrence?.basis === "scheduled").map((t) => t.id),
+    );
     for (const task of repeating) {
         if (!task.recurrence || !task.dueDate) continue;
-        const after = task.dueDate < from ? addDays(from, -1) : task.dueDate;
-        for (const date of occurrencesBetween(task.recurrence, after, to, PROJECTION_LIMIT)) {
+        const start = from > today ? from : today;
+        const after = task.dueDate < start ? addDays(start, -1) : task.dueDate;
+        for (const { date, seriesDate } of projectOccurrences(task.recurrence, after, to, PROJECTION_LIMIT, exceptions.get(task.id))) {
             if (date === task.dueDate) continue;
-            projected.push({ ...task, dueDate: date, projected: true });
+            projected.push({ ...task, dueDate: date, projected: true, seriesDate });
         }
     }
     return [...tasks, ...projected].sort(
         (a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? "") || (a.dueTime ?? "99").localeCompare(b.dueTime ?? "99") || a.priority - b.priority,
     );
+}
+
+/** Open tasks whose deadline falls in a window: the calendar marks them on their deadline's day. */
+export const listDeadlines = (db: D1Database, email: string, from: string, to: string) =>
+    all(db, `SELECT ${TASK_COLUMNS} ${MINE} WHERE ${MY_DATED} AND t.deadline BETWEEN ?2 AND ?3 ORDER BY t.deadline, t.priority LIMIT 500`, [email, from, to]);
+
+/**
+ * What was completed in a window, each on the date of the occurrence that was done (a repeating
+ * task appears once per completed occurrence), as the task is now but marked completed. Only the
+ * caller's "my" tasks, like the rest of the calendar.
+ */
+export async function completedBetween(db: D1Database, email: string, from: string, to: string): Promise<TaskSummary[]> {
+    const rows = await db
+        .prepare(
+            `SELECT ${TASK_COLUMNS}, c.occurrence_date AS c_occurrence, c.at AS c_at, c.by AS c_by
+             FROM task_completions c JOIN task_items t ON t.id = c.task_id
+             JOIN task_project_members m ON m.project_id = t.project_id AND m.email = ?1 JOIN task_projects p ON p.id = t.project_id
+             WHERE c.kind = 'completed' AND c.undone_at IS NULL AND c.occurrence_date BETWEEN ?2 AND ?3
+               AND (t.assignee_email IS NULL OR t.assignee_email = ?1) AND t.parent_id IS NULL
+             ORDER BY c.occurrence_date LIMIT 500`,
+        )
+        .bind(email, from, to)
+        .all<TaskRow & { c_occurrence: string; c_at: string; c_by: string }>();
+    return rows.results.map((r) => ({ ...toSummary(r), dueDate: r.c_occurrence, status: "completed", completedAt: r.c_at, completedBy: r.c_by }));
 }
 
 /** Completions (newest first) on tasks the caller can still see, with each task as it is now. */
@@ -136,6 +184,7 @@ export async function filterTasks(
     // Archived projects only appear when asked for by name.
     if (!filter.projectIds.length) where.push("p.status <> 'archived'");
     else where.push(`t.project_id IN (${filter.projectIds.map(bind).join(", ")})`);
+    if (filter.sectionIds.length) where.push(`t.section_id IN (${filter.sectionIds.map(bind).join(", ")})`);
     if (filter.priorities.length) where.push(`t.priority IN (${filter.priorities.map(bind).join(", ")})`);
     const t = bind(today);
     switch (filter.due) {
@@ -173,6 +222,11 @@ export async function filterTasks(
             break;
     }
     switch (filter.assignee) {
+        case "mine":
+            // What the caller is responsible for: like Today, active projects they can edit, and
+            // tasks assigned to them or to nobody (personal tasks never have an assignee).
+            where.push("(t.assignee_email IS NULL OR t.assignee_email = ?1) AND m.role <> 'viewer' AND p.status = 'active'");
+            break;
         case "me":
             where.push("t.assignee_email = ?1");
             break;
@@ -201,6 +255,9 @@ export async function filterTasks(
         created: "t.created_at DESC",
         updated: "t.updated_at DESC",
         title: "t.title COLLATE NOCASE",
+        // The order the caller sees in their sidebar and in each project: Inbox first, then their
+        // project order, sections in order, then each task's place in its list.
+        manual: "p.is_inbox DESC, m.position, t.project_id, (SELECT s.position FROM task_sections s WHERE s.id = t.section_id), t.depth, t.position",
     }[filter.sort];
     const limit = bind(page.limit + 1);
     const offset = bind(page.offset);

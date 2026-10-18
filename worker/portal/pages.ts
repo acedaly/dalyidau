@@ -407,10 +407,10 @@ const PAGES: PageDef[] = [
         pattern: /^\/portal\/tasks$/,
         title: "Today",
         application: "tasks",
-        load: ({ env, user, url }) => loadTasksPage(env, user, url, "today"),
+        load: ({ env, user, url }) => loadTasksPage(env, user, url, "home"),
     },
     {
-        pattern: /^\/portal\/tasks\/(inbox|today|upcoming|overdue|completed|projects|labels|filters|search|activity|settings)$/,
+        pattern: /^\/portal\/tasks\/(inbox|today|upcoming|overdue|mine|completed|projects|labels|filters|search|activity|settings|templates)$/,
         title: "Tasks",
         application: "tasks",
         load: ({ env, user, url, match }) => loadTasksPage(env, user, url, match[1] as TasksPage),

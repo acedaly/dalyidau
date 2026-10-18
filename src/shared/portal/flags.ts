@@ -37,6 +37,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Communications",
     },
+    "tasks.reminders.email": {
+        label: "Task reminder emails",
+        description:
+            "Email Daly Tasks reminders in the background to people who have turned on email reminders in Tasks → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, reminders appear only in the app.",
+        default: false,
+        group: "Communications",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

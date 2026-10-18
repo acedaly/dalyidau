@@ -1,6 +1,8 @@
 // Daly Tasks & Projects: shapes shared by the Worker and the browser.
 import type { TaskFilter } from "./filters";
 import type { RecurrenceRule } from "./recurrence";
+import type { TaskTemplate } from "./templates";
+import type { UpcomingMode, ViewPreferenceMap } from "./view-preferences";
 
 export const PROJECT_ROLES = ["owner", "editor", "viewer"] as const;
 export type ProjectRole = (typeof PROJECT_ROLES)[number];
@@ -120,6 +122,8 @@ export interface TaskSummary {
     updatedBy: string;
     /** Set on rows from Upcoming that are a later repeat of this task rather than the task itself. */
     projected?: boolean;
+    /** On a projected repeat: the series date it stands for (how a skip or move of it is addressed). */
+    seriesDate?: string;
 }
 
 export interface TaskCompletion {
@@ -150,6 +154,8 @@ export interface TaskReminder {
     offsetMinutes: number | null;
     remindAt: string;
     dismissedAt: string | null;
+    /** Background email: null when it's in-app only. */
+    deliveryStatus: "pending" | "sent" | "failed" | "expired" | "cancelled" | null;
 }
 
 export interface TaskActivityEntry {
@@ -192,9 +198,22 @@ export interface SavedTaskView {
     version: number;
 }
 
+export const LANDING_PAGES = ["today", "upcoming", "inbox", "mine"] as const;
+export type LandingPage = (typeof LANDING_PAGES)[number];
+
 export interface TaskPreferences {
     timeZone: string;
     todayPriority: Priority | null;
+    /** Reminders at all (in the app and by email). */
+    remindersEnabled: boolean;
+    /** Email reminders, when delivery is switched on for the portal. */
+    reminderEmail: boolean;
+    /** Minutes before the due time for a reminder added to each new dated task; null for none. */
+    defaultReminderMinutes: number | null;
+    /** Quiet hours ("22:00"–"07:00"): emails due inside them are sent when they end. */
+    quietStart: string | null;
+    quietEnd: string | null;
+    landingPage: LandingPage;
 }
 
 export interface DueReminder {
@@ -217,6 +236,13 @@ export interface TasksShell {
     views: SavedTaskView[];
     reminders: DueReminder[];
     canUseKnowledge: boolean;
+    /** The caller's own sort, grouping and layout choices for each list. */
+    viewPreferences: ViewPreferenceMap;
+}
+
+/** Today's progress: completions the caller made today (in their time zone) against what's left. */
+export interface DayProgress {
+    done: number;
 }
 
 export type TaskViewName = "inbox" | "today" | "upcoming" | "overdue" | "completed";
@@ -227,8 +253,20 @@ export interface CompletedEntry {
 }
 
 export type TasksRoute =
-    | (TasksShell & { route: "tasks-view"; view: Exclude<TaskViewName, "completed" | "upcoming">; tasks: TaskSummary[] })
-    | (TasksShell & { route: "tasks-upcoming"; from: string; days: number; overdue: TaskSummary[]; tasks: TaskSummary[] })
+    | (TasksShell & { route: "tasks-view"; view: Exclude<TaskViewName, "completed" | "upcoming">; tasks: TaskSummary[]; progress: DayProgress | null })
+    | (TasksShell & {
+          route: "tasks-upcoming";
+          mode: UpcomingMode;
+          from: string;
+          days: number;
+          overdue: TaskSummary[];
+          tasks: TaskSummary[];
+          /** Open tasks whose deadline is in the window. */
+          deadlines: TaskSummary[];
+          /** Completed in the window, on the dates of the occurrences that were done. */
+          done: TaskSummary[];
+      })
+    | (TasksShell & { route: "tasks-mine"; filter: TaskFilter; tasks: TaskSummary[]; hasMore: boolean })
     | (TasksShell & { route: "tasks-completed"; entries: CompletedEntry[]; hasMore: boolean })
     | (TasksShell & {
           route: "tasks-project";
@@ -245,7 +283,29 @@ export type TasksRoute =
     | (TasksShell & { route: "tasks-filters"; filter: TaskFilter; savedView: SavedTaskView | null; tasks: TaskSummary[]; hasMore: boolean })
     | (TasksShell & { route: "tasks-search"; query: string; tasks: TaskSummary[]; matchedProjects: { id: string; name: string }[] })
     | (TasksShell & { route: "tasks-activity"; entries: TaskActivityEntry[]; projectId: string | null })
-    | (TasksShell & { route: "tasks-settings" });
+    | (TasksShell & { route: "tasks-settings"; imports: ImportRecord[] })
+    | (TasksShell & { route: "tasks-templates"; templates: TaskTemplate[]; archived: TaskTemplate[] });
+
+/** One import run, as listed in Settings. */
+export interface ImportRecord {
+    id: string;
+    status: string;
+    summary: {
+        projectsCreated: number;
+        sectionsCreated: number;
+        tasksCreated: number;
+        tasksUpdated: number;
+        linkedDuplicates: number;
+        unchanged: number;
+        conflicts: number;
+        deleted: number;
+        comments: number;
+        warnings: string[];
+        error?: string;
+    } | null;
+    createdAt: string;
+    finishedAt: string | null;
+}
 
 export interface ProjectOverview {
     upcomingDeadlines: TaskSummary[];

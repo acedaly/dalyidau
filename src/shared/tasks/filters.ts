@@ -6,10 +6,11 @@ import { z } from "zod";
 
 export const DUE_FILTERS = ["any", "overdue", "today", "next7", "next30", "scheduled", "none"] as const;
 export const DEADLINE_FILTERS = ["any", "overdue", "next7", "has", "none"] as const;
-export const ASSIGNEE_FILTERS = ["anyone", "me", "unassigned", "others"] as const;
+export const ASSIGNEE_FILTERS = ["anyone", "mine", "me", "unassigned", "others"] as const;
+export type AssigneeFilter = (typeof ASSIGNEE_FILTERS)[number];
 export const STATUS_FILTERS = ["open", "completed", "all"] as const;
 export const SCOPE_FILTERS = ["all", "personal", "shared"] as const;
-export const SORTS = ["due", "priority", "created", "updated", "title"] as const;
+export const SORTS = ["due", "priority", "created", "updated", "title", "manual"] as const;
 
 export const DUE_LABELS: Record<(typeof DUE_FILTERS)[number], string> = {
     any: "Any date",
@@ -29,6 +30,7 @@ export const DEADLINE_LABELS: Record<(typeof DEADLINE_FILTERS)[number], string> 
 };
 export const ASSIGNEE_LABELS: Record<(typeof ASSIGNEE_FILTERS)[number], string> = {
     anyone: "Anyone",
+    mine: "Me or nobody",
     me: "Assigned to me",
     unassigned: "Unassigned",
     others: "Assigned to others",
@@ -41,6 +43,7 @@ export const SORT_LABELS: Record<(typeof SORTS)[number], string> = {
     created: "Newest",
     updated: "Recently changed",
     title: "Title",
+    manual: "Project order",
 };
 
 const id = (prefix: string) => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{14}$`), "Not a valid id");
@@ -48,6 +51,8 @@ const id = (prefix: string) => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{
 export const taskFilter = z
     .object({
         projectIds: z.array(id("tpj")).max(50).default([]),
+        /** Sections of the chosen projects; tasks outside every chosen section are left out. */
+        sectionIds: z.array(id("tsc")).max(50).default([]),
         labels: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
         labelMode: z.enum(["any", "all"]).default("any"),
         priorities: z.array(z.number().int().min(1).max(4)).max(4).default([]),
@@ -75,6 +80,7 @@ export function filterFromParams(params: URLSearchParams): TaskFilter {
             .filter(Boolean);
     const candidate: Record<string, unknown> = {
         projectIds: list("projects"),
+        sectionIds: list("sections"),
         labels: list("labels"),
         labelMode: params.get("labelMode") ?? undefined,
         priorities: list("priorities").map(Number),
@@ -101,6 +107,7 @@ export function filterToParams(filter: TaskFilter): URLSearchParams {
     const params = new URLSearchParams();
     const set = (key: string, value: string, fallback: string) => value !== fallback && params.set(key, value);
     if (filter.projectIds.length) params.set("projects", filter.projectIds.join(","));
+    if (filter.sectionIds.length) params.set("sections", filter.sectionIds.join(","));
     if (filter.labels.length) params.set("labels", filter.labels.join(","));
     set("labelMode", filter.labelMode, "any");
     if (filter.priorities.length) params.set("priorities", filter.priorities.join(","));
@@ -118,6 +125,7 @@ export function filterToParams(filter: TaskFilter): URLSearchParams {
 export function describeFilter(filter: TaskFilter, projectName: (id: string) => string | undefined = () => undefined): string {
     const parts: string[] = [];
     if (filter.projectIds.length) parts.push(filter.projectIds.map((id) => projectName(id) ?? "A project").join(", "));
+    if (filter.sectionIds.length) parts.push(`${filter.sectionIds.length} section${filter.sectionIds.length === 1 ? "" : "s"}`);
     if (filter.priorities.length)
         parts.push(
             [...filter.priorities]

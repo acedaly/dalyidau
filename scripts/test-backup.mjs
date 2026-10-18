@@ -6,7 +6,7 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates) and every Daly Tasks table (0015).
+//    templates) and every Daly Tasks table (0015, 0016).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -109,6 +109,13 @@ INSERT INTO task_activity (project_id, task_id, actor, action, at) VALUES ('tpj_
 INSERT INTO task_knowledge_links (id, task_id, object_id, added_by, added_at) VALUES ('tkl_backuptest0001', 'tsk_backuptest0001', 'kob_backuptest0003', 'x', '${NOW}');
 INSERT INTO task_saved_views (id, owner_email, name, definition_json, created_at, updated_at) VALUES ('tfv_backuptest0001', 'owner@example.com', 'Garden', '{"labels":["garden"]}', '${NOW}', '${NOW}');
 INSERT INTO task_reminders (id, task_id, owner_email, kind, remind_at, created_at) VALUES ('trm_backuptest0001', 'tsk_backuptest0001', 'partner@example.com', 'absolute', '2026-10-19T22:00:00.000Z', '${NOW}');
+INSERT INTO task_view_preferences (email, view, prefs_json, updated_at) VALUES ('owner@example.com', 'upcoming', '{"mode":"week"}', '${NOW}');
+UPDATE task_items SET client_id = 'qa-backuptest-0001' WHERE id = 'tsk_backuptest0001';
+UPDATE task_reminders SET delivery_status = 'sent', attempts = 1, delivered_at = '${NOW}' WHERE id = 'trm_backuptest0001';
+INSERT INTO task_recurrence_exceptions (task_id, occurrence_date, kind, moved_to, created_by, created_at) VALUES ('tsk_backuptest0002', '2026-10-28', 'move', '2026-10-29', 'x', '${NOW}');
+INSERT INTO task_templates (id, owner_email, name, title, subtasks_json, created_at, updated_at) VALUES ('ttp_backuptest0001', 'owner@example.com', 'Packing', 'Pack for the coast', '[{"title":"Sunscreen"}]', '${NOW}', '${NOW}');
+INSERT INTO task_import_batches (id, owner_email, source, file_fingerprint, status, options_json, created_at) VALUES ('tib_backuptest0001', 'owner@example.com', 'todoist_csv', 'abc', 'completed', '{}', '${NOW}');
+INSERT INTO task_import_items (owner_email, source, kind, source_key, target_id, batch_id, imported_version, content_hash, created_at) VALUES ('owner@example.com', 'todoist', 'task', 'k1', 'tsk_backuptest0001', 'tib_backuptest0001', 1, 'h', '${NOW}');
 `;
 const TASK_TABLES = [
     "task_preferences",
@@ -124,6 +131,11 @@ const TASK_TABLES = [
     "task_knowledge_links",
     "task_saved_views",
     "task_reminders",
+    "task_view_preferences",
+    "task_recurrence_exceptions",
+    "task_templates",
+    "task_import_batches",
+    "task_import_items",
 ];
 
 const M3_TABLES = [
@@ -284,6 +296,27 @@ try {
             query("SELECT recurrence_json FROM task_items WHERE id = 'tsk_backuptest0002'", restored)[0]?.recurrence_json?.includes('"anchor":"2026-10-21"'),
             "Repeat rules restore intact",
             "Repeat rules changed in the restored copy",
+        );
+        // Milestone 2 (0016): delivery state, request ids, exceptions, templates and import provenance.
+        report.check(
+            query("SELECT delivery_status, attempts FROM task_reminders WHERE id = 'trm_backuptest0001'", restored)[0]?.delivery_status === "sent" &&
+                query("SELECT client_id FROM task_items WHERE id = 'tsk_backuptest0001'", restored)[0]?.client_id === "qa-backuptest-0001",
+            "Reminder delivery state and Quick Add request ids restore intact",
+            "Reminder delivery state or request ids were lost",
+        );
+        report.check(
+            query("SELECT moved_to FROM task_recurrence_exceptions WHERE task_id = 'tsk_backuptest0002'", restored)[0]?.moved_to === "2026-10-29" &&
+                query("SELECT subtasks_json FROM task_templates WHERE id = 'ttp_backuptest0001'", restored)[0]?.subtasks_json === '[{"title":"Sunscreen"}]' &&
+                query("SELECT target_id FROM task_import_items WHERE source_key = 'k1'", restored)[0]?.target_id === "tsk_backuptest0001",
+            "Repeat exceptions, templates and Todoist import records restore intact",
+            "Exceptions, templates or import records were lost",
+        );
+        report.check(
+            refuses(
+                "INSERT INTO task_items (id, project_id, depth, title, position, created_by, updated_by, created_at, updated_at, client_id) VALUES ('tsk_backuptest0009', 'tpj_backuptest0002', 0, 'Copy', 2, 'x', 'x', 'x', 'x', 'qa-backuptest-0001');",
+            ),
+            "The restored copy still refuses a second task with the same request id",
+            "The restored copy accepted a duplicate request id",
         );
     }
 } catch (error) {
