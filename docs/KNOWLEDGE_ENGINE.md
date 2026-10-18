@@ -144,7 +144,7 @@ No embeddings, Workers AI, Vectorize or external service is used. Ordinary D1 in
 
 ### Related tasks (from Daly Tasks)
 
-Object pages show a **Tasks** section for people who can also open Tasks: tasks and Tasks projects that reference this object, from `GET /api/portal/tasks/knowledge/:objectId` (`src/portal/knowledge/related-tasks.tsx`). Knowledge itself isn't changed: Tasks stores only object ids, the Tasks API answers 404 unless the reader can read the object here, and then lists only tasks and projects the reader is a member of in Tasks, so a note shared with someone never shows them another person's private tasks. "Add task" opens Quick Add with this page pre-linked. Details: [TASKS_PROJECTS.md](TASKS_PROJECTS.md#tasks--knowledge).
+Object pages show a **Tasks** section for people who can also open Tasks: tasks and Tasks projects that reference this object, from `GET /api/portal/tasks/knowledge/:objectId` (`src/portal/knowledge/related-tasks.tsx`). Knowledge itself isn't changed: Tasks stores only object ids, the Tasks API answers 404 unless the reader can read the object here, and then lists only tasks and projects the reader is a member of in Tasks, so a note shared with someone never shows them another person's private tasks. "Add linked task" opens Quick Add with this page pre-linked. Details: [TASKS_PROJECTS.md](TASKS_PROJECTS.md#tasks--knowledge).
 
 ## Portable export
 

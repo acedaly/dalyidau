@@ -2,7 +2,7 @@
 //
 // Both permission systems apply: the Worker returns nothing unless the reader can open this object in
 // Knowledge, and then only tasks and projects they're a member of in Tasks; someone else's private
-// tasks never appear, and no count includes them. "Add task" opens the portal-wide Quick Add, which
+// tasks never appear, and no count includes them. "Add linked task" opens the portal-wide Quick Add, which
 // offers to link the new task to this page; the list refreshes when it's saved.
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle, Folder, Plus } from "@untitledui/icons";
@@ -44,7 +44,7 @@ export const RelatedTasks = ({ objectId, today }: { objectId: string; today: str
                     Tasks
                 </h2>
                 <Button size="sm" color="link-color" iconLeading={Plus} onClick={requestQuickAdd}>
-                    Add task
+                    Add linked task
                 </Button>
             </div>
             {failed ? (

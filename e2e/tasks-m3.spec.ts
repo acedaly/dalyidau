@@ -144,7 +144,7 @@ test("3. links a task to Knowledge and navigates both ways", async ({ page, requ
     await expect(section.getByRole("link", { name: new RegExp(title) })).toBeVisible();
 
     // Add another from the page: Quick Add offers the link; the list updates without a reload.
-    await section.getByRole("button", { name: "Add task" }).click();
+    await section.getByRole("button", { name: "Add linked task" }).click();
     const dialog = page.getByRole("dialog", { name: "Add a task" });
     await expect(dialog.getByRole("switch", { name: `Link to “Wedding plan ${info.project.name}”` })).toBeChecked();
     await dialog.getByRole("textbox", { name: "Task name" }).fill(`Book transport ${info.project.name}`);
