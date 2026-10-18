@@ -456,7 +456,10 @@ export async function createObject(
         await db.batch(statements);
     } catch (error) {
         // Two copies of one sourced create at the same moment: the unique index let only the first in.
-        if (options.source && /UNIQUE constraint failed: knowledge_objects\.space_id, knowledge_objects\.source_system/.test(String((error as Error)?.message))) {
+        if (
+            options.source &&
+            /UNIQUE constraint failed: knowledge_objects\.space_id, knowledge_objects\.source_system/.test(String((error as Error)?.message))
+        ) {
             const first = await objectFromSource(db, user, spaceId, options.source);
             if (first) return first;
         }

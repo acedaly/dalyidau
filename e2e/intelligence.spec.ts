@@ -15,10 +15,16 @@ const watchErrors = (page: Page) => {
 
 /** Switches everything on (both projects share one database, so this is idempotent). */
 const switchOn = async (request: APIRequestContext) => {
-    const current = (await (await request.get("/api/portal/intelligence/settings")).json()) as { config: { features: Record<string, boolean> }; version: number };
+    const current = (await (await request.get("/api/portal/intelligence/settings")).json()) as {
+        config: { features: Record<string, boolean> };
+        version: number;
+    };
     if (Object.values(current.config.features).every(Boolean)) return;
     const features = Object.fromEntries(Object.keys(current.config.features).map((k) => [k, true]));
-    const saved = await request.put("/api/portal/intelligence/settings", { headers: JSON_HEADERS, data: { version: current.version, config: { ...current.config, features } } });
+    const saved = await request.put("/api/portal/intelligence/settings", {
+        headers: JSON_HEADERS,
+        data: { version: current.version, config: { ...current.config, features } },
+    });
     expect(saved.ok(), await saved.text()).toBe(true);
 };
 

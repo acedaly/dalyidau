@@ -21,11 +21,19 @@ console.log(`Checking ${env} (Worker "${target.name}")\n`);
 // --- wrangler.jsonc ---------------------------------------------------------------------------------
 
 report.check(target.vars.ENVIRONMENT === env, `ENVIRONMENT is "${env}"`, `ENVIRONMENT is "${target.vars.ENVIRONMENT}", expected "${env}"`);
-for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET"]) {
+for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET", "AI_PROVIDER"]) {
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
 // Provider credentials are secrets; a plain var would be visible in the dashboard and in wrangler.jsonc.
-for (const name of ["FASTMAIL_API_TOKEN", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP2GO_API_KEY", "CLICKSEND_USERNAME", "CLICKSEND_API_KEY", "COMMS_WEBHOOK_SECRET"]) {
+for (const name of [
+    "FASTMAIL_API_TOKEN",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP2GO_API_KEY",
+    "CLICKSEND_USERNAME",
+    "CLICKSEND_API_KEY",
+    "COMMS_WEBHOOK_SECRET",
+]) {
     report.check(
         !(name in target.vars),
         `${name} is not a plain var`,
@@ -43,12 +51,28 @@ report.check(
 const sms = target.vars.SMS_DELIVERY ?? "off";
 report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", which only works outside production`, env === "production" ? "fail" : "warn");
 
+// Daly Intelligence (docs/INTELLIGENCE.md): bindings are optional and their absence keeps every AI feature off.
+const block = env === "production" ? config : (config.env?.[env] ?? {});
+const ai = block.ai?.binding === "AI";
+const vectors = (block.vectorize ?? []).find((v) => v.binding === "VECTORS");
+report.info(
+    `Workers AI binding: ${ai ? "present" : "absent (Intelligence can't run)"}; Vectorize: ${vectors ? `index ${vectors.index_name}` : "absent (keyword search only)"}`,
+);
+if (env !== "production" && vectors) {
+    const prodVectors = (config.vectorize ?? []).find((v) => v.binding === "VECTORS");
+    report.check(!prodVectors || prodVectors.index_name !== vectors.index_name, "Uses its own Vectorize index", "Shares the production Vectorize index!");
+}
+
 const db = target.d1.find((d) => d.binding === "DB");
 report.check(!!db, `D1 binding DB → ${db?.database_name}`, "No D1 binding called DB");
 if (env === "production") {
     const wedding = new URL(target.vars.WEDDING_URL ?? "https://invalid.invalid");
     const customDomain = (target.routes ?? []).some((route) => typeof route === "object" && route.custom_domain && route.pattern === wedding.hostname);
-    report.check(wedding.protocol === "https:" && wedding.hostname === "wedding.daly.id.au", `Wedding origin is ${wedding.origin}`, "WEDDING_URL must be https://wedding.daly.id.au");
+    report.check(
+        wedding.protocol === "https:" && wedding.hostname === "wedding.daly.id.au",
+        `Wedding origin is ${wedding.origin}`,
+        "WEDDING_URL must be https://wedding.daly.id.au",
+    );
     report.check(customDomain, `Custom domain ${wedding.hostname} is configured`, `No custom-domain route claims ${wedding.hostname}`);
 }
 if (env !== "production") {

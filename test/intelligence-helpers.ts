@@ -86,7 +86,8 @@ export async function configure(env: Env, change: Partial<IntelligenceConfig> = 
     return config;
 }
 
-export const iCall = <T = unknown>(env: Env, method: string, path: string, body?: unknown, email = OWNER) => apiCall<T>(method, `${I}${path}`, body, { email, env });
+export const iCall = <T = unknown>(env: Env, method: string, path: string, body?: unknown, email = OWNER) =>
+    apiCall<T>(method, `${I}${path}`, body, { email, env });
 
 /** Runs whatever is queued (the request's own nudge normally already did). */
 export async function drain(env: Env) {
@@ -95,7 +96,8 @@ export async function drain(env: Env) {
 }
 
 /** A model answer in the extraction shape. */
-export const extraction = (items: Record<string, unknown>[], extra: Record<string, unknown> = {}) => JSON.stringify({ summary: "A short summary.", tags: [], items, questions: [], ...extra });
+export const extraction = (items: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ summary: "A short summary.", tags: [], items, questions: [], ...extra });
 
 export const base64 = (bytes: Uint8Array) => {
     let s = "";

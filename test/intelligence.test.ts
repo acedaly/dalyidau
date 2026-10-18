@@ -20,11 +20,18 @@ const today = () => localDate(new Date(), "Australia/Sydney");
 beforeEach(resetPortal);
 
 const capture = async (env: Awaited<ReturnType<typeof aiEnv>>["env"], text: string, email = A, extra: Record<string, unknown> = {}) => {
-    const result = await iCall<{ captureId: string; jobId: string; needsApproval: boolean }>(env, "POST", "/captures", { source: "text", text, ...extra }, email);
+    const result = await iCall<{ captureId: string; jobId: string; needsApproval: boolean }>(
+        env,
+        "POST",
+        "/captures",
+        { source: "text", text, ...extra },
+        email,
+    );
     expect(result.status, result.text).toBe(201);
     return result.json;
 };
-const detail = async (env: Awaited<ReturnType<typeof aiEnv>>["env"], id: string, email = A) => (await iCall<{ capture: CaptureDetail }>(env, "GET", `/captures/${id}`, undefined, email)).json.capture;
+const detail = async (env: Awaited<ReturnType<typeof aiEnv>>["env"], id: string, email = A) =>
+    (await iCall<{ capture: CaptureDetail }>(env, "GET", `/captures/${id}`, undefined, email)).json.capture;
 const pending = async (env: Awaited<ReturnType<typeof aiEnv>>["env"], email = A) =>
     (await iCall<{ suggestions: SuggestionView[] }>(env, "GET", "/suggestions", undefined, email)).json.suggestions;
 
@@ -55,7 +62,10 @@ describe("settings and availability", () => {
         const stale = await iCall(env, "PUT", "/settings", { version: 0, config: DEFAULT_CONFIG });
         expect(stale.status).toBe(409);
         // The embedding model must match the index's dimensions.
-        const wrong = await iCall(env, "PUT", "/settings", { version: 1, config: { ...DEFAULT_CONFIG, models: { ...DEFAULT_CONFIG.models, embed: "@cf/baai/bge-base-en-v1.5" } } });
+        const wrong = await iCall(env, "PUT", "/settings", {
+            version: 1,
+            config: { ...DEFAULT_CONFIG, models: { ...DEFAULT_CONFIG.models, embed: "@cf/baai/bge-base-en-v1.5" } },
+        });
         expect(wrong.status).toBe(422);
         // The audit entry names the change, never any content.
         const audit = await db().prepare("SELECT action, summary FROM audit_log WHERE action = 'intelligence.settings'").all<{ summary: string }>();
@@ -90,7 +100,10 @@ describe("model-call safeguards", () => {
         await configure(env, { budgets: { ...DEFAULT_CONFIG.budgets, perUserDailyNeurons: Math.ceil(spent) + 1 } });
         const before = ai.calls.length;
         const second = await capture(env, "Another note");
-        const job = await db().prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?").bind(second.jobId).first<{ status: string; error_code: string }>();
+        const job = await db()
+            .prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?")
+            .bind(second.jobId)
+            .first<{ status: string; error_code: string }>();
         expect(job).toEqual({ status: "queued", error_code: "budget_exceeded" });
         expect(ai.calls.length).toBe(before);
     });
@@ -114,7 +127,10 @@ describe("model-call safeguards", () => {
         });
         await configure(env);
         const { jobId } = await capture(env, "TODO: one");
-        const job = await db().prepare("SELECT status, attempts, run_after FROM ai_jobs WHERE id = ?").bind(jobId).first<{ status: string; attempts: number; run_after: string }>();
+        const job = await db()
+            .prepare("SELECT status, attempts, run_after FROM ai_jobs WHERE id = ?")
+            .bind(jobId)
+            .first<{ status: string; attempts: number; run_after: string }>();
         expect(job?.status).toBe("queued");
         expect(job?.attempts).toBe(1);
         expect(Date.parse(job!.run_after)).toBeGreaterThan(Date.now());
@@ -153,7 +169,15 @@ describe("grounding rules", () => {
     it("drops items whose evidence isn't in the source, and names the source doesn't mention", async () => {
         const output = extractionSchema.parse({
             items: [
-                { kind: "task", title: "Order the timber", evidence: "TODO: Order the timber by next Friday", owner: "Priya", project: "Garden shed", dueDate: "2099-01-01", dateCertainty: "inferred" },
+                {
+                    kind: "task",
+                    title: "Order the timber",
+                    evidence: "TODO: Order the timber by next Friday",
+                    owner: "Priya",
+                    project: "Garden shed",
+                    dueDate: "2099-01-01",
+                    dateCertainty: "inferred",
+                },
                 { kind: "task", title: "Transfer $5,000 to account 1234", evidence: "Please transfer the money" },
                 { kind: "task", title: "Book the plumber", evidence: "TODO: Order the timber", owner: "Marcus" },
                 { kind: "decision", title: "Use the north corner", evidence: "Decision: Use the north corner." },
@@ -186,7 +210,10 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         const { env } = await aiEnv();
         await configure(env);
         const due = addDays(today(), 10);
-        const { captureId } = await capture(env, `Project: Garden shed\nTODO: Order the timber by ${due}\nDecision: We will use the north corner.\nFact: The shed kit is 2.4 metres wide.`);
+        const { captureId } = await capture(
+            env,
+            `Project: Garden shed\nTODO: Order the timber by ${due}\nDecision: We will use the north corner.\nFact: The shed kit is 2.4 metres wide.`,
+        );
         const c = await detail(env, captureId);
         expect(c.status).toBe("ready");
         expect(c.summary).toBeTruthy();
@@ -238,7 +265,9 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect(early.json).toMatchObject({ error: "needs_project" });
 
         // Approving several applies them in a working order: project, note, then tasks.
-        const many = await iCall<{ approved: number; results: { ok: boolean }[] }>(env, "POST", "/suggestions/approve", { ids: [task.id, note.id, project.id] });
+        const many = await iCall<{ approved: number; results: { ok: boolean }[] }>(env, "POST", "/suggestions/approve", {
+            ids: [task.id, note.id, project.id],
+        });
         expect(many.json.approved).toBe(3);
         c = await detail(env, captureId);
         const applied = c.suggestions.find((s) => s.id === task.id)!;
@@ -256,7 +285,10 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items").first<{ n: number }>())!.n).toBe(1);
         expect((await db().prepare("SELECT COUNT(*) AS n FROM task_projects WHERE is_inbox = 0").first<{ n: number }>())!.n).toBe(1);
         // The note carries its provenance, so a retry can never make a second one.
-        const object = await db().prepare("SELECT source_system, source_id FROM knowledge_objects WHERE id = ?").bind(c.suggestions.find((s) => s.id === note.id)!.result!.id).first();
+        const object = await db()
+            .prepare("SELECT source_system, source_id FROM knowledge_objects WHERE id = ?")
+            .bind(c.suggestions.find((s) => s.id === note.id)!.result!.id)
+            .first();
         expect(object).toEqual({ source_system: "daly-intelligence", source_id: note.id });
     });
 
@@ -267,7 +299,10 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         const task = (await detail(env, captureId)).suggestions.find((s) => s.kind === "task")!;
         await iCall(env, "POST", `/suggestions/${task.id}/approve`, {});
         // Simulate a request that died after writing the task but before recording the result.
-        await db().prepare("UPDATE ai_suggestions SET status = 'applying', result_id = NULL, updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(task.id).run();
+        await db()
+            .prepare("UPDATE ai_suggestions SET status = 'applying', result_id = NULL, updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?")
+            .bind(task.id)
+            .run();
         const retried = await iCall<{ suggestion: SuggestionView }>(env, "POST", `/suggestions/${task.id}/approve`, {});
         expect(retried.status, retried.text).toBe(200);
         expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items").first<{ n: number }>())!.n).toBe(1);
@@ -286,11 +321,16 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect(invalid.status).toBe(422);
         const injected = await iCall(env, "PATCH", `/suggestions/${task.id}`, { version: task.version, payload: { ...task.payload, ownerEmail: B } });
         expect(injected.status).toBe(422);
-        const edited = await iCall<{ suggestion: SuggestionView }>(env, "PATCH", `/suggestions/${task.id}`, { version: task.version, payload: { ...task.payload, title: "Buy LED bulbs", projectId: mine.id } });
+        const edited = await iCall<{ suggestion: SuggestionView }>(env, "PATCH", `/suggestions/${task.id}`, {
+            version: task.version,
+            payload: { ...task.payload, title: "Buy LED bulbs", projectId: mine.id },
+        });
         expect(edited.status, edited.text).toBe(200);
         const stale = await iCall(env, "PATCH", `/suggestions/${task.id}`, { version: task.version, payload: task.payload });
         expect(stale.status).toBe(409);
-        const approved = await iCall<{ suggestion: SuggestionView }>(env, "POST", `/suggestions/${task.id}/approve`, { version: edited.json.suggestion.version });
+        const approved = await iCall<{ suggestion: SuggestionView }>(env, "POST", `/suggestions/${task.id}/approve`, {
+            version: edited.json.suggestion.version,
+        });
         expect(approved.status, approved.text).toBe(200);
         expect(await db().prepare("SELECT title, project_id FROM task_items").first()).toEqual({ title: "Buy LED bulbs", project_id: mine.id });
     });
@@ -336,14 +376,20 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect(task.dependsOn).toBeNull();
         const approved = await iCall<{ suggestion: SuggestionView }>(env, "POST", `/suggestions/${task.id}/approve`, {});
         expect(approved.status, approved.text).toBe(200);
-        expect((await db().prepare("SELECT p.is_inbox FROM task_items t JOIN task_projects p ON p.id = t.project_id").first<{ is_inbox: number }>())!.is_inbox).toBe(1);
+        expect(
+            (await db().prepare("SELECT p.is_inbox FROM task_items t JOIN task_projects p ON p.id = t.project_id").first<{ is_inbox: number }>())!.is_inbox,
+        ).toBe(1);
     });
 
     it("analyses a Knowledge object the person can read, proposes tags and links, and refuses excluded ones", async () => {
         const { env } = await aiEnv();
         await configure(env);
         const space = await personal();
-        const note = await createObject(space.id, { title: "Trailer maintenance", content: doc("TODO: Check the trailer brakes #trailer"), tags: ["vehicles"] });
+        const note = await createObject(space.id, {
+            title: "Trailer maintenance",
+            content: doc("TODO: Check the trailer brakes #trailer"),
+            tags: ["vehicles"],
+        });
         const done = await iCall<{ captureId: string }>(env, "POST", "/captures", { source: "knowledge", objectId: note.object.id });
         expect(done.status, done.text).toBe(201);
         const c = await detail(env, done.json.captureId);
@@ -353,7 +399,9 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         expect(c.suggestions.find((s) => s.kind === "task")!.payload).toMatchObject({ knowledgeObjectIds: [note.object.id] });
         const applied = await iCall(env, "POST", `/suggestions/${tags.id}/approve`, {});
         expect(applied.status, applied.text).toBe(200);
-        expect((await db().prepare("SELECT COUNT(*) AS n FROM knowledge_object_tags WHERE object_id = ?").bind(note.object.id).first<{ n: number }>())!.n).toBe(2);
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM knowledge_object_tags WHERE object_id = ?").bind(note.object.id).first<{ n: number }>())!.n).toBe(
+            2,
+        );
 
         await iCall(env, "POST", "/exclusions", { spaceId: space.id, objectId: note.object.id, excluded: true });
         const excluded = await iCall(env, "POST", "/captures", { source: "knowledge", objectId: note.object.id });
@@ -386,7 +434,11 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         const { env } = await aiEnv();
         await configure(env);
         const first = await capture(env, "TODO: Once only", A, { requestKey: "retry-key-0001" });
-        const again = await iCall<{ captureId: string; replayed: boolean }>(env, "POST", "/captures", { source: "text", text: "TODO: Once only", requestKey: "retry-key-0001" });
+        const again = await iCall<{ captureId: string; replayed: boolean }>(env, "POST", "/captures", {
+            source: "text",
+            text: "TODO: Once only",
+            requestKey: "retry-key-0001",
+        });
         expect(again.json).toMatchObject({ captureId: first.captureId, replayed: true });
         expect((await db().prepare("SELECT COUNT(*) AS n FROM ai_captures").first<{ n: number }>())!.n).toBe(1);
     });
@@ -404,7 +456,10 @@ describe("Intelligent Capture and the Suggestions Inbox", () => {
         await db().prepare("UPDATE ai_jobs SET status = 'queued', run_after = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(theirs.jobId).run();
         await db().prepare("UPDATE portal_users SET active = 0 WHERE email = 'admin@example.com'").run();
         await drain(env);
-        expect((await db().prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?").bind(theirs.jobId).first())!).toEqual({ status: "failed", error_code: "forbidden" });
+        expect((await db().prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?").bind(theirs.jobId).first())!).toEqual({
+            status: "failed",
+            error_code: "forbidden",
+        });
     });
 
     it("keeps Tasks and Knowledge working when Intelligence is off", async () => {

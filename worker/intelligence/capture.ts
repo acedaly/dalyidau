@@ -13,6 +13,7 @@
 //     access checks as the portal.
 import { z } from "zod";
 import { estimateTextNeurons, estimateTokens } from "../../src/shared/intelligence/config";
+import type { IntelligenceConfig } from "../../src/shared/intelligence/config";
 import type { CaptureSource } from "../../src/shared/intelligence/types";
 import { type SuggestionKind, type SuggestionPayload, payloadSchemas } from "../../src/shared/intelligence/types";
 import { isCalendarDate } from "../../src/shared/knowledge/dates";
@@ -30,9 +31,8 @@ import { listProjects } from "../tasks/projects";
 import { type JobContext, PermanentFailure, type StepResult, enqueue, willFail } from "./jobs";
 import { EXTRACT_SYSTEM, MEETING_SYSTEM, fence } from "./prompts";
 import { generateJson } from "./provider";
-import { availability, excludedObjects, loadConfig } from "./settings";
 import { sha256 } from "./semantic";
-import type { IntelligenceConfig } from "../../src/shared/intelligence/config";
+import { availability, excludedObjects, loadConfig } from "./settings";
 
 // --- Model output ----------------------------------------------------------------------------------
 
@@ -65,14 +65,7 @@ export type ExtractedItem = z.output<typeof item>;
 
 // --- Grounding -------------------------------------------------------------------------------------
 
-const squash = (text: string) =>
-    text
-        .normalize("NFKC")
-        .toLowerCase()
-        .replace(/[‘’]/g, "'")
-        .replace(/[“”]/g, '"')
-        .replace(/\s+/g, " ")
-        .trim();
+const squash = (text: string) => text.normalize("NFKC").toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
 
 /** Whether the quote (or, for a long one, its first 80 characters) is in the source. */
 export const grounded = (source: string, quote: string | null | undefined) => {
@@ -147,7 +140,13 @@ export async function draftsFrom(
                           priority: it.priority ?? 4,
                           owner,
                       })
-                    : payloadSchemas.follow_up.safeParse({ title: titleText, waitingOn: mentioned(source, it.waitingOn), dueDate, dueText, dateCertainty: dueDate ? certainty : "none" });
+                    : payloadSchemas.follow_up.safeParse({
+                          title: titleText,
+                          waitingOn: mentioned(source, it.waitingOn),
+                          dueDate,
+                          dueText,
+                          dateCertainty: dueDate ? certainty : "none",
+                      });
             if (!payload.success) {
                 dropped++;
                 continue;
@@ -162,19 +161,38 @@ export async function draftsFrom(
                 key: await keyOf(it.kind, titleText),
             });
         } else if (it.kind === "decision" && context.spaceId) {
-            const payload = payloadSchemas.decision.safeParse({ spaceId: context.spaceId, title: it.title ?? "", text: evidence, decidedOn: plausibleDate(it.decidedOn, context.today) });
+            const payload = payloadSchemas.decision.safeParse({
+                spaceId: context.spaceId,
+                title: it.title ?? "",
+                text: evidence,
+                decidedOn: plausibleDate(it.decidedOn, context.today),
+            });
             if (!payload.success) {
                 dropped++;
                 continue;
             }
-            drafts.push({ kind: "decision", payload: payload.data, reason: "A decision recorded in the source", evidence, confidence, key: await keyOf("decision", it.title ?? "") });
+            drafts.push({
+                kind: "decision",
+                payload: payload.data,
+                reason: "A decision recorded in the source",
+                evidence,
+                confidence,
+                key: await keyOf("decision", it.title ?? ""),
+            });
         } else if (it.kind === "fact" && context.spaceId) {
             const payload = payloadSchemas.fact.safeParse({ statement: it.statement ?? it.title ?? "", spaceId: context.spaceId });
             if (!payload.success) {
                 dropped++;
                 continue;
             }
-            drafts.push({ kind: "fact", payload: payload.data, reason: "A fact worth keeping", evidence, confidence, key: await keyOf("fact", payload.data.statement) });
+            drafts.push({
+                kind: "fact",
+                payload: payload.data,
+                reason: "A fact worth keeping",
+                evidence,
+                confidence,
+                key: await keyOf("fact", payload.data.statement),
+            });
         } else dropped++;
     }
     return { drafts, dropped };
@@ -219,12 +237,27 @@ export const captureInput = z
         source: z.enum(["text", "knowledge", "document", "audio", "mcp", "app"]),
         title: z.string().trim().max(300).optional(),
         text: z.string().max(200_000).optional(),
-        objectId: z.string().regex(/^kob_[a-z0-9]{14}$/).optional(),
-        attachmentId: z.string().regex(/^att_[a-z0-9]{14}$/).optional(),
+        objectId: z
+            .string()
+            .regex(/^kob_[a-z0-9]{14}$/)
+            .optional(),
+        attachmentId: z
+            .string()
+            .regex(/^att_[a-z0-9]{14}$/)
+            .optional(),
         /** The Knowledge space suggestions should go to; the caller's personal space by default. */
-        spaceId: z.string().regex(/^ksp_[a-z0-9]{14}$/).optional(),
-        language: z.string().regex(/^[a-z]{2,3}$/).optional(),
-        requestKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
+        spaceId: z
+            .string()
+            .regex(/^ksp_[a-z0-9]{14}$/)
+            .optional(),
+        language: z
+            .string()
+            .regex(/^[a-z]{2,3}$/)
+            .optional(),
+        requestKey: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]{8,64}$/)
+            .optional(),
     })
     .strict();
 
@@ -247,7 +280,11 @@ export const analysisEstimate = (config: IntelligenceConfig, characters: number)
  * Records a capture and queues its processing. Text and Knowledge captures go straight to analysis;
  * documents are extracted first and recordings transcribed first (meetings.ts, documents.ts).
  */
-export async function createCapture(env: Env, user: PortalUser, input: unknown): Promise<{ captureId: string; jobId: string; replayed: boolean; needsApproval: boolean }> {
+export async function createCapture(
+    env: Env,
+    user: PortalUser,
+    input: unknown,
+): Promise<{ captureId: string; jobId: string; replayed: boolean; needsApproval: boolean }> {
     const body = captureInput.parse(input);
     const { config } = await loadConfig(env.DB);
     const available = availability(env, config);
@@ -255,9 +292,13 @@ export async function createCapture(env: Env, user: PortalUser, input: unknown):
     if (!config.features.enabled) throw new HttpError(409, "ai_off", "Intelligence is switched off.");
     if (!feature) throw new HttpError(409, "feature_off", "That kind of capture isn't switched on, or Workers AI isn't connected yet.");
     if (body.requestKey) {
-        const earlier = await env.DB.prepare("SELECT id FROM ai_captures WHERE email = ? AND request_key = ?").bind(user.email, body.requestKey).first<{ id: string }>();
+        const earlier = await env.DB.prepare("SELECT id FROM ai_captures WHERE email = ? AND request_key = ?")
+            .bind(user.email, body.requestKey)
+            .first<{ id: string }>();
         if (earlier) {
-            const job = await env.DB.prepare("SELECT id, status FROM ai_jobs WHERE subject_id = ? ORDER BY created_at DESC LIMIT 1").bind(earlier.id).first<{ id: string; status: string }>();
+            const job = await env.DB.prepare("SELECT id, status FROM ai_jobs WHERE subject_id = ? ORDER BY created_at DESC LIMIT 1")
+                .bind(earlier.id)
+                .first<{ id: string; status: string }>();
             return { captureId: earlier.id, jobId: job?.id ?? "", replayed: true, needsApproval: job?.status === "waiting_approval" };
         }
     }
@@ -273,7 +314,9 @@ export async function createCapture(env: Env, user: PortalUser, input: unknown):
         if (access.status === "trashed") throw new HttpError(404, "not_found", "Not found");
         if ((await excludedObjects(env.DB, [{ id: access.id, spaceId: access.space_id }])).size)
             throw new HttpError(422, "excluded", "That object, or its space, is excluded from AI processing.");
-        const row = await env.DB.prepare("SELECT title, body_text FROM knowledge_objects WHERE id = ?").bind(access.id).first<{ title: string; body_text: string }>();
+        const row = await env.DB.prepare("SELECT title, body_text FROM knowledge_objects WHERE id = ?")
+            .bind(access.id)
+            .first<{ title: string; body_text: string }>();
         text = `${row?.title ?? ""}\n\n${row?.body_text ?? ""}`.trim();
         title = title || row?.title || "Knowledge object";
         sourceObjectId = access.id;
@@ -283,7 +326,8 @@ export async function createCapture(env: Env, user: PortalUser, input: unknown):
             .bind(body.attachmentId, user.email)
             .first<{ id: string; filename: string; status: string; content_type: string }>();
         if (!row || row.status !== "stored") throw new HttpError(422, "validation", "That upload isn't finished");
-        if ((body.source === "audio") !== row.content_type.startsWith("audio/")) throw new HttpError(422, "validation", "That file is the wrong kind for this capture");
+        if ((body.source === "audio") !== row.content_type.startsWith("audio/"))
+            throw new HttpError(422, "validation", "That file is the wrong kind for this capture");
         attachmentId = row.id;
         title = title || row.filename;
     } else {
@@ -302,7 +346,21 @@ export async function createCapture(env: Env, user: PortalUser, input: unknown):
             `INSERT INTO ai_captures (id, email, space_id, source, title, text, text_hash, source_object_id, attachment_id, status, language, request_key, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?, ?)`,
         )
-            .bind(id, user.email, spaceId, body.source, title.slice(0, 300), text, hash, sourceObjectId, attachmentId, body.language ?? null, body.requestKey ?? null, now, now)
+            .bind(
+                id,
+                user.email,
+                spaceId,
+                body.source,
+                title.slice(0, 300),
+                text,
+                hash,
+                sourceObjectId,
+                attachmentId,
+                body.language ?? null,
+                body.requestKey ?? null,
+                now,
+                now,
+            )
             .run();
     } catch (error) {
         if (body.requestKey && /UNIQUE/.test(String((error as Error)?.message))) return createCapture(env, user, input);
@@ -350,7 +408,9 @@ export async function saveSuggestions(env: Env, user: PortalUser, capture: Captu
                 // One pending "New project" per name: reuse one this or another capture already proposed.
                 const pending = project
                     ? null
-                    : await env.DB.prepare("SELECT id FROM ai_suggestions WHERE email = ? AND kind = 'project' AND status IN ('pending', 'applying') AND dedupe_key = ? ORDER BY created_at LIMIT 1")
+                    : await env.DB.prepare(
+                          "SELECT id FROM ai_suggestions WHERE email = ? AND kind = 'project' AND status IN ('pending', 'applying') AND dedupe_key = ? ORDER BY created_at LIMIT 1",
+                      )
                           .bind(user.email, dedupeKey)
                           .first<{ id: string }>();
                 if (pending) {
@@ -365,7 +425,9 @@ export async function saveSuggestions(env: Env, user: PortalUser, capture: Captu
                         draft: {
                             kind: "project",
                             payload: payloadSchemas.project.parse({ name: draft.projectName, similarProjectIds: ranked.slice(0, 5).map((r) => r.p.id) }),
-                            reason: ranked.length ? "Named in the source; similar projects exist, so check before creating" : "Named in the source, and you don't have a project by that name",
+                            reason: ranked.length
+                                ? "Named in the source; similar projects exist, so check before creating"
+                                : "Named in the source, and you don't have a project by that name",
                             evidence: draft.evidence,
                             confidence: draft.confidence,
                             key: dedupeKey,
@@ -398,7 +460,20 @@ export async function saveSuggestions(env: Env, user: PortalUser, capture: Captu
             env.DB.prepare(
                 `INSERT OR IGNORE INTO ai_suggestions (id, email, capture_id, kind, status, payload, reason, evidence, confidence, depends_on, dedupe_key, created_at, updated_at)
                  VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).bind(r.id, user.email, capture.id, r.draft.kind, JSON.stringify(r.draft.payload), r.draft.reason, r.draft.evidence, r.draft.confidence, r.dependsOn, r.draft.key, now, now),
+            ).bind(
+                r.id,
+                user.email,
+                capture.id,
+                r.draft.kind,
+                JSON.stringify(r.draft.payload),
+                r.draft.reason,
+                r.draft.evidence,
+                r.draft.confidence,
+                r.dependsOn,
+                r.draft.key,
+                now,
+                now,
+            ),
         );
     for (let i = 0; i < statements.length; i += 50) await env.DB.batch(statements.slice(i, i + 50));
     return statements.length;
@@ -410,11 +485,20 @@ async function recordDrafts(env: Env, user: PortalUser, capture: CaptureRow, out
     const tags = [...new Set(output.tags.map((t) => t.toLowerCase().replace(/^#/, "").trim()).filter((t) => t && t.length <= 50))].slice(0, 5);
     if (capture.source_object_id) {
         const existing = (
-            await env.DB.prepare("SELECT t.name FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = ?").bind(capture.source_object_id).all<{ name: string }>()
+            await env.DB.prepare("SELECT t.name FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = ?")
+                .bind(capture.source_object_id)
+                .all<{ name: string }>()
         ).results.map((r) => r.name.toLowerCase());
         const fresh = tags.filter((t) => !existing.includes(t));
         if (fresh.length)
-            drafts.push({ kind: "tags", payload: payloadSchemas.tags.parse({ objectId: capture.source_object_id, tags: fresh }), reason: "Topics in this note", evidence: null, confidence: null, key: `tags:${capture.source_object_id}:${fresh.join(",")}` });
+            drafts.push({
+                kind: "tags",
+                payload: payloadSchemas.tags.parse({ objectId: capture.source_object_id, tags: fresh }),
+                reason: "Topics in this note",
+                evidence: null,
+                confidence: null,
+                key: `tags:${capture.source_object_id}:${fresh.join(",")}`,
+            });
         // Links come from the existing, explainable related-content engine: nothing a model made up.
         const access = await requireObject(env.DB, user, capture.source_object_id);
         for (const related of (await relatedObjects(env.DB, access.id, access.space_id, 5)).filter((r) => r.strength === "strong").slice(0, 3))
@@ -482,7 +566,14 @@ export async function analyseStep(ctx: JobContext, capture: CaptureRow): Promise
     const today = await todayFor(env.DB, user.email);
     const meeting = capture.source === "audio";
     const { value } = await generateJson(
-        { env, config, email: user.email, spaceId: capture.space_id, feature: meeting ? "meetings" : capture.source === "document" ? "documents" : "capture", jobId: job.id },
+        {
+            env,
+            config,
+            email: user.email,
+            spaceId: capture.space_id,
+            feature: meeting ? "meetings" : capture.source === "document" ? "documents" : "capture",
+            jobId: job.id,
+        },
         {
             role: meeting && parts.length === 1 ? "synthesis" : "extract",
             system: meeting ? MEETING_SYSTEM(today, prefs.timeZone, false) : EXTRACT_SYSTEM(today, prefs.timeZone),
@@ -496,9 +587,12 @@ export async function analyseStep(ctx: JobContext, capture: CaptureRow): Promise
     const summaries = [...(progress.summaries ?? []), value.summary.trim()].filter(Boolean);
     const tags = [...new Set([...(progress.tags ?? []), ...value.tags])].slice(0, 10);
     const questions = [...(progress.questions ?? []), ...value.questions].slice(0, 5);
-    if (index + 1 < parts.length) return { status: "more", progress: { step: "analysing", done: index + 1, total: parts.length, piece: index + 1, summaries, tags, questions } };
+    if (index + 1 < parts.length)
+        return { status: "more", progress: { step: "analysing", done: index + 1, total: parts.length, piece: index + 1, summaries, tags, questions } };
 
-    const summary = [summaries.join("\n\n"), questions.length ? `Questions to consider:\n${questions.map((q) => `- ${q}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    const summary = [summaries.join("\n\n"), questions.length ? `Questions to consider:\n${questions.map((q) => `- ${q}`).join("\n")}` : ""]
+        .filter(Boolean)
+        .join("\n\n");
     await saveSuggestions(env, user, capture, await recordDrafts(env, user, capture, { summary: summaries.join("\n\n"), tags, items: [], questions }), today);
     await env.DB.prepare("UPDATE ai_captures SET status = 'ready', summary = ?, error_code = NULL, analysed_at = ?, updated_at = ? WHERE id = ?")
         .bind(summary.slice(0, 20_000), nowIso(), nowIso(), capture.id)
@@ -520,5 +614,7 @@ export async function captureJob(ctx: JobContext): Promise<StepResult> {
 /** Records a capture failure (the job decides whether to retry; a retry sets it going again). */
 export async function markFailed(env: Env, captureId: string, error: unknown) {
     const code = error instanceof PermanentFailure ? error.code : error instanceof HttpError ? error.code : "unexpected";
-    await env.DB.prepare("UPDATE ai_captures SET status = 'failed', error_code = ?, updated_at = ? WHERE id = ?").bind(code.slice(0, 40), nowIso(), captureId).run();
+    await env.DB.prepare("UPDATE ai_captures SET status = 'failed', error_code = ?, updated_at = ? WHERE id = ?")
+        .bind(code.slice(0, 40), nowIso(), captureId)
+        .run();
 }

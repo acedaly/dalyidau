@@ -8,11 +8,11 @@
 // Conversion with a timeout. Extracted text is the capture's *source*, stored apart from anything
 // generated, and like every source it reaches a model only inside the untrusted-content fence.
 // Nothing in a document is ever executed, rendered as HTML or followed (links, macros, scripts).
+import { nowIso } from "../portal/db";
 import { claimedKind, getAttachment, pdfFacts, readAttachmentBytes, settleProcessing, zipBombReason } from "./attachments";
 import { type CaptureRow, analyseStep, markFailed, ownCapture } from "./capture";
 import { type JobContext, PermanentFailure, type StepResult, willFail } from "./jobs";
 import { documentToText } from "./provider";
-import { nowIso } from "../portal/db";
 
 export async function extractText(ctx: JobContext, capture: CaptureRow): Promise<string> {
     const { env, config } = ctx;
@@ -48,9 +48,16 @@ export async function documentJob(ctx: JobContext): Promise<StepResult> {
         if (capture.text === null) {
             await env.DB.prepare("UPDATE ai_captures SET status = 'extracting', updated_at = ? WHERE id = ?").bind(nowIso(), capture.id).run();
             const raw = await extractText(ctx, capture);
-            const text = raw.replace(/\u0000/g, "").replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+            const text = raw
+                .replace(/\u0000/g, "")
+                .replace(/\r\n?/g, "\n")
+                .replace(/\n{3,}/g, "\n\n")
+                .trim();
             if (!text) throw new PermanentFailure("no_text");
-            const cut = text.length > config.limits.maxCaptureCharacters ? `${text.slice(0, config.limits.maxCaptureCharacters)}\n\n[Text cut at the capture limit]` : text;
+            const cut =
+                text.length > config.limits.maxCaptureCharacters
+                    ? `${text.slice(0, config.limits.maxCaptureCharacters)}\n\n[Text cut at the capture limit]`
+                    : text;
             await env.DB.prepare("UPDATE ai_captures SET text = ?, status = 'analysing', updated_at = ? WHERE id = ?").bind(cut, nowIso(), capture.id).run();
             if (capture.attachment_id) await settleProcessing(env.DB, config, capture.attachment_id, true);
             return { status: "more", progress: { step: "extracted" } };

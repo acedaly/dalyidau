@@ -89,7 +89,9 @@ export async function savePreferences(db: D1Database, user: PortalUser, input: u
     const preferences = preferencesSchema.parse(input);
     // Only spaces the person belongs to can be listed; anything else is quietly dropped.
     const member = new Set(
-        (await db.prepare("SELECT space_id FROM knowledge_memberships WHERE email = ?").bind(user.email).all<{ space_id: string }>()).results.map((r) => r.space_id),
+        (await db.prepare("SELECT space_id FROM knowledge_memberships WHERE email = ?").bind(user.email).all<{ space_id: string }>()).results.map(
+            (r) => r.space_id,
+        ),
     );
     preferences.excludedSpaceIds = preferences.excludedSpaceIds.filter((id) => member.has(id));
     const now = nowIso();
@@ -119,7 +121,11 @@ export async function setExclusion(db: D1Database, user: PortalUser, target: { s
             .prepare("INSERT OR IGNORE INTO ai_exclusions (id, space_id, object_id, excluded_by, created_at) VALUES (?, ?, ?, ?, ?)")
             .bind(newId("aix"), spaceId, target.objectId ?? null, user.email, nowIso())
             .run();
-    else await db.prepare("DELETE FROM ai_exclusions WHERE space_id = ? AND COALESCE(object_id, '') = ?").bind(spaceId, target.objectId ?? "").run();
+    else
+        await db
+            .prepare("DELETE FROM ai_exclusions WHERE space_id = ? AND COALESCE(object_id, '') = ?")
+            .bind(spaceId, target.objectId ?? "")
+            .run();
 }
 
 /** Of these objects, the ones excluded (directly or through their space). */

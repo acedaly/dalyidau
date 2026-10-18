@@ -18,7 +18,7 @@ import { estimateAudioNeurons } from "../../src/shared/intelligence/config";
 import type { TranscriptSegment } from "../../src/shared/intelligence/types";
 import { nowIso, parseJson } from "../portal/db";
 import { type AttachmentRow, claimedKind, getAttachment, readAttachmentBytes, settleProcessing } from "./attachments";
-import { analysisEstimate, analyseStep, markFailed, ownCapture } from "./capture";
+import { analyseStep, analysisEstimate, markFailed, ownCapture } from "./capture";
 import { type JobContext, PermanentFailure, type StepResult, willFail } from "./jobs";
 import { transcribe } from "./provider";
 
@@ -108,7 +108,9 @@ export function mp3FrameBitrate(bytes: Uint8Array, at: number): number | null {
 
 /** Where the audio starts after an ID3v2 tag. */
 export const id3Length = (bytes: Uint8Array) =>
-    bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33 ? 10 + (((bytes[6] & 0x7f) << 21) | ((bytes[7] & 0x7f) << 14) | ((bytes[8] & 0x7f) << 7) | (bytes[9] & 0x7f)) : 0;
+    bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33
+        ? 10 + (((bytes[6] & 0x7f) << 21) | ((bytes[7] & 0x7f) << 14) | ((bytes[8] & 0x7f) << 7) | (bytes[9] & 0x7f))
+        : 0;
 
 /** The first valid frame at or after `from`. */
 export function nextFrame(bytes: Uint8Array, from: number): number {
@@ -143,7 +145,10 @@ export async function planTranscription(bucket: R2Bucket, attachment: Attachment
     if (kind.format === "wav") {
         const wav = parseWav(head, attachment.bytes);
         if (!wav || wav.audioFormat !== 1) throw new PermanentFailure("unsupported_wav");
-        const pieceBytes = Math.max(wav.blockAlign, Math.floor(Math.min(SINGLE_REQUEST_BYTES - 44, wav.byteRate * WAV_PIECE_SECONDS) / wav.blockAlign) * wav.blockAlign);
+        const pieceBytes = Math.max(
+            wav.blockAlign,
+            Math.floor(Math.min(SINGLE_REQUEST_BYTES - 44, wav.byteRate * WAV_PIECE_SECONDS) / wav.blockAlign) * wav.blockAlign,
+        );
         const pieces: Piece[] = [];
         for (let at = 0; at < wav.dataBytes; at += pieceBytes) {
             const length = Math.min(pieceBytes, wav.dataBytes - at);
@@ -232,12 +237,15 @@ export async function meetingJob(ctx: JobContext): Promise<StepResult> {
         if (next >= 0) {
             const audio = await pieceAudio(env.MEDIA, attachment, plan, next);
             const piece = plan.pieces[next];
-            const result = await transcribe(
-                { env, config, email: user.email, spaceId: capture.space_id, feature: "meetings", jobId: job.id },
-                audio,
-                { seconds: piece.seconds, language: capture.language },
-            );
-            const segments: TranscriptSegment[] = result.segments.map((s) => ({ start: s.start + piece.offsetSeconds, end: s.end + piece.offsetSeconds, text: s.text }));
+            const result = await transcribe({ env, config, email: user.email, spaceId: capture.space_id, feature: "meetings", jobId: job.id }, audio, {
+                seconds: piece.seconds,
+                language: capture.language,
+            });
+            const segments: TranscriptSegment[] = result.segments.map((s) => ({
+                start: s.start + piece.offsetSeconds,
+                end: s.end + piece.offsetSeconds,
+                text: s.text,
+            }));
             await env.DB.batch([
                 env.DB.prepare("INSERT OR REPLACE INTO ai_transcript_parts (capture_id, idx, offset_seconds, text, segments) VALUES (?, ?, ?, ?, ?)").bind(
                     capture.id,
@@ -246,19 +254,23 @@ export async function meetingJob(ctx: JobContext): Promise<StepResult> {
                     result.text,
                     JSON.stringify(segments.slice(0, 2_000)),
                 ),
-                env.DB.prepare("UPDATE ai_transcripts SET chunks_done = (SELECT COUNT(*) FROM ai_transcript_parts WHERE capture_id = ?1), language = COALESCE(language, ?2) WHERE capture_id = ?1").bind(
-                    capture.id,
-                    result.language,
-                ),
+                env.DB.prepare(
+                    "UPDATE ai_transcripts SET chunks_done = (SELECT COUNT(*) FROM ai_transcript_parts WHERE capture_id = ?1), language = COALESCE(language, ?2) WHERE capture_id = ?1",
+                ).bind(capture.id, result.language),
             ]);
             return { status: "more", progress: { ...progress, plan, step: "transcribing", done: finished.size + 1, total: plan.pieces.length } };
         }
 
         // Every piece is in: assemble the transcript as the capture's source text.
         const parts = await env.DB.prepare("SELECT text FROM ai_transcript_parts WHERE capture_id = ? ORDER BY idx").bind(capture.id).all<{ text: string }>();
-        const text = parts.results.map((p) => p.text.trim()).filter(Boolean).join("\n\n");
+        const text = parts.results
+            .map((p) => p.text.trim())
+            .filter(Boolean)
+            .join("\n\n");
         if (!text) throw new PermanentFailure("no_speech");
-        const transcript = await env.DB.prepare("SELECT language FROM ai_transcripts WHERE capture_id = ?").bind(capture.id).first<{ language: string | null }>();
+        const transcript = await env.DB.prepare("SELECT language FROM ai_transcripts WHERE capture_id = ?")
+            .bind(capture.id)
+            .first<{ language: string | null }>();
         await env.DB.batch([
             env.DB.prepare("UPDATE ai_transcripts SET completed_at = ? WHERE capture_id = ?").bind(nowIso(), capture.id),
             env.DB.prepare("UPDATE ai_captures SET text = ?, language = COALESCE(language, ?), status = 'analysing', updated_at = ? WHERE id = ?").bind(

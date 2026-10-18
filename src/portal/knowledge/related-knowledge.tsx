@@ -1,25 +1,40 @@
 // "Related knowledge" on an object page: suggestions worked out on the Worker from tags, links,
 // collections and wording, each with its reasons. Loaded after the page, so it never slows opening
-// an object. Suggestions are only that: nothing is linked unless someone links it.
+// an object. Suggestions are only that: nothing is linked unless someone links it. With Daly
+// Intelligence's semantic search on, similar meaning and possible duplicates are added; if that's
+// unavailable the explainable suggestions are shown exactly as before.
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/base/badges/badges";
 import { Skeleton } from "@/portal/components/empty";
+import { api } from "@/portal/lib/api";
+import { usePortal } from "@/portal/portal-context";
 import type { KnowledgeType, RelatedSuggestion } from "@/shared/knowledge/types";
 import { TypeIconFor, knowledgeApi, objectHref, titleOf } from "./shared";
 
+type Related = Pick<RelatedSuggestion, "object" | "reasons" | "strength"> & { possibleDuplicate?: boolean };
+
 export const RelatedKnowledge = ({ objectId, types }: { objectId: string; types: KnowledgeType[] }) => {
-    const [related, setRelated] = useState<RelatedSuggestion[] | null>(null);
+    const { can } = usePortal();
+    const withMeaning = can("intelligence.use");
+    const [related, setRelated] = useState<Related[] | null>(null);
     const [failed, setFailed] = useState(false);
 
     useEffect(() => {
         let live = true;
-        knowledgeApi
-            .related(objectId)
-            .then((r) => live && setRelated(r.related))
+        const plain = () => knowledgeApi.related(objectId).then((r) => r.related as Related[]);
+        (withMeaning
+            ? api<{ related: Related[]; semantic: boolean }>("GET", `/api/portal/intelligence/objects/${objectId}/related`).then(
+                  (r) => (r.semantic ? r.related : plain()),
+                  plain,
+              )
+            : plain()
+        )
+            .then((r) => live && setRelated(r))
             .catch(() => live && setFailed(true));
         return () => {
             live = false;
         };
-    }, [objectId]);
+    }, [objectId, withMeaning]);
 
     return (
         <section className="flex flex-col gap-3 border-t border-secondary pt-5" aria-labelledby="related-knowledge">
@@ -38,10 +53,18 @@ export const RelatedKnowledge = ({ objectId, types }: { objectId: string; types:
                         <li key={s.object.id} className="flex gap-2 text-sm">
                             <TypeIconFor type={types.find((t) => t.id === s.object.typeId)} className="mt-0.5" />
                             <span className="min-w-0 flex-1">
-                                <a href={objectHref(s.object.id)} className="block truncate font-medium text-secondary hover:text-brand-secondary hover:underline">
+                                <a
+                                    href={objectHref(s.object.id)}
+                                    className="block truncate font-medium text-secondary hover:text-brand-secondary hover:underline"
+                                >
                                     {titleOf(s.object.title)}
                                 </a>
                                 <span className="block text-xs text-tertiary">
+                                    {s.possibleDuplicate && (
+                                        <Badge size="sm" type="pill-color" color="warning" className="mr-1">
+                                            Possible duplicate
+                                        </Badge>
+                                    )}
                                     {s.strength === "possible" && <span className="font-medium text-quaternary">Possibly related · </span>}
                                     {s.reasons.join(" · ")}
                                 </span>

@@ -82,13 +82,19 @@ async function labelsFor(db: D1Database, user: PortalUser, rows: SuggestionRow[]
     if (!list.length) return out;
     const [projects, objects, spaces] = await db.batch([
         db
-            .prepare(`SELECT p.id, CASE WHEN p.is_inbox = 1 THEN 'Inbox' ELSE p.name END AS name FROM task_projects p JOIN task_project_members m ON m.project_id = p.id AND m.email = ? WHERE p.id IN (${placeholders(list.length)})`)
+            .prepare(
+                `SELECT p.id, CASE WHEN p.is_inbox = 1 THEN 'Inbox' ELSE p.name END AS name FROM task_projects p JOIN task_project_members m ON m.project_id = p.id AND m.email = ? WHERE p.id IN (${placeholders(list.length)})`,
+            )
             .bind(user.email, ...list),
         db
-            .prepare(`SELECT o.id, o.title AS name FROM knowledge_objects o JOIN knowledge_memberships m ON m.space_id = o.space_id AND m.email = ? WHERE o.status <> 'trashed' AND o.id IN (${placeholders(list.length)})`)
+            .prepare(
+                `SELECT o.id, o.title AS name FROM knowledge_objects o JOIN knowledge_memberships m ON m.space_id = o.space_id AND m.email = ? WHERE o.status <> 'trashed' AND o.id IN (${placeholders(list.length)})`,
+            )
             .bind(user.email, ...list),
         db
-            .prepare(`SELECT s.id, s.name FROM knowledge_spaces s JOIN knowledge_memberships m ON m.space_id = s.id AND m.email = ? WHERE s.id IN (${placeholders(list.length)})`)
+            .prepare(
+                `SELECT s.id, s.name FROM knowledge_spaces s JOIN knowledge_memberships m ON m.space_id = s.id AND m.email = ? WHERE s.id IN (${placeholders(list.length)})`,
+            )
             .bind(user.email, ...list),
     ]);
     for (const r of [...projects.results, ...objects.results, ...spaces.results] as { id: string; name: string }[]) out.set(r.id, r.name || "Untitled");
@@ -101,7 +107,10 @@ export async function suggestionViews(db: D1Database, user: PortalUser, rows: Su
     const captures = new Map<string, { id: string; title: string; source: string }>();
     for (let i = 0; i < captureIds.length; i += 90) {
         const part = captureIds.slice(i, i + 90);
-        const found = await db.prepare(`SELECT id, title, source FROM ai_captures WHERE email = ? AND id IN (${placeholders(part.length)})`).bind(user.email, ...part).all<{ id: string; title: string; source: string }>();
+        const found = await db
+            .prepare(`SELECT id, title, source FROM ai_captures WHERE email = ? AND id IN (${placeholders(part.length)})`)
+            .bind(user.email, ...part)
+            .all<{ id: string; title: string; source: string }>();
         for (const c of found.results) captures.set(c.id, c);
     }
     return rows.map((r) => {
@@ -131,11 +140,17 @@ export async function suggestionViews(db: D1Database, user: PortalUser, rows: Su
 }
 
 /** One of the caller's suggestions, as a view. Anyone else's is "not found". */
-export const suggestionView = async (db: D1Database, user: PortalUser, id: string, site: string) => (await suggestionViews(db, user, [await ownSuggestion(db, user.email, id)], site))[0];
+export const suggestionView = async (db: D1Database, user: PortalUser, id: string, site: string) =>
+    (await suggestionViews(db, user, [await ownSuggestion(db, user.email, id)], site))[0];
 
 export type SuggestionFilter = "pending" | "applied" | "dismissed" | "all";
 
-export async function listSuggestions(db: D1Database, user: PortalUser, site: string, options: { filter?: SuggestionFilter; captureId?: string; limit?: number } = {}) {
+export async function listSuggestions(
+    db: D1Database,
+    user: PortalUser,
+    site: string,
+    options: { filter?: SuggestionFilter; captureId?: string; limit?: number } = {},
+) {
     const where = ["email = ?"];
     const binds: unknown[] = [user.email];
     const filter = options.filter ?? "pending";
@@ -173,7 +188,8 @@ async function checkPayload(db: D1Database, user: PortalUser, kind: SuggestionKi
         }
     if (typeof p.targetObjectId === "string") await requireObject(db, user, p.targetObjectId);
     for (const id of (p.knowledgeObjectIds as string[] | undefined) ?? []) await requireObject(db, user, id);
-    if ((kind === "task" || kind === "follow_up" || kind === "project") && !can(user, "tasks.use")) throw new HttpError(403, "forbidden", "You don't have access to Tasks");
+    if ((kind === "task" || kind === "follow_up" || kind === "project") && !can(user, "tasks.use"))
+        throw new HttpError(403, "forbidden", "You don't have access to Tasks");
 }
 
 // --- Editing and dismissing --------------------------------------------------------------------------
@@ -190,7 +206,9 @@ export async function editSuggestion(db: D1Database, user: PortalUser, id: strin
     if (dependsOn === null && row.kind === "task") (payload as SuggestionPayload<"task">).projectSuggestionId = null;
     await checkPayload(db, user, row.kind, payload);
     const result = await db
-        .prepare("UPDATE ai_suggestions SET payload = ?, depends_on = ?, status = 'pending', error_code = NULL, version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?")
+        .prepare(
+            "UPDATE ai_suggestions SET payload = ?, depends_on = ?, status = 'pending', error_code = NULL, version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?",
+        )
         .bind(JSON.stringify(payload), dependsOn, nowIso(), id, user.email, body.version)
         .run();
     if (!result.meta.changes) throw new HttpError(409, "conflict", "This suggestion changed in another tab. Reload to see it.");
@@ -200,7 +218,9 @@ export async function editSuggestion(db: D1Database, user: PortalUser, id: strin
 export async function dismissSuggestion(db: D1Database, user: PortalUser, id: string) {
     await ownSuggestion(db, user.email, id);
     await db
-        .prepare("UPDATE ai_suggestions SET status = 'dismissed', version = version + 1, decided_at = ?, updated_at = ? WHERE id = ? AND email = ? AND status IN ('pending', 'failed')")
+        .prepare(
+            "UPDATE ai_suggestions SET status = 'dismissed', version = version + 1, decided_at = ?, updated_at = ? WHERE id = ? AND email = ? AND status IN ('pending', 'failed')",
+        )
         .bind(nowIso(), nowIso(), id, user.email)
         .run();
     // Tasks waiting on a dismissed project go to the Inbox instead, unless the person edits them.
@@ -236,18 +256,25 @@ const typeIdFor = async (db: D1Database, spaceId: string, slug: string) => {
 };
 
 const provenance = (site: string, row: SuggestionRow, title: string | null) =>
-    row.capture_id ? `Suggested by Daly Intelligence from “${title ?? "a capture"}”: ${site}/portal/intelligence/captures/${row.capture_id}` : "Suggested by Daly Intelligence";
+    row.capture_id
+        ? `Suggested by Daly Intelligence from “${title ?? "a capture"}”: ${site}/portal/intelligence/captures/${row.capture_id}`
+        : "Suggested by Daly Intelligence";
 
 async function captureFacts(db: D1Database, email: string, captureId: string | null) {
     if (!captureId) return null;
-    return db.prepare("SELECT id, title, text, attachment_id, source FROM ai_captures WHERE id = ? AND email = ?").bind(captureId, email).first<{ id: string; title: string; text: string | null; attachment_id: string | null; source: string }>();
+    return db
+        .prepare("SELECT id, title, text, attachment_id, source FROM ai_captures WHERE id = ? AND email = ?")
+        .bind(captureId, email)
+        .first<{ id: string; title: string; text: string | null; attachment_id: string | null; source: string }>();
 }
 
 /** The Knowledge note an approved record suggestion from the same capture made, for tasks to link to. */
 async function captureNote(db: D1Database, user: PortalUser, row: SuggestionRow): Promise<string | null> {
     if (!row.capture_id) return null;
     const note = await db
-        .prepare("SELECT result_id FROM ai_suggestions WHERE capture_id = ? AND email = ? AND status = 'applied' AND kind IN ('knowledge_object', 'meeting_note') LIMIT 1")
+        .prepare(
+            "SELECT result_id FROM ai_suggestions WHERE capture_id = ? AND email = ? AND status = 'applied' AND kind IN ('knowledge_object', 'meeting_note') LIMIT 1",
+        )
         .bind(row.capture_id, user.email)
         .first<{ result_id: string }>();
     if (!note?.result_id) return null;
@@ -272,14 +299,21 @@ async function apply(env: Env, user: PortalUser, row: SuggestionRow, site: strin
             const p = payload as SuggestionPayload<"task"> & SuggestionPayload<"follow_up">;
             let projectId = p.projectId;
             if (!projectId && p.projectSuggestionId) {
-                const project = await db.prepare("SELECT status, result_id FROM ai_suggestions WHERE id = ? AND email = ?").bind(p.projectSuggestionId, user.email).first<{ status: string; result_id: string | null }>();
+                const project = await db
+                    .prepare("SELECT status, result_id FROM ai_suggestions WHERE id = ? AND email = ?")
+                    .bind(p.projectSuggestionId, user.email)
+                    .first<{ status: string; result_id: string | null }>();
                 if (project?.status !== "applied" || !project.result_id)
                     throw new SuggestionRefused(422, "needs_project", "Approve the new project first, or edit this task to choose a project.");
                 projectId = project.result_id;
             }
             const note = await captureNote(db, user, row);
             const knowledge = [...new Set([...(p.knowledgeObjectIds ?? []), ...(note ? [note] : [])])].slice(0, 5);
-            const description = [row.kind === "task" ? p.description : p.waitingOn ? `Waiting on ${p.waitingOn}.` : "", p.dueText ? `Timing in the source: “${p.dueText}”${p.dateCertainty === "inferred" ? " (date worked out, check it)" : ""}.` : "", from]
+            const description = [
+                row.kind === "task" ? p.description : p.waitingOn ? `Waiting on ${p.waitingOn}.` : "",
+                p.dueText ? `Timing in the source: “${p.dueText}”${p.dateCertainty === "inferred" ? " (date worked out, check it)" : ""}.` : "",
+                from,
+            ]
                 .filter(Boolean)
                 .join("\n\n");
             const { task } = await createTask(db, user, {
@@ -296,12 +330,26 @@ async function apply(env: Env, user: PortalUser, row: SuggestionRow, site: strin
         }
         case "project": {
             const p = payload as SuggestionPayload<"project">;
-            const existing = (await listProjects(db, user.email, await todayFor(db, user.email))).filter((x) => !x.isInbox && normaliseName(x.name) === normaliseName(p.name));
+            const existing = (await listProjects(db, user.email, await todayFor(db, user.email))).filter(
+                (x) => !x.isInbox && normaliseName(x.name) === normaliseName(p.name),
+            );
             // A retry of this same approval finds its own project through the client id inside createProject.
-            const own = await db.prepare("SELECT id FROM task_projects WHERE created_by = ? AND client_id = ?").bind(user.email, row.id).first<{ id: string }>();
+            const own = await db
+                .prepare("SELECT id FROM task_projects WHERE created_by = ? AND client_id = ?")
+                .bind(user.email, row.id)
+                .first<{ id: string }>();
             if (existing.length && !own)
-                throw new SuggestionRefused(422, "duplicate", `You already have a project called “${existing[0].name}”. Edit the tasks to use it, or rename this one.`);
-            const { id } = await createProject(db, user, { name: p.name, description: [p.description, from].filter(Boolean).join("\n\n").slice(0, 2_000), kind: p.kind, clientId: row.id });
+                throw new SuggestionRefused(
+                    422,
+                    "duplicate",
+                    `You already have a project called “${existing[0].name}”. Edit the tasks to use it, or rename this one.`,
+                );
+            const { id } = await createProject(db, user, {
+                name: p.name,
+                description: [p.description, from].filter(Boolean).join("\n\n").slice(0, 2_000),
+                kind: p.kind,
+                clientId: row.id,
+            });
             return { type: "task_project", id };
         }
         case "knowledge_object":
@@ -323,13 +371,22 @@ async function apply(env: Env, user: PortalUser, row: SuggestionRow, site: strin
                     ? [
                           heading("Summary (generated)"),
                           ...paragraphsFromText(p.summary || "No summary."),
-                          ...(p.includeTranscript && capture?.text ? [heading("Transcript (source)"), ...paragraphsFromText(capture.text.slice(0, 200_000))] : []),
+                          ...(p.includeTranscript && capture?.text
+                              ? [heading("Transcript (source)"), ...paragraphsFromText(capture.text.slice(0, 200_000))]
+                              : []),
                           ...paragraphsFromText(from),
                       ]
                     : [...paragraphsFromText(p.text || ""), ...paragraphsFromText(from)];
-            const detail = await createObject(db, user, p.spaceId, { typeId: type.id, title: p.title, content: { type: "doc", content: blocks }, properties, tags: p.tags ?? [] }, { source: { system: INTELLIGENCE_SOURCE, id: row.id } });
+            const detail = await createObject(
+                db,
+                user,
+                p.spaceId,
+                { typeId: type.id, title: p.title, content: { type: "doc", content: blocks }, properties, tags: p.tags ?? [] },
+                { source: { system: INTELLIGENCE_SOURCE, id: row.id } },
+            );
             // A document captured and then kept as a note keeps its file, permanently, with the note.
-            if (row.kind === "knowledge_object" && capture?.source === "document" && capture.attachment_id) await keepInKnowledge(db, user, capture.attachment_id, detail.object.id).catch(() => undefined);
+            if (row.kind === "knowledge_object" && capture?.source === "document" && capture.attachment_id)
+                await keepInKnowledge(db, user, capture.attachment_id, detail.object.id).catch(() => undefined);
             return { type: "knowledge_object", id: detail.object.id };
         }
         case "fact": {
@@ -340,7 +397,18 @@ async function apply(env: Env, user: PortalUser, row: SuggestionRow, site: strin
             }
             if (!p.spaceId) throw new SuggestionRefused(422, "validation", "Choose where to keep this fact");
             const type = await typeIdFor(db, p.spaceId, "page");
-            const detail = await createObject(db, user, p.spaceId, { typeId: type.id, title: p.statement.slice(0, 120), content: { type: "doc", content: [...paragraphsFromText(p.statement), ...paragraphsFromText(from)] }, tags: [] }, { source: { system: INTELLIGENCE_SOURCE, id: row.id } });
+            const detail = await createObject(
+                db,
+                user,
+                p.spaceId,
+                {
+                    typeId: type.id,
+                    title: p.statement.slice(0, 120),
+                    content: { type: "doc", content: [...paragraphsFromText(p.statement), ...paragraphsFromText(from)] },
+                    tags: [],
+                },
+                { source: { system: INTELLIGENCE_SOURCE, id: row.id } },
+            );
             return { type: "knowledge_object", id: detail.object.id };
         }
         case "tags": {
@@ -370,7 +438,10 @@ async function appendParagraphs(db: D1Database, user: PortalUser, objectId: stri
         const current = await objectDetail(db, objectId);
         const doc = current.object.content as DocNode;
         try {
-            return await updateObject(db, user, objectId, { version: current.object.version, content: { type: "doc", content: [...(doc.content ?? []), ...added] } });
+            return await updateObject(db, user, objectId, {
+                version: current.object.version,
+                content: { type: "doc", content: [...(doc.content ?? []), ...added] },
+            });
         } catch (error) {
             if (!(error instanceof KnowledgeConflict) || attempt >= 2) throw error;
         }
@@ -388,12 +459,18 @@ export async function approveSuggestion(env: Env, user: PortalUser, id: string, 
     if (!(await claim(db, row, version))) {
         const now = await ownSuggestion(db, user.email, id);
         if (now.status === "applied") return (await suggestionViews(db, user, [now], site))[0];
-        throw new HttpError(409, now.status === "applying" ? "in_progress" : "conflict", now.status === "applying" ? "This suggestion is being applied" : "This suggestion changed. Reload to see it.");
+        throw new HttpError(
+            409,
+            now.status === "applying" ? "in_progress" : "conflict",
+            now.status === "applying" ? "This suggestion is being applied" : "This suggestion changed. Reload to see it.",
+        );
     }
     try {
         const result = await apply(env, user, row, site);
         await db
-            .prepare("UPDATE ai_suggestions SET status = 'applied', result_type = ?, result_id = ?, error_code = NULL, version = version + 1, decided_at = ?, updated_at = ? WHERE id = ? AND email = ?")
+            .prepare(
+                "UPDATE ai_suggestions SET status = 'applied', result_type = ?, result_id = ?, error_code = NULL, version = version + 1, decided_at = ?, updated_at = ? WHERE id = ? AND email = ?",
+            )
             .bind(result.type, result.id, nowIso(), nowIso(), id, user.email)
             .run();
         console.log(JSON.stringify({ event: "ai_suggestion_applied", kind: row.kind }));
@@ -409,19 +486,46 @@ export async function approveSuggestion(env: Env, user: PortalUser, id: string, 
     return (await suggestionViews(db, user, [await ownSuggestion(db, user.email, id)], site))[0];
 }
 
-const ORDER: Record<SuggestionKind, number> = { project: 0, knowledge_object: 1, meeting_note: 1, decision: 2, fact: 2, tags: 3, link: 3, task: 4, follow_up: 4 };
+const ORDER: Record<SuggestionKind, number> = {
+    project: 0,
+    knowledge_object: 1,
+    meeting_note: 1,
+    decision: 2,
+    fact: 2,
+    tags: 3,
+    link: 3,
+    task: 4,
+    follow_up: 4,
+};
 
 /** Approves several, in an order that works: new projects and notes before the tasks that use them. */
 export async function approveMany(env: Env, user: PortalUser, input: unknown, site: string) {
-    const { ids } = z.object({ ids: z.array(z.string().regex(/^ais_[a-z0-9]{14}$/)).min(1).max(50) }).strict().parse(input);
-    const rows = await env.DB.prepare(`SELECT id, kind FROM ai_suggestions WHERE email = ? AND id IN (${placeholders(ids.length)})`).bind(user.email, ...ids).all<{ id: string; kind: SuggestionKind }>();
+    const { ids } = z
+        .object({
+            ids: z
+                .array(z.string().regex(/^ais_[a-z0-9]{14}$/))
+                .min(1)
+                .max(50),
+        })
+        .strict()
+        .parse(input);
+    const rows = await env.DB.prepare(`SELECT id, kind FROM ai_suggestions WHERE email = ? AND id IN (${placeholders(ids.length)})`)
+        .bind(user.email, ...ids)
+        .all<{ id: string; kind: SuggestionKind }>();
     const results: { id: string; ok: boolean; error?: { code: string; message: string } }[] = [];
     for (const row of [...rows.results].sort((a, b) => ORDER[a.kind] - ORDER[b.kind])) {
         try {
             await approveSuggestion(env, user, row.id, {}, site);
             results.push({ id: row.id, ok: true });
         } catch (error) {
-            results.push({ id: row.id, ok: false, error: { code: error instanceof HttpError ? error.code : "unexpected", message: error instanceof HttpError ? error.message : "Something went wrong" } });
+            results.push({
+                id: row.id,
+                ok: false,
+                error: {
+                    code: error instanceof HttpError ? error.code : "unexpected",
+                    message: error instanceof HttpError ? error.message : "Something went wrong",
+                },
+            });
         }
     }
     for (const id of ids) if (!rows.results.some((r) => r.id === id)) results.push({ id, ok: false, error: { code: "not_found", message: "Not found" } });

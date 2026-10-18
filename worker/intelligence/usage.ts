@@ -110,7 +110,12 @@ export async function headroom(db: D1Database, config: IntelligenceConfig, email
     const b = config.budgets;
     return Math.max(
         0,
-        Math.min(b.monthlyNeurons - used.month, b.dailyNeurons - used.day, email ? b.perUserDailyNeurons - used.user : Infinity, b.features[feature] - used.feature),
+        Math.min(
+            b.monthlyNeurons - used.month,
+            b.dailyNeurons - used.day,
+            email ? b.perUserDailyNeurons - used.user : Infinity,
+            b.features[feature] - used.feature,
+        ),
     );
 }
 
@@ -155,7 +160,11 @@ export async function usageSummary(db: D1Database, config: IntelligenceConfig, e
         db.prepare(`SELECT ${TOTALS} FROM ai_usage WHERE day = ?`).bind(day),
         db.prepare(`SELECT ${TOTALS} FROM ai_usage WHERE month = ?`).bind(month),
         db.prepare(`SELECT ${TOTALS} FROM ai_usage WHERE day = ? AND email = ?`).bind(day, email),
-        db.prepare("SELECT feature, COALESCE(SUM(neurons), 0) AS neurons, COUNT(*) AS calls FROM ai_usage WHERE month = ? GROUP BY feature ORDER BY neurons DESC").bind(month),
+        db
+            .prepare(
+                "SELECT feature, COALESCE(SUM(neurons), 0) AS neurons, COUNT(*) AS calls FROM ai_usage WHERE month = ? GROUP BY feature ORDER BY neurons DESC",
+            )
+            .bind(month),
         db
             .prepare(
                 `SELECT model, COALESCE(SUM(neurons), 0) AS neurons, COUNT(*) AS calls, COALESCE(SUM(input_units), 0) AS input_units, COALESCE(SUM(output_units), 0) AS output_units
@@ -190,7 +199,11 @@ export async function usageSummary(db: D1Database, config: IntelligenceConfig, e
             perUserDailyNeurons: config.budgets.perUserDailyNeurons,
             features: config.budgets.features,
         },
-        alerts: (alerts.results as { period: string; scope: string; threshold: number }[]).map((r) => ({ period: r.period, scope: r.scope, threshold: r.threshold })),
+        alerts: (alerts.results as { period: string; scope: string; threshold: number }[]).map((r) => ({
+            period: r.period,
+            scope: r.scope,
+            threshold: r.threshold,
+        })),
         freeNeuronsPerDay: FREE_NEURONS_PER_DAY,
         pricingAsOf: PRICING_AS_OF,
     };

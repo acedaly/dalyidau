@@ -6,16 +6,16 @@ import type { ExecutionContext } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
+import { requireSpace } from "../knowledge/access";
 import { can } from "../portal/auth";
 import { HttpError, json, readJson } from "../portal/http";
-import { requireSpace } from "../knowledge/access";
 import {
+    PART_BYTES,
     completeUpload,
     deleteAttachment,
     downloadAttachment,
     keepInKnowledge,
     keepWithTask,
-    PART_BYTES,
     startUpload,
     storageSummary,
     toAttachmentView,
@@ -68,20 +68,34 @@ add("GET", "/status", async ({ env, user }) => json({ status: await intelligence
 add("GET", "/settings", async ({ env }) => json(await loadConfig(env.DB)));
 add("PUT", "/settings", async ({ env, request, user }) => {
     requireManage(user);
-    const body = z.object({ version: z.number().int().min(0), config: z.unknown() }).strict().parse(await readJson(request));
+    const body = z
+        .object({ version: z.number().int().min(0), config: z.unknown() })
+        .strict()
+        .parse(await readJson(request));
     return json(await saveConfig(env.DB, user, body.config, body.version));
 });
 
 add("GET", "/preferences", async ({ env, user }) => json(await loadPreferences(env.DB, user.email)));
 add("PUT", "/preferences", async ({ env, request, user }) => {
-    const body = z.object({ version: z.number().int().min(0), preferences: z.unknown() }).strict().parse(await readJson(request));
+    const body = z
+        .object({ version: z.number().int().min(0), preferences: z.unknown() })
+        .strict()
+        .parse(await readJson(request));
     return json(await savePreferences(env.DB, user, body.preferences, body.version));
 });
 
 add("POST", "/exclusions", async ({ env, request, user }) => {
     requireKnowledge(user);
     const body = z
-        .object({ spaceId: z.string().regex(/^ksp_[a-z0-9]{14}$/), objectId: z.string().regex(/^kob_[a-z0-9]{14}$/).nullable().optional(), excluded: z.boolean() })
+        .object({
+            spaceId: z.string().regex(/^ksp_[a-z0-9]{14}$/),
+            objectId: z
+                .string()
+                .regex(/^kob_[a-z0-9]{14}$/)
+                .nullable()
+                .optional(),
+            excluded: z.boolean(),
+        })
         .strict()
         .parse(await readJson(request));
     await setExclusion(env.DB, user, { spaceId: body.spaceId, objectId: body.objectId ?? null }, body.excluded);
@@ -129,7 +143,10 @@ add("POST", "/semantic/sync", async ({ env, user }) => {
 
 add("POST", "/semantic/reindex", async ({ env, request, user }) => {
     requireKnowledge(user);
-    const { spaceId } = z.object({ spaceId: z.string().regex(/^ksp_[a-z0-9]{14}$/) }).strict().parse(await readJson(request));
+    const { spaceId } = z
+        .object({ spaceId: z.string().regex(/^ksp_[a-z0-9]{14}$/) })
+        .strict()
+        .parse(await readJson(request));
     await requireSpace(env.DB, user, spaceId, "owner");
     await requestReindex(env.DB, spaceId);
     return json({ ok: true });
@@ -154,7 +171,9 @@ add("GET", "/captures/:id/transcript", async ({ env, user, params, site }) => {
 });
 add("POST", "/captures/:id/cancel", async ({ env, user, params }) => {
     const capture = await ownCapture(env, user.email, params.id);
-    const job = await env.DB.prepare("SELECT id FROM ai_jobs WHERE subject_id = ? AND email = ? AND status IN ('queued', 'running', 'waiting_approval')").bind(capture.id, user.email).first<{ id: string }>();
+    const job = await env.DB.prepare("SELECT id FROM ai_jobs WHERE subject_id = ? AND email = ? AND status IN ('queued', 'running', 'waiting_approval')")
+        .bind(capture.id, user.email)
+        .first<{ id: string }>();
     if (job) await cancelJob(env.DB, user.email, job.id);
     await env.DB.prepare("UPDATE ai_captures SET status = 'cancelled', updated_at = ? WHERE id = ? AND email = ? AND status NOT IN ('ready', 'failed')")
         .bind(new Date().toISOString(), capture.id, user.email)
@@ -174,8 +193,12 @@ add("GET", "/suggestions", async ({ env, url, user, site }) => {
     });
 });
 add("POST", "/suggestions/approve", async ({ env, request, user, site }) => json(await approveMany(env, user, await readJson(request), site)));
-add("PATCH", "/suggestions/:id", async ({ env, request, user, params, site }) => json({ suggestion: await editSuggestion(env.DB, user, params.id, await readJson(request, 100_000), site) }));
-add("POST", "/suggestions/:id/approve", async ({ env, request, user, params, site }) => json({ suggestion: await approveSuggestion(env, user, params.id, await readJson(request), site) }));
+add("PATCH", "/suggestions/:id", async ({ env, request, user, params, site }) =>
+    json({ suggestion: await editSuggestion(env.DB, user, params.id, await readJson(request, 100_000), site) }),
+);
+add("POST", "/suggestions/:id/approve", async ({ env, request, user, params, site }) =>
+    json({ suggestion: await approveSuggestion(env, user, params.id, await readJson(request), site) }),
+);
 add("POST", "/suggestions/:id/dismiss", async ({ env, user, params }) => {
     await dismissSuggestion(env.DB, user, params.id);
     return json({ ok: true });
@@ -192,7 +215,9 @@ add("POST", "/jobs/:id/run", async ({ env, user, params }) => {
 add("POST", "/jobs/:id/cancel", async ({ env, user, params }) => json({ job: toJobView(await cancelJob(env.DB, user.email, params.id)) }));
 add("POST", "/jobs/:id/retry", async ({ env, user, params, exec }) => {
     const job = await retryJob(env.DB, user.email, params.id);
-    await env.DB.prepare("UPDATE ai_captures SET status = 'received', error_code = NULL WHERE id = ? AND email = ? AND status IN ('failed', 'cancelled')").bind(job.subject_id, user.email).run();
+    await env.DB.prepare("UPDATE ai_captures SET status = 'received', error_code = NULL WHERE id = ? AND email = ? AND status IN ('failed', 'cancelled')")
+        .bind(job.subject_id, user.email)
+        .run();
     nudge(env, exec, job.id);
     return json({ job: toJobView(job) });
 });
@@ -211,11 +236,22 @@ add("POST", "/attachments", async ({ env, request, user }) => {
 add("POST", "/attachments/:id/parts/:part", async ({ env, request, user, params }) =>
     json(await uploadPart(env.DB, env.MEDIA, user, params.id, Number(params.part), await readJson(request, Math.ceil((PART_BYTES * 4) / 3) + 1_000))),
 );
-add("POST", "/attachments/:id/complete", async ({ env, user, params }) => json({ attachment: toAttachmentView(await completeUpload(env.DB, env.MEDIA, user, params.id)) }));
+add("POST", "/attachments/:id/complete", async ({ env, user, params }) =>
+    json({ attachment: toAttachmentView(await completeUpload(env.DB, env.MEDIA, user, params.id)) }),
+);
 add("GET", "/attachments/:id/download", async ({ env, user, params }) => downloadAttachment(env.DB, env.MEDIA, user, params.id));
 add("POST", "/attachments/:id/keep", async ({ env, request, user, params }) => {
     const body = z
-        .object({ objectId: z.string().regex(/^kob_[a-z0-9]{14}$/).optional(), taskId: z.string().regex(/^tsk_[a-z0-9]{14}$/).optional() })
+        .object({
+            objectId: z
+                .string()
+                .regex(/^kob_[a-z0-9]{14}$/)
+                .optional(),
+            taskId: z
+                .string()
+                .regex(/^tsk_[a-z0-9]{14}$/)
+                .optional(),
+        })
         .strict()
         .refine((b) => !!b.objectId !== !!b.taskId, "Choose a Knowledge object or a task")
         .parse(await readJson(request));
@@ -234,7 +270,9 @@ const kindOf = (value: string) => {
     return value;
 };
 add("GET", "/briefings/:kind", async ({ env, user, params, site }) => json({ briefing: await getBriefing(env, user, kindOf(params.kind), { site }) }));
-add("POST", "/briefings/:kind/recommend", async ({ env, user, params, site }) => json({ briefing: await getBriefing(env, user, kindOf(params.kind), { site, recommend: true }) }));
+add("POST", "/briefings/:kind/recommend", async ({ env, user, params, site }) =>
+    json({ briefing: await getBriefing(env, user, kindOf(params.kind), { site, recommend: true }) }),
+);
 
 // --- Dispatch --------------------------------------------------------------------------------------
 

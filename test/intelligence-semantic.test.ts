@@ -23,7 +23,8 @@ beforeEach(resetPortal);
 
 type Env = Awaited<ReturnType<typeof aiEnv>>["env"];
 const sync = async (env: Env) => syncSemanticIndex(env, (await loadConfig(env.DB)).config);
-const search = async (env: Env, q: string, email = A, extra = "") => (await iCall<HybridSearchResult>(env, "GET", `/search?q=${encodeURIComponent(q)}${extra}`, undefined, email)).json;
+const search = async (env: Env, q: string, email = A, extra = "") =>
+    (await iCall<HybridSearchResult>(env, "GET", `/search?q=${encodeURIComponent(q)}${extra}`, undefined, email)).json;
 
 describe("chunking", () => {
     it("is deterministic, keeps blocks together, splits long ones and prefixes the title", () => {
@@ -72,7 +73,10 @@ describe("the semantic index", () => {
 
         // A new embedding model (same dimensions) re-embeds everything.
         const { version } = await loadConfig(env.DB);
-        await iCall(env, "PUT", "/settings", { version, config: { ...(await loadConfig(env.DB)).config, models: { ...DEFAULT_CONFIG.models, embed: "@cf/qwen/qwen3-embedding-0.6b" } } });
+        await iCall(env, "PUT", "/settings", {
+            version,
+            config: { ...(await loadConfig(env.DB)).config, models: { ...DEFAULT_CONFIG.models, embed: "@cf/qwen/qwen3-embedding-0.6b" } },
+        });
         expect(await sync(env)).toMatchObject({ embedded: 1 });
     });
 
@@ -172,7 +176,9 @@ describe("hybrid search and isolation", () => {
         const a = await createObject(space.id, { title: "Trailer brakes", content: doc("Adjust the trailer brakes and check the bearings.") });
         const b = await createObject(space.id, { title: "Trailer brakes", content: doc("Adjust the trailer brakes and check the bearings.") });
         await sync(env);
-        const related = (await iCall<{ related: { object: { id: string }; possibleDuplicate: boolean }[]; semantic: boolean }>(env, "GET", `/objects/${a.object.id}/related`)).json;
+        const related = (
+            await iCall<{ related: { object: { id: string }; possibleDuplicate: boolean }[]; semantic: boolean }>(env, "GET", `/objects/${a.object.id}/related`)
+        ).json;
         expect(related.semantic).toBe(true);
         expect(related.related.find((r) => r.object.id === b.object.id)?.possibleDuplicate).toBe(true);
         expect((await db().prepare("SELECT COUNT(*) AS n FROM knowledge_relations").first<{ n: number }>())!.n).toBe(0);

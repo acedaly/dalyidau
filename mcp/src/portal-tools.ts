@@ -560,7 +560,12 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
     knowledge_semantic_search: {
         description: `${SOURCE} Search the person's Knowledge by meaning as well as by words (hybrid: keyword full-text search blended with semantic similarity), for questions like "what did I decide about the household budget?". Results are only objects the person can read, each with an excerpt from the object itself and its link. "mode" says whether meaning was used; when semantic search is off or unavailable the results are keyword-only and "fallbackReason" says why. Cite only the returned objects.`,
         input: z
-            .object({ query: z.string().trim().min(1).max(300), spaceId: spaceId.optional(), type: z.string().max(40).optional().describe("An object type id from knowledge_list_types."), limit: limit(25) })
+            .object({
+                query: z.string().trim().min(1).max(300),
+                spaceId: spaceId.optional(),
+                type: z.string().max(40).optional().describe("An object type id from knowledge_list_types."),
+                limit: limit(25),
+            })
             .strict(),
         annotations: READ,
     },
@@ -596,7 +601,9 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
     },
     intelligence_capture_text: {
         description: `${SOURCE} WRITE: hand text (notes, an email the person pasted, a meeting summary) to Intelligent Capture. It is analysed in the background into suggestions for the person to review; nothing is created in Tasks or Knowledge by this call. Uses the person's AI budget. Send a fresh requestId.`,
-        input: z.object({ text: z.string().trim().min(1).max(60000), title: z.string().trim().max(300).optional(), spaceId: spaceId.optional(), requestId }).strict(),
+        input: z
+            .object({ text: z.string().trim().min(1).max(60000), title: z.string().trim().max(300).optional(), spaceId: spaceId.optional(), requestId })
+            .strict(),
         annotations: WRITE,
     },
     intelligence_request_analysis: {

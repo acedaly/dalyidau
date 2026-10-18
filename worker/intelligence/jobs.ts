@@ -145,7 +145,9 @@ export async function latestJobFor(db: D1Database, email: string, subjectId: str
 export async function cancelJob(db: D1Database, email: string, id: string): Promise<JobRow> {
     await ownJob(db, email, id);
     await db
-        .prepare("UPDATE ai_jobs SET status = 'cancelled', claim = NULL, updated_at = ?, finished_at = ? WHERE id = ? AND email = ? AND status IN ('queued', 'waiting_approval', 'running')")
+        .prepare(
+            "UPDATE ai_jobs SET status = 'cancelled', claim = NULL, updated_at = ?, finished_at = ? WHERE id = ? AND email = ? AND status IN ('queued', 'waiting_approval', 'running')",
+        )
         .bind(nowIso(), nowIso(), id, email)
         .run();
     return (await getJob(db, id))!;
@@ -157,7 +159,9 @@ export async function retryJob(db: D1Database, email: string, id: string): Promi
     if (!["failed", "cancelled"].includes(job.status)) throw new HttpError(409, "conflict", "Only a failed or cancelled job can be retried");
     try {
         await db
-            .prepare("UPDATE ai_jobs SET status = 'queued', attempts = 0, error_code = NULL, run_after = ?, updated_at = ?, finished_at = NULL WHERE id = ? AND email = ?")
+            .prepare(
+                "UPDATE ai_jobs SET status = 'queued', attempts = 0, error_code = NULL, run_after = ?, updated_at = ?, finished_at = NULL WHERE id = ? AND email = ?",
+            )
             .bind(nowIso(), nowIso(), id, email)
             .run();
     } catch (error) {
@@ -192,7 +196,11 @@ async function claim(db: D1Database, job: JobRow): Promise<JobRow | null> {
     return result.meta.changes ? { ...job, status: "running", claim: token, claimed_at: now } : null;
 }
 
-const release = (db: D1Database, job: JobRow, fields: { status: JobStatus; runAfter?: string; errorCode?: string | null; attempts?: number; progress?: unknown }) =>
+const release = (
+    db: D1Database,
+    job: JobRow,
+    fields: { status: JobStatus; runAfter?: string; errorCode?: string | null; attempts?: number; progress?: unknown },
+) =>
     db
         .prepare(
             `UPDATE ai_jobs SET status = ?, claim = NULL, run_after = COALESCE(?, run_after), error_code = ?, attempts = COALESCE(?, attempts),
@@ -247,18 +255,24 @@ async function runClaimed(env: Env, config: IntelligenceConfig, handlers: Record
                 return;
             }
             if (result.status === "approval") {
-                await env.DB.prepare("UPDATE ai_jobs SET estimate_neurons = ? WHERE id = ? AND claim = ?").bind(result.estimateNeurons, job.id, job.claim).run();
+                await env.DB.prepare("UPDATE ai_jobs SET estimate_neurons = ? WHERE id = ? AND claim = ?")
+                    .bind(result.estimateNeurons, job.id, job.claim)
+                    .run();
                 await release(env.DB, job, { status: "waiting_approval", progress: result.progress, errorCode: null });
                 return;
             }
-            if (result.progress) await env.DB.prepare("UPDATE ai_jobs SET progress = ?, updated_at = ? WHERE id = ? AND claim = ?").bind(JSON.stringify(result.progress), nowIso(), job.id, job.claim).run();
+            if (result.progress)
+                await env.DB.prepare("UPDATE ai_jobs SET progress = ?, updated_at = ? WHERE id = ? AND claim = ?")
+                    .bind(JSON.stringify(result.progress), nowIso(), job.id, job.claim)
+                    .run();
             if (Date.now() > deadline) {
                 await release(env.DB, job, { status: "queued", runAfter: nowIso() });
                 return;
             }
         } catch (error) {
             // Over budget: wait for tomorrow's allowance without spending an attempt.
-            if (error instanceof BudgetExceeded) return void (await release(env.DB, job, { status: "queued", runAfter: nextUtcMidnight(), errorCode: "budget_exceeded" }));
+            if (error instanceof BudgetExceeded)
+                return void (await release(env.DB, job, { status: "queued", runAfter: nextUtcMidnight(), errorCode: "budget_exceeded" }));
             const permanent = isPermanent(error);
             const code = error instanceof PermanentFailure ? error.code : error instanceof HttpError ? error.code : "unexpected";
             const attempts = current.attempts + 1;
@@ -288,7 +302,9 @@ export async function processJobs(
     const max = options.maxJobs ?? 10;
     while (ran < max && Date.now() < options.deadline) {
         const due = options.onlyId
-            ? await env.DB.prepare("SELECT * FROM ai_jobs WHERE id = ? AND status IN ('queued', 'running') AND run_after <= ?").bind(options.onlyId, nowIso()).all<JobRow>()
+            ? await env.DB.prepare("SELECT * FROM ai_jobs WHERE id = ? AND status IN ('queued', 'running') AND run_after <= ?")
+                  .bind(options.onlyId, nowIso())
+                  .all<JobRow>()
             : await env.DB.prepare(
                   `SELECT * FROM ai_jobs WHERE (status = 'queued' AND run_after <= ?1) OR (status = 'running' AND claimed_at < ?2) ORDER BY run_after LIMIT 5`,
               )

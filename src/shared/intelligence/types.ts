@@ -187,7 +187,14 @@ export interface CaptureDetail extends CaptureSummary {
     language: string | null;
     sourceObject: { id: string; title: string } | null;
     attachment: AttachmentView | null;
-    transcript: { model: string; language: string | null; durationSeconds: number | null; chunksDone: number; chunksTotal: number; segments: TranscriptSegment[] } | null;
+    transcript: {
+        model: string;
+        language: string | null;
+        durationSeconds: number | null;
+        chunksDone: number;
+        chunksTotal: number;
+        segments: TranscriptSegment[];
+    } | null;
     suggestions: SuggestionView[];
 }
 
@@ -341,7 +348,12 @@ export type IntelligenceRoute =
       })
     | (IntelligenceShell & { route: "intelligence-capture-detail"; capture: CaptureDetail })
     | (IntelligenceShell & { route: "intelligence-briefing"; kind: "daily" | "weekly"; briefing: BriefingView })
-    | (IntelligenceShell & { route: "intelligence-meetings"; captures: CaptureSummary[]; limits: IntelligenceConfig["limits"]; spaces: { id: string; name: string }[] })
+    | (IntelligenceShell & {
+          route: "intelligence-meetings";
+          captures: CaptureSummary[];
+          limits: IntelligenceConfig["limits"];
+          spaces: { id: string; name: string }[];
+      })
     | (IntelligenceShell & {
           route: "intelligence-settings";
           config: IntelligenceConfig;

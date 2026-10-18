@@ -161,7 +161,8 @@ export async function syncSemanticIndex(env: Env, config: IntelligenceConfig, op
                 await index.upsert(vectors.map((values, i) => ({ id: vectorId(o.id, i), values, namespace: o.space_id, metadata: { o: o.id, c: i } })));
             // A shorter note leaves its old trailing chunks behind: delete them.
             const previous = o.chunk_count ?? 0;
-            if (previous > vectors.length) await index.deleteByIds(Array.from({ length: previous - vectors.length }, (_, i) => vectorId(o.id, vectors.length + i)));
+            if (previous > vectors.length)
+                await index.deleteByIds(Array.from({ length: previous - vectors.length }, (_, i) => vectorId(o.id, vectors.length + i)));
             await db
                 .prepare(
                     `INSERT INTO ai_semantic_index (object_id, space_id, object_version, content_hash, model, chunk_count, status, attempts, error_code, indexed_at)
@@ -197,7 +198,8 @@ export async function syncSemanticIndex(env: Env, config: IntelligenceConfig, op
 }
 
 /** Re-embed every object in a space on the next passes (an owner's "rebuild"). Vectors are overwritten in place. */
-export const requestReindex = (db: D1Database, spaceId: string) => db.prepare("UPDATE ai_semantic_index SET object_version = -1 WHERE space_id = ?").bind(spaceId).run();
+export const requestReindex = (db: D1Database, spaceId: string) =>
+    db.prepare("UPDATE ai_semantic_index SET object_version = -1 WHERE space_id = ?").bind(spaceId).run();
 
 export async function indexStatus(db: D1Database, spaceIds: string[]): Promise<IntelligenceStatus["index"]> {
     if (!spaceIds.length) return { indexed: 0, failed: 0, pending: 0, spaces: 0 };
@@ -332,12 +334,20 @@ export async function hybridSearch(
             meaning = await nearest(env, vector, spaceIds, 20);
         } catch (error) {
             fallbackReason =
-                error instanceof BudgetExceeded ? "The AI budget is used up for today" : error instanceof AiError ? "Workers AI or Vectorize is unavailable" : "Semantic search failed";
-            if (!(error instanceof BudgetExceeded || error instanceof AiError)) console.error(JSON.stringify({ event: "semantic_search_error", error: (error as Error)?.name }));
+                error instanceof BudgetExceeded
+                    ? "The AI budget is used up for today"
+                    : error instanceof AiError
+                      ? "Workers AI or Vectorize is unavailable"
+                      : "Semantic search failed";
+            if (!(error instanceof BudgetExceeded || error instanceof AiError))
+                console.error(JSON.stringify({ event: "semantic_search_error", error: (error as Error)?.name }));
         }
     }
 
-    const scores = new Map<string, { score: number; matchedBy: Set<"keyword" | "meaning">; chunk: number | null; titleSnippet: string | null; keywordExcerpt: string | null }>();
+    const scores = new Map<
+        string,
+        { score: number; matchedBy: Set<"keyword" | "meaning">; chunk: number | null; titleSnippet: string | null; keywordExcerpt: string | null }
+    >();
     keyword.forEach((hit, rank) => {
         scores.set(hit.object.id, {
             score: 1 / (RRF_K + rank + 1),
@@ -364,7 +374,15 @@ export async function hybridSearch(
         .map(([id, s]) => {
             const row = visible.get(id)!;
             return {
-                object: { id, spaceId: row.space_id, title: row.title, typeId: row.type_id, status: row.status, updatedAt: row.updated_at, tags: tagsOf(row.tags_json) },
+                object: {
+                    id,
+                    spaceId: row.space_id,
+                    title: row.title,
+                    typeId: row.type_id,
+                    status: row.status,
+                    updatedAt: row.updated_at,
+                    tags: tagsOf(row.tags_json),
+                },
                 excerpt: s.keywordExcerpt && s.chunk === null ? s.keywordExcerpt.slice(0, 280) : excerptFor(row, s.chunk),
                 titleSnippet: s.titleSnippet,
                 score: Math.round(s.score * 100_000) / 100_000,
@@ -388,31 +406,52 @@ export interface RelatedView {
  * Related knowledge for one object: the existing explainable signals (tags, links, collections,
  * wording) plus, when available, similar meaning. Suggestions only: nothing is linked.
  */
-export async function relatedWithMeaning(env: Env, config: IntelligenceConfig, user: PortalUser, objectId: string, site: string): Promise<{ related: RelatedView[]; semantic: boolean }> {
+export async function relatedWithMeaning(
+    env: Env,
+    config: IntelligenceConfig,
+    user: PortalUser,
+    objectId: string,
+    site: string,
+): Promise<{ related: RelatedView[]; semantic: boolean }> {
     const access = await requireObject(env.DB, user, objectId);
     const base = await relatedObjects(env.DB, access.id, access.space_id, 10);
     const out = new Map<string, RelatedView>(
         base.map((s) => [
             s.object.id,
-            { object: { id: s.object.id, title: s.object.title, typeId: s.object.typeId, status: s.object.status, updatedAt: s.object.updatedAt }, reasons: s.reasons, strength: s.strength, possibleDuplicate: false, url: `${site}/portal/knowledge/o/${s.object.id}` },
+            {
+                object: { id: s.object.id, title: s.object.title, typeId: s.object.typeId, status: s.object.status, updatedAt: s.object.updatedAt },
+                reasons: s.reasons,
+                strength: s.strength,
+                possibleDuplicate: false,
+                url: `${site}/portal/knowledge/o/${s.object.id}`,
+            },
         ]),
     );
     let semantic = false;
     if (availability(env, config).semantic) {
         try {
-            const self = await env.DB.prepare("SELECT title, body_text FROM knowledge_objects WHERE id = ?").bind(access.id).first<{ title: string; body_text: string }>();
+            const self = await env.DB.prepare("SELECT title, body_text FROM knowledge_objects WHERE id = ?")
+                .bind(access.id)
+                .first<{ title: string; body_text: string }>();
             const [first] = chunkText(self?.title ?? "", self?.body_text ?? "");
             if (first) {
                 const [vector] = await embed({ env, config, email: user.email, spaceId: access.space_id, feature: "semantic" }, [first]);
                 const hits = (await nearest(env, vector, [access.space_id], 12)).filter((h) => h.objectId !== access.id);
                 const direct = new Set(
                     (
-                        await env.DB.prepare("SELECT target_id AS id FROM knowledge_relations WHERE source_id = ?1 UNION SELECT source_id FROM knowledge_relations WHERE target_id = ?1")
+                        await env.DB.prepare(
+                            "SELECT target_id AS id FROM knowledge_relations WHERE source_id = ?1 UNION SELECT source_id FROM knowledge_relations WHERE target_id = ?1",
+                        )
                             .bind(access.id)
                             .all<{ id: string }>()
                     ).results.map((r) => r.id),
                 );
-                const visible = await visibleObjects(env.DB, user, hits.map((h) => h.objectId), { spaceIds: [access.space_id], status: "any" });
+                const visible = await visibleObjects(
+                    env.DB,
+                    user,
+                    hits.map((h) => h.objectId),
+                    { spaceIds: [access.space_id], status: "any" },
+                );
                 for (const hit of hits) {
                     const row = visible.get(hit.objectId);
                     if (!row || direct.has(hit.objectId)) continue;
@@ -438,6 +477,8 @@ export async function relatedWithMeaning(env: Env, config: IntelligenceConfig, u
             if (!(error instanceof BudgetExceeded || error instanceof AiError)) throw error;
         }
     }
-    const related = [...out.values()].sort((a, b) => Number(b.possibleDuplicate) - Number(a.possibleDuplicate) || Number(b.strength === "strong") - Number(a.strength === "strong")).slice(0, 10);
+    const related = [...out.values()]
+        .sort((a, b) => Number(b.possibleDuplicate) - Number(a.possibleDuplicate) || Number(b.strength === "strong") - Number(a.strength === "strong"))
+        .slice(0, 10);
     return { related, semantic };
 }

@@ -22,10 +22,7 @@ export interface ConversionResult {
 
 export interface AiBinding {
     run(model: string, inputs: Record<string, unknown>, options?: AiRunOptions): Promise<unknown>;
-    toMarkdown?(
-        files: { name: string; blob: Blob },
-        options?: { conversionOptions?: Record<string, unknown> },
-    ): Promise<ConversionResult | ConversionResult[]>;
+    toMarkdown?(files: { name: string; blob: Blob }, options?: { conversionOptions?: Record<string, unknown> }): Promise<ConversionResult | ConversionResult[]>;
 }
 
 export interface VectorRecord {
@@ -43,7 +40,10 @@ export interface VectorMatch {
 
 export interface VectorIndex {
     upsert(vectors: VectorRecord[]): Promise<unknown>;
-    query(vector: number[], options: { topK: number; namespace?: string; returnMetadata?: "none" | "indexed" | "all"; returnValues?: boolean }): Promise<{ matches: VectorMatch[] }>;
+    query(
+        vector: number[],
+        options: { topK: number; namespace?: string; returnMetadata?: "none" | "indexed" | "all"; returnValues?: boolean },
+    ): Promise<{ matches: VectorMatch[] }>;
     deleteByIds(ids: string[]): Promise<unknown>;
 }
 
@@ -82,7 +82,10 @@ function mockExtraction(source: string) {
             const date = firstDate(action[1]);
             items.push({
                 kind: waiting ? "follow_up" : "task",
-                title: action[1].replace(/\s*\bby\s+20\d{2}-\d{2}-\d{2}\b/, "").replace(/[.]$/, "").trim(),
+                title: action[1]
+                    .replace(/\s*\bby\s+20\d{2}-\d{2}-\d{2}\b/, "")
+                    .replace(/[.]$/, "")
+                    .trim(),
                 dueDate: date,
                 dueText: date ? `by ${date}` : null,
                 dateCertainty: date ? "explicit" : "none",
@@ -95,7 +98,10 @@ function mockExtraction(source: string) {
         else if (fact) items.push({ kind: "fact", statement: fact[1].trim(), evidence: quote(line), confidence: 0.6 });
         else if (waiting) items.push({ kind: "follow_up", title: line.replace(/[.]$/, ""), waitingOn: waiting[1], evidence: quote(line), confidence: 0.5 });
     }
-    const sentences = source.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/);
+    const sentences = source
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(/(?<=[.!?])\s+/);
     return { summary: sentences.slice(0, 2).join(" ").slice(0, 400), tags, items, questions: [] };
 }
 
@@ -160,7 +166,12 @@ export const mockAi = (dimensions = 1024): AiBinding => ({
         const bytes = new Uint8Array(await file.blob.arrayBuffer());
         const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
         const printable = text.replace(/[^\x20-\x7e\n\r\t]/g, "");
-        return { name: file.name, format: "markdown", tokens: Math.ceil(printable.length / 4), data: printable.length > 20 ? printable : `# ${file.name}\n\n(no text found)` };
+        return {
+            name: file.name,
+            format: "markdown",
+            tokens: Math.ceil(printable.length / 4),
+            data: printable.length > 20 ? printable : `# ${file.name}\n\n(no text found)`,
+        };
     },
 });
 

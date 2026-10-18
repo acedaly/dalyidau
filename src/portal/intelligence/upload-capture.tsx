@@ -2,7 +2,7 @@
 // upload drop zone and progress rows; on a phone the drop zone opens the file picker (and, for
 // recordings, Voice Memos files from Files).
 import { useState } from "react";
-import { FileUploadDropZone, FileListItemProgressBar } from "@/components/application/file-upload/file-upload-base";
+import { FileListItemProgressBar, FileUploadDropZone } from "@/components/application/file-upload/file-upload-base";
 import { Select } from "@/components/base/select/select";
 import { useToast } from "@/portal/components/toast";
 import { ApiError, errorMessage } from "@/portal/lib/api";
@@ -65,7 +65,13 @@ export const UploadCapture = ({
             />
             <div className="grid gap-4 sm:grid-cols-2">
                 {spaces.length > 1 && (
-                    <Select label="Knowledge space for suggestions" size="sm" value={spaceId} onChange={(k) => k && setSpaceId(String(k))} items={spaces.map((s) => ({ id: s.id, label: s.name }))}>
+                    <Select
+                        label="Knowledge space for suggestions"
+                        size="sm"
+                        value={spaceId}
+                        onChange={(k) => k && setSpaceId(String(k))}
+                        items={spaces.map((s) => ({ id: s.id, label: s.name }))}
+                    >
                         {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                     </Select>
                 )}

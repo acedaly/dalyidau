@@ -14,12 +14,12 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { BRIEFING_SECTION_LABELS, type BriefingSection, type IntelligenceConfig, type IntelligencePreferences } from "../../src/shared/intelligence/config";
 import type { BriefingFactSection, BriefingItem, BriefingView, Recommendation } from "../../src/shared/intelligence/types";
-import { spaceToday } from "../knowledge/daily";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { addDays, localDate } from "../../src/shared/tasks/dates";
 import { EMPTY_FILTER } from "../../src/shared/tasks/filters";
 import type { TaskSummary } from "../../src/shared/tasks/types";
 import type { Env } from "../env";
+import { spaceToday } from "../knowledge/daily";
 import { can } from "../portal/auth";
 import { newId, nowIso, parseJson, placeholders } from "../portal/db";
 import { preferences as taskPreferences, todayFor } from "../tasks/access";
@@ -30,14 +30,20 @@ import { completedBetween, filterTasks, listDeadlines, listOverdue, listUpcoming
 import { type JobContext, type StepResult, enqueue } from "./jobs";
 import { BRIEFING_SYSTEM, fence } from "./prompts";
 import { AiError, generateJson } from "./provider";
-import { availability, loadConfig, loadPreferences } from "./settings";
 import { sha256 } from "./semantic";
+import { availability, loadConfig, loadPreferences } from "./settings";
 import { BudgetExceeded } from "./usage";
 
 export const NOT_CHECKED = ["email", "calendar", "bank accounts and finances", "any external service"];
 const SHOWN = 8;
 
-const taskItem = (site: string, t: TaskSummary, detail?: string): BriefingItem => ({ id: t.id, title: t.title, url: `${site}/portal/tasks/t/${t.id}`, kind: "task", ...(detail ? { detail } : {}) });
+const taskItem = (site: string, t: TaskSummary, detail?: string): BriefingItem => ({
+    id: t.id,
+    title: t.title,
+    url: `${site}/portal/tasks/t/${t.id}`,
+    kind: "task",
+    ...(detail ? { detail } : {}),
+});
 
 const days = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 
@@ -49,7 +55,12 @@ const dueDetail = (t: TaskSummary, today: string) => {
     return n === 0 ? `${what} today` : n < 0 ? `${-n} day${n === -1 ? "" : "s"} overdue` : n === 1 ? `${what} tomorrow` : `${what} ${date}`;
 };
 
-const section = (key: BriefingFactSection["key"], title: string, items: BriefingItem[], count = items.length): BriefingFactSection => ({ key, title, count, items: items.slice(0, SHOWN) });
+const section = (key: BriefingFactSection["key"], title: string, items: BriefingItem[], count = items.length): BriefingFactSection => ({
+    key,
+    title,
+    count,
+    items: items.slice(0, SHOWN),
+});
 
 /** Knowledge the person can read, in the spaces their preferences include, updated in a window. */
 async function knowledgeIn(db: D1Database, user: PortalUser, prefs: IntelligencePreferences, site: string, from: string, to: string | null, typeSlug?: string) {
@@ -72,12 +83,25 @@ async function knowledgeIn(db: D1Database, user: PortalUser, prefs: Intelligence
         .all<{ id: string; title: string; updated_at: string; type: string; total: number }>();
     return {
         count: rows.results[0]?.total ?? 0,
-        items: rows.results.map((r): BriefingItem => ({ id: r.id, title: r.title || "Untitled", url: `${site}/portal/knowledge/o/${r.id}`, kind: "knowledge", detail: r.type })),
+        items: rows.results.map((r): BriefingItem => ({
+            id: r.id,
+            title: r.title || "Untitled",
+            url: `${site}/portal/knowledge/o/${r.id}`,
+            kind: "knowledge",
+            detail: r.type,
+        })),
     };
 }
 
 /** The facts for one briefing. No model, no writes. */
-export async function briefingFacts(env: Env, user: PortalUser, kind: "daily" | "weekly", prefs: IntelligencePreferences, site: string, periodOverride?: string) {
+export async function briefingFacts(
+    env: Env,
+    user: PortalUser,
+    kind: "daily" | "weekly",
+    prefs: IntelligencePreferences,
+    site: string,
+    periodOverride?: string,
+) {
     const db = env.DB;
     const want = new Set<BriefingSection>(prefs.sections);
     const sections: BriefingFactSection[] = [];
@@ -95,23 +119,53 @@ export async function briefingFacts(env: Env, user: PortalUser, kind: "daily" | 
         const timeZone = (await taskPreferences(db, user.email)).timeZone;
         kinds = new Map((await listProjects(db, user.email, today)).map((p) => [p.id, p.kind]));
         const waiting = async () =>
-            (await filterTasks(db, user.email, { ...EMPTY_FILTER, labels: ["waiting"], status: "open" }, today, { limit: 50, offset: 0 })).tasks.filter(inScope);
+            (await filterTasks(db, user.email, { ...EMPTY_FILTER, labels: ["waiting"], status: "open" }, today, { limit: 50, offset: 0 })).tasks.filter(
+                inScope,
+            );
         const followUps = async () =>
-            (await filterTasks(db, user.email, { ...EMPTY_FILTER, labels: ["follow-up", "follow up", "followup"], labelMode: "any", status: "open" }, today, { limit: 50, offset: 0 })).tasks.filter(inScope);
+            (
+                await filterTasks(
+                    db,
+                    user.email,
+                    { ...EMPTY_FILTER, labels: ["follow-up", "follow up", "followup"], labelMode: "any", status: "open" },
+                    today,
+                    { limit: 50, offset: 0 },
+                )
+            ).tasks.filter(inScope);
 
         if (kind === "daily") {
             const mine = await personalDashboard(db, user);
             if (want.has("today")) {
                 const list = mine.dueToday.tasks.filter(inScope);
-                sections.push(section("today", BRIEFING_SECTION_LABELS.today, list.map((t) => taskItem(site, t, dueDetail(t, today))), mine.dueToday.count));
+                sections.push(
+                    section(
+                        "today",
+                        BRIEFING_SECTION_LABELS.today,
+                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
+                        mine.dueToday.count,
+                    ),
+                );
             }
             if (want.has("overdue")) {
                 const list = mine.overdue.tasks.filter(inScope);
-                sections.push(section("overdue", BRIEFING_SECTION_LABELS.overdue, list.map((t) => taskItem(site, t, dueDetail(t, today))), mine.overdue.count));
+                sections.push(
+                    section(
+                        "overdue",
+                        BRIEFING_SECTION_LABELS.overdue,
+                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
+                        mine.overdue.count,
+                    ),
+                );
             }
             if (want.has("deadlines")) {
                 const list = (await listDeadlines(db, user.email, addDays(today, 1), addDays(today, 14))).filter(inScope);
-                sections.push(section("deadlines", BRIEFING_SECTION_LABELS.deadlines, list.map((t) => taskItem(site, t, dueDetail(t, today)))));
+                sections.push(
+                    section(
+                        "deadlines",
+                        BRIEFING_SECTION_LABELS.deadlines,
+                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
+                    ),
+                );
             }
             if (want.has("projects")) {
                 const list = mine.projects.filter((p) => p.health.status !== "on_track" && (prefs.scope === "all" || p.kind === "personal"));
@@ -119,16 +173,43 @@ export async function briefingFacts(env: Env, user: PortalUser, kind: "daily" | 
                     section(
                         "projects",
                         BRIEFING_SECTION_LABELS.projects,
-                        list.map((p) => ({ id: p.id, title: p.name, url: `${site}/portal/tasks/p/${p.id}`, kind: "project", detail: p.health.reasons[0]?.text ?? p.health.status.replace("_", " ") })),
+                        list.map((p) => ({
+                            id: p.id,
+                            title: p.name,
+                            url: `${site}/portal/tasks/p/${p.id}`,
+                            kind: "project",
+                            detail: p.health.reasons[0]?.text ?? p.health.status.replace("_", " "),
+                        })),
                     ),
                 );
             }
-            if (want.has("follow_ups")) sections.push(section("follow_ups", BRIEFING_SECTION_LABELS.follow_ups, (await followUps()).map((t) => taskItem(site, t, dueDetail(t, today)))));
-            if (want.has("waiting")) sections.push(section("waiting", BRIEFING_SECTION_LABELS.waiting, (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today)))));
+            if (want.has("follow_ups"))
+                sections.push(
+                    section(
+                        "follow_ups",
+                        BRIEFING_SECTION_LABELS.follow_ups,
+                        (await followUps()).map((t) => taskItem(site, t, dueDetail(t, today))),
+                    ),
+                );
+            if (want.has("waiting"))
+                sections.push(
+                    section(
+                        "waiting",
+                        BRIEFING_SECTION_LABELS.waiting,
+                        (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today))),
+                    ),
+                );
             if (want.has("household") && prefs.scope === "all") {
                 const household = await householdDashboard(db, user, "all");
                 if (household.projectCount > 0)
-                    sections.push(section("household", BRIEFING_SECTION_LABELS.household, household.attention.tasks.map((t) => taskItem(site, t, dueDetail(t, today))), household.attention.count));
+                    sections.push(
+                        section(
+                            "household",
+                            BRIEFING_SECTION_LABELS.household,
+                            household.attention.tasks.map((t) => taskItem(site, t, dueDetail(t, today))),
+                            household.attention.count,
+                        ),
+                    );
             }
         } else {
             const start = addDays(period, -6);
@@ -139,7 +220,13 @@ export async function briefingFacts(env: Env, user: PortalUser, kind: "daily" | 
                 measureProjects(db, user.email, today, timeZone),
             ]);
             const active = measured.filter((p) => p.status === "active" && (prefs.scope === "all" || p.kind === "personal"));
-            sections.push(section("completed", "Completed this week", completed.filter(inScope).map((t) => taskItem(site, t))));
+            sections.push(
+                section(
+                    "completed",
+                    "Completed this week",
+                    completed.filter(inScope).map((t) => taskItem(site, t)),
+                ),
+            );
             sections.push(
                 section(
                     "at_risk",
@@ -156,16 +243,57 @@ export async function briefingFacts(env: Env, user: PortalUser, kind: "daily" | 
                     "Projects without recent activity",
                     active
                         .filter((p) => !p.metrics.lastActivityAt || p.metrics.lastActivityAt.slice(0, 10) < quiet)
-                        .map((p) => ({ id: p.id, title: p.name, url: `${site}/portal/tasks/p/${p.id}`, kind: "project", detail: p.metrics.lastActivityAt ? `Last activity ${p.metrics.lastActivityAt.slice(0, 10)}` : "No activity yet" })),
+                        .map((p) => ({
+                            id: p.id,
+                            title: p.name,
+                            url: `${site}/portal/tasks/p/${p.id}`,
+                            kind: "project",
+                            detail: p.metrics.lastActivityAt ? `Last activity ${p.metrics.lastActivityAt.slice(0, 10)}` : "No activity yet",
+                        })),
                 ),
             );
-            if (want.has("overdue")) sections.push(section("overdue", BRIEFING_SECTION_LABELS.overdue, overdue.filter(inScope).map((t) => taskItem(site, t, dueDetail(t, today)))));
-            sections.push(section("milestones", "Upcoming milestones", upcoming.filter((t) => t.isMilestone && inScope(t)).map((t) => taskItem(site, t, dueDetail(t, today)))));
-            if (want.has("waiting")) sections.push(section("waiting", BRIEFING_SECTION_LABELS.waiting, (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today)))));
+            if (want.has("overdue"))
+                sections.push(
+                    section(
+                        "overdue",
+                        BRIEFING_SECTION_LABELS.overdue,
+                        overdue.filter(inScope).map((t) => taskItem(site, t, dueDetail(t, today))),
+                    ),
+                );
+            sections.push(
+                section(
+                    "milestones",
+                    "Upcoming milestones",
+                    upcoming.filter((t) => t.isMilestone && inScope(t)).map((t) => taskItem(site, t, dueDetail(t, today))),
+                ),
+            );
+            if (want.has("waiting"))
+                sections.push(
+                    section(
+                        "waiting",
+                        BRIEFING_SECTION_LABELS.waiting,
+                        (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today))),
+                    ),
+                );
             const mine = await personalDashboard(db, user);
             const housekeeping: BriefingItem[] = [
-                ...(mine.inbox.count ? [{ id: "housekeeping:inbox", title: `${mine.inbox.count} unsorted in your Tasks Inbox`, url: `${site}/portal/tasks/inbox`, kind: "task" as const }] : []),
-                ...mine.reviewsDue.map((r) => ({ id: r.projectId, title: `Review due: ${r.name}`, url: `${site}/portal/tasks/p/${r.projectId}`, kind: "project" as const, detail: r.due })),
+                ...(mine.inbox.count
+                    ? [
+                          {
+                              id: "housekeeping:inbox",
+                              title: `${mine.inbox.count} unsorted in your Tasks Inbox`,
+                              url: `${site}/portal/tasks/inbox`,
+                              kind: "task" as const,
+                          },
+                      ]
+                    : []),
+                ...mine.reviewsDue.map((r) => ({
+                    id: r.projectId,
+                    title: `Review due: ${r.name}`,
+                    url: `${site}/portal/tasks/p/${r.projectId}`,
+                    kind: "project" as const,
+                    detail: r.due,
+                })),
             ];
             sections.push(section("housekeeping", "Housekeeping", housekeeping));
         }
@@ -199,16 +327,31 @@ const recommendationSchema = z.object({
 });
 
 /** Model suggestions about the facts. Any reference that isn't one of the facts is dropped. */
-export async function recommend(env: Env, config: IntelligenceConfig, user: PortalUser, prefs: IntelligencePreferences, sections: BriefingFactSection[]): Promise<{ items: Recommendation[]; model: string }> {
+export async function recommend(
+    env: Env,
+    config: IntelligenceConfig,
+    user: PortalUser,
+    prefs: IntelligencePreferences,
+    sections: BriefingFactSection[],
+): Promise<{ items: Recommendation[]; model: string }> {
     const facts = sections.flatMap((s) => s.items.map((i) => ({ ...i, section: s.title })));
     const byId = new Map(facts.map((f) => [f.id, f]));
     const lines = facts.map((f) => `[${f.id}] ${f.section}: ${f.title}${f.detail ? ` (${f.detail})` : ""}`).join("\n");
     const { value, model } = await generateJson(
         { env, config, email: user.email, feature: "briefings" },
-        { role: prefs.mode === "detailed" ? "synthesis" : "summarise", system: BRIEFING_SYSTEM(prefs.mode), prompt: fence("facts", lines || "(no facts)", 8_000), maxTokens: 600, schema: recommendationSchema },
+        {
+            role: prefs.mode === "detailed" ? "synthesis" : "summarise",
+            system: BRIEFING_SYSTEM(prefs.mode),
+            prompt: fence("facts", lines || "(no facts)", 8_000),
+            maxTokens: 600,
+            schema: recommendationSchema,
+        },
     );
     const items = value.recommendations
-        .map((r) => ({ text: r.text.trim(), refs: [...new Set(r.refs)].filter((id) => byId.has(id)).map((id) => ({ id, title: byId.get(id)!.title, url: byId.get(id)!.url })) }))
+        .map((r) => ({
+            text: r.text.trim(),
+            refs: [...new Set(r.refs)].filter((id) => byId.has(id)).map((id) => ({ id, title: byId.get(id)!.title, url: byId.get(id)!.url })),
+        }))
         .filter((r) => r.text && r.refs.length > 0)
         .slice(0, prefs.mode === "concise" ? 3 : 6);
     return { items, model };
@@ -240,7 +383,10 @@ export async function getBriefing(
     const { preferences: prefs } = await loadPreferences(db, user.email);
     const facts = await briefingFacts(env, user, kind, prefs, options.site, options.period);
     const fingerprint = await sha256(JSON.stringify(facts.sections.map((s) => [s.key, s.count, s.items.map((i) => `${i.id}:${i.detail ?? ""}`)])));
-    const stored = await db.prepare("SELECT * FROM ai_briefings WHERE email = ? AND kind = ? AND period = ?").bind(user.email, kind, facts.period).first<BriefingRow>();
+    const stored = await db
+        .prepare("SELECT * FROM ai_briefings WHERE email = ? AND kind = ? AND period = ?")
+        .bind(user.email, kind, facts.period)
+        .first<BriefingRow>();
     const previous = await db
         .prepare("SELECT period, facts FROM ai_briefings WHERE email = ? AND kind = ? AND period < ? ORDER BY period DESC LIMIT 1")
         .bind(user.email, kind, facts.period)
@@ -282,7 +428,11 @@ export async function getBriefing(
     if (previous) {
         const before = itemIds(parseJson<BriefingFactSection[]>(previous.facts, []));
         const now = itemIds(facts.sections);
-        changes = { previousPeriod: previous.period, added: [...now].filter((id) => !before.has(id)).length, resolved: [...before].filter((id) => !now.has(id)).length };
+        changes = {
+            previousPeriod: previous.period,
+            added: [...now].filter((id) => !before.has(id)).length,
+            resolved: [...before].filter((id) => !now.has(id)).length,
+        };
     }
     return {
         kind,
@@ -301,7 +451,8 @@ export async function getBriefing(
 /** "HH:MM" now in a time zone. */
 const localClock = (timeZone: string) =>
     new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
-const localWeekday = (timeZone: string) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-AU", { timeZone, weekday: "short" }).format(new Date()));
+const localWeekday = (timeZone: string) =>
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-AU", { timeZone, weekday: "short" }).format(new Date()));
 
 /**
  * Queues briefings for people who opted in (saved preferences, not paused) once their preferred
@@ -322,9 +473,17 @@ export async function scheduleBriefings(env: Env, config: IntelligenceConfig): P
         if (clock >= prefs.dailyTime) due.push("daily");
         if (localWeekday(timeZone) === prefs.weeklyDay && clock >= prefs.weeklyTime) due.push("weekly");
         for (const kind of due) {
-            const done = await env.DB.prepare("SELECT 1 FROM ai_briefings WHERE email = ? AND kind = ? AND period = ? AND notified_at IS NOT NULL").bind(person.email, kind, today).first();
+            const done = await env.DB.prepare("SELECT 1 FROM ai_briefings WHERE email = ? AND kind = ? AND period = ? AND notified_at IS NOT NULL")
+                .bind(person.email, kind, today)
+                .first();
             if (done) continue;
-            const { existing } = await enqueue(env.DB, { email: person.email, kind: "briefing.prepare", subjectId: `${kind}:${today}`, dedupeKey: `briefing:${person.email}:${kind}:${today}`, maxAttempts: 2 });
+            const { existing } = await enqueue(env.DB, {
+                email: person.email,
+                kind: "briefing.prepare",
+                subjectId: `${kind}:${today}`,
+                dedupeKey: `briefing:${person.email}:${kind}:${today}`,
+                maxAttempts: 2,
+            });
             if (!existing) queued++;
         }
     }
@@ -335,7 +494,9 @@ export function briefingJob(site: string) {
     return async (ctx: JobContext): Promise<StepResult> => {
         const [kind, period] = ctx.job.subject_id.split(":") as ["daily" | "weekly", string];
         const view = await getBriefing(ctx.env, ctx.user, kind, { site, recommend: true, period });
-        await ctx.env.DB.prepare("UPDATE ai_briefings SET notified_at = ? WHERE email = ? AND kind = ? AND period = ?").bind(nowIso(), ctx.user.email, kind, view.period).run();
+        await ctx.env.DB.prepare("UPDATE ai_briefings SET notified_at = ? WHERE email = ? AND kind = ? AND period = ?")
+            .bind(nowIso(), ctx.user.email, kind, view.period)
+            .run();
         return { status: "done" };
     };
 }

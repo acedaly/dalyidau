@@ -58,11 +58,16 @@ export async function captureDetail(env: Env, user: PortalUser, id: string, site
     const db = env.DB;
     const [job, transcript, parts, sourceObject] = await Promise.all([
         db.prepare("SELECT * FROM ai_jobs WHERE subject_id = ? AND email = ? ORDER BY created_at DESC LIMIT 1").bind(id, user.email).first<JobRow>(),
-        db.prepare("SELECT * FROM ai_transcripts WHERE capture_id = ?").bind(id).first<{ model: string; language: string | null; duration_seconds: number | null; chunks_total: number; chunks_done: number }>(),
+        db
+            .prepare("SELECT * FROM ai_transcripts WHERE capture_id = ?")
+            .bind(id)
+            .first<{ model: string; language: string | null; duration_seconds: number | null; chunks_total: number; chunks_done: number }>(),
         db.prepare("SELECT segments FROM ai_transcript_parts WHERE capture_id = ? ORDER BY idx").bind(id).all<{ segments: string | null }>(),
         row.source_object_id
             ? db
-                  .prepare("SELECT o.id, o.title FROM knowledge_objects o JOIN knowledge_memberships m ON m.space_id = o.space_id AND m.email = ? WHERE o.id = ?")
+                  .prepare(
+                      "SELECT o.id, o.title FROM knowledge_objects o JOIN knowledge_memberships m ON m.space_id = o.space_id AND m.email = ? WHERE o.id = ?",
+                  )
                   .bind(user.email, row.source_object_id)
                   .first<{ id: string; title: string }>()
             : Promise.resolve(null),
@@ -94,12 +99,23 @@ export async function captureDetail(env: Env, user: PortalUser, id: string, site
 export async function intelligenceStatus(env: Env, user: PortalUser): Promise<IntelligenceStatus> {
     const { config } = await loadConfig(env.DB);
     const spaces = can(user, "knowledge.use")
-        ? (await env.DB.prepare("SELECT space_id FROM knowledge_memberships WHERE email = ?").bind(user.email).all<{ space_id: string }>()).results.map((r) => r.space_id)
+        ? (await env.DB.prepare("SELECT space_id FROM knowledge_memberships WHERE email = ?").bind(user.email).all<{ space_id: string }>()).results.map(
+              (r) => r.space_id,
+          )
         : [];
     const status = statusFor(env, config, false, null);
-    return statusFor(env, config, await circuitOpen(env.DB), status.available.semantic || config.features.semanticSearch ? await indexStatus(env.DB, spaces) : null);
+    return statusFor(
+        env,
+        config,
+        await circuitOpen(env.DB),
+        status.available.semantic || config.features.semanticSearch ? await indexStatus(env.DB, spaces) : null,
+    );
 }
 
 export async function intelligenceShell(env: Env, user: PortalUser): Promise<IntelligenceShell> {
-    return { status: await intelligenceStatus(env, user), pendingSuggestions: await pendingCount(env.DB, user.email), canManage: can(user, "portal.settings.manage") };
+    return {
+        status: await intelligenceStatus(env, user),
+        pendingSuggestions: await pendingCount(env.DB, user.email),
+        canManage: can(user, "portal.settings.manage"),
+    };
 }

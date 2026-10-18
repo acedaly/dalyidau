@@ -22,7 +22,8 @@ const today = () => localDate(new Date(), "Australia/Sydney");
 beforeEach(resetPortal);
 
 type Env = Awaited<ReturnType<typeof aiEnv>>["env"];
-const briefing = async (env: Env, kind = "daily", email = A) => (await iCall<{ briefing: BriefingView }>(env, "GET", `/briefings/${kind}`, undefined, email)).json.briefing;
+const briefing = async (env: Env, kind = "daily", email = A) =>
+    (await iCall<{ briefing: BriefingView }>(env, "GET", `/briefings/${kind}`, undefined, email)).json.briefing;
 const section = (view: BriefingView, key: string) => view.sections.find((s) => s.key === key);
 
 describe("briefings", () => {
@@ -105,7 +106,9 @@ describe("briefings", () => {
         expect(await scheduleBriefings(env, config)).toBeGreaterThanOrEqual(1);
         await drain(env);
         expect(await scheduleBriefings(env, config)).toBe(0);
-        const rows = await db().prepare("SELECT email, notified_at FROM ai_briefings WHERE kind = 'daily'").all<{ email: string; notified_at: string | null }>();
+        const rows = await db()
+            .prepare("SELECT email, notified_at FROM ai_briefings WHERE kind = 'daily'")
+            .all<{ email: string; notified_at: string | null }>();
         expect(rows.results.map((r) => r.email)).toEqual([A]);
         expect(rows.results[0].notified_at).toBeTruthy();
         // Scheduled processing off: nothing is queued at all.
@@ -117,7 +120,10 @@ describe("briefings", () => {
 
 describe("Intelligence through MCP", () => {
     const mcp = async <T = Record<string, unknown>>(env: Env, tool: string, input: unknown, email = A) =>
-        (await handleMcpCall({ ...env, MCP_ACCESS_AUD: MCP_AUD }, { assertion: await accessToken({ email, aud: [MCP_AUD] }), tool, input })) as PortalMcpResponse & { data: T };
+        (await handleMcpCall(
+            { ...env, MCP_ACCESS_AUD: MCP_AUD },
+            { assertion: await accessToken({ email, aud: [MCP_AUD] }), tool, input },
+        )) as PortalMcpResponse & { data: T };
 
     it("captures text into suggestions, replays a retried request id, and approves only the caller's own suggestion", async () => {
         const { env } = await aiEnv();
@@ -125,7 +131,10 @@ describe("Intelligence through MCP", () => {
         const first = await mcp<{ captureId: string }>(env, "intelligence_capture_text", { text: "TODO: Service the mower", requestId: "mcp-capture-001" });
         expect(first.ok, JSON.stringify(first)).toBe(true);
         await drain(env);
-        const again = await mcp<{ captureId: string; replayed: boolean }>(env, "intelligence_capture_text", { text: "TODO: Service the mower", requestId: "mcp-capture-001" });
+        const again = await mcp<{ captureId: string; replayed: boolean }>(env, "intelligence_capture_text", {
+            text: "TODO: Service the mower",
+            requestId: "mcp-capture-001",
+        });
         expect(again.data).toMatchObject({ captureId: first.data.captureId, replayed: true });
         const list = await mcp<{ suggestions: SuggestionView[] }>(env, "intelligence_list_suggestions", {});
         const task = list.data.suggestions.find((s) => s.kind === "task")!;
@@ -135,10 +144,15 @@ describe("Intelligence through MCP", () => {
         const theirs = await mcp(env, "intelligence_approve_suggestion", { suggestionId: task.id, requestId: "mcp-approve-b01" }, B);
         expect(theirs.ok).toBe(false);
         if (!theirs.ok) expect(theirs.error.code).toBe("not_found");
-        const approved = await mcp<{ suggestion: { status: string } }>(env, "intelligence_approve_suggestion", { suggestionId: task.id, requestId: "mcp-approve-a01" });
+        const approved = await mcp<{ suggestion: { status: string } }>(env, "intelligence_approve_suggestion", {
+            suggestionId: task.id,
+            requestId: "mcp-approve-a01",
+        });
         expect(approved.data.suggestion.status).toBe("applied");
         expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items").first<{ n: number }>())!.n).toBe(1);
-        const ledger = await db().prepare("SELECT tool, entity_type, status FROM mcp_writes ORDER BY created_at").all<{ tool: string; entity_type: string | null; status: string }>();
+        const ledger = await db()
+            .prepare("SELECT tool, entity_type, status FROM mcp_writes ORDER BY created_at")
+            .all<{ tool: string; entity_type: string | null; status: string }>();
         expect(ledger.results.filter((r) => r.status === "done").map((r) => r.entity_type)).toEqual(["ai_capture", "ai_suggestion"]);
         expect(JSON.stringify(ledger.results)).not.toContain("mower");
     });
@@ -158,7 +172,17 @@ describe("Intelligence through MCP", () => {
 
     it("searches Knowledge by meaning through MCP, with keyword fallback when semantic search is off", async () => {
         const { env } = await aiEnv();
-        await configure(env, { features: { enabled: true, semanticSearch: false, capture: true, documents: false, meetings: false, briefingRecommendations: false, scheduled: false } });
+        await configure(env, {
+            features: {
+                enabled: true,
+                semanticSearch: false,
+                capture: true,
+                documents: false,
+                meetings: false,
+                briefingRecommendations: false,
+                scheduled: false,
+            },
+        });
         const space = await personal();
         await createObject(space.id, { title: "Gutter cleaning", content: doc("Gutters before winter") });
         const result = await mcp<{ mode: string; results: { title: string }[]; fallbackReason: string }>(env, "knowledge_semantic_search", { query: "gutter" });

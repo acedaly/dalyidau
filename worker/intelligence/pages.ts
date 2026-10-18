@@ -84,7 +84,11 @@ export async function loadIntelligencePage(env: Env, user: PortalUser, url: URL,
             };
         }
         case "settings": {
-            const [{ config, version }, prefs, storage] = await Promise.all([loadConfig(env.DB), loadPreferences(env.DB, user.email), storageSummary(env.DB, user)]);
+            const [{ config, version }, prefs, storage] = await Promise.all([
+                loadConfig(env.DB),
+                loadPreferences(env.DB, user.email),
+                storageSummary(env.DB, user),
+            ]);
             const excluded = new Set(
                 (await env.DB.prepare("SELECT space_id FROM ai_exclusions WHERE object_id IS NULL").all<{ space_id: string }>()).results.map((r) => r.space_id),
             );

@@ -21,7 +21,8 @@ const text = (s: string) => new TextEncoder().encode(s);
 beforeEach(resetPortal);
 
 type Env = Awaited<ReturnType<typeof aiEnv>>["env"];
-const detail = async (env: Env, id: string, email = A) => (await iCall<{ capture: CaptureDetail }>(env, "GET", `/captures/${id}`, undefined, email)).json.capture;
+const detail = async (env: Env, id: string, email = A) =>
+    (await iCall<{ capture: CaptureDetail }>(env, "GET", `/captures/${id}`, undefined, email)).json.capture;
 const captureFile = async (env: Env, source: "document" | "audio", attachmentId: string, extra: Record<string, unknown> = {}) => {
     const result = await iCall<{ captureId: string; jobId: string }>(env, "POST", "/captures", { source, attachmentId, ...extra });
     expect(result.status, result.text).toBe(201);
@@ -61,7 +62,12 @@ describe("document intelligence", () => {
         const { env } = await aiEnv();
         await configure(env);
         const due = addDays(today(), 5);
-        const id = await upload(env, "minutes.md", text(`# Strata meeting\nTODO: Send the levy notice by ${due}\nDecision: Repaint the fence in spring.`), "document");
+        const id = await upload(
+            env,
+            "minutes.md",
+            text(`# Strata meeting\nTODO: Send the levy notice by ${due}\nDecision: Repaint the fence in spring.`),
+            "document",
+        );
         const { captureId } = await captureFile(env, "document", id);
         const c = await detail(env, captureId);
         expect(c.status).toBe("ready");
@@ -82,7 +88,9 @@ describe("document intelligence", () => {
         const id = await upload(env, "big.pdf", text("%PDF-1.7\n1 0 obj << /Type /Page >>\n2 0 obj << /Type /Page >>\n%%EOF"), "document");
         const { captureId, jobId } = await captureFile(env, "document", id);
         expect((await detail(env, captureId)).status).toBe("failed");
-        expect((await db().prepare("SELECT error_code FROM ai_jobs WHERE id = ?").bind(jobId).first<{ error_code: string }>())!.error_code).toBe("too_many_pages");
+        expect((await db().prepare("SELECT error_code FROM ai_jobs WHERE id = ?").bind(jobId).first<{ error_code: string }>())!.error_code).toBe(
+            "too_many_pages",
+        );
         expect(ai.calls.filter((c) => c.kind === "document")).toHaveLength(0);
         // A failed file is kept longer, for investigation.
         const kept = await db().prepare("SELECT status, purge_after FROM attachments WHERE id = ?").bind(id).first<{ status: string; purge_after: string }>();
@@ -143,7 +151,12 @@ describe("meeting intelligence", () => {
                 }
                 const piece = calls === 1 ? 0 : calls - 2;
                 return {
-                    text: piece === 0 ? `Action: Book the electrician by ${due}.` : piece === 1 ? "Decision: We will keep the old switchboard." : "Thanks everyone.",
+                    text:
+                        piece === 0
+                            ? `Action: Book the electrician by ${due}.`
+                            : piece === 1
+                              ? "Decision: We will keep the old switchboard."
+                              : "Thanks everyone.",
                     segments: [{ start: 1, end: 4, text: "piece" }],
                     transcription_info: { language: "en", duration: 240 },
                 };
@@ -174,10 +187,16 @@ describe("meeting intelligence", () => {
         // Approving the meeting record keeps the summary (generated) and transcript (source) apart.
         const meeting = c.suggestions.find((s) => s.kind === "meeting_note")!;
         const applied = await iCall<{ suggestion: SuggestionView }>(env, "POST", `/suggestions/${meeting.id}/approve`, {});
-        const body = await db().prepare("SELECT body_text FROM knowledge_objects WHERE id = ?").bind(applied.json.suggestion.result!.id).first<{ body_text: string }>();
+        const body = await db()
+            .prepare("SELECT body_text FROM knowledge_objects WHERE id = ?")
+            .bind(applied.json.suggestion.result!.id)
+            .first<{ body_text: string }>();
         expect(body!.body_text).toMatch(/Summary \(generated\)[\s\S]*Transcript \(source\)[\s\S]*Book the electrician/);
         // The recording is temporary: processed, with a purge date.
-        expect(await db().prepare("SELECT status, retention FROM attachments WHERE id = ?").bind(id).first()).toEqual({ status: "processed", retention: "temporary" });
+        expect(await db().prepare("SELECT status, retention FROM attachments WHERE id = ?").bind(id).first()).toEqual({
+            status: "processed",
+            retention: "temporary",
+        });
     });
 
     it("refuses an M4A too large to send in one request, with a reason, rather than claiming to cut it", async () => {
@@ -187,7 +206,10 @@ describe("meeting intelligence", () => {
         bytes.set(text("\0\0\0\x20ftypM4A "), 0);
         const id = await upload(env, "voice-memo.m4a", bytes, "audio");
         const { jobId } = await captureFile(env, "audio", id);
-        expect(await db().prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?").bind(jobId).first()).toEqual({ status: "failed", error_code: "convert_to_mp3" });
+        expect(await db().prepare("SELECT status, error_code FROM ai_jobs WHERE id = ?").bind(jobId).first()).toEqual({
+            status: "failed",
+            error_code: "convert_to_mp3",
+        });
         expect(ai.calls).toHaveLength(0);
     });
 
@@ -196,7 +218,10 @@ describe("meeting intelligence", () => {
         await configure(env, { budgets: { ...DEFAULT_CONFIG.budgets, confirmAboveNeurons: 5 } });
         const id = await upload(env, "short.wav", wav(30), "audio");
         const { jobId, captureId } = await captureFile(env, "audio", id);
-        const job = await db().prepare("SELECT status, estimate_neurons FROM ai_jobs WHERE id = ?").bind(jobId).first<{ status: string; estimate_neurons: number }>();
+        const job = await db()
+            .prepare("SELECT status, estimate_neurons FROM ai_jobs WHERE id = ?")
+            .bind(jobId)
+            .first<{ status: string; estimate_neurons: number }>();
         expect(job!.status).toBe("waiting_approval");
         expect(job!.estimate_neurons).toBeGreaterThan(5);
         expect(ai.calls).toHaveLength(0);
@@ -242,13 +267,19 @@ describe("retention and downloads", () => {
         const { env } = await aiEnv();
         await configure(env);
         const id = await upload(env, "private.txt", text("only mine"), "document");
-        const mine = await call(`/api/portal/intelligence/attachments/${id}/download`, { token: await (await import("./portal-helpers")).accessToken({ email: A }), env });
+        const mine = await call(`/api/portal/intelligence/attachments/${id}/download`, {
+            token: await (await import("./portal-helpers")).accessToken({ email: A }),
+            env,
+        });
         expect(mine.status).toBe(200);
         expect(mine.headers.get("Content-Disposition")).toMatch(/^attachment/);
         expect(mine.headers.get("X-Content-Type-Options")).toBe("nosniff");
         expect(mine.headers.get("Content-Security-Policy")).toContain("sandbox");
         expect(await mine.text()).toBe("only mine");
-        const theirs = await call(`/api/portal/intelligence/attachments/${id}/download`, { token: await (await import("./portal-helpers")).accessToken({ email: B }), env });
+        const theirs = await call(`/api/portal/intelligence/attachments/${id}/download`, {
+            token: await (await import("./portal-helpers")).accessToken({ email: B }),
+            env,
+        });
         expect(theirs.status).toBe(404);
         const key = (await db().prepare("SELECT r2_key FROM attachments WHERE id = ?").bind(id).first<{ r2_key: string }>())!.r2_key;
         for (const path of [`/media/${key}`, `/wedding/media/${key.split("/").pop()}`, `/${key}`]) expect((await call(path, { env })).status).toBe(404);

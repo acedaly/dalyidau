@@ -55,7 +55,10 @@ export const IntelligenceInboxPage = ({ data }: { data: PageData<"intelligence-i
                 description="Proposed tasks, notes, decisions and links from what you captured. Check each one: it says where it came from."
                 breadcrumbs={[{ label: "Intelligence", href: "/portal/intelligence" }, { label: "Suggestions" }]}
             >
-                <Tabs selectedKey={data.filter} onSelectionChange={(k) => (window.location.href = `/portal/intelligence/inbox${k === "pending" ? "" : `?filter=${String(k)}`}`)}>
+                <Tabs
+                    selectedKey={data.filter}
+                    onSelectionChange={(k) => (window.location.href = `/portal/intelligence/inbox${k === "pending" ? "" : `?filter=${String(k)}`}`)}
+                >
                     <Tabs.List type="underline" size="sm" className="overflow-x-auto">
                         {FILTERS.map((f) => (
                             <Tabs.Item key={f.id} id={f.id}>
@@ -73,7 +76,11 @@ export const IntelligenceInboxPage = ({ data }: { data: PageData<"intelligence-i
 
             {data.filter === "pending" && visible.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3">
-                    <Button size="sm" color="secondary" onClick={() => setSelected(selected.size === visible.length ? new Set() : new Set(visible.map((s) => s.id)))}>
+                    <Button
+                        size="sm"
+                        color="secondary"
+                        onClick={() => setSelected(selected.size === visible.length ? new Set() : new Set(visible.map((s) => s.id)))}
+                    >
                         {selected.size === visible.length ? "Clear selection" : "Select all"}
                     </Button>
                     <Button size="sm" iconLeading={Check} isDisabled={!selected.size} isLoading={busy} onClick={approveSelected}>
@@ -107,7 +114,12 @@ export const IntelligenceInboxPage = ({ data }: { data: PageData<"intelligence-i
                     </ul>
                 ) : (
                     <div className="px-6 py-12">
-                        <Empty icon={Inbox01} title={data.filter === "pending" ? "Nothing to review" : "Nothing here"} description="Suggestions appear after you capture something." actions={<Button href="/portal/intelligence/capture">Capture</Button>} />
+                        <Empty
+                            icon={Inbox01}
+                            title={data.filter === "pending" ? "Nothing to review" : "Nothing here"}
+                            description="Suggestions appear after you capture something."
+                            actions={<Button href="/portal/intelligence/capture">Capture</Button>}
+                        />
                     </div>
                 )}
             </section>

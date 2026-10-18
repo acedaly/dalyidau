@@ -163,7 +163,13 @@ describe("who may call the portal through the MCP gateway", () => {
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
-        expect(writes.every((n) => /_(create|update|append|reschedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion)/.test(n))).toBe(true);
+        expect(
+            writes.every((n) =>
+                /_(create|update|append|reschedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion)/.test(
+                    n,
+                ),
+            ),
+        ).toBe(true);
         expect(writes).toHaveLength(18);
     });
 

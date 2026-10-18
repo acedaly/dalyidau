@@ -1,15 +1,16 @@
 // Browser client for /api/portal/intelligence. Uploads go in parts (base64 in JSON, like the rest
 // of the portal API) so a phone on a slow connection shows real progress and a failed part can be
 // retried without starting again.
+import { api } from "@/portal/lib/api";
 import type { IntelligenceConfig, IntelligencePreferences } from "@/shared/intelligence/config";
 import type { BriefingView, CaptureDetail, CaptureSummary, HybridSearchResult, IntelligenceStatus, JobView, SuggestionView } from "@/shared/intelligence/types";
-import { api } from "@/portal/lib/api";
 
 const BASE = "/api/portal/intelligence";
 
 export const intelligenceApi = {
     status: () => api<{ status: IntelligenceStatus }>("GET", `${BASE}/status`),
-    capture: (body: Record<string, unknown>) => api<{ captureId: string; jobId: string; replayed: boolean; needsApproval: boolean }>("POST", `${BASE}/captures`, body),
+    capture: (body: Record<string, unknown>) =>
+        api<{ captureId: string; jobId: string; replayed: boolean; needsApproval: boolean }>("POST", `${BASE}/captures`, body),
     captures: (source?: "audio" | "other") => api<{ captures: CaptureSummary[] }>("GET", `${BASE}/captures${source ? `?source=${source}` : ""}`),
     getCapture: (id: string) => api<{ capture: CaptureDetail }>("GET", `${BASE}/captures/${id}`),
     cancelCapture: (id: string) => api("POST", `${BASE}/captures/${id}/cancel`, {}),
@@ -17,7 +18,9 @@ export const intelligenceApi = {
     edit: (id: string, version: number, payload: unknown) => api<{ suggestion: SuggestionView }>("PATCH", `${BASE}/suggestions/${id}`, { version, payload }),
     approve: (id: string, version?: number) => api<{ suggestion: SuggestionView }>("POST", `${BASE}/suggestions/${id}/approve`, version ? { version } : {}),
     approveMany: (ids: string[]) =>
-        api<{ approved: number; results: { id: string; ok: boolean; error?: { code: string; message: string } }[] }>("POST", `${BASE}/suggestions/approve`, { ids }),
+        api<{ approved: number; results: { id: string; ok: boolean; error?: { code: string; message: string } }[] }>("POST", `${BASE}/suggestions/approve`, {
+            ids,
+        }),
     dismiss: (id: string) => api("POST", `${BASE}/suggestions/${id}/dismiss`, {}),
     job: (id: string) => api<{ job: JobView }>("GET", `${BASE}/jobs/${id}`),
     runJob: (id: string) => api<{ job: JobView }>("POST", `${BASE}/jobs/${id}/run`, {}),
@@ -27,7 +30,8 @@ export const intelligenceApi = {
     briefing: (kind: "daily" | "weekly") => api<{ briefing: BriefingView }>("GET", `${BASE}/briefings/${kind}`),
     recommend: (kind: "daily" | "weekly") => api<{ briefing: BriefingView }>("POST", `${BASE}/briefings/${kind}/recommend`, {}),
     search: (q: string, params: Record<string, string> = {}) => api<HybridSearchResult>("GET", `${BASE}/search?${new URLSearchParams({ q, ...params })}`),
-    saveSettings: (version: number, config: IntelligenceConfig) => api<{ config: IntelligenceConfig; version: number }>("PUT", `${BASE}/settings`, { version, config }),
+    saveSettings: (version: number, config: IntelligenceConfig) =>
+        api<{ config: IntelligenceConfig; version: number }>("PUT", `${BASE}/settings`, { version, config }),
     savePreferences: (version: number, preferences: IntelligencePreferences) =>
         api<{ preferences: IntelligencePreferences; version: number }>("PUT", `${BASE}/preferences`, { version, preferences }),
     exclude: (spaceId: string, excluded: boolean, objectId?: string) => api("POST", `${BASE}/exclusions`, { spaceId, objectId: objectId ?? null, excluded }),

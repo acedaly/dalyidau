@@ -9,9 +9,9 @@ import { TextArea } from "@/components/base/textarea/textarea";
 import { PageHeader } from "@/portal/components/page-header";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
+import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { intelligenceApi } from "../api";
 import { AvailabilityNotice, CaptureStatusBadge, captureHref } from "../shared";
 import { UploadCapture } from "../upload-capture";
@@ -80,11 +80,24 @@ export const IntelligenceCapturePage = ({ data }: { data: PageData<"intelligence
                         />
                         <div className="flex flex-wrap items-end gap-3">
                             {data.spaces.length > 1 && (
-                                <Select label="Knowledge space" size="sm" className="w-full sm:w-56" value={spaceId} onChange={(k) => k && setSpaceId(String(k))} items={data.spaces.map((s) => ({ id: s.id, label: s.name }))}>
+                                <Select
+                                    label="Knowledge space"
+                                    size="sm"
+                                    className="w-full sm:w-56"
+                                    value={spaceId}
+                                    onChange={(k) => k && setSpaceId(String(k))}
+                                    items={data.spaces.map((s) => ({ id: s.id, label: s.name }))}
+                                >
                                     {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                                 </Select>
                             )}
-                            <Button type="submit" iconLeading={Lightning01} isLoading={busy} isDisabled={disabled || !text.trim() || text.length > data.limits.maxCaptureCharacters} className="sm:ml-auto">
+                            <Button
+                                type="submit"
+                                iconLeading={Lightning01}
+                                isLoading={busy}
+                                isDisabled={disabled || !text.trim() || text.length > data.limits.maxCaptureCharacters}
+                                className="sm:ml-auto"
+                            >
                                 Capture and analyse
                             </Button>
                         </div>
@@ -104,7 +117,12 @@ export const IntelligenceCapturePage = ({ data }: { data: PageData<"intelligence
                             <p className="text-sm text-secondary">
                                 Analyse <strong>{data.prefillObject.title}</strong> for tasks, decisions, tags and links.
                             </p>
-                            <Button iconLeading={Lightning01} isLoading={busy} isDisabled={disabled} onClick={() => submit({ source: "knowledge", objectId: data.prefillObject!.id })}>
+                            <Button
+                                iconLeading={Lightning01}
+                                isLoading={busy}
+                                isDisabled={disabled}
+                                onClick={() => submit({ source: "knowledge", objectId: data.prefillObject!.id })}
+                            >
                                 Analyse note
                             </Button>
                         </div>
@@ -117,7 +135,10 @@ export const IntelligenceCapturePage = ({ data }: { data: PageData<"intelligence
                     <ul className="divide-y divide-secondary">
                         {data.captures.map((c) => (
                             <li key={c.id}>
-                                <a href={captureHref(c.id)} className="flex flex-col gap-1 px-4 py-3 transition duration-100 ease-linear hover:bg-primary_hover sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                                <a
+                                    href={captureHref(c.id)}
+                                    className="flex flex-col gap-1 px-4 py-3 transition duration-100 ease-linear hover:bg-primary_hover sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                                >
                                     <span className="truncate text-sm font-medium text-primary">{c.title}</span>
                                     <span className="flex items-center gap-2 text-xs text-tertiary">
                                         <CaptureStatusBadge status={c.status} job={c.job} />

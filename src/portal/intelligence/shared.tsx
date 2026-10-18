@@ -91,7 +91,8 @@ export const AvailabilityNotice = ({ shell, need }: { shell: IntelligenceShell; 
                 ) : undefined
             }
         >
-            {reason} {shell.canManage ? "Owners and admins can change this in Intelligence settings." : "An owner or admin can switch it on."} Tasks and Knowledge work as usual.
+            {reason} {shell.canManage ? "Owners and admins can change this in Intelligence settings." : "An owner or admin can switch it on."} Tasks and
+            Knowledge work as usual.
         </Notice>
     );
 };
@@ -108,7 +109,11 @@ export function describeSuggestion(s: SuggestionView): { title: string; detail: 
     switch (s.kind) {
         case "task":
         case "follow_up": {
-            const where = payload.projectId ? `in ${name(payload.projectId)}` : payload.projectSuggestionId ? "in the proposed new project" : "in your Tasks Inbox";
+            const where = payload.projectId
+                ? `in ${name(payload.projectId)}`
+                : payload.projectSuggestionId
+                  ? "in the proposed new project"
+                  : "in your Tasks Inbox";
             const detail = [where];
             if (payload.dueDate) detail.push(`due ${formatDate(str(payload.dueDate))}${payload.dateCertainty === "inferred" ? " (worked out: check it)" : ""}`);
             else if (payload.dueText) detail.push(`timing: “${str(payload.dueText)}”`);
@@ -117,7 +122,10 @@ export function describeSuggestion(s: SuggestionView): { title: string; detail: 
             return { title: str(payload.title), detail };
         }
         case "project":
-            return { title: str(payload.name), detail: [((payload.similarProjectIds as string[]) ?? []).length ? "similar projects exist: check before creating" : "a new personal project"] };
+            return {
+                title: str(payload.name),
+                detail: [((payload.similarProjectIds as string[]) ?? []).length ? "similar projects exist: check before creating" : "a new personal project"],
+            };
         case "knowledge_object":
         case "decision":
         case "meeting_note":
@@ -131,7 +139,13 @@ export function describeSuggestion(s: SuggestionView): { title: string; detail: 
     }
 }
 
-const RESULT_LABEL: Record<string, string> = { task: "Open task", task_project: "Open project", knowledge_object: "Open note", knowledge_relation: "Open note", knowledge_tags: "Open note" };
+const RESULT_LABEL: Record<string, string> = {
+    task: "Open task",
+    task_project: "Open project",
+    knowledge_object: "Open note",
+    knowledge_relation: "Open note",
+    knowledge_tags: "Open note",
+};
 
 export const SuggestionCard = ({
     suggestion,
@@ -179,9 +193,7 @@ export const SuggestionCard = ({
 
     return (
         <li className="flex gap-3 px-4 py-4 sm:px-5">
-            {onSelect && pending && (
-                <Checkbox aria-label={`Select ${title}`} isSelected={!!selected} onChange={onSelect} className="mt-1" />
-            )}
+            {onSelect && pending && <Checkbox aria-label={`Select ${title}`} isSelected={!!selected} onChange={onSelect} className="mt-1" />}
             <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                     <Badge size="sm" type="modern" color="gray">
@@ -208,7 +220,9 @@ export const SuggestionCard = ({
                 {suggestion.evidence && (
                     <blockquote className="border-l-2 border-secondary pl-3 text-sm break-words text-tertiary italic">“{suggestion.evidence}”</blockquote>
                 )}
-                {suggestion.errorCode && pending && <p className="text-sm text-error-primary">{ERROR_TEXT[suggestion.errorCode] ?? "That didn't work last time."}</p>}
+                {suggestion.errorCode && pending && (
+                    <p className="text-sm text-error-primary">{ERROR_TEXT[suggestion.errorCode] ?? "That didn't work last time."}</p>
+                )}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                     {pending && (
                         <>
@@ -296,7 +310,9 @@ const EditSuggestion = ({ suggestion, onClose, onSaved }: { suggestion: Suggesti
     useEffect(() => {
         if (!needsProjects) return;
         void api<{ projects: { id: string; name: string; isInbox: boolean; status: string; role: string }[] }>("GET", "/api/portal/tasks/projects")
-            .then((r) => setProjects(r.projects.filter((x) => !x.isInbox && x.status !== "archived" && x.role !== "viewer").map((x) => ({ id: x.id, label: x.name }))))
+            .then((r) =>
+                setProjects(r.projects.filter((x) => !x.isInbox && x.status !== "archived" && x.role !== "viewer").map((x) => ({ id: x.id, label: x.name }))),
+            )
             .catch(() => setProjects([]));
     }, [needsProjects]);
 
@@ -340,10 +356,28 @@ const EditSuggestion = ({ suggestion, onClose, onSaved }: { suggestion: Suggesti
             {fields.map((f) => {
                 const issue = error?.issueFor(f.key);
                 if (f.kind === "long")
-                    return <TextArea key={f.key} label={f.label} rows={4} value={str(values[f.key])} onChange={(v) => set(f.key, v)} isInvalid={!!issue} hint={issue} />;
+                    return (
+                        <TextArea
+                            key={f.key}
+                            label={f.label}
+                            rows={4}
+                            value={str(values[f.key])}
+                            onChange={(v) => set(f.key, v)}
+                            isInvalid={!!issue}
+                            hint={issue}
+                        />
+                    );
                 if (f.kind === "date")
                     return (
-                        <Input key={f.key} label={f.label} type="date" value={str(values[f.key])} onChange={(v) => set(f.key, v || null)} isInvalid={!!issue} hint={issue ?? "Leave empty for no date"} />
+                        <Input
+                            key={f.key}
+                            label={f.label}
+                            type="date"
+                            value={str(values[f.key])}
+                            onChange={(v) => set(f.key, v || null)}
+                            isInvalid={!!issue}
+                            hint={issue ?? "Leave empty for no date"}
+                        />
                     );
                 if (f.kind === "tags")
                     return (
@@ -351,7 +385,15 @@ const EditSuggestion = ({ suggestion, onClose, onSaved }: { suggestion: Suggesti
                             key={f.key}
                             label={f.label}
                             value={((values[f.key] as string[]) ?? []).join(", ")}
-                            onChange={(v) => set(f.key, v.split(",").map((t) => t.trim()).filter(Boolean))}
+                            onChange={(v) =>
+                                set(
+                                    f.key,
+                                    v
+                                        .split(",")
+                                        .map((t) => t.trim())
+                                        .filter(Boolean),
+                                )
+                            }
                             hint={issue ?? "Separate with commas"}
                             isInvalid={!!issue}
                         />

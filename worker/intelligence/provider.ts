@@ -18,7 +18,7 @@ import type { Env } from "../env";
 import { HttpError } from "../portal/http";
 import type { AiRunOptions } from "./bindings";
 import { aiBinding } from "./settings";
-import { checkBudget, circuitOpen, recordUsage, type UsageRow } from "./usage";
+import { type UsageRow, checkBudget, circuitOpen, recordUsage } from "./usage";
 
 export type AiErrorCode = "ai_off" | "not_configured" | "ai_unavailable" | "timeout" | "malformed_output" | "provider_error" | "too_large";
 
@@ -109,13 +109,31 @@ async function call<T>(
     await checkBudget(ctx.env.DB, ctx.config, { email: ctx.email, feature: ctx.feature, estimate: request.estimate });
     const task = request.role === "document" ? "document" : ROLE_TASK[request.role];
     const started = Date.now();
-    const base = { email: ctx.email, spaceId: ctx.spaceId ?? null, feature: ctx.feature, task, provider: "workers-ai", model: request.model, unit: request.unit, jobId: ctx.jobId ?? null };
+    const base = {
+        email: ctx.email,
+        spaceId: ctx.spaceId ?? null,
+        feature: ctx.feature,
+        task,
+        provider: "workers-ai",
+        model: request.model,
+        unit: request.unit,
+        jobId: ctx.jobId ?? null,
+    };
     let result: T;
     try {
         result = await withTimeout(run(binding), ctx.config.limits.callTimeoutSeconds);
     } catch (error) {
         const { code, usageCode } = classify(error);
-        await recordUsage(ctx.env.DB, { ...base, inputUnits: 0, outputUnits: 0, neurons: 0, measured: false, durationMs: Date.now() - started, ok: false, errorCode: usageCode });
+        await recordUsage(ctx.env.DB, {
+            ...base,
+            inputUnits: 0,
+            outputUnits: 0,
+            neurons: 0,
+            measured: false,
+            durationMs: Date.now() - started,
+            ok: false,
+            errorCode: usageCode,
+        });
         // The operational log names the model and the outcome, never the person or the content.
         console.log(JSON.stringify({ event: "ai_call_failed", model: request.model, feature: ctx.feature, code: usageCode }));
         throw new AiError(code, MESSAGES[code]);
@@ -258,7 +276,11 @@ export async function transcribe(ctx: AiContext, audio: Uint8Array, request: { s
     const estimate = estimateAudioNeurons(model, request.seconds);
     let binary = "";
     for (let i = 0; i < audio.length; i += 0x8000) binary += String.fromCharCode(...audio.subarray(i, i + 0x8000));
-    type Whisper = { text?: string; segments?: { start?: number; end?: number; text?: string }[]; transcription_info?: { language?: string; duration?: number } };
+    type Whisper = {
+        text?: string;
+        segments?: { start?: number; end?: number; text?: string }[];
+        transcription_info?: { language?: string; duration?: number };
+    };
     const result = await call<Whisper>(
         ctx,
         { role: "transcribe", model, inputs: {}, estimate, unit: "audio_seconds" },
@@ -270,7 +292,12 @@ export async function transcribe(ctx: AiContext, audio: Uint8Array, request: { s
             ) as Promise<Whisper>,
         (r) => {
             const seconds = typeof r?.transcription_info?.duration === "number" ? r.transcription_info.duration : request.seconds;
-            return { inputUnits: seconds, outputUnits: 0, neurons: estimateAudioNeurons(model, seconds), measured: typeof r?.transcription_info?.duration === "number" };
+            return {
+                inputUnits: seconds,
+                outputUnits: 0,
+                neurons: estimateAudioNeurons(model, seconds),
+                measured: typeof r?.transcription_info?.duration === "number",
+            };
         },
     );
     if (typeof result?.text !== "string") throw new AiError("malformed_output", "The transcription service answered without any text.", 502);

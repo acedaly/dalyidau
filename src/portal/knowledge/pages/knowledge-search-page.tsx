@@ -1,6 +1,6 @@
 // Search: titles, text and tags, ranked with titles first. ↑/↓ move between results, Enter opens.
 // Only ever searches spaces the signed-in person belongs to (enforced by the Worker).
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { SearchLg } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -12,6 +12,7 @@ import { Timestamp } from "@/portal/components/timestamp";
 import { pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { KnowledgeHeader } from "../knowledge-header";
+import { MeaningResults } from "../meaning-results";
 import { Highlighted, TypeIconFor, objectHref } from "../shared";
 
 export const KnowledgeSearchPage = ({ data }: { data: PageData<"knowledge-search"> }) => {
@@ -21,6 +22,7 @@ export const KnowledgeSearchPage = ({ data }: { data: PageData<"knowledge-search
     const [allSpaces, setAllSpaces] = useState(data.allSpaces);
     const results = useRef<HTMLOListElement>(null);
     const spaceName = (id: string) => spaces.find((s) => s.id === id)?.name;
+    const found = useMemo(() => new Set(hits.map((h) => h.object.id)), [hits]);
 
     const moveFocus = (event: React.KeyboardEvent) => {
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -64,6 +66,8 @@ export const KnowledgeSearchPage = ({ data }: { data: PageData<"knowledge-search
                 </Button>
             </form>
             {spaces.length > 1 && <Checkbox label="Search all my spaces" isSelected={allSpaces} onChange={setAllSpaces} />}
+
+            {data.query && <MeaningResults query={data.query} spaceId={data.allSpaces ? null : space.id} exclude={found} types={types} />}
 
             {data.query ? (
                 hits.length ? (

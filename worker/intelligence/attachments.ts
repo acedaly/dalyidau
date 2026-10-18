@@ -243,7 +243,9 @@ export async function startUpload(db: D1Database, bucket: R2Bucket, config: Inte
         throw new HttpError(
             422,
             "validation",
-            body.kind === "audio" ? "Use an MP3, M4A, WAV, OGG, FLAC or WebM recording" : "Use a PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), text or Markdown file",
+            body.kind === "audio"
+                ? "Use an MP3, M4A, WAV, OGG, FLAC or WebM recording"
+                : "Use a PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), text or Markdown file",
         );
     const max = body.kind === "audio" ? config.limits.maxAudioBytes : config.limits.maxDocumentBytes;
     if (body.bytes > max) throw new HttpError(413, "too_large", `Files can be up to ${Math.floor(max / 1_000_000)} MB`);
@@ -298,7 +300,11 @@ export async function uploadPart(db: D1Database, bucket: R2Bucket, user: PortalU
 }
 
 async function abandon(db: D1Database, bucket: R2Bucket, row: AttachmentRow) {
-    if (row.upload_id) await bucket.resumeMultipartUpload(row.r2_key, row.upload_id).abort().catch(() => undefined);
+    if (row.upload_id)
+        await bucket
+            .resumeMultipartUpload(row.r2_key, row.upload_id)
+            .abort()
+            .catch(() => undefined);
     await db.prepare("UPDATE attachments SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?").bind(nowIso(), nowIso(), row.id).run();
 }
 
@@ -361,7 +367,9 @@ export async function keepWithTask(db: D1Database, user: PortalUser, id: string,
     if (row.status === "uploading") throw new HttpError(409, "conflict", "Finish the upload first");
     await requireTask(db, user, taskId, "editor");
     await db
-        .prepare("UPDATE attachments SET purpose = 'task', retention = 'referenced', keep = 0, task_id = ?, purge_after = NULL, updated_at = ? WHERE id = ? AND keep = 0")
+        .prepare(
+            "UPDATE attachments SET purpose = 'task', retention = 'referenced', keep = 0, task_id = ?, purge_after = NULL, updated_at = ? WHERE id = ? AND keep = 0",
+        )
         .bind(taskId, nowIso(), id)
         .run();
     return (await getAttachment(db, id))!;
@@ -404,7 +412,12 @@ export async function downloadAttachment(db: D1Database, bucket: R2Bucket, user:
  * uploads and task files whose task has been gone for the grace period. Permanent and kept files
  * are excluded by the queries themselves, not by a check afterwards.
  */
-export async function purgeExpired(db: D1Database, bucket: R2Bucket, config: IntelligenceConfig, limit = 100): Promise<{ purged: number; abandoned: number; orphaned: number }> {
+export async function purgeExpired(
+    db: D1Database,
+    bucket: R2Bucket,
+    config: IntelligenceConfig,
+    limit = 100,
+): Promise<{ purged: number; abandoned: number; orphaned: number }> {
     const now = nowIso();
     const due = await db
         .prepare(
@@ -414,7 +427,10 @@ export async function purgeExpired(db: D1Database, bucket: R2Bucket, config: Int
         .all<AttachmentRow>();
     for (const row of due.results) {
         await bucket.delete(row.r2_key);
-        await db.prepare("UPDATE attachments SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ? AND keep = 0 AND retention <> 'permanent'").bind(now, now, row.id).run();
+        await db
+            .prepare("UPDATE attachments SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ? AND keep = 0 AND retention <> 'permanent'")
+            .bind(now, now, row.id)
+            .run();
     }
     const stale = await db
         .prepare("SELECT * FROM attachments WHERE status = 'uploading' AND created_at < ? LIMIT ?")
@@ -435,10 +451,14 @@ export async function purgeExpired(db: D1Database, bucket: R2Bucket, config: Int
 export async function storageSummary(db: D1Database, user: PortalUser): Promise<StorageSummary> {
     const [totals, due, mine] = await db.batch([
         // Account-wide counts and sizes only: no names, no owners.
-        db.prepare("SELECT purpose, retention, COUNT(*) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM attachments WHERE status <> 'deleted' GROUP BY purpose, retention"),
-        db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE status <> 'deleted' AND keep = 0 AND retention <> 'permanent' AND purge_after IS NOT NULL AND purge_after <= ?").bind(
-            new Date(Date.now() + 86_400_000).toISOString(),
+        db.prepare(
+            "SELECT purpose, retention, COUNT(*) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM attachments WHERE status <> 'deleted' GROUP BY purpose, retention",
         ),
+        db
+            .prepare(
+                "SELECT COUNT(*) AS n FROM attachments WHERE status <> 'deleted' AND keep = 0 AND retention <> 'permanent' AND purge_after IS NOT NULL AND purge_after <= ?",
+            )
+            .bind(new Date(Date.now() + 86_400_000).toISOString()),
         db.prepare("SELECT * FROM attachments WHERE owner_email = ? AND status <> 'deleted' ORDER BY created_at DESC LIMIT 100").bind(user.email),
     ]);
     return {
