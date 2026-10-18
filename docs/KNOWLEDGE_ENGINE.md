@@ -142,6 +142,10 @@ Related suggestions combine bounded queries for shared tags, shared collections,
 
 No embeddings, Workers AI, Vectorize or external service is used. Ordinary D1 indexes and the existing FTS5 table do the work, so Milestone 3 adds no recurring service cost.
 
+### Related tasks (from Daly Tasks)
+
+Object pages show a **Tasks** section for people who can also open Tasks: tasks and Tasks projects that reference this object, from `GET /api/portal/tasks/knowledge/:objectId` (`src/portal/knowledge/related-tasks.tsx`). Knowledge itself isn't changed: Tasks stores only object ids, the Tasks API answers 404 unless the reader can read the object here, and then lists only tasks and projects the reader is a member of in Tasks, so a note shared with someone never shows them another person's private tasks. "Add task" opens Quick Add with this page pre-linked. Details: [TASKS_PROJECTS.md](TASKS_PROJECTS.md#tasks--knowledge).
+
 ## Portable export
 
 - Any member may export an object they can read as Markdown or structured JSON. The JSON preserves its stable id, type and schema, full `daly.doc.v1` document, properties, tags, relations, linked-object labels, timestamps, status, source metadata and optional revisions.
