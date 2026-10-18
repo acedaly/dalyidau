@@ -218,7 +218,7 @@ All under `/api/portal/knowledge`, all requiring Access, `knowledge.use` and mem
 | Capacities import         | 4         | Inspect a real export first. Preview, type/property mapping, attachment ingestion, `source_system`/`source_id` idempotency, link reconstruction and reconciliation. Never deletes in Capacities.                                                                         |
 | In-app export restoration | 4         | The v1 format and isolated restore implementation are verified, but there is no user-facing or production restore route. Add preview, collision handling and an explicit safe destination before exposing it.                                                            |
 | Semantic search           | 5         | Vectorize behind a flag, off by default: chunk `body_text`, embed on change, merge with FTS, filter by the caller's spaces and cite sources.                                                                                                                             |
-| AI and authenticated MCP  | 5         | MCP first part built (draft, not deployed; [MCP.md](MCP.md)): space-scoped reads, search, daily notes, create and append. No body replacement, trash or delete. Still to come: AI features with metering and a monthly limit. Nothing runs or costs anything by default. |
+| AI and authenticated MCP  | 5         | MCP first part built (not yet deployed; gateway in `mcp/`, [MCP.md](MCP.md)): space-scoped reads, search, daily notes, create and append. No body replacement, trash or delete. Still to come: AI features with metering and a monthly limit. Nothing runs or costs anything by default. |
 
 Known limitations of this release:
 

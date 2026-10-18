@@ -110,8 +110,8 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly the tools the gateway advertises (DalyHub-V2 workers/dalyhub-mcp/portal-tools.ts)", () => {
-        // The other half of this contract is PORTAL_TOOL_NAMES in the gateway, tested there with the same list.
+    it("serves exactly these 31 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+        // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
                 "knowledge_list_spaces",

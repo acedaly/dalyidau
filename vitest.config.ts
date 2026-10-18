@@ -29,6 +29,8 @@ export default defineConfig(async () => {
         ],
         test: {
             include: ["test/**/*.test.ts"],
+            // The gateway runs with nodejs_compat in its own project: vitest.mcp.config.ts.
+            exclude: ["test/mcp-gateway/**"],
             setupFiles: ["./test/setup.ts"],
         },
     };

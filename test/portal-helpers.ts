@@ -33,8 +33,9 @@ const makeKey = async (kid: string): Promise<KeyPair> => {
     return { kid, privateKey: pair.privateKey, jwk: { kty: "RSA", n: jwk.n, e: jwk.e, alg: "RS256", kid } };
 };
 
-let keys: { good: KeyPair; other: KeyPair } | null = null;
-export const testKeys = async () => (keys ??= { good: await makeKey("test-key-1"), other: await makeKey("rogue-key") });
+// The promise is kept, not the result, so concurrent first callers share one key pair.
+let keys: Promise<{ good: KeyPair; other: KeyPair }> | null = null;
+export const testKeys = () => (keys ??= (async () => ({ good: await makeKey("test-key-1"), other: await makeKey("rogue-key") }))());
 
 export const jwks = async () => JSON.stringify({ keys: [(await testKeys()).good.jwk] });
 
@@ -47,6 +48,8 @@ export interface TokenOptions {
     alg?: string;
     kid?: string;
     key?: "good" | "other";
+    /** The Access subject (defaults to one fixed id). */
+    sub?: string;
 }
 
 export async function accessToken(options: TokenOptions = {}) {
@@ -57,7 +60,7 @@ export async function accessToken(options: TokenOptions = {}) {
     const claims: Record<string, unknown> = {
         aud: options.aud ?? [AUD],
         iss: options.iss ?? `https://${TEAM}`,
-        sub: "user-123",
+        sub: options.sub ?? "user-123",
         iat: now,
         exp: now + (options.expiresIn ?? 3600),
         type: "app",
@@ -117,6 +120,8 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "dalyhub_import_items",
+    "dalyhub_import_runs",
     "mcp_writes",
     "task_dashboard_preferences",
     "task_routine_participants",

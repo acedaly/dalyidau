@@ -6,7 +6,7 @@
 //    Knowledge rows (including the FTS5 index).
 // 2. Applies 0014 to that populated database and checks nothing existing changed.
 // 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates), every Daly Tasks table (0015, 0016, 0017) and the MCP write ledger (0018).
+//    templates), every Daly Tasks table (0015, 0016, 0017) the MCP write ledger (0018) and DalyHub migration provenance (0019).
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
 //    restores into a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
@@ -150,6 +150,14 @@ INSERT INTO mcp_writes (id, email, tool, request_key, status, error_code, create
   ('mcw_backuptest0002', 'partner@example.com', 'knowledge_create_object', NULL, 'failed', 'validation', '${NOW}', '${NOW}');
 `;
 const MCP_TABLES = ["mcp_writes"];
+// DalyHub migration provenance (0019): one run and the one record it created.
+const DALYHUB = `
+INSERT INTO dalyhub_import_runs (id, owner_email, plan_fingerprint, status, summary_json, created_at, finished_at) VALUES
+  ('dhr_backuptest0001', 'owner@example.com', '${"0".repeat(64)}', 'completed', '{"created":1}', '${NOW}', '${NOW}');
+INSERT INTO dalyhub_import_items (owner_email, kind, source_id, target_id, run_id, imported_version, created_at) VALUES
+  ('owner@example.com', 'task', 'dalyhub-task-1', 'tsk_backuptest0001', 'dhr_backuptest0001', 1, '${NOW}');
+`;
+const DALYHUB_TABLES = ["dalyhub_import_runs", "dalyhub_import_items"];
 
 const TASK_M3_TABLES = [
     "task_project_reviews",
@@ -251,6 +259,12 @@ try {
         "The MCP write ledger has rows",
         "The MCP write ledger is empty",
     );
+    run(DALYHUB);
+    report.check(
+        DALYHUB_TABLES.every((t) => count(t) > 0),
+        "The DalyHub migration provenance has rows",
+        "The DalyHub migration provenance is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -286,6 +300,7 @@ try {
             ...TASK_TABLES,
             ...TASK_M3_TABLES,
             ...MCP_TABLES,
+            ...DALYHUB_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(

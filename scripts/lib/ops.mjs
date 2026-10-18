@@ -313,4 +313,7 @@ export const TABLES = [
     "task_routine_participants",
     // The MCP gateway's write ledger (0018).
     "mcp_writes",
+    // DalyHub migration provenance (0019).
+    "dalyhub_import_runs",
+    "dalyhub_import_items",
 ];

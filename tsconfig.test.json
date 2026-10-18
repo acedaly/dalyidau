@@ -18,5 +18,5 @@
         "noFallthroughCasesInSwitch": true,
         "paths": { "@/*": ["./src/*"] }
     },
-    "include": ["test", "worker", "src/entry-server.tsx", "src/types"]
+    "include": ["test", "worker", "mcp/src", "src/entry-server.tsx", "src/types"]
 }

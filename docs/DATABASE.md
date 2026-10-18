@@ -24,6 +24,7 @@ The Worker uses one D1 database per environment: `dalyidau-production` and `daly
 | `0016_tasks_planning.sql`              | Daly Tasks Milestone 2: list preferences, reminder and planning preferences, reminder delivery state, Quick Add request ids, repeat exceptions, templates, Todoist import batches and provenance (see [TASKS_PROJECTS.md](TASKS_PROJECTS.md#milestone-2-schema))                         |
 | `0017_tasks_productivity.sql`          | Daly Tasks Milestone 3: project review frequency and manual health, reviews and their next actions, project Knowledge links, goals (members, links, milestones, history), routines and turn order, dashboard preferences (see [TASKS_PROJECTS.md](TASKS_PROJECTS.md#milestone-3-schema)) |
 | `0018_mcp_writes.sql`                  | The MCP gateway's write ledger: one row per AI-client write (person, tool, record id, outcome, request id for retry safety), never titles or text (see [MCP.md](MCP.md#writes-audit-and-retries))                                                                                        |
+| `0019_dalyhub_import.sql`              | DalyHub migration provenance: which portal records a DalyHub import created, with their versions, so imports are idempotent and revertible. Ids only (see [DALYHUB_MIGRATION.md](DALYHUB_MIGRATION.md))                                                                                  |
 
 Rules:
 
