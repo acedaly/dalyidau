@@ -34,7 +34,7 @@ const VIEW_OPTIONS = [
 ];
 
 const EMPTY_PLAN: PlannerState = {
-    lists: { tasks: [], buckets: { today: [], overdue: [], upcoming: [], priority: [], unscheduled: [] } },
+    lists: { tasks: [], buckets: { inbox: [], today: [], overdue: [], upcoming: [], priority: [], unscheduled: [] } },
     blocks: [],
     conflicts: [],
 };

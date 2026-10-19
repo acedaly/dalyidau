@@ -89,6 +89,12 @@ export const PORTAL_TOOL_NAMES = [
     "planner_suggest_slots",
     "planner_schedule_task",
     "planner_update_block",
+    "today_get_summary",
+    "today_get_capacity",
+    "today_list_unscheduled",
+    "today_propose_plan",
+    "today_get_conflicts",
+    "today_get_briefing",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -154,6 +160,8 @@ const LEAVE =
     "Daly Calendar's leave planner. Balances and dates are worked out by the portal's deterministic leave engine from the person's own settings and NSW public holidays: report them as given, never estimate or invent them, and never describe leave as approved unless its status says so.";
 const PLAN =
     "Daily Planner (daly.id.au/portal/calendar/planner): time blocks are sessions the person sets aside for their own tasks. Tasks stay the source of truth: a block never changes a task's due date or status. Free time, capacity, conflicts and suggestions come from the portal's deterministic planner; report them as given.";
+const TODAY =
+    "Today (daly.id.au/portal/today): the person's day across Daly Calendar, Daly Tasks and the Daily Planner. Capacity, conflicts and proposals come from the portal's deterministic calculations, with overlapping commitments counted once; report them as given, never estimate or invent tasks, meetings, deadlines or availability.";
 const blockId = portalId("ttb", "time block");
 const suggestionId = portalId("ais", "Intelligence suggestion");
 const date = z
@@ -444,6 +452,38 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
             })
             .strict(),
         annotations: WRITE,
+    },
+
+    /* --------------------------------- Today -------------------------------- */
+    today_get_summary: {
+        description: `${TODAY} The day's summary (default today): capacity, the timeline of fixed commitments and movable task sessions (read-only events marked), tasks due today, overdue and high-priority unscheduled, upcoming deadlines, notifications, and whether morning planning and the evening review are done. Read-only.`,
+        input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
+    },
+    today_get_capacity: {
+        description: `${TODAY} Daily capacity (default today): available planning hours after leave, holidays, non-working days and breaks; appointment time; task time; free time; overbooked periods; and unscheduled estimated workload, with a plain explanation of each figure. Read-only.`,
+        input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
+    },
+    today_list_unscheduled: {
+        description: `${TODAY} Open tasks the person can work on with no time planned for their current occurrence, most urgent first, optionally in one project. Read-only.`,
+        input: z.object({ projectId: projectId.optional(), limit: limit(60) }).strict(),
+        annotations: READ,
+    },
+    today_propose_plan: {
+        description: `${TODAY} Proposes sessions for a day (default today) in the person's free time, using priorities, due dates, estimates, focus periods and the daily focus limit, around fixed meetings, leave and days off. A proposal only: nothing is created and nothing is moved. Show it to the person and schedule only the sessions they accept, one at a time, with planner_schedule_task. Read-only.`,
+        input: z.object({ date: date.optional(), taskIds: z.array(taskId).min(1).max(50).optional() }).strict(),
+        annotations: READ,
+    },
+    today_get_conflicts: {
+        description: `${TODAY} Scheduling conflicts on a day (default today): planned sessions that overlap events, other sessions, breaks, leave or days off, or end after the task is due, and overbooked periods. Events from subscribed calendars can't be changed. Read-only.`,
+        input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
+    },
+    today_get_briefing: {
+        description: `${TODAY} The Chief of Staff briefing for a day (default today): commitments, top priorities, overdue work, conflicts, capacity, project deadlines, shared family commitments, unfinished sessions from yesterday and recommended next actions, each with a link to its record. Summarise or explain it, but never add anything that isn't in it. Read-only.`,
+        input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
     },
 
     /* ---------------------------- Knowledge reads --------------------------- */

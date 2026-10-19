@@ -5,12 +5,20 @@ import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
+import type { TodayDashboard } from "../../src/shared/today/types";
+import { preferences as calendarPreferences } from "../calendar/access";
+import { occurrencesInWindow } from "../calendar/events";
+import { overlaysFor } from "../calendar/holidays";
+import { loadLeave } from "../calendar/leave";
 import { type CalendarPage, loadCalendarPage } from "../calendar/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { loadIntelligencePage } from "../intelligence/pages";
+import { listSpaces } from "../knowledge/access";
 import { loadKnowledgePage } from "../knowledge/pages";
+import { plannerPrefs } from "../planner/blocks";
 import { type TasksPage, loadTasksPage } from "../tasks/pages";
+import { todayDashboard } from "../today/dashboard";
 import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -20,6 +28,7 @@ import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
 import { listHouseholdRows } from "./households";
+import { HttpError } from "./http";
 import { listImports } from "./import";
 import { householdAddressing, listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
@@ -491,6 +500,42 @@ const PAGES: PageDef[] = [
         title: "Capture",
         application: "intelligence",
         load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, "capture-detail", match[1]),
+    },
+    // Today: needs Calendar and Tasks (as the Daily Planner does); everything is read through theirs.
+    {
+        pattern: /^\/portal\/today$/,
+        title: "Today",
+        permission: "tasks.use",
+        load: async ({ env, user, url }) => {
+            if (!can(user, "calendar.use")) return { route: "forbidden", message: "Today needs access to both Calendar and Tasks." };
+            const block = url.searchParams.get("block");
+            const dashboard = (await todayDashboard(env.DB, user, { date: url.searchParams.get("date") }).catch((error: unknown) => {
+                // A malformed or far-off ?date= opens today instead.
+                if (error instanceof HttpError && error.status === 400) return todayDashboard(env.DB, user, {});
+                throw error;
+            })) as TodayDashboard;
+            const [plannerPreferences, spaces, calendarPrefs, leave] = await Promise.all([
+                plannerPrefs(env.DB, user.email),
+                can(user, "knowledge.use") ? listSpaces(env.DB, user.email) : Promise.resolve([]),
+                calendarPreferences(env.DB, user.email),
+                loadLeave(env.DB, user),
+            ]);
+            const { date } = dashboard;
+            const [{ occurrences }, overlays] = await Promise.all([
+                occurrencesInWindow(env.DB, user, { from: date, to: date, timeZone: dashboard.timeZone }),
+                overlaysFor(env.DB, user, { ...calendarPrefs, overlays: { ...calendarPrefs.overlays, tasks: false } }, leave, date, date, dashboard.today),
+            ]);
+            return {
+                route: "today",
+                dashboard,
+                plannerPreferences,
+                spaces,
+                openBlock: block && /^ttb_[a-z0-9]{14}$/.test(block) ? block : null,
+                occurrences,
+                overlays,
+                workingHoursStart: calendarPrefs.workingHours.start,
+            };
+        },
     },
     {
         pattern: /^\/portal\/audit$/,

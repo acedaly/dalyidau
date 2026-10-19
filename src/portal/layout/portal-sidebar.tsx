@@ -87,6 +87,8 @@ interface NavEntry {
     href: string;
     icon: FC<HTMLAttributes<HTMLOrSVGElement>>;
     permission?: Permission;
+    /** Every one of these as well (Today needs Calendar and Tasks). */
+    permissions?: readonly Permission[];
     flag?: FlagKey;
     active?: "exact" | "prefix";
 }
@@ -195,7 +197,11 @@ const portalSections = (path: string, extra: ExtraNavSection[]): { label: string
     return [
         {
             label: "Applications",
-            items: [{ label: "All Applications", href: "/portal", icon: LayoutGrid01 }],
+            items: [
+                // Today first: the day across Calendar, Tasks and the planner. The launcher stays right below it.
+                { label: "Today", href: "/portal/today", icon: Sun, permissions: ["calendar.use", "tasks.use"] },
+                { label: "All Applications", href: "/portal", icon: LayoutGrid01 },
+            ],
         },
         ...(application
             ? application.navigation.flatMap((section) => [
@@ -278,7 +284,10 @@ const SidebarContent = ({ path, extra }: { path: string; extra: ExtraNavSection[
             <nav aria-label="Portal" className="mt-6 md:mt-5">
                 <ul>
                     {sections.map((section) => {
-                        const items = section.items.filter((item) => (!item.permission || can(item.permission)) && (!item.flag || isOn(item.flag)));
+                        const items = section.items.filter(
+                            (item) =>
+                                (!item.permission || can(item.permission)) && (item.permissions ?? []).every((p) => can(p)) && (!item.flag || isOn(item.flag)),
+                        );
                         if (items.length === 0) return null;
                         return (
                             <li key={section.label}>

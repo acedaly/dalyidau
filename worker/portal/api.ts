@@ -14,6 +14,7 @@ import { handleIntelligenceApi } from "../intelligence/api";
 import { handleKnowledgeApi } from "../knowledge/api";
 import { applyMigration, listMigrationRuns, previewMigration, revertMigration } from "../migration/dalyhub";
 import { handleTasksApi } from "../tasks/api";
+import { handleTodayApi } from "../today/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -896,6 +897,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         if (url.pathname.startsWith("/api/portal/calendar/")) return await handleCalendarApi(request, env, user);
         // And Intelligence: everything there is the caller's own, or reached through their memberships.
         if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user, exec);
+        // And Today: it needs Calendar and Tasks, and reads and changes everything through theirs.
+        if (url.pathname === "/api/portal/today" || url.pathname.startsWith("/api/portal/today/")) return await handleTodayApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;
         let pathMatched = false;
         for (const route of routes) {

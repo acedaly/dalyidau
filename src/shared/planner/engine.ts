@@ -69,12 +69,22 @@ export interface LeaveDay {
     label: string;
 }
 
+/** A weekly period (Today's breaks and focus periods): weekdays 1 (Monday) to 7, and local times. */
+export interface WeeklyPeriod {
+    label?: string;
+    days: readonly number[];
+    start: string;
+    end: string;
+}
+
 export interface DayInputs {
     prefs: PlannerPreferences;
     timeZone: string;
     /** Public holidays, non-working days and the work pattern, from the leave engine. Null: none configured. */
     leaveContext: LeaveContext | null;
     leave: readonly LeaveDay[];
+    /** Breaks taken out of the planning hours (Today's preferences). */
+    breaks?: readonly WeeklyPeriod[];
 }
 
 export interface Availability {
@@ -84,6 +94,16 @@ export interface Availability {
     /** The planning hours as configured, before days off (to tell "outside your hours" from "on leave"). */
     configured: Interval[];
     offReason: string | null;
+    /** Breaks taken out of the window that day, with their labels. */
+    breaks?: (Interval & { label: string })[];
+}
+
+/** A weekly period's instants on one date, or nothing when it isn't on that weekday. */
+export function periodOn(date: string, p: WeeklyPeriod, timeZone: string): Interval | null {
+    if (!p.days.includes(isoWeekday(date))) return null;
+    const start = ms(zonedInstant(date, p.start, timeZone));
+    const end = ms(zonedInstant(date, p.end, timeZone));
+    return end > start ? { start, end } : null;
 }
 
 /** The person's planning hours on a date, less leave, public holidays and non-working days. */
@@ -94,7 +114,7 @@ export function availability(date: string, inputs: DayInputs): Availability {
         const fallback = configured.length
             ? configured
             : [{ start: ms(zonedInstant(date, "09:00", inputs.timeZone)), end: ms(zonedInstant(date, "17:00", inputs.timeZone)) }];
-        return { date, window: fallback, configured, offReason: null };
+        return withBreaks({ date, window: fallback, configured, offReason: null }, inputs);
     }
     if (!hours) return { date, window: [], configured, offReason: "Not a planning day" };
     if (inputs.leaveContext) {
@@ -114,7 +134,22 @@ export function availability(date: string, inputs: DayInputs): Availability {
         else if (l.part === "pm") window = subtract(window, [{ start: middle, end: span.end }]);
         else if (l.hours) window = subtract(window, [{ start: Math.max(span.start, span.end - l.hours * 60 * MINUTE), end: span.end }]);
     }
-    return { date, window, configured, offReason: window.length ? null : "On leave" };
+    if (!window.length) return { date, window, configured, offReason: "On leave" };
+    return withBreaks({ date, window, configured, offReason: null }, inputs);
+}
+
+/** Takes the day's breaks out of its window. A day that's all break has no planning hours. */
+function withBreaks(day: Availability, inputs: DayInputs): Availability {
+    const breaks: (Interval & { label: string })[] = [];
+    for (const p of inputs.breaks ?? []) {
+        const i = periodOn(day.date, p, inputs.timeZone);
+        if (!i) continue;
+        const inside = intersect(day.window, [i]);
+        for (const part of inside) breaks.push({ ...part, label: p.label || "Break" });
+    }
+    if (!breaks.length) return day;
+    const window = subtract(day.window, breaks);
+    return { ...day, window, breaks, offReason: window.length ? null : "Breaks fill the day" };
 }
 
 // --- Commitments ---------------------------------------------------------------------------------
@@ -189,7 +224,10 @@ export function conflictsFor(block: BlockShape, commitments: readonly Commitment
     const date = wallClock(new Date(me.start), timeZone).date;
     const day = days.find((d) => d.date === date);
     if (day) {
-        if (!day.window.length && day.offReason) {
+        const inBreak = day.breaks?.find((b) => overlaps(me, b));
+        if (inBreak) {
+            out.push({ blockId: block.id, kind: "break", message: `Overlaps a break (${inBreak.label})`, with: null });
+        } else if (!day.window.length && day.offReason) {
             out.push({ blockId: block.id, kind: day.configured.length ? "leave" : "day_off", message: `On a day off: ${day.offReason}`, with: null });
         } else if (subtract([me], day.window).length) {
             const leaveCut = day.configured.length && subtract(intersect([me], day.configured), day.window).length > 0;
@@ -267,6 +305,8 @@ export interface PlanInputs {
     days: readonly Availability[];
     commitments: readonly Commitment[];
     tasks: readonly PlanTask[];
+    /** Focus periods: free time inside them is used first, then the rest of the day. */
+    preferred?: readonly Interval[];
 }
 
 const target = (t: PlanTask) => [t.deadline, t.dueDate].filter((d): d is string => !!d).sort()[0] ?? null;
@@ -306,7 +346,9 @@ export function suggestPlan(input: PlanInputs): PlanResult {
     const free = new Map<string, Interval[]>();
     const focus = new Map<string, number>();
     for (const day of dates) {
-        free.set(day.date, freeTime(day.window, input.commitments, prefs.bufferMinutes, input.now));
+        const open = freeTime(day.window, input.commitments, prefs.bufferMinutes, input.now);
+        // Focus periods first (each part in time order), then everything else.
+        free.set(day.date, input.preferred?.length ? [...intersect(open, input.preferred), ...subtract(open, input.preferred)] : open);
         focus.set(day.date, total(intersect(day.window, merge(input.commitments.filter((c) => c.kind === "block").map(span)))));
     }
 

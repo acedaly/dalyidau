@@ -33,6 +33,7 @@ import { PLANNER_TOOLS } from "./planner";
 import { DuplicateProject, PROJECT_TOOLS, StaleProject } from "./projects";
 import type { ToolContext, ToolDef } from "./shared";
 import { TASK_TOOLS } from "./tasks";
+import { TODAY_TOOLS } from "./today";
 
 export interface PortalMcpRequest {
     /** The Cf-Access-Jwt-Assertion the gateway received from Cloudflare Access, unchanged. */
@@ -66,6 +67,7 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...INTELLIGENCE_TOOLS,
     ...CALENDAR_TOOLS,
     ...PLANNER_TOOLS,
+    ...TODAY_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */

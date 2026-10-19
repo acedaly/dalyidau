@@ -4,7 +4,7 @@
 // queries, so the number of columns follows the width actually available beside the sidebar:
 // one on small phones, two on large phones and tablets, three, then four on wide desktops. Below the
 // applications, the same cards lead to what's shared by all of them: Portal settings and the audit log.
-import { ArrowUpRight, BookOpen01, Calendar, CheckDone01, HeartRounded, LayoutGrid01, Settings01, ShieldTick, Stars02 } from "@untitledui/icons";
+import { ArrowUpRight, BookOpen01, Calendar, CheckDone01, HeartRounded, LayoutGrid01, Settings01, ShieldTick, Stars02, Sun } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Empty } from "@/portal/components/empty";
@@ -112,6 +112,22 @@ export const PortalHomePage = ({ data }: { data: PageData<"portal-home"> }) => {
                 description={`Welcome, ${name}. Choose an application to continue.`}
                 breadcrumbs={[{ label: "All applications" }]}
             />
+
+            {can("calendar.use") && can("tasks.use") && (
+                <a href="/portal/today" aria-describedby="today-summary" data-portal-link="today" className={cx(CARD_CLASSES, "bg-brand-primary_alt")}>
+                    <FeaturedIcon icon={Sun} color="brand" theme="light" size="md" className="shrink-0" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1 pr-5">
+                        <h2 className="truncate text-md font-semibold text-primary">Today</h2>
+                        <p id="today-summary" className="line-clamp-2 text-sm text-tertiary">
+                            Your day at a glance: commitments, task time, capacity, priorities and your Chief of Staff briefing.
+                        </p>
+                    </div>
+                    <ArrowUpRight
+                        aria-hidden="true"
+                        className="absolute top-4 right-4 size-4 text-fg-quaternary transition duration-100 ease-linear group-hover:text-fg-quaternary_hover"
+                    />
+                </a>
+            )}
 
             {applications.length > 0 ? (
                 <div className="@container">

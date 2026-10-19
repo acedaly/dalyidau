@@ -7,10 +7,12 @@
 // Tasks stays the source of truth: completing goes through Tasks' own API, and scheduling never
 // changes a task's dates. Nothing is ever scheduled without the person doing it.
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CalendarPlus02, CheckCircle, ChevronDown, ChevronUp, Clock, Stars02 } from "@untitledui/icons";
+import { AlertTriangle, CalendarPlus02, CheckCircle, ChevronDown, ChevronUp, Clock, DotsVertical, Stars02 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { DateField } from "@/portal/components/date-field";
@@ -19,7 +21,7 @@ import { RecordPanel } from "@/portal/components/record-panel";
 import { useToast } from "@/portal/components/toast";
 import { ApiError, errorMessage } from "@/portal/lib/api";
 import { tasksApi } from "@/portal/tasks/api";
-import { dayLabel, longDateLabel, timeLabel } from "@/shared/calendar/time";
+import { addDays, dayLabel, longDateLabel, timeLabel } from "@/shared/calendar/time";
 import {
     PLANNER_BUCKETS,
     PLANNER_BUCKET_LABELS,
@@ -30,6 +32,7 @@ import {
     type PlannerTaskLists,
     type TimeBlockInfo,
 } from "@/shared/planner/types";
+import { PRIORITIES, PRIORITY_LABELS } from "@/shared/tasks/types";
 import { cx } from "@/utils/cx";
 import { clientId } from "./api";
 import { type BlockResult, DRAG_TYPE, type DragPayload, durationLabel, plannerApi } from "./planner-api";
@@ -163,20 +166,27 @@ const dueLabel = (t: PlannerTask, today: string) => {
     return { text: dayLabel(due), overdue: false };
 };
 
+/** What's still to plan for a task: its estimate less its planned sessions. */
+export const leftToPlan = (t: PlannerTask) => (t.estimateMinutes ? Math.max(0, t.estimateMinutes - t.scheduledMinutes) : null);
+
 const TaskRow = ({
     task,
     today,
     onSchedule,
     onComplete,
+    onAction,
     draggable,
 }: {
     task: PlannerTask;
     today: string;
     onSchedule: (task: PlannerTask) => void;
     onComplete: (task: PlannerTask) => void;
+    /** Postpone, priority and open (Today's panel). */
+    onAction?: (task: PlannerTask, action: string) => void;
     draggable: boolean;
 }) => {
     const due = dueLabel(task, today);
+    const left = leftToPlan(task);
     return (
         <li
             data-task={task.id}
@@ -220,12 +230,45 @@ const TaskRow = ({
                         <Clock aria-hidden="true" className="size-3" />
                         {task.estimateMinutes ? durationLabel(task.estimateMinutes) : "No estimate"}
                         {task.scheduledMinutes > 0 && ` · ${durationLabel(task.scheduledMinutes)} planned`}
+                        {onAction && left !== null && task.scheduledMinutes > 0 && ` · ${left ? `${durationLabel(left)} left` : "all planned"}`}
                     </span>
                 </span>
             </div>
             <Button size="xs" color="secondary" iconLeading={CalendarPlus02} onClick={() => onSchedule(task)} aria-label={`Schedule ${task.title}`}>
                 <span className="max-sm:sr-only">Schedule</span>
             </Button>
+            {onAction && (
+                <Dropdown.Root>
+                    <ButtonUtility size="xs" color="tertiary" icon={DotsVertical} tooltip={`More for “${task.title}”`} className="shrink-0" />
+                    <Dropdown.Popover className="w-56">
+                        <Dropdown.Menu onAction={(key) => onAction(task, String(key))}>
+                            <Dropdown.Section>
+                                <Dropdown.Item id="open" label="Open the task" />
+                            </Dropdown.Section>
+                            <Dropdown.Separator />
+                            <Dropdown.Section>
+                                <Dropdown.Item id="postpone:1" label="Postpone to tomorrow" />
+                                <Dropdown.Item id="postpone:7" label="Postpone a week" />
+                            </Dropdown.Section>
+                            {task.canEdit && (
+                                <>
+                                    <Dropdown.Separator />
+                                    <Dropdown.Section>
+                                        {PRIORITIES.map((p) => (
+                                            <Dropdown.Item
+                                                key={p}
+                                                id={`priority:${p}`}
+                                                label={`${PRIORITY_LABELS[p].short} · ${PRIORITY_LABELS[p].label}`}
+                                                addon={task.priority === p ? "✓" : undefined}
+                                            />
+                                        ))}
+                                    </Dropdown.Section>
+                                </>
+                            )}
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown.Root>
+            )}
         </li>
     );
 };
@@ -239,6 +282,8 @@ export const TasksPanel = ({
     today,
     defaultDate,
     collapsible = false,
+    extended = false,
+    title = "Tasks to plan",
     className,
 }: {
     planner: Planner;
@@ -246,15 +291,47 @@ export const TasksPanel = ({
     /** The date the Schedule button suggests. */
     defaultDate: string;
     collapsible?: boolean;
+    /** Today's panel: filter by project, postpone, change priority and open the task, all through Tasks. */
+    extended?: boolean;
+    title?: string;
     className?: string;
 }) => {
     const toast = useToast();
     const { lists } = planner.state;
     const [open, setOpen] = useState(true);
     const [bucket, setBucket] = useState<PlannerBucket>(lists.buckets.today.length || !lists.buckets.overdue.length ? "today" : "overdue");
+    const [project, setProject] = useState<string>("all");
     const [subtasksFor, setSubtasksFor] = useState<PlannerTask | null>(null);
     const byId = new Map(lists.tasks.map((t) => [t.id, t]));
-    const shown = lists.buckets[bucket].map((id) => byId.get(id)).filter((t): t is PlannerTask => !!t);
+    const inProject = (t: PlannerTask) => project === "all" || t.projectId === project;
+    const shown = lists.buckets[bucket]
+        .map((id) => byId.get(id))
+        .filter((t): t is PlannerTask => !!t)
+        .filter(inProject);
+    const projects = [...new Map(lists.tasks.map((t) => [t.projectId, t.projectName || "Project"])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    const buckets = extended ? PLANNER_BUCKETS : PLANNER_BUCKETS.filter((b) => b !== "inbox");
+
+    // Postponing and priorities go through Tasks' own API (its permissions, history and repeats).
+    const act = async (task: PlannerTask, action: string) => {
+        if (action === "open") return void (window.location.href = `/portal/tasks/t/${task.id}`);
+        try {
+            if (action.startsWith("postpone:")) {
+                const days = Number(action.split(":")[1]);
+                const from = task.dueDate && task.dueDate > today ? task.dueDate : today;
+                const to = addDays(from, days);
+                await tasksApi.update(task.id, task.version, { dueDate: to }, task.recurring ? "occurrence" : undefined);
+                toast.success(`Postponed to ${dayLabel(to)}`, task.title);
+            } else if (action.startsWith("priority:")) {
+                const priority = Number(action.split(":")[1]) as PlannerTask["priority"];
+                await tasksApi.update(task.id, task.version, { priority });
+                toast.success(`Priority set to P${priority}`, task.title);
+            }
+            await planner.refresh();
+        } catch (error) {
+            toast.error("Couldn't change the task", errorMessage(error));
+            await planner.refresh();
+        }
+    };
 
     const complete = async (task: PlannerTask, includeSubtasks = false) => {
         try {
@@ -281,7 +358,7 @@ export const TasksPanel = ({
             <div className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                     <h2 id="tasks-panel-heading" className="text-sm font-semibold text-primary">
-                        Tasks to plan
+                        {title}
                     </h2>
                     <p className="text-xs text-tertiary">Drag onto a time, or choose Schedule.</p>
                 </div>
@@ -300,15 +377,28 @@ export const TasksPanel = ({
             </div>
             {open && (
                 <div id="tasks-panel-body" className="flex min-h-0 flex-col border-t border-secondary">
+                    {extended && projects.length > 1 && (
+                        <div className="px-3 pt-3">
+                            <Select
+                                size="sm"
+                                aria-label="Project"
+                                value={project}
+                                onChange={(k) => k && setProject(String(k))}
+                                items={[{ id: "all", label: "All projects" }, ...projects.map(([id, name]) => ({ id, label: name }))]}
+                            >
+                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                            </Select>
+                        </div>
+                    )}
                     <Tabs selectedKey={bucket} onSelectionChange={(k) => setBucket(k as PlannerBucket)}>
                         <Tabs.List type="button-minimal" size="sm" className="overflow-x-auto px-2 pt-2" aria-label="Which tasks">
-                            {PLANNER_BUCKETS.map((b) => (
-                                <Tabs.Item key={b} id={b} badge={lists.buckets[b].length || undefined}>
+                            {buckets.map((b) => (
+                                <Tabs.Item key={b} id={b} badge={lists.buckets[b].filter((id) => byId.has(id) && inProject(byId.get(id)!)).length || undefined}>
                                     {PLANNER_BUCKET_LABELS[b]}
                                 </Tabs.Item>
                             ))}
                         </Tabs.List>
-                        {PLANNER_BUCKETS.map((b) => (
+                        {buckets.map((b) => (
                             <Tabs.Panel key={b} id={b} className="min-h-0">
                                 {b === bucket &&
                                     (shown.length ? (
@@ -321,6 +411,7 @@ export const TasksPanel = ({
                                                     draggable
                                                     onSchedule={(task) => planner.setTarget({ kind: "task", task, date: defaultDate, time: null })}
                                                     onComplete={(task) => void complete(task)}
+                                                    onAction={extended ? (task, action) => void act(task, action) : undefined}
                                                 />
                                             ))}
                                         </ul>

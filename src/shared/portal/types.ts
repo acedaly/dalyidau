@@ -3,6 +3,7 @@ import type { CalendarRoute } from "../calendar/types";
 import type { IntelligenceRoute } from "../intelligence/types";
 import type { KnowledgeRoute } from "../knowledge/types";
 import type { TasksRoute } from "../tasks/types";
+import type { TodayRoute } from "../today/types";
 import type { ApplicationId } from "./applications";
 import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
@@ -918,6 +919,7 @@ export type PortalRoute =
     | TasksRoute
     | CalendarRoute
     | IntelligenceRoute
+    | TodayRoute
     | { route: "forbidden"; message: string }
     | { route: "not-found"; path: string };
 

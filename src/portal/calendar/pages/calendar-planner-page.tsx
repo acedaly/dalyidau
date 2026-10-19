@@ -35,7 +35,7 @@ const STATUS: Record<DayCapacity["status"], { label: string; color: "gray" | "su
     over: { label: "Over-committed", color: "error" },
 };
 
-const PlanningSettings = ({
+export const PlanningSettings = ({
     isOpen,
     onOpenChange,
     initial,

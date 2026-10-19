@@ -107,6 +107,8 @@ Owners and admins can also open **Daly Tasks** (`tasks.use`), at `/portal/tasks`
 
 Owners and admins can also open **Daly Calendar** (`calendar.use`), at `/portal/calendar`, with its Family Planner and Leave Planner. Inside it, access is by calendar membership. Personal calendars are private, even from other owners, and can be shared only as free/busy. Shared calendars have owners, editors, viewers and free/busy members. Leave is always the person's own, and only its dates can be shared, and only with people the person chooses. See [CALENDAR.md](CALENDAR.md#who-can-see-what).
 
+**Today** (`/portal/today`) is the portal-level daily dashboard for people who can open both Calendar and Tasks (owners and admins): the day's commitments, task time, capacity, priorities, deadlines, notifications and a Chief of Staff briefing, with Plan My Day, morning and evening routines and Quick capture. It's first in the sidebar, above All Applications, and has a card on the launcher. It owns no tasks or events: every change goes through Tasks, Calendar, the Daily Planner or Knowledge. See [DAILY_PLANNER.md](DAILY_PLANNER.md#today).
+
 Add people in **Portal settings → Household & Access** _and_ in the Access policy. Removing someone from either removes their access. Removing an email from `PORTAL_OWNER_EMAILS` also removes their owner rights immediately.
 
 ---
