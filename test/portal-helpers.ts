@@ -125,6 +125,18 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "ic_sources",
+    "ic_fetch_runs",
+    "ic_records",
+    "ic_changes",
+    "ic_series",
+    "ic_watch_areas",
+    "ic_alerts",
+    "ic_preferences",
+    "ic_config",
+    "ic_briefings",
+    "ic_wallboards",
+    "ic_display_tokens",
     "task_time_blocks",
     "task_estimates",
     "planner_preferences",

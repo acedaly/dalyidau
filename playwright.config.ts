@@ -18,6 +18,8 @@ export default defineConfig({
     globalSetup: "./e2e/global-setup.ts",
     webServer: [
         { command: "node scripts/mock-capacities.mjs", url: "http://localhost:8790/__files/cover-tools.jpg", reuseExistingServer: false },
+        // Invented public-feed fixtures for the Intelligence Centre (never a real provider in tests).
+        { command: "node scripts/mock-feeds.mjs", url: "http://localhost:8791/health", reuseExistingServer: false },
         {
             command: `rm -rf ${persist} && npx wrangler d1 migrations apply DB --local --env="" --persist-to ${persist} && npx wrangler dev --local --env="" --port 8787 --persist-to ${persist} --env-file e2e/e2e.vars`,
             url: "http://localhost:8787/api/health",

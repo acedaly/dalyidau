@@ -61,7 +61,7 @@ The gateway has no database, storage, queue or Durable Object binding (`test/mcp
 
 ## Tools
 
-Forty-six tools: the 31 the gateway moved with, five for projects (October 2026, [below](#daly-tasks-projects)) and ten for Daly Intelligence ([below](#daly-intelligence)). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
+Eighty-five tools: the 31 the gateway moved with, five for projects (October 2026, [below](#daly-tasks-projects)), ten for Daly Intelligence ([below](#daly-intelligence)), and those for Calendar, the Daily Planner, Today and the Intelligence Centre (below). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
 
 ### Daly Knowledge
 
@@ -180,6 +180,10 @@ Four tools (67 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-too
 ### Today
 
 Six read-only tools (73 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-tools-6-73-in-total): `today_get_summary`, `today_get_capacity`, `today_list_unscheduled`, `today_propose_plan`, `today_get_conflicts` and `today_get_briefing`. They need both `calendar.use` and `tasks.use`, call the same functions as `/portal/today`, and never write: acting on a proposal goes through `planner_schedule_task` (one session the person accepted), `tasks_update` or `tasks_reschedule`. Event titles follow Calendar's rules for AI ("Busy", "Private event"). `mcp_writes` doesn't change. The gateway is 2.5.0.
+
+### Intelligence Centre
+
+Twelve read-only tools (85 in all), described in [INTELLIGENCE_CENTRE.md](INTELLIGENCE_CENTRE.md#mcp): `centre_list_sources`, `centre_get_source_health`, `centre_get_situation`, `centre_search_incidents`, `centre_get_record`, `centre_search_warnings`, `centre_get_fire_danger`, `centre_get_observations`, `centre_list_road_disruptions`, `centre_list_watch_areas`, `centre_list_changes` and `centre_get_watch_briefing`. They need `centre.use`. Public records come with the providers' own times, links and attribution, and every result says it isn't an official warning service. Watch areas are the caller's own and **never include a location** (names, kinds and settings only); another person's watch area is `not_found`. No tool collects from a provider, runs a model or writes; `mcp_writes` doesn't change. The gateway is **2.6.0**, and its instructions tell assistants to report levels exactly as given and point people to official warnings. Deploy it only after the portal Worker that serves these tools (rollback: 2.5.0).
 
 ### Deliberately absent
 
