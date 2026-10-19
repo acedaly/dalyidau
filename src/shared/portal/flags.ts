@@ -58,6 +58,27 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Calendar",
     },
+    "intelligence_centre.ingestion": {
+        label: "Intelligence Centre collection",
+        description:
+            "Collect the public sources switched on in Intelligence Centre → Sources every 15 minutes (each at its own interval). While off, nothing is fetched from any provider; records already collected stay, marked with their age.",
+        default: false,
+        group: "Intelligence Centre",
+    },
+    "intelligence_centre.alerts.email": {
+        label: "Intelligence Centre alert emails",
+        description:
+            "Email watch-area alerts and daily summaries to people who opted in for a watch area. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). Never a replacement for official warnings, and delivery isn't guaranteed. While off, alerts are in the portal only.",
+        default: false,
+        group: "Intelligence Centre",
+    },
+    "intelligence_centre.wallboard": {
+        label: "Wallboard displays",
+        description:
+            "Serve wallboards at /display to screens holding a display credential (created in Intelligence Centre → Wallboards). Each credential reads one wallboard and nothing else. While off, /display answers 404 and every credential is refused; nothing is deleted.",
+        default: false,
+        group: "Intelligence Centre",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

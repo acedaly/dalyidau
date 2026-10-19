@@ -284,6 +284,39 @@ INSERT INTO daily_reviews (email, date, kind, priorities, summary, note, created
 `;
 const TODAY_TABLES = ["today_preferences", "daily_reviews"];
 
+// Intelligence Centre (0025): an invented source state, a public record with a change and a
+// measurement, a run, a watch area with an alert, preferences, settings, a stored interpretation,
+// and a wallboard with a display credential (its hash). Nothing here is real data.
+const CENTRE = `
+INSERT INTO ic_sources (id, enabled, last_success_at, record_count, state, updated_at) VALUES ('rfs-incidents', 1, '${NOW}', 1, '{}', '${NOW}');
+INSERT INTO ic_fetch_runs (id, source_id, started_at, outcome, records, created) VALUES ('icf_backuptest0001', 'rfs-incidents', '${NOW}', 'ok', 1, 1);
+INSERT INTO ic_records (id, source_id, external_id, kind, category, title, severity_rank, lat, lon, geometry, geometry_quality, first_seen_at, last_seen_at, fingerprint, metrics, attrs) VALUES
+  ('icr_backuptest0001', 'rfs-incidents', 'incident-invented-1', 'incident', 'fire', 'Invented Rd, Exampletown', 1, -33.5, 150.5, '{"type":"Point","coordinates":[150.5,-33.5]}', 'point', '${NOW}', '${NOW}', 'fp', '[{"key":"size_ha","label":"Size","value":3,"unit":"ha"}]', '{}');
+INSERT INTO ic_changes (id, record_id, source_id, kind, at, summary) VALUES ('icc_backuptest0001', 'icr_backuptest0001', 'rfs-incidents', 'new', '${NOW}', 'New: Invented Rd');
+INSERT INTO ic_series (record_id, metric, at, value) VALUES ('icr_backuptest0001', 'size_ha', '${NOW}', 3);
+INSERT INTO ic_watch_areas (id, email, name, kind, definition, categories, created_at, updated_at) VALUES ('icw_backuptest0001', 'partner@example.com', 'Invented place', 'point', '{"kind":"point","lat":-33.5,"lon":150.5,"radiusKm":10,"placeName":""}', '[]', '${NOW}', '${NOW}');
+INSERT INTO ic_alerts (id, email, watch_id, record_id, change_id, kind, title, url, created_at) VALUES ('ica_backuptest0001', 'partner@example.com', 'icw_backuptest0001', 'icr_backuptest0001', 'icc_backuptest0001', 'new', 'Invented place: New', '/portal/intelligence-centre', '${NOW}');
+INSERT INTO ic_preferences (email, value, updated_at) VALUES ('partner@example.com', '{"today":{"enabled":true,"minLevel":2,"showFireDanger":true}}', '${NOW}');
+INSERT INTO ic_config (key, value, updated_at, updated_by) VALUES ('settings', '{"gauges":["410001"]}', '${NOW}', 'partner@example.com');
+INSERT INTO ic_briefings (email, scope, fingerprint, interpretation, generated_at) VALUES ('partner@example.com', 'nsw:nsw', 'fp', '[]', '${NOW}');
+INSERT INTO ic_wallboards (id, email, name, config, created_at, updated_at) VALUES ('icb_backuptest0001', 'partner@example.com', 'Invented board', '{"layout":"nsw"}', '${NOW}', '${NOW}');
+INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at) VALUES ('icd_backuptest0001', 'icb_backuptest0001', 'invented-hash-not-a-token', 'Test screen', 'partner@example.com', '${NOW}');
+`;
+const CENTRE_TABLES = [
+    "ic_sources",
+    "ic_fetch_runs",
+    "ic_records",
+    "ic_changes",
+    "ic_series",
+    "ic_watch_areas",
+    "ic_alerts",
+    "ic_preferences",
+    "ic_config",
+    "ic_briefings",
+    "ic_wallboards",
+    "ic_display_tokens",
+];
+
 const TASK_M3_TABLES = [
     "task_project_reviews",
     "task_review_actions",
@@ -414,6 +447,12 @@ try {
         "Every Today table has rows (0024)",
         "A Today table is empty",
     );
+    run(CENTRE);
+    report.check(
+        CENTRE_TABLES.every((t) => count(t) > 0),
+        "Every Intelligence Centre table has rows (0025)",
+        "An Intelligence Centre table is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -454,6 +493,7 @@ try {
             ...CALENDAR_TABLES,
             ...PLANNER_TABLES,
             ...TODAY_TABLES,
+            ...CENTRE_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(

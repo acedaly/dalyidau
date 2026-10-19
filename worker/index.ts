@@ -10,6 +10,8 @@ import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { serveFeed } from "./calendar/feeds";
 import { processCalendarNotifications } from "./calendar/notify";
 import { processDueSubscriptions } from "./calendar/subscriptions";
+import { runCentreCron } from "./centre/ingest";
+import { DisplayRefused, authenticateDisplay, wallboardPayload } from "./centre/wallboard";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { runIntelligenceCron } from "./intelligence/runner";
@@ -74,6 +76,13 @@ export default {
                     (error) => console.error(JSON.stringify({ event: "calendar_notifications_error", message: (error as Error).message })),
                 ),
         );
+        // Intelligence Centre: retention always; collecting public sources only with its switch on.
+        ctx.waitUntil(
+            runCentreCron(env).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "centre_cron_error", message: (error as Error).message })),
+            ),
+        );
         // Daly Intelligence: retention always; jobs, briefings and the semantic index only when switched on.
         ctx.waitUntil(
             runIntelligenceCron(env).then(
@@ -122,6 +131,9 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
             ? serveFeed(env, feed[1])
             : new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
+    // Wallboard displays: a display credential, not Cloudflare Access (worker/centre/wallboard.ts).
+    if (path === "/api/display/wallboard") return displayApi(request, env);
+    if (path === "/display") return displayPage(request, env, path);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -217,9 +229,9 @@ const readFilters = (url: URL): BlogFilters => {
     };
 };
 
-type Area = "site" | "portal" | "wedding";
+type Area = "site" | "portal" | "wedding" | "display";
 
-const SHELL_FILES: Record<Area, string> = { site: "shell.html", portal: "shell-portal.html", wedding: "shell-wedding.html" };
+const SHELL_FILES: Record<Area, string> = { site: "shell.html", portal: "shell-portal.html", wedding: "shell-wedding.html", display: "shell-display.html" };
 const shellCache = new Map<Area, { html: string; version: string }>();
 
 async function shell(env: Env, area: Area = "site") {
@@ -355,6 +367,44 @@ function accessDenied(auth: Extract<AuthResult, { ok: false }>): Response {
 <body><h1>Portal</h1><p>${escapeHtml(message)}</p><p><a href="/cdn-cgi/access/logout">Sign out</a> · <a href="/">Go to the homepage</a></p></body></html>`;
     return new Response(html, { status: auth.status, headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
 }
+
+// --- Wallboard displays ---------------------------------------------------------------------------
+
+const DISPLAY_HEADERS = { ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" };
+
+/** The display's page: a static shell. The credential stays in the URL fragment, which never reaches the Worker. */
+async function displayPage(request: Request, env: Env, path: string): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    if (!(await loadFlags(env.DB))["intelligence_centre.wallboard"]) return new Response("Not found", { status: 404, headers: DISPLAY_HEADERS });
+    return renderDocument(env, {
+        area: "display",
+        head: [`<title>Wallboard · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join("\n        "),
+        body: "",
+        data: null,
+        path,
+        status: 200,
+        headers: DISPLAY_HEADERS,
+    });
+}
+
+async function displayApi(request: Request, env: Env): Promise<Response> {
+    if (request.method !== "GET") return apiJson({ error: "method_not_allowed" }, 405);
+    try {
+        checkCrossSiteDisplay(request);
+        const { board, owner } = await authenticateDisplay(env, request);
+        return apiJson({ wallboard: await wallboardPayload(env, board, owner) }, 200, { "Referrer-Policy": "no-referrer" });
+    } catch (error) {
+        // Every refusal looks the same: an unknown, revoked or expired credential, or the switch off.
+        if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
+        return errorResponse(error, "/api/display/wallboard");
+    }
+}
+
+/** Display data is only for the display page itself (same origin), never another site. */
+const checkCrossSiteDisplay = (request: Request) => {
+    const fetchSite = request.headers.get("Sec-Fetch-Site");
+    if (fetchSite === "cross-site" || fetchSite === "same-site") throw new DisplayRefused(404);
+};
 
 // --- Wedding website ------------------------------------------------------------------------------
 

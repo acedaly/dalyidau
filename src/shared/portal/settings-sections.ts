@@ -64,7 +64,7 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["wedding", "calendar", "tasks"] as const;
+export const FEATURE_AREAS = ["wedding", "calendar", "tasks", "centre"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
 export const FEATURE_AREA_DETAILS: Record<FeatureArea, { label: string; description: string; application: ApplicationId }> = {
@@ -83,6 +83,12 @@ export const FEATURE_AREA_DETAILS: Record<FeatureArea, { label: string; descript
         description: "Reminder emails for Daly Tasks. Each person still chooses whether to receive them in Tasks → Settings.",
         application: "tasks",
     },
+    centre: {
+        label: "Intelligence Centre",
+        description:
+            "Collecting public hazard data, alert emails and wallboard displays. Which sources are collected is chosen in Intelligence Centre → Sources.",
+        application: "intelligence-centre",
+    },
 };
 
 /** Every switch belongs to exactly one area; adding a switch without placing it here won't compile. */
@@ -98,6 +104,9 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "tasks.reminders.email": "tasks",
     "calendar.feeds": "calendar",
     "calendar.reminders.email": "calendar",
+    "intelligence_centre.ingestion": "centre",
+    "intelligence_centre.alerts.email": "centre",
+    "intelligence_centre.wallboard": "centre",
 };
 
 export const flagsInArea = (area: FeatureArea): FlagKey[] => FLAG_KEYS.filter((key) => FLAG_AREAS[key] === area);

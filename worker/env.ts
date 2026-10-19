@@ -93,4 +93,12 @@ export interface Env {
     AI_GATEWAY_ID?: string;
     /** Local development and browser tests only: "mock" answers with deterministic local responses instead of Workers AI. */
     AI_PROVIDER?: string;
+
+    // Daly Intelligence Centre (docs/INTELLIGENCE_CENTRE.md). Keys for sources that need free registration.
+    /** Secret: Transport for NSW Open Data API key (Live Traffic hazards). */
+    TFNSW_API_KEY?: string;
+    /** Secret: NASA FIRMS MAP_KEY (satellite thermal detections). */
+    NASA_FIRMS_MAP_KEY?: string;
+    /** Local development and browser tests only: a local server of recorded fixtures (scripts/mock-feeds.mjs) instead of the providers. */
+    CENTRE_FEED_BASE?: string;
 }

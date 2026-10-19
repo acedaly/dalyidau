@@ -19,6 +19,7 @@ import { preferences as calendarPreferences, todayFor } from "../calendar/access
 import { listCalendars } from "../calendar/calendars";
 import { occurrencesInWindow } from "../calendar/events";
 import { listNotifications } from "../calendar/notify";
+import { listAlerts } from "../centre/alerts";
 import { requirePlanner } from "../planner/blocks";
 import { type PlanningWindow, blockConflicts, eventTitle, plannerTasks, planningWindow, projectNames } from "../planner/planning";
 import { can } from "../portal/auth";
@@ -186,12 +187,14 @@ export async function commitmentsPart(
 }
 
 async function notificationsPart(db: D1Database, user: PortalUser): Promise<TodayNotification[]> {
-    const [calendar, reminders, suggestions] = await Promise.all([
+    const [calendar, reminders, suggestions, centre] = await Promise.all([
         listNotifications(db, user.email, 10),
         dueReminders(db, user.email, new Date()),
         can(user, "intelligence.use")
             ? db.prepare("SELECT COUNT(*) AS n FROM ai_suggestions WHERE email = ? AND status = 'pending'").bind(user.email).first<{ n: number }>()
             : Promise.resolve(null),
+        // Intelligence Centre alerts for the person's own watch areas (unread only).
+        can(user, "centre.use") ? listAlerts(db, user.email, { unacknowledged: true, limit: 5 }) : Promise.resolve([]),
     ]);
     const out: TodayNotification[] = [
         ...calendar.map((n) => ({
@@ -215,6 +218,17 @@ async function notificationsPart(db: D1Database, user: PortalUser): Promise<Toda
             kind: "task_reminder" as const,
         })),
     ];
+    for (const a of centre)
+        out.push({
+            id: a.id,
+            source: "intelligence-centre",
+            title: a.title,
+            detail: a.detail,
+            url: a.url,
+            at: a.createdAt,
+            dismissable: false,
+            kind: "centre_alert",
+        });
     if (suggestions?.n)
         out.push({
             id: "intelligence:suggestions",

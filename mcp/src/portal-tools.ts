@@ -95,6 +95,18 @@ export const PORTAL_TOOL_NAMES = [
     "today_propose_plan",
     "today_get_conflicts",
     "today_get_briefing",
+    "centre_list_sources",
+    "centre_get_source_health",
+    "centre_get_situation",
+    "centre_search_incidents",
+    "centre_get_record",
+    "centre_search_warnings",
+    "centre_get_fire_danger",
+    "centre_get_observations",
+    "centre_list_road_disruptions",
+    "centre_list_watch_areas",
+    "centre_list_changes",
+    "centre_get_watch_briefing",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -213,6 +225,19 @@ const occurrenceScope = z
     .optional()
     .describe('For a repeating task whose date changes: "occurrence" (the default) moves only this one; "series" moves every later one too.');
 
+const CENTRE =
+    "Daly Intelligence Centre (daly.id.au/portal/intelligence-centre): public emergency, weather and environmental records collected from official providers, with their own times, links and attribution. Not an official warning service and possibly delayed or incomplete: report records as given (levels are the providers' own; never assign or raise one), keep official, observed and derived information apart, never say something is resolved because it left a feed, and always point the person to official warnings and Triple Zero (000) in an emergency.";
+const centreRecordId = portalId("icr", "Intelligence Centre record");
+const watchAreaId = portalId("icw", "watch area");
+const hazard = z.enum(["fire", "fire_danger", "weather", "flood", "water", "transport", "air", "power", "earthquake", "hotspot", "space_weather", "emergency"]);
+const centreRecordQuery = {
+    query: z.string().trim().max(100).optional().describe("Words in the title or published location."),
+    category: hazard.optional(),
+    minLevel: z.number().int().min(0).max(3).optional().describe("1 Advice, 2 Watch and Act, 3 Emergency Warning (the providers' own levels)."),
+    watchId: watchAreaId.optional().describe("Only records concerning one of the person's own watch areas."),
+    includeNoLongerInFeed: z.boolean().optional(),
+    limit: limit(100),
+};
 const READ = {
     readOnlyHint: true,
     destructiveHint: false,
@@ -483,6 +508,110 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
     today_get_briefing: {
         description: `${TODAY} The Chief of Staff briefing for a day (default today): commitments, top priorities, overdue work, conflicts, capacity, project deadlines, shared family commitments, unfinished sessions from yesterday and recommended next actions, each with a link to its record. Summarise or explain it, but never add anything that isn't in it. Read-only.`,
         input: z.object({ date: date.optional() }).strict(),
+        annotations: READ,
+    },
+
+    /* ------------------------- Intelligence Centre ------------------------- */
+    centre_list_sources: {
+        description: `${CENTRE} Every public source investigated (connected, needing a key or permission, or unusable) with its status, licence and last successful retrieval. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    centre_get_source_health: {
+        description: `${CENTRE} One source's health: status and why, last attempt and success, newest publication seen, recent collection runs and the last error. Read-only.`,
+        input: z
+            .object({
+                sourceId: z
+                    .string()
+                    .regex(/^[a-z0-9-]{3,40}$/)
+                    .describe("A source id from centre_list_sources, e.g. rfs-incidents."),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_situation: {
+        description: `${CENTRE} The NSW situation from the active sources: counts of incidents and warnings by level, fire danger, weather, roads, power, air, satellite detections, earthquakes, changes in 24 hours, the most serious records and which sources aren't active. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    centre_search_incidents: {
+        description: `${CENTRE} Current incidents (and major updates) by words, hazard, level or watch area, most serious first. Read-only.`,
+        input: z.object(centreRecordQuery).strict(),
+        annotations: READ,
+    },
+    centre_get_record: {
+        description: `${CENTRE} One record in full: what the provider published, its times, location quality, change history and possibly related records (derived by rule, not evidence of cause). Read-only.`,
+        input: z.object({ recordId: centreRecordId }).strict(),
+        annotations: READ,
+    },
+    centre_search_warnings: {
+        description: `${CENTRE} Official warnings in force (RFS alerts, Bureau of Meteorology warnings) by words, hazard, level, source or watch area. BoM warnings name districts, not exact areas. Read-only.`,
+        input: z
+            .object({
+                ...centreRecordQuery,
+                sourceId: z
+                    .string()
+                    .regex(/^[a-z0-9-]{3,40}$/)
+                    .optional(),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_fire_danger: {
+        description: `${CENTRE} Fire Danger Ratings and Total Fire Bans for today and tomorrow by NSW fire weather district, as the RFS publishes them. Read-only.`,
+        input: z.object({ district: z.string().trim().max(80).optional().describe("Part of a district name, e.g. Greater Sydney.") }).strict(),
+        annotations: READ,
+    },
+    centre_get_observations: {
+        description: `${CENTRE} Measured observations (weather stations, air quality sites, followed river gauges, geomagnetic Kp), each with its own observation time. Observations, not forecasts. Read-only.`,
+        input: z
+            .object({ type: z.enum(["weather", "air", "water", "space_weather"]), query: z.string().trim().max(100).optional(), limit: limit(100) })
+            .strict(),
+        annotations: READ,
+    },
+    centre_list_road_disruptions: {
+        description: `${CENTRE} Road closures and traffic hazards from Live Traffic NSW (needs the owner's Open Data key; says so when unavailable). Points as published: a closure point doesn't give the closed length. Read-only.`,
+        input: z.object({ ...centreRecordQuery, closuresOnly: z.boolean().optional() }).strict(),
+        annotations: READ,
+    },
+    centre_list_watch_areas: {
+        description: `${CENTRE} The person's own private watch areas: names, kinds and alert settings only, never locations. Use a watchId with the search tools for what concerns an area. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    centre_list_changes: {
+        description: `${CENTRE} Changes detected between collections (new, escalated, area changed, rating changed, no longer in the feed, source failures) in the last hours, optionally for a watch area. Read-only.`,
+        input: z
+            .object({
+                hours: z.number().int().min(1).max(168).optional(),
+                kind: z
+                    .enum([
+                        "new",
+                        "escalated",
+                        "downgraded",
+                        "updated",
+                        "geometry_changed",
+                        "not_in_feed",
+                        "reappeared",
+                        "ended",
+                        "rating_changed",
+                        "ban_declared",
+                        "ban_lifted",
+                        "measurement_change",
+                        "source_failed",
+                        "source_stale",
+                        "source_recovered",
+                    ])
+                    .optional(),
+                watchId: watchAreaId.optional(),
+                limit: limit(200),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_watch_briefing: {
+        description: `${CENTRE} A deterministic briefing (NSW, or one watch area): facts from stored records with refs, times and links, what wasn't included, and an AI interpretation only if the person already prepared one. Never runs a model. Read-only.`,
+        input: z.object({ watchId: watchAreaId.optional() }).strict(),
         annotations: READ,
     },
 

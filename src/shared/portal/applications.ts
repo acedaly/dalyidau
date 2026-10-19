@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence";
+export type ApplicationId = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence" | "intelligence-centre";
 
-export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence";
+export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence" | "centre";
 
 export type NavigationIcon =
     | "dashboard"
@@ -61,7 +61,15 @@ export type NavigationIcon =
     | "family"
     | "leave"
     | "planner"
-    | "holidays";
+    | "holidays"
+    | "centre"
+    | "map"
+    | "incidents"
+    | "hazards"
+    | "history"
+    | "watch"
+    | "wallboard"
+    | "sources";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -327,6 +335,49 @@ export const APPLICATIONS = [
             {
                 label: "Application",
                 items: [{ label: "AI and storage settings", href: "/portal/intelligence/settings", icon: "settings" }],
+            },
+        ],
+    },
+    {
+        id: "intelligence-centre",
+        name: "Intelligence Centre",
+        summary: "Public warnings, incidents, weather and hazards.",
+        description:
+            "Official warnings, incidents, fire danger, weather, rivers, roads, air quality and other public hazard information on a map, with private watch areas, alerts, briefings and wallboards. Not an official warning service.",
+        icon: "centre",
+        baseRoute: "/portal/intelligence-centre",
+        requiredPermission: "centre.use",
+        enabled: true,
+        status: {
+            flag: "intelligence_centre.ingestion",
+            enabledLabel: "Collecting",
+            disabledLabel: "Collection off",
+        },
+        navigation: [
+            {
+                label: "Situation",
+                items: [
+                    { label: "Overview", href: "/portal/intelligence-centre", icon: "centre" },
+                    { label: "Live map", href: "/portal/intelligence-centre/map", icon: "map" },
+                    { label: "Incidents and warnings", href: "/portal/intelligence-centre/records", icon: "incidents", active: "prefix" },
+                    { label: "Hazards", href: "/portal/intelligence-centre/hazards/weather", icon: "hazards", active: "prefix" },
+                ],
+            },
+            {
+                label: "Analysis",
+                items: [
+                    { label: "History", href: "/portal/intelligence-centre/history", icon: "history" },
+                    { label: "Briefings", href: "/portal/intelligence-centre/briefings", icon: "briefing" },
+                ],
+            },
+            {
+                label: "Manage",
+                items: [
+                    { label: "Watch areas", href: "/portal/intelligence-centre/watches", icon: "watch" },
+                    { label: "Wallboards", href: "/portal/intelligence-centre/wallboards", icon: "wallboard" },
+                    { label: "Sources", href: "/portal/intelligence-centre/sources", icon: "sources" },
+                    { label: "Settings", href: "/portal/intelligence-centre/settings", icon: "settings" },
+                ],
             },
         ],
     },

@@ -25,6 +25,7 @@ import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
 import { CALENDAR_TOOLS } from "./calendar";
+import { CENTRE_TOOLS } from "./centre";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
@@ -68,6 +69,7 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...CALENDAR_TOOLS,
     ...PLANNER_TOOLS,
     ...TODAY_TOOLS,
+    ...CENTRE_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */

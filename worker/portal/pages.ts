@@ -11,6 +11,8 @@ import { occurrencesInWindow } from "../calendar/events";
 import { overlaysFor } from "../calendar/holidays";
 import { loadLeave } from "../calendar/leave";
 import { type CalendarPage, loadCalendarPage } from "../calendar/pages";
+import { todayCentre } from "../centre/actions";
+import { type CentrePage, loadCentrePage } from "../centre/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { loadIntelligencePage } from "../intelligence/pages";
@@ -501,6 +503,31 @@ const PAGES: PageDef[] = [
         application: "intelligence",
         load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, "capture-detail", match[1]),
     },
+    // Intelligence Centre. The application's permission is checked here; ownership of watch areas and wallboards in the loaders.
+    {
+        pattern: /^\/portal\/intelligence-centre$/,
+        title: "Intelligence Centre",
+        application: "intelligence-centre",
+        load: ({ env, user, url }) => loadCentrePage(env, user, url, "overview"),
+    },
+    {
+        pattern: /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings)$/,
+        title: "Intelligence Centre",
+        application: "intelligence-centre",
+        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, match[1] as CentrePage),
+    },
+    {
+        pattern: /^\/portal\/intelligence-centre\/records\/(icr_[a-z0-9]{14})$/,
+        title: "Record",
+        application: "intelligence-centre",
+        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "record", match[1]),
+    },
+    {
+        pattern: /^\/portal\/intelligence-centre\/hazards\/(weather|fire-danger|flood|transport|environment|infrastructure)$/,
+        title: "Hazards",
+        application: "intelligence-centre",
+        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "hazards", match[1]),
+    },
     // Today: needs Calendar and Tasks (as the Daily Planner does); everything is read through theirs.
     {
         pattern: /^\/portal\/today$/,
@@ -534,6 +561,8 @@ const PAGES: PageDef[] = [
                 occurrences,
                 overlays,
                 workingHoursStart: calendarPrefs.workingHours.start,
+                // A failure here never stops Today from loading.
+                centre: await todayCentre(env, user).catch(() => null),
             };
         },
     },
