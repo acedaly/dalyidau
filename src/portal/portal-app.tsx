@@ -73,6 +73,7 @@ import { TasksUpcomingPage } from "@/portal/tasks/pages/tasks-upcoming-page";
 import { TasksViewPage } from "@/portal/tasks/pages/tasks-view-page";
 import { TasksWorkloadPage } from "@/portal/tasks/pages/tasks-workload-page";
 import { requestQuickAdd } from "@/portal/tasks/quick-add-events";
+import { TodayPage } from "@/portal/today/pages/today-page";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
 
@@ -220,6 +221,8 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <IntelligenceMeetingsPage data={data} />;
         case "intelligence-settings":
             return <IntelligenceSettingsPage data={data} />;
+        case "today":
+            return <TodayPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:

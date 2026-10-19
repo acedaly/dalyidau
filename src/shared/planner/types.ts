@@ -112,9 +112,10 @@ export interface PlannerTask {
     version: number;
 }
 
-export const PLANNER_BUCKETS = ["today", "overdue", "upcoming", "priority", "unscheduled"] as const;
+export const PLANNER_BUCKETS = ["inbox", "today", "overdue", "upcoming", "priority", "unscheduled"] as const;
 export type PlannerBucket = (typeof PLANNER_BUCKETS)[number];
 export const PLANNER_BUCKET_LABELS: Record<PlannerBucket, string> = {
+    inbox: "Inbox",
     today: "Today",
     overdue: "Overdue",
     upcoming: "Upcoming",
@@ -128,7 +129,7 @@ export interface PlannerTaskLists {
     buckets: Record<PlannerBucket, string[]>;
 }
 
-export type ConflictKind = "event" | "block" | "leave" | "day_off" | "outside_hours" | "after_due";
+export type ConflictKind = "event" | "block" | "leave" | "day_off" | "outside_hours" | "break" | "after_due";
 
 export interface PlannerConflict {
     /** The block (or proposed time) the warning is about. */

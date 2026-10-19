@@ -35,6 +35,8 @@ import {
 } from "../../src/shared/planner/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { TaskSummary } from "../../src/shared/tasks/types";
+import { focusOn } from "../../src/shared/today/engine";
+import type { TodayPreferences } from "../../src/shared/today/types";
 import { preferences as calendarPreferences, todayFor } from "../calendar/access";
 import { listCalendars } from "../calendar/calendars";
 import { occurrencesInWindow } from "../calendar/events";
@@ -43,7 +45,8 @@ import { loadLeave } from "../calendar/leave";
 import { HttpError } from "../portal/http";
 import { requireTask } from "../tasks/access";
 import { TASK_COLUMNS } from "../tasks/rows";
-import { MINE as MY_TASKS, NOT_PAUSED, all, listOverdue, listToday, listUpcoming } from "../tasks/views";
+import { MINE as MY_TASKS, NOT_PAUSED, all, listInbox, listOverdue, listToday, listUpcoming } from "../tasks/views";
+import { loadTodayPrefs } from "../today/prefs";
 import { blockInstants, blocksBetween, estimatesFor, plannedFor, plannerPrefs } from "./blocks";
 
 const UPCOMING_DAYS = 7;
@@ -71,7 +74,7 @@ const listUndated = (db: D1Database, email: string) =>
         [email],
     );
 
-async function projectNames(db: D1Database, email: string, ids: readonly string[]) {
+export async function projectNames(db: D1Database, email: string, ids: readonly string[]) {
     const rows = await db
         .prepare(
             `SELECT p.id, p.name, p.is_inbox FROM task_projects p JOIN task_project_members m ON m.project_id = p.id AND m.email = ?
@@ -82,9 +85,15 @@ async function projectNames(db: D1Database, email: string, ids: readonly string[
     return new Map(rows.results.map((r) => [r.id, r.is_inbox ? "Inbox" : r.name]));
 }
 
-/** Today, Overdue, Upcoming (7 days), Priority and Unscheduled: Tasks' own lists, with estimates and planned time. */
+/** Inbox, Today, Overdue, Upcoming (7 days), Priority and Unscheduled: Tasks' own lists, with estimates and planned time. */
 export async function plannerTasks(db: D1Database, user: PortalUser, today: string): Promise<PlannerTaskLists> {
-    const [due, overdue, upcoming, priority, undated] = await Promise.all([
+    const inboxId = await db
+        .prepare("SELECT id FROM task_projects WHERE is_inbox = 1 AND inbox_owner = ?")
+        .bind(user.email)
+        .first<{ id: string }>()
+        .then((r) => r?.id ?? null);
+    const [inbox, due, overdue, upcoming, priority, undated] = await Promise.all([
+        inboxId ? listInbox(db, user.email, inboxId) : Promise.resolve([] as TaskSummary[]),
         listToday(db, user.email, today, null),
         listOverdue(db, user.email, today),
         listUpcoming(db, user.email, addDays(today, 1), addDays(today, UPCOMING_DAYS), today),
@@ -97,6 +106,9 @@ export async function plannerTasks(db: D1Database, user: PortalUser, today: stri
         overdue,
         upcoming: upcoming.filter((t) => !t.projected),
         priority,
+        // Top-level open tasks in the person's own Inbox (subtasks stay with their parent). Last, so
+        // the Unscheduled list keeps dated work first.
+        inbox: inbox.filter((t) => !t.parentId).slice(0, LIST_LIMIT),
     };
     const byId = new Map<string, TaskSummary>();
     for (const list of [...Object.values(lists), undated]) for (const t of list) if (!byId.has(t.id)) byId.set(t.id, t);
@@ -151,21 +163,26 @@ export interface PlanningWindow {
     commitments: Commitment[];
     days: Availability[];
     leave: LeaveData;
+    calendars: CalendarInfo[];
+    /** Today's preferences: breaks, focus periods and calendars that don't count towards availability. */
+    todayPrefs: TodayPreferences;
 }
 
-const eventTitle = (o: EventOccurrence) => (o.busyOnly ? "Busy" : o.visibility === "sensitive" ? "Private event" : o.title);
+export const eventTitle = (o: EventOccurrence) => (o.busyOnly ? "Busy" : o.visibility === "sensitive" ? "Private event" : o.title);
 
 /** Events (yours, shared and subscribed), leave and your blocks between two local dates. */
 export async function planningWindow(db: D1Database, user: PortalUser, from: string, to: string): Promise<PlanningWindow> {
     if (!isCalendarDate(from) || !isCalendarDate(to) || to < from) throw new HttpError(400, "bad_window", "Give from and to dates, from first");
     if (daysBetween(from, to) > BLOCK_LIMITS.windowDays) throw new HttpError(400, "bad_window", `Ask for at most ${BLOCK_LIMITS.windowDays} days at a time`);
-    const [{ timeZone }, { preferences: prefs }, today, calendars, leave] = await Promise.all([
+    const [{ timeZone }, { preferences: prefs }, today, calendars, leave, { preferences: todayPrefs }] = await Promise.all([
         calendarPreferences(db, user.email),
         plannerPrefs(db, user.email),
         todayFor(db, user.email),
         listCalendars(db, user),
         loadLeave(db, user),
+        loadTodayPrefs(db, user.email),
     ]);
+    const excluded = new Set(todayPrefs.excludedCalendarIds);
     const start = zonedInstant(from, "00:00", timeZone);
     const end = zonedInstant(addDays(to, 1), "00:00", timeZone);
     const [{ occurrences }, blocks] = await Promise.all([
@@ -185,7 +202,8 @@ export async function planningWindow(db: D1Database, user: PortalUser, from: str
                 kind: "event",
                 source: o.source,
                 shared: shared.get(o.calendarId) ?? false,
-                busy: o.showAs === "busy",
+                // A calendar the person chose not to count towards availability (Today's settings) still shows, as free.
+                busy: o.showAs === "busy" && !excluded.has(o.calendarId),
             })),
         ...blocks.map((b): Commitment => ({ id: b.id, title: b.title, start: b.start, end: b.end, kind: "block", source: "block", shared: false, busy: true })),
     ];
@@ -194,8 +212,10 @@ export async function planningWindow(db: D1Database, user: PortalUser, from: str
     const leaveDays: LeaveDay[] = leave.bookings
         .filter((b) => !b.scenarioId && (b.status === "requested" || b.status === "approved" || b.status === "taken") && b.endDate >= from && b.startDate <= to)
         .map((b) => ({ start: b.startDate, end: b.endDate, part: b.part, hours: b.hours, label: b.title || types.get(b.leaveTypeId) || "Leave" }));
-    const days = eachDate(from, to, BLOCK_LIMITS.windowDays + 1).map((d) => availability(d, { prefs, timeZone, leaveContext: ctx, leave: leaveDays }));
-    return { from, to, today, timeZone, prefs, occurrences, blocks, commitments, days, leave };
+    const days = eachDate(from, to, BLOCK_LIMITS.windowDays + 1).map((d) =>
+        availability(d, { prefs, timeZone, leaveContext: ctx, leave: leaveDays, breaks: todayPrefs.breaks }),
+    );
+    return { from, to, today, timeZone, prefs, occurrences, blocks, commitments, days, leave, calendars, todayPrefs };
 }
 
 /** Conflicts for every block in a window. */
@@ -335,7 +355,9 @@ export async function suggest(db: D1Database, user: PortalUser, input: unknown, 
         estimateMinutes: t.estimateMinutes,
         scheduledMinutes: t.scheduledMinutes,
     }));
-    return suggestPlan({ from, to, today, now, timeZone: w.timeZone, prefs: w.prefs, days: w.days, commitments: w.commitments, tasks });
+    // Focus periods (Today's preferences) are used first.
+    const preferred = eachDate(from, to, BLOCK_LIMITS.suggestDays + 1).flatMap((d) => focusOn(d, w.todayPrefs.focusPeriods, w.timeZone));
+    return suggestPlan({ from, to, today, now, timeZone: w.timeZone, prefs: w.prefs, days: w.days, commitments: w.commitments, tasks, preferred });
 }
 
 /** One open task the caller can work on, as the planner lists it, or null if it's completed. */

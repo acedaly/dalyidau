@@ -6,6 +6,8 @@ A personal and household calendar at `/portal/calendar`, built on the existing W
 
 The repository is public, so tests and fixtures only use invented people, events and calendars.
 
+**Today (Milestone 6.3)**: [`/portal/today`](DAILY_PLANNER.md#today) combines Calendar's events, leave and holidays with tasks and time blocks in one daily timeline. Its weekly breaks and the calendars a person leaves out of availability also apply to the Daily Planner, because both use the same planning window. External (subscribed or imported) events are only ever read there.
+
 **Daily Planner (Milestone 6.2)**: time blocking for tasks, the Tasks panel in the day and week views, and `/portal/calendar/planner`, with free time, capacity, conflicts and deterministic suggestions. See [DAILY_PLANNER.md](DAILY_PLANNER.md).
 
 ---

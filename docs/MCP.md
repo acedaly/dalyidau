@@ -175,7 +175,11 @@ All of them need `calendar.use`, and the leave numbers come from the determinist
 
 ### Daily Planner
 
-Four tools (67 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-tools-4-67-in-total): `planner_get_day` and `planner_suggest_slots` (reads; suggestions create nothing), and `planner_schedule_task` and `planner_update_block` (writes through the ledger; move, resize or cancel, never delete). `0023` rebuilds `mcp_writes` for the `task_time_block` outcome. They need both `calendar.use` and `tasks.use`, and every task is checked through Tasks' own access. Scheduling never changes a task's dates or status. The gateway is 2.4.0.
+Four tools (67 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-tools-4-67-in-total): `planner_get_day` and `planner_suggest_slots` (reads; suggestions create nothing), and `planner_schedule_task` and `planner_update_block` (writes through the ledger; move, resize or cancel, never delete). `0023` rebuilds `mcp_writes` for the `task_time_block` outcome. They need both `calendar.use` and `tasks.use`, and every task is checked through Tasks' own access. Scheduling never changes a task's dates or status.
+
+### Today
+
+Six read-only tools (73 in all), described in [DAILY_PLANNER.md](DAILY_PLANNER.md#mcp-tools-6-73-in-total): `today_get_summary`, `today_get_capacity`, `today_list_unscheduled`, `today_propose_plan`, `today_get_conflicts` and `today_get_briefing`. They need both `calendar.use` and `tasks.use`, call the same functions as `/portal/today`, and never write: acting on a proposal goes through `planner_schedule_task` (one session the person accepted), `tasks_update` or `tasks_reschedule`. Event titles follow Calendar's rules for AI ("Busy", "Private event"). `mcp_writes` doesn't change. The gateway is 2.5.0.
 
 ### Deliberately absent
 

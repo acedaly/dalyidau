@@ -254,6 +254,12 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
+        // Today (0024): preferences and reviews are JSON the Worker validates; a damaged one falls back to defaults.
+        name: "Today preferences and reviews are valid JSON",
+        sql: "SELECT email FROM today_preferences WHERE json_valid(value) = 0 UNION ALL SELECT email FROM daily_reviews WHERE json_valid(priorities) = 0 OR json_valid(summary) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
         // Daily Planner (0023): triggers remove blocks when someone leaves a project or a task moves.
         // A row here is a block whose owner was since made a viewer (the planner already hides those).
         name: "Time blocks belong to people who can still work on their task",
@@ -400,4 +406,7 @@ export const TABLES = [
     "planner_preferences",
     "task_estimates",
     "task_time_blocks",
+    // Today (0024).
+    "today_preferences",
+    "daily_reviews",
 ];

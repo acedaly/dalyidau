@@ -274,6 +274,16 @@ INSERT INTO mcp_writes (id, email, tool, request_key, status, entity_type, entit
 `;
 const PLANNER_TABLES = ["planner_preferences", "task_estimates", "task_time_blocks"];
 
+// Today (0024): a person's Today preferences (a break and a focus period) and a morning review that
+// names a task by id.
+const TODAY = `
+INSERT INTO today_preferences (email, value, updated_at) VALUES ('partner@example.com', '{"breaks":[{"label":"Lunch","days":[1,2,3,4,5],"start":"12:30","end":"13:00"}],"focusPeriods":[{"label":"","days":[1],"start":"09:00","end":"11:00"}]}', '${NOW}');
+INSERT INTO daily_reviews (email, date, kind, priorities, summary, note, created_at, updated_at) VALUES
+  ('partner@example.com', '2026-10-20', 'morning', '["tsk_backuptest0001"]', '{"planned":1,"capacityConfirmed":true}', NULL, '${NOW}', '${NOW}'),
+  ('partner@example.com', '2026-10-20', 'evening', '[]', '{"rescheduled":1}', 'A test note', '${NOW}', '${NOW}');
+`;
+const TODAY_TABLES = ["today_preferences", "daily_reviews"];
+
 const TASK_M3_TABLES = [
     "task_project_reviews",
     "task_review_actions",
@@ -398,6 +408,12 @@ try {
         "Every Daily Planner table has rows (0023)",
         "A Daily Planner table is empty",
     );
+    run(TODAY);
+    report.check(
+        TODAY_TABLES.every((t) => count(t) > 0),
+        "Every Today table has rows (0024)",
+        "A Today table is empty",
+    );
 
     // 4. The real backup script.
     const backup = spawnSync("node", [join(ROOT, "scripts", "db-backup.mjs"), "--local", "--persist-to", state], { cwd: ROOT, encoding: "utf8" });
@@ -437,6 +453,7 @@ try {
             ...INTELLIGENCE_TABLES,
             ...CALENDAR_TABLES,
             ...PLANNER_TABLES,
+            ...TODAY_TABLES,
         ])
             report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
         report.check(

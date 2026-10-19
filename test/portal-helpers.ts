@@ -128,6 +128,8 @@ const PORTAL_TABLES = [
     "task_time_blocks",
     "task_estimates",
     "planner_preferences",
+    "today_preferences",
+    "daily_reviews",
     "calendar_activity",
     "calendar_notifications",
     "calendar_reminders",
