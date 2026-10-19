@@ -10,6 +10,17 @@ import { CalendarYearPage } from "@/portal/calendar/pages/calendar-year-page";
 import { LeavePage } from "@/portal/calendar/pages/leave-page";
 import { LeavePlannerPage } from "@/portal/calendar/pages/leave-planner-page";
 import { LeaveSettingsPage } from "@/portal/calendar/pages/leave-settings-page";
+import { CentreBriefingsPage } from "@/portal/centre/pages/centre-briefings-page";
+import { CentreHazardsPage } from "@/portal/centre/pages/centre-hazards-page";
+import { CentreHistoryPage } from "@/portal/centre/pages/centre-history-page";
+import { CentreMapPage } from "@/portal/centre/pages/centre-map-page";
+import { CentreOverviewPage } from "@/portal/centre/pages/centre-overview-page";
+import { CentreRecordPage } from "@/portal/centre/pages/centre-record-page";
+import { CentreRecordsPage } from "@/portal/centre/pages/centre-records-page";
+import { CentreSettingsPage } from "@/portal/centre/pages/centre-settings-page";
+import { CentreSourcesPage } from "@/portal/centre/pages/centre-sources-page";
+import { CentreWallboardsPage } from "@/portal/centre/pages/centre-wallboards-page";
+import { CentreWatchesPage } from "@/portal/centre/pages/centre-watches-page";
 import { ToastProvider } from "@/portal/components/toast";
 import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
 import { IntelligenceCaptureDetailPage } from "@/portal/intelligence/pages/intelligence-capture-detail-page";
@@ -221,6 +232,28 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <IntelligenceMeetingsPage data={data} />;
         case "intelligence-settings":
             return <IntelligenceSettingsPage data={data} />;
+        case "centre-overview":
+            return <CentreOverviewPage data={data} />;
+        case "centre-map":
+            return <CentreMapPage data={data} />;
+        case "centre-records":
+            return <CentreRecordsPage data={data} />;
+        case "centre-record":
+            return <CentreRecordPage key={data.record.id} data={data} />;
+        case "centre-hazards":
+            return <CentreHazardsPage key={data.tab} data={data} />;
+        case "centre-history":
+            return <CentreHistoryPage data={data} />;
+        case "centre-briefings":
+            return <CentreBriefingsPage data={data} />;
+        case "centre-watches":
+            return <CentreWatchesPage data={data} />;
+        case "centre-wallboards":
+            return <CentreWallboardsPage data={data} />;
+        case "centre-sources":
+            return <CentreSourcesPage data={data} />;
+        case "centre-settings":
+            return <CentreSettingsPage data={data} />;
         case "today":
             return <TodayPage data={data} />;
         case "forbidden":

@@ -9,6 +9,8 @@
 @source not "../wedding";
 @source not "../entry-portal.tsx";
 @source not "../entry-wedding.tsx";
+@source not "../display";
+@source not "../entry-display.tsx";
 @source not "../components/application/alerts";
 @source not "../components/application/app-navigation";
 @source not "../components/application/breadcrumbs";
