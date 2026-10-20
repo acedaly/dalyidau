@@ -4,6 +4,7 @@
 // Today owns no tasks, events or time blocks: it reads them from Tasks, Calendar and the Daily
 // Planner, and every change goes back through their own functions and permissions.
 import { z } from "zod";
+import type { TodayAssets } from "../assets/types";
 import type { CalendarNotification, EventOccurrence, Overlays } from "../calendar/types";
 import type { TodayCentre } from "../centre/types";
 import type { KnowledgeSpace } from "../knowledge/types";
@@ -323,4 +324,6 @@ export interface TodayRoute {
     workingHoursStart: string;
     /** The Intelligence Centre's short section: only what meets the person's own relevance rules. Null when off or unavailable. */
     centre?: TodayCentre | null;
+    /** Home & Assets' section: what's due, from the person's own settings there. Null when off or unavailable. */
+    assets?: TodayAssets | null;
 }

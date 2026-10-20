@@ -190,7 +190,8 @@ describe("permissions", () => {
         const admin = await open("/portal/settings/features", ADMIN);
         expect(admin.rendered).not.toContain("Only owners and admins can change features.");
         for (const area of FEATURE_AREAS) expect(admin.rendered).toContain(`id="features-${area}"`);
-        for (const key of FLAG_KEYS) expect(admin.rendered).toContain(FLAG_DEFINITIONS[key].label);
+        // Rendered HTML escapes "&" (as in "Home & Assets").
+        for (const key of FLAG_KEYS) expect(admin.rendered).toContain(FLAG_DEFINITIONS[key].label.replace(/&/g, "&amp;"));
     });
 
     it("still lets only owners and admins change a switch, and audits every change", async () => {

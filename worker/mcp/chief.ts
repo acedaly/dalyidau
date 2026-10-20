@@ -13,6 +13,7 @@ import { documentToMarkdown } from "../../src/shared/knowledge/markdown";
 import type { KnowledgeObjectSummary } from "../../src/shared/knowledge/types";
 import { addDays } from "../../src/shared/tasks/dates";
 import type { Bucket, ProjectCard, TaskGoal, TaskRoutine } from "../../src/shared/tasks/productivity";
+import { briefingFacts } from "../assets/dashboard";
 import { calendarFacts } from "../calendar/chief";
 import { dailyNote, spaceToday } from "../knowledge/daily";
 import { listObjects } from "../knowledge/objects";
@@ -142,6 +143,7 @@ const sources = (ctx: ToolContext) => ({
     tasks: can(ctx.user, "tasks.use"),
     knowledge: can(ctx.user, "knowledge.use"),
     calendar: can(ctx.user, "calendar.use"),
+    homeAssets: can(ctx.user, "assets.use"),
 });
 
 const chiefDaily = tool({
@@ -197,6 +199,19 @@ const chiefDaily = tool({
         // Today's plan: sessions, capacity, free time, conflicts, what's due and not planned, and
         // suggested sessions (suggestions only: nothing is scheduled unless the person accepts one).
         if (checked.calendar && checked.tasks) data.planner = await plannerFacts(ctx.db, ctx.user, ctx.site);
+        // Home & Assets: what's overdue or due in 30 days, from records only (the person can leave it out).
+        if (checked.homeAssets) {
+            const facts = await briefingFacts(ctx.db, ctx.user, 30);
+            if (facts)
+                data.homeAssets = {
+                    today: facts.today,
+                    horizonDays: facts.horizonDays,
+                    overdue: facts.overdue.slice(0, SHOWN).map((i) => ({ fact: i.sentence, taskNote: i.taskNote, date: i.date, url: portalUrl(ctx, i.url) })),
+                    dueSoon: facts.dueSoon.slice(0, SHOWN).map((i) => ({ fact: i.sentence, taskNote: i.taskNote, date: i.date, url: portalUrl(ctx, i.url) })),
+                    counts: { overdue: facts.overdue.length, dueSoon: facts.dueSoon.length },
+                    notChecked: facts.notChecked,
+                };
+        }
         return { data };
     },
 });

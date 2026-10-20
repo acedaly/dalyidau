@@ -1,4 +1,5 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
+import type { AssetsRoute } from "../assets/types";
 import type { CalendarRoute } from "../calendar/types";
 import type { CentreRoute } from "../centre/types";
 import type { IntelligenceRoute } from "../intelligence/types";
@@ -921,6 +922,7 @@ export type PortalRoute =
     | CalendarRoute
     | IntelligenceRoute
     | CentreRoute
+    | AssetsRoute
     | TodayRoute
     | { route: "forbidden"; message: string }
     | { route: "not-found"; path: string };

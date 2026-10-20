@@ -49,7 +49,7 @@ const LEGACY_DALYHUB_TOOLS = [
 ];
 
 describe("MCP protocol", () => {
-    it("initializes with the working instructions and lists exactly the 85 Daly Portal tools with their annotations", async () => {
+    it("initializes with the working instructions and lists exactly the 101 Daly Portal tools with their annotations", async () => {
         const s = await session(OWNER);
         expect(s.init.status).toBe(200);
         const init = s.init.body.result as {
@@ -69,7 +69,7 @@ describe("MCP protocol", () => {
         const listed = await s.rpc("tools/list");
         const tools = (listed.body.result as { tools: { name: string; inputSchema: { type: string }; annotations?: { readOnlyHint?: boolean } }[] }).tools;
         expect(tools.map((t) => t.name).sort()).toEqual([...PORTAL_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(85);
+        expect(tools).toHaveLength(101);
         for (const t of tools) expect(t.inputSchema.type).toBe("object");
         expect(tools.find((t) => t.name === "tasks_today")?.annotations?.readOnlyHint).toBe(true);
         expect(tools.find((t) => t.name === "tasks_create")?.annotations?.readOnlyHint).toBe(false);

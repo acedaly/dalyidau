@@ -6,6 +6,8 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import type { TodayDashboard } from "../../src/shared/today/types";
+import { todayAssets } from "../assets/dashboard";
+import { type AssetsPage, loadAssetsPage } from "../assets/pages";
 import { preferences as calendarPreferences } from "../calendar/access";
 import { occurrencesInWindow } from "../calendar/events";
 import { overlaysFor } from "../calendar/holidays";
@@ -528,6 +530,37 @@ const PAGES: PageDef[] = [
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "hazards", match[1]),
     },
+    // Home & Assets. The application's permission is checked here; each asset's own rights in the loaders.
+    {
+        pattern: /^\/portal\/assets$/,
+        title: "Home & Assets",
+        application: "assets",
+        load: ({ env, user, url }) => loadAssetsPage(env, user, url, "overview"),
+    },
+    {
+        pattern: /^\/portal\/assets\/(all|vehicles|property|maintenance|insurance|warranties|documents|reports|settings|capture|labels|search)$/,
+        title: "Home & Assets",
+        application: "assets",
+        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, match[1] as AssetsPage),
+    },
+    {
+        pattern: /^\/portal\/assets\/reports\/register$/,
+        title: "Asset register",
+        application: "assets",
+        load: ({ env, user, url }) => loadAssetsPage(env, user, url, "register"),
+    },
+    {
+        pattern: /^\/portal\/assets\/item\/(ast_[a-z0-9]{14})$/,
+        title: "Asset",
+        application: "assets",
+        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, "item", match[1]),
+    },
+    {
+        pattern: /^\/portal\/assets\/property\/(alo_[a-z0-9]{14})$/,
+        title: "Place",
+        application: "assets",
+        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, "location", match[1]),
+    },
     // Today: needs Calendar and Tasks (as the Daily Planner does); everything is read through theirs.
     {
         pattern: /^\/portal\/today$/,
@@ -563,6 +596,8 @@ const PAGES: PageDef[] = [
                 workingHoursStart: calendarPrefs.workingHours.start,
                 // A failure here never stops Today from loading.
                 centre: await todayCentre(env, user).catch(() => null),
+                // Home & Assets: only what the person's own settings ask for; a failure never stops Today.
+                assets: await todayAssets(env.DB, user).catch(() => null),
             };
         },
     },

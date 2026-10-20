@@ -7,6 +7,7 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
+import { handleAssetsApi } from "../assets/api";
 import { handleCalendarApi } from "../calendar/api";
 import { handleCentreApi } from "../centre/api";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
@@ -900,6 +901,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user, exec);
         // And the Intelligence Centre: public records for everyone with centre.use; watch areas, alerts and wallboards per person.
         if (url.pathname.startsWith("/api/portal/centre/")) return await handleCentreApi(request, env, user, exec);
+        // And Home & Assets: access there is per asset (owner, or what it's shared with you for).
+        if (url.pathname.startsWith("/api/portal/assets/")) return await handleAssetsApi(request, env, user);
         // And Today: it needs Calendar and Tasks, and reads and changes everything through theirs.
         if (url.pathname === "/api/portal/today" || url.pathname.startsWith("/api/portal/today/")) return await handleTodayApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;

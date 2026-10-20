@@ -299,6 +299,44 @@ export const INTEGRITY_CHECKS = [
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
     },
+    {
+        // Kept in step by the Worker: a private asset has no shares, a household one has the household row.
+        name: "Home & Assets sharing matches each asset's visibility",
+        sql: "SELECT a.id FROM assets a WHERE (a.visibility = 'private' AND EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id)) OR (a.visibility = 'household' AND NOT EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id AND s.email = '*')) OR (a.visibility = 'selected' AND EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id AND s.email = '*')) LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Nobody holds a share of an asset they own",
+        sql: "SELECT s.asset_id FROM asset_shares s JOIN assets a ON a.id = s.asset_id WHERE lower(s.email) = lower(a.owner_email) LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Home & Assets files are under private/assets/ and belong to at most one record",
+        sql: "SELECT id FROM asset_files WHERE r2_key NOT LIKE 'private/assets/%' OR ((asset_id IS NOT NULL) + (location_id IS NOT NULL) + (policy_id IS NOT NULL)) > 1 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Worked out from the schedule's own rule (src/shared/assets/engine.ts); stale only if a write was interrupted.
+        name: "Maintenance schedules have an interval",
+        sql: "SELECT id FROM asset_schedules WHERE interval_count IS NULL AND interval_km IS NULL LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Each maintenance schedule has at most one open record",
+        sql: "SELECT schedule_id FROM asset_maintenance WHERE schedule_id IS NOT NULL AND status IN ('open', 'requested', 'scheduled', 'in_progress') GROUP BY schedule_id HAVING COUNT(*) > 1 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // A claim left by an interrupted request; the next attempt clears it after two minutes.
+        name: "No stale Home & Assets task claims",
+        sql: "SELECT id FROM asset_task_links WHERE task_id LIKE 'pending_%' AND created_at < datetime('now', '-1 hour') LIMIT 20",
+        level: "warn",
+    },
+    {
+        name: "Home & Assets JSON columns are valid",
+        sql: "SELECT id FROM assets WHERE json_valid(tags) = 0 OR json_valid(custom) = 0 OR json_valid(depreciation) = 0 UNION ALL SELECT asset_id FROM asset_vehicles WHERE json_valid(specs) = 0 LIMIT 20",
+        level: "fail",
+    },
 ];
 
 /**

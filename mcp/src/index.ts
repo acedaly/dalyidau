@@ -23,7 +23,7 @@ export interface GatewayEnv extends McpAuthEnv {
     readonly MCP_WRITES?: RateLimit;
 }
 
-export const SERVER_INFO = { name: "daly-portal", version: "2.6.0" } as const;
+export const SERVER_INFO = { name: "daly-portal", version: "2.7.0" } as const;
 
 /**
  * How to work with these tools, sent to every client at initialize. The portal enforces the rules
@@ -42,6 +42,7 @@ export const SERVER_INSTRUCTIONS = [
     'Daly Calendar: dates, balances, leave opportunities and school holidays come from the portal\'s deterministic calculations (calendar_get_agenda, leave_get_balances, leave_forecast, leave_find_opportunities). Report them as given; never estimate a balance or invent an event. Leave you record is a draft or proposal, never requested or approved. Private and sensitive events stay "Busy" or "Private event": don\'t ask for or guess their details.',
     "Today: today_get_summary, today_get_capacity, today_list_unscheduled, today_propose_plan, today_get_conflicts and today_get_briefing only read. A proposed plan is a proposal: show it, and schedule only the sessions the person accepts with planner_schedule_task. The briefing's facts come from the person's records; explain them, never add to them.",
     "Intelligence Centre: the centre_* tools only read public emergency, weather and environmental records. They aren't an official warning service: report records and levels exactly as given, keep official, observed and derived information apart, never say something is over because it left a feed, and point the person to official warnings (and Triple Zero, 000, in an emergency). Watch areas never include locations.",
+    "Home & Assets: the assets_* tools see only assets the person owns or that are shared with them, and values, insurance and documents only where shared. Report dates, intervals and values exactly as recorded; never estimate them, never invent serial numbers, registrations or prices, and never call something insured. Create tasks for attention items with assets_create_task (one per item; an existing one is returned).",
     "Daily Planner: planner_get_day and planner_suggest_slots only read. Suggested sessions are proposals: show them to the person and call planner_schedule_task only for times they accept. Never move or cancel a time block (planner_update_block) without asking. Scheduling never changes a task's due date or status.",
 ].join("\n");
 

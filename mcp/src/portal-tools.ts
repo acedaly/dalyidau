@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { PortalMcpRequest, PortalMcpResponse } from "../../worker/mcp/entrypoint";
 
 /**
- * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence, Daly Calendar and the Daily Planner in Daly Portal) and how each one is advertised.
+ * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence, Daly Calendar, the Daily Planner and Home & Assets in Daly Portal) and how each one is advertised.
  *
  * This Worker holds the MCP descriptions and a first round of input validation only. Every call
  * goes over the private `PORTAL` service binding to the portal Worker's `PortalMcpEntrypoint`
@@ -107,6 +107,22 @@ export const PORTAL_TOOL_NAMES = [
     "centre_list_watch_areas",
     "centre_list_changes",
     "centre_get_watch_briefing",
+    "assets_search",
+    "assets_list",
+    "assets_get",
+    "assets_maintenance_history",
+    "assets_upcoming_maintenance",
+    "assets_insurance_renewals",
+    "assets_warranty_expiries",
+    "assets_list_documents",
+    "assets_summary",
+    "assets_get_attention",
+    "assets_create",
+    "assets_update",
+    "assets_create_maintenance",
+    "assets_complete_maintenance",
+    "assets_link_knowledge",
+    "assets_create_task",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -139,6 +155,12 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "leave_update_proposal",
     "planner_schedule_task",
     "planner_update_block",
+    "assets_create",
+    "assets_update",
+    "assets_create_maintenance",
+    "assets_complete_maintenance",
+    "assets_link_knowledge",
+    "assets_create_task",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -230,6 +252,35 @@ const CENTRE =
 const centreRecordId = portalId("icr", "Intelligence Centre record");
 const watchAreaId = portalId("icw", "watch area");
 const hazard = z.enum(["fire", "fire_danger", "weather", "flood", "water", "transport", "air", "power", "earthquake", "hotspot", "space_weather", "emergency"]);
+const ASSETS =
+    'Home & Assets (daly.id.au/portal/assets): what the household owns, maintains, insures or will replace. Only assets the person owns or that are shared with them; values, costs, insurance and documents only where those are shared. Report records as given: never estimate a value, a service interval or a date, and never say something is insured ("linked to a verified policy" is the most a record says).';
+const assetId = portalId("ast", "asset");
+const placeId = portalId("alo", "place (location or property)");
+const maintenanceRecordId = portalId("amr", "maintenance record");
+const assetCategory = z
+    .string()
+    .regex(/^(?:[a-z][a-z0-9_]{1,39}|acat_[a-z0-9]{14})$/)
+    .describe(
+        "A category id: vehicles, trailers, motorcycles, boats, camping, appliances, electronics, computers, phones, cameras, tools, furniture, outdoor, security, valuables, other, or a household category's acat_ id.",
+    );
+const assetStatus = z.enum(["active", "in_storage", "in_repair", "lent", "lost", "stolen", "sold", "disposed", "gifted"]);
+const cents = z.number().int().min(0).max(100_000_000_000).describe("An amount in whole cents (AUD), as recorded. Only when the person gave it.");
+const assetFields = {
+    manufacturer: z.string().trim().max(120).nullable().optional(),
+    brand: z.string().trim().max(120).nullable().optional(),
+    model: z.string().trim().max(120).nullable().optional(),
+    serialNumber: z.string().trim().max(120).nullable().optional(),
+    description: z.string().trim().max(4000).nullable().optional(),
+    purchaseDate: date.nullable().optional(),
+    purchasePriceCents: cents.nullable().optional(),
+    purchaseLocation: z.string().trim().max(200).nullable().optional(),
+    locationId: placeId.nullable().optional(),
+    status: assetStatus.optional(),
+    notes: z.string().trim().max(8000).nullable().optional(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+};
+const horizon = (fallback: number) =>
+    z.number().int().min(1).max(365).optional().describe(`Days ahead (default ${fallback}). Overdue items are always included.`);
 const centreRecordQuery = {
     query: z.string().trim().max(100).optional().describe("Words in the title or published location."),
     category: hazard.optional(),
@@ -613,6 +664,138 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
         description: `${CENTRE} A deterministic briefing (NSW, or one watch area): facts from stored records with refs, times and links, what wasn't included, and an AI interpretation only if the person already prepared one. Never runs a model. Read-only.`,
         input: z.object({ watchId: watchAreaId.optional() }).strict(),
         annotations: READ,
+    },
+
+    /* ---------------------------- Home & Assets ----------------------------- */
+    assets_search: {
+        description: `${ASSETS} Search assets (name, maker, model, serial number, registration, tags, place), maintenance records, document names and places, plus the person's Daly Knowledge when they can open it. Read-only.`,
+        input: z.object({ query: z.string().trim().min(2).max(100), limit: limit(50) }).strict(),
+        annotations: READ,
+    },
+    assets_list: {
+        description: `${ASSETS} List assets, optionally by category, group, place, status ("current" by default, "gone" for sold or disposed), warranty state or maintenance state. Read-only.`,
+        input: z
+            .object({
+                category: assetCategory.optional(),
+                group: z.enum(["vehicles", "home", "equipment", "personal", "other"]).optional(),
+                locationId: placeId.optional(),
+                status: z.enum(["current", "gone", "active", "in_storage", "in_repair", "lent", "lost", "stolen", "sold", "disposed", "gifted"]).optional(),
+                warranty: z.enum(["active", "expiring", "expired", "unknown", "none"]).optional(),
+                maintenance: z.enum(["overdue", "due_soon", "none"]).optional(),
+                limit: limit(200),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    assets_get: {
+        description: `${ASSETS} One asset in full: identifiers, vehicle details, warranties (with whether each end date was stated or calculated), linked policies (if insurance is shared), schedules with next due dates from their configured intervals, open maintenance, document names and linked Knowledge. Read-only.`,
+        input: z.object({ assetId }).strict(),
+        annotations: READ,
+    },
+    assets_maintenance_history: {
+        description: `${ASSETS} Completed and cancelled maintenance, newest first, for one asset or place or for everything the person can see. Costs only where shared. Read-only.`,
+        input: z.object({ assetId: assetId.optional(), locationId: placeId.optional(), limit: limit(200) }).strict(),
+        annotations: READ,
+    },
+    assets_upcoming_maintenance: {
+        description: `${ASSETS} Maintenance overdue or due within the days given (default 30), from each schedule's configured interval (by date, distance or whichever comes first) and open records. Each fact says whether a Task exists. Read-only.`,
+        input: z.object({ days: horizon(30) }).strict(),
+        annotations: READ,
+    },
+    assets_insurance_renewals: {
+        description: `${ASSETS} Active policies renewing within the days given (default 60), or overdue for renewal. Read-only.`,
+        input: z.object({ days: horizon(60) }).strict(),
+        annotations: READ,
+    },
+    assets_warranty_expiries: {
+        description: `${ASSETS} Warranties ending within the days given (default 90). A manufacturer's warranty ending doesn't end Australian Consumer Law guarantees: say so if it matters. Read-only.`,
+        input: z.object({ days: horizon(90) }).strict(),
+        annotations: READ,
+    },
+    assets_list_documents: {
+        description: `${ASSETS} The names, kinds and dates of one asset's photos and documents (only those shared with the person). File contents aren't available through this connector; they open in the portal. Read-only.`,
+        input: z.object({ assetId }).strict(),
+        annotations: READ,
+    },
+    assets_summary: {
+        description: `${ASSETS} The household asset summary: counts by category, the sum of recorded current values with how many assets have none (never counted as zero), overdue maintenance and assets without proof of purchase. Read-only.`,
+        input: z.object({ includeLowValue: z.boolean().optional() }).strict(),
+        annotations: READ,
+    },
+    assets_get_attention: {
+        description: `${ASSETS} Everything overdue or due within the days given (default 30): servicing, registration, roadside assistance, inspections, insurance renewals, warranties ending, lease ends and urgent repairs, each as a sentence from the record with a link, whether a Task exists and, if not, the refKind and refId for assets_create_task. Summarise it; never add to it. Read-only.`,
+        input: z.object({ days: horizon(30) }).strict(),
+        annotations: READ,
+    },
+    assets_create: {
+        description: `${ASSETS} WRITE: add an asset. Only a name and a category are needed: add other details only if the person gave them, never guessed ones (no invented serial numbers, VINs, registration numbers, prices or values). It's private to the person until they share it in the portal. Send a fresh requestId.`,
+        input: z.object({ name: z.string().trim().min(1).max(200), category: assetCategory, ...assetFields, requestId }).strict(),
+        annotations: WRITE,
+    },
+    assets_update: {
+        description: `${ASSETS} WRITE: change an asset's details the person asked to change (needs edit rights; values need the financial right). Pass the version you read: if someone changed it since, you get a conflict instead of overwriting their change.`,
+        input: z
+            .object({ assetId, version, name: z.string().trim().min(1).max(200).optional(), category: assetCategory.optional(), ...assetFields, requestId })
+            .strict(),
+        annotations: WRITE,
+    },
+    assets_create_maintenance: {
+        description: `${ASSETS} WRITE: record maintenance for an asset or a place: work to do (with a due date or distance), or work already done (with completedOn). Never assume a landlord approved a change to a rental. Send a fresh requestId.`,
+        input: z
+            .object({
+                assetId: assetId.optional(),
+                locationId: placeId.optional(),
+                title: z.string().trim().min(1).max(200),
+                kind: z.enum(["preventive", "corrective", "repair", "inspection", "service", "replacement", "seasonal", "safety"]).optional(),
+                category: z.enum(["service", "inspection", "safety", "cleaning", "replacement", "seasonal", "registration", "repair", "other"]).optional(),
+                priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+                dueOn: date.nullable().optional(),
+                dueKm: z.number().int().min(0).nullable().optional(),
+                completedOn: date.nullable().optional(),
+                odometer: z.number().int().min(0).nullable().optional(),
+                costCents: cents.nullable().optional(),
+                provider: z.string().trim().max(200).nullable().optional(),
+                notes: z.string().trim().max(8000).nullable().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    assets_complete_maintenance: {
+        description: `${ASSETS} WRITE: mark a maintenance record done, only when the person says it was done. Its schedule moves on from the completion date (and odometer, if given), the next record is created if the schedule says so, and its linked Task is completed. Completing twice changes nothing.`,
+        input: z
+            .object({
+                maintenanceId: maintenanceRecordId,
+                completedOn: date,
+                odometer: z.number().int().min(0).nullable().optional(),
+                costCents: cents.nullable().optional(),
+                provider: z.string().trim().max(200).nullable().optional(),
+                notes: z.string().trim().max(8000).nullable().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: IDEMPOTENT_WRITE,
+    },
+    assets_link_knowledge: {
+        description: `${ASSETS} WRITE: link an existing Daly Knowledge object the person can read (a manual, notes, a troubleshooting guide) to an asset they can edit. Nothing is copied. Linking twice changes nothing.`,
+        input: z.object({ assetId, objectId, requestId }).strict(),
+        annotations: IDEMPOTENT_WRITE,
+    },
+    assets_create_task: {
+        description: `${ASSETS} WRITE: create the Daly Task for one item from assets_get_attention (its createTask refKind and refId), in the person's Inbox. Only one task is ever made per item: if one exists, it's returned instead.`,
+        input: z
+            .object({
+                refKind: z.enum(["maintenance", "schedule", "registration", "policy_renewal", "warranty_expiry", "inspection", "lease_end", "roadside"]),
+                refId: z
+                    .string()
+                    .regex(/^[a-z]{3}_[a-z0-9]{14}$/)
+                    .describe("The record id from assets_get_attention (createTask.refId)."),
+                title: z.string().trim().min(1).max(500).optional(),
+                dueDate: date.nullable().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: IDEMPOTENT_WRITE,
     },
 
     /* ---------------------------- Knowledge reads --------------------------- */
