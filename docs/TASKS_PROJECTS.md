@@ -247,6 +247,10 @@ Daly Calendar shows open tasks due in its views, and the [Daily Planner](DAILY_P
 
 [Today](DAILY_PLANNER.md#today) (`/portal/today`) lists Inbox, today, overdue, upcoming, high-priority and unscheduled tasks beside the day's timeline. Completing, postponing (tomorrow or a week; a repeating task's current occurrence) and changing priority all go through Tasks' own API, with its permissions and history; Today never stores a copy of a task. The planner's task lists now include an Inbox list (top-level open tasks in the person's own Inbox), shown on Today but not in Calendar's panel.
 
+## Home & Assets
+
+Home & Assets creates tasks for maintenance and for dates (registration, renewals, warranties ending, inspections, leases) through `createTask`, in the person's Inbox (or a chosen project), with a link back in the description. One task per item and date: `asset_task_links` claims the item first, so retries and two people can't make two. Completing the maintenance completes the task through `completeTask`; Tasks never writes back, and a task finished here shows on the maintenance record. Deleting the task lets a new one be made. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
+
 ## Knowledge integration
 
 A task can reference Knowledge objects (up to 20). Two permission systems apply and neither implies the other:

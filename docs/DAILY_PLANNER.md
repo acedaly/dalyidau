@@ -297,6 +297,8 @@ Each proposed session carries any warnings (from `conflictsFor`) and whether it'
 
 ## Chief of Staff integration
 
+Home & Assets adds a section to Today (on by default, each person's own, Home & Assets → Settings): what's overdue or due in the next 30, 60 or 90 days (registration, renewals, servicing, warranties, inspections, leases, urgent repairs), each a sentence from a record with whether a Task exists. `chief_of_staff_daily_context` gains `homeAssets` with the same facts. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
+
 Today's briefing (`worker/today/briefing.ts`) lists, each with a link to its record:
 
 - today's commitments (events and planned sessions), top priorities (your morning choice, otherwise the planner's order), overdue work, scheduling conflicts and overbooked periods, capacity, project deadlines and milestones (two weeks), shared household commitments (your lookahead), sessions from yesterday whose tasks are still open, and

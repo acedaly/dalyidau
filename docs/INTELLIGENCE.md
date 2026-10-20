@@ -131,6 +131,10 @@ Recommendations are optional, labelled "AI suggestions, not facts", may only cit
 - **Documents:** text/Markdown/CSV are decoded locally; PDFs are refused if encrypted or over the page limit (counted from page objects; compressed object streams can hide them, so size is the backstop); Office files have their ZIP directory read first and decompression bombs are refused (size, ratio, entry count, ZIP64). Conversion is Markdown Conversion with a timeout. Nothing is executed or rendered. There is no virus scanner: files are private, downloaded only as `attachment` with `nosniff` and a sandbox CSP, never served inline or publicly.
 - Outputs: a meeting record (generated summary and source transcript under separate headings), decisions, tasks with owners only where named; a document becomes a resource note that keeps the file permanently.
 
+### Home & Assets capture
+
+Home & Assets can ask for receipt, photo and policy suggestions through this provider (the "documents" budget), only when its own `assets.ai` switch and Intelligence's documents feature are both on. Text is fenced, output schema-checked and grounded in the document's text, and nothing is saved without a person. Its files are in `asset_files`, not `attachments`. See [HOME_ASSETS.md](HOME_ASSETS.md#capture-and-ai).
+
 ### Attachments, retention and storage
 
 `attachments` is shared infrastructure, not a Files app. Retention (Settings → Storage shows sizes, your files and what's due):
