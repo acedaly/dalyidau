@@ -27,6 +27,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
 import { tasksApi } from "@/portal/tasks/api";
 import { TASK_CREATED_EVENT } from "@/portal/tasks/quick-add-events";
+import { AssetsTodaySection } from "@/portal/today/assets-section";
 import { CentreTodaySection } from "@/portal/today/centre-section";
 import { addDays, dayLabel, longDateLabel, zoneAbbreviation } from "@/shared/calendar/time";
 import type { PlannerTask } from "@/shared/planner/types";
@@ -304,6 +305,7 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
             </div>
 
             {page.centre && <CentreTodaySection centre={page.centre} />}
+            {page.assets && <AssetsTodaySection assets={page.assets} />}
 
             <div className={cx("grid grid-cols-1 gap-6", panelOpen ? "xl:grid-cols-[minmax(0,1fr)_22rem]" : "xl:grid-cols-[minmax(0,1fr)_auto]")}>
                 <div className="flex min-w-0 flex-col gap-6">

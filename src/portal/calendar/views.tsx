@@ -5,7 +5,7 @@
 // and overlays (public holidays, school holidays, leave, task due dates) have their own lane, and
 // overlapping events sit side by side. Phones get a stacked list instead of a seven-column grid.
 import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckDone01, Flag01, GraduationHat01, Plane, Plus } from "@untitledui/icons";
+import { AlertTriangle, CheckDone01, Flag01, GraduationHat01, Package, Plane, Plus } from "@untitledui/icons";
 import { CalendarDwViewEvent } from "@/components/application/calendar/base-components/calendar-dw-view-event";
 import { CalendarMonthViewEvent, eventViewColors } from "@/components/application/calendar/base-components/calendar-month-view-event";
 import { CalendarTimeMarker } from "@/components/application/calendar/base-components/calendar-time-marker";
@@ -54,6 +54,7 @@ function dayExtras(overlays: Overlays, date: string) {
         leave: overlays.leave.filter((l) => l.start <= date && l.end >= date),
         tasks: overlays.tasks.filter((t) => t.date === date),
         nonWorking: overlays.nonWorking.filter((n) => n.start <= date && n.end >= date),
+        assets: (overlays.assets ?? []).filter((a) => a.date === date),
     };
 }
 
@@ -66,7 +67,7 @@ const Chip = ({
 }: {
     icon?: typeof Flag01;
     children: ReactNode;
-    tone: "holiday" | "school" | "leave" | "task" | "muted";
+    tone: "holiday" | "school" | "leave" | "task" | "asset" | "muted";
     href?: string;
     title?: string;
 }) => {
@@ -75,6 +76,7 @@ const Chip = ({
         school: "bg-utility-green-50 text-utility-green-700 ring-utility-green-200",
         leave: "bg-utility-blue-50 text-utility-blue-700 ring-utility-blue-200",
         task: "bg-secondary text-secondary ring-secondary",
+        asset: "bg-primary text-tertiary ring-primary",
         muted: "bg-secondary_subtle text-tertiary ring-secondary",
     };
     const body = (
@@ -141,6 +143,11 @@ export const DayChips = ({ overlays, date, compact = false }: { overlays: Overla
             >
                 {t.kind === "deadline" ? "Deadline: " : ""}
                 {t.title}
+            </Chip>
+        )),
+        ...x.assets.map((a) => (
+            <Chip key={`a${a.id}`} icon={Package} tone="asset" href={a.url} title="Reminder from Home & Assets (not an appointment)">
+                {a.title}
             </Chip>
         )),
     ];
@@ -664,6 +671,7 @@ export const AgendaList = ({
             x.holidays.length ||
             x.leave.length ||
             x.tasks.length ||
+            x.assets.length ||
             x.school.some((s) => s.start === d)
         );
     });
