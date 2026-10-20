@@ -1,0 +1,23 @@
+// Types for the invented Intelligence Centre fixtures (feeds.mjs).
+export declare const PLACES: { grassFire: [number, number]; bushFire: [number, number]; crash: [number, number] };
+export declare function rfsIncidents(now?: Date, options?: { level?: string; status?: string; areaSize?: number; drop?: number[] }): string;
+export declare function rfsFireDanger(options?: { today?: string; ban?: string }): string;
+export declare function rfsMajorUpdates(now?: Date, options?: { empty?: boolean }): string;
+export declare function rfsIncidentAlerts(now?: Date, options?: { cancel?: boolean; none?: boolean; level?: string }): string;
+export declare function bomAmocWarning(now?: Date, options?: { expired?: boolean; phase?: string }): string;
+export declare const bomAmocForecast: string;
+export declare function bomObservations(now?: Date): string;
+export declare function bomListing(now?: Date, names?: string[]): { name: string; modified: string; size: number }[];
+export declare const wdoFeature: string;
+export declare function wdoObservation(now?: Date, levels?: number[]): string;
+export declare function gaEarthquakes(now?: Date): string;
+export declare function deaHotspots(now?: Date, count?: number): string;
+export declare const aqSites: string;
+export declare function aqObservations(now?: Date): string;
+export declare function endeavour(now?: Date): string;
+export declare function actIncidents(now?: Date): string;
+export declare function noaaKp(now?: Date): string;
+export declare function noaaAlerts(now?: Date): string;
+export declare function tfnswHazards(now?: Date, type?: string): string;
+export declare function firmsCsv(now?: Date): string;
+export declare function feedFixtures(now?: Date): Record<string, string>;

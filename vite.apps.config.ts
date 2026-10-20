@@ -13,6 +13,8 @@ export default defineConfig({
             "@": path.resolve(import.meta.dirname, "./src"),
         },
     },
+    // MapLibre's worker (Intelligence Centre maps) is an ES module; bundled and served from this origin.
+    worker: { format: "es" },
     build: {
         outDir: "dist/client",
         emptyOutDir: false,
@@ -22,6 +24,7 @@ export default defineConfig({
             input: {
                 portal: path.resolve(import.meta.dirname, "shell-portal.html"),
                 wedding: path.resolve(import.meta.dirname, "shell-wedding.html"),
+                display: path.resolve(import.meta.dirname, "shell-display.html"),
             },
         },
     },

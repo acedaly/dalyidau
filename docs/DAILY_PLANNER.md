@@ -236,6 +236,8 @@ src/portal/today/
 migrations/0024_today.sql
 ```
 
+**Intelligence Centre** (Milestone 9): unread Centre alerts for the person's own watch areas appear in Today's notifications (source `intelligence-centre`), and a short "Conditions in your watch areas" card sits above the sections. It shows only matching warnings and incidents from the person's chosen level, fire danger for their districts, closures and outages, and optional calendar matches. It has at most six lines and doesn't appear when nothing is relevant. It's loaded with the page; a failure there never stops Today loading. Configured in Intelligence Centre → Settings, not in Today's own preferences (so Today's preference schema is unchanged). See [INTELLIGENCE_CENTRE.md](INTELLIGENCE_CENTRE.md#today-tasks-calendar-and-knowledge).
+
 Today is a portal-level page (not inside one application), so the sidebar shows it under **Applications**, above **All Applications**, and the launcher (`/portal`) has a **Today** card above the application cards. Calendar, Tasks, Knowledge and Intelligence stay where they were, and the Calendar's own Daily planner is unchanged.
 
 ## Data model (`0024_today.sql`)

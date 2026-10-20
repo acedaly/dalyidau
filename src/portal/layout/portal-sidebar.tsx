@@ -6,6 +6,7 @@ import type { FC, HTMLAttributes } from "react";
 import {
     Activity,
     AlarmClock,
+    AlertTriangle,
     Archive,
     BarChartSquare02,
     BookOpen01,
@@ -19,14 +20,17 @@ import {
     CheckDone01,
     ClipboardCheck,
     Clock,
+    ClockRewind,
     X as CloseIcon,
     Compass03,
+    Database01,
     File06,
     FilterLines,
     Flag01,
     Folder,
     FolderClosed,
     Globe02,
+    Globe04,
     HeartRounded,
     HomeLine,
     Inbox01,
@@ -36,8 +40,10 @@ import {
     LineChartUp01,
     LogOut01,
     Mail01,
+    Map01,
     Menu02,
     Microphone01,
+    Monitor01,
     Plane,
     Plus,
     Receipt,
@@ -150,6 +156,14 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     leave: Plane,
     planner: Sun,
     holidays: Flag01,
+    centre: Globe04,
+    map: Map01,
+    incidents: AlertTriangle,
+    hazards: LayersThree01,
+    history: ClockRewind,
+    watch: Target04,
+    wallboard: Monitor01,
+    sources: Database01,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -166,6 +180,7 @@ const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElem
     tasks: CheckDone01,
     calendar: Calendar,
     intelligence: Stars02,
+    centre: Globe04,
 };
 
 /**

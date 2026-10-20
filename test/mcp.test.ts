@@ -110,7 +110,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 73 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 85 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
@@ -187,6 +187,18 @@ describe("who may call the portal through the MCP gateway", () => {
                 "today_propose_plan",
                 "today_get_conflicts",
                 "today_get_briefing",
+                "centre_list_sources",
+                "centre_get_source_health",
+                "centre_get_situation",
+                "centre_search_incidents",
+                "centre_get_record",
+                "centre_search_warnings",
+                "centre_get_fire_danger",
+                "centre_get_observations",
+                "centre_list_road_disruptions",
+                "centre_list_watch_areas",
+                "centre_list_changes",
+                "centre_get_watch_briefing",
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);

@@ -5,6 +5,7 @@
 // Planner, and every change goes back through their own functions and permissions.
 import { z } from "zod";
 import type { CalendarNotification, EventOccurrence, Overlays } from "../calendar/types";
+import type { TodayCentre } from "../centre/types";
 import type { KnowledgeSpace } from "../knowledge/types";
 import type { PlanSuggestion, PlannerConflict, PlannerPreferences, PlannerTaskLists, TimeBlockInfo } from "../planner/types";
 import type { Priority } from "../tasks/types";
@@ -210,14 +211,14 @@ export interface TodayBriefing {
 
 export interface TodayNotification {
     id: string;
-    source: "calendar" | "tasks" | "intelligence";
+    source: "calendar" | "tasks" | "intelligence" | "intelligence-centre";
     title: string;
     detail: string | null;
     url: string | null;
     at: string;
     /** Calendar notifications can be dismissed from Today. */
     dismissable: boolean;
-    kind: CalendarNotification["kind"] | "task_reminder" | "suggestions";
+    kind: CalendarNotification["kind"] | "task_reminder" | "suggestions" | "centre_alert";
 }
 
 // --- Reviews -------------------------------------------------------------------------------------
@@ -320,4 +321,6 @@ export interface TodayRoute {
     overlays: Overlays;
     /** The person's Calendar settings (the grid starts at their working hours). */
     workingHoursStart: string;
+    /** The Intelligence Centre's short section: only what meets the person's own relevance rules. Null when off or unavailable. */
+    centre?: TodayCentre | null;
 }

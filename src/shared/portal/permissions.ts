@@ -24,6 +24,8 @@ export const PERMISSIONS = [
     "calendar.use",
     /** Opening Daly Intelligence. Every capture, suggestion and briefing is still the person's own, and Knowledge and Tasks keep their membership rules. */
     "intelligence.use",
+    /** Opening the Intelligence Centre (public hazard information). Watch areas, alerts and wallboards are each person's own. */
+    "centre.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

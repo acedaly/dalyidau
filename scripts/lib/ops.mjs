@@ -260,6 +260,12 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
+        // Intelligence Centre (0025): JSON the Worker validates, and private rows that must stay private.
+        name: "Intelligence Centre JSON is valid, and alerts and wallboards belong to their watch areas' owners",
+        sql: "SELECT id FROM ic_records WHERE json_valid(metrics) = 0 OR json_valid(attrs) = 0 OR (geometry IS NOT NULL AND json_valid(geometry) = 0) UNION ALL SELECT id FROM ic_watch_areas WHERE json_valid(definition) = 0 UNION ALL SELECT a.id FROM ic_alerts a JOIN ic_watch_areas w ON w.id = a.watch_id WHERE w.email <> a.email UNION ALL SELECT t.id FROM ic_display_tokens t LEFT JOIN ic_wallboards b ON b.id = t.wallboard_id WHERE b.id IS NULL AND t.revoked_at IS NULL LIMIT 20",
+        level: "fail",
+    },
+    {
         // Daily Planner (0023): triggers remove blocks when someone leaves a project or a task moves.
         // A row here is a block whose owner was since made a viewer (the planner already hides those).
         name: "Time blocks belong to people who can still work on their task",
@@ -295,11 +301,20 @@ export const INTEGRITY_CHECKS = [
     },
 ];
 
-/** Row counts for many tables in one statement (D1 limits UNION terms, so scalar subqueries instead). */
+/**
+ * Row counts for many tables (D1 limits UNION terms, so scalar subqueries instead), 50 to a
+ * statement: D1 refuses a result with more than 100 columns, and there are more tables than that.
+ */
 export const countRows = (env, tables, source = {}) => {
-    if (tables.length === 0) return {};
-    const sql = `SELECT ${tables.map((t) => `(SELECT COUNT(*) FROM ${t}) AS "${t}"`).join(", ")}`;
-    return d1Query(env, sql, source)[0][0] ?? {};
+    const counts = {};
+    for (let i = 0; i < tables.length; i += 50) {
+        const sql = `SELECT ${tables
+            .slice(i, i + 50)
+            .map((t) => `(SELECT COUNT(*) FROM ${t}) AS "${t}"`)
+            .join(", ")}`;
+        Object.assign(counts, d1Query(env, sql, source)[0][0] ?? {});
+    }
+    return counts;
 };
 
 export const TABLES = [
@@ -409,4 +424,18 @@ export const TABLES = [
     // Today (0024).
     "today_preferences",
     "daily_reviews",
+    // Intelligence Centre (0025). Public records can be collected again; watch areas, alerts,
+    // preferences, wallboards and display credentials (hashes only) can't.
+    "ic_sources",
+    "ic_fetch_runs",
+    "ic_records",
+    "ic_changes",
+    "ic_series",
+    "ic_watch_areas",
+    "ic_alerts",
+    "ic_preferences",
+    "ic_config",
+    "ic_briefings",
+    "ic_wallboards",
+    "ic_display_tokens",
 ];

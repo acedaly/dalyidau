@@ -21,7 +21,7 @@ console.log(`Checking ${env} (Worker "${target.name}")\n`);
 // --- wrangler.jsonc ---------------------------------------------------------------------------------
 
 report.check(target.vars.ENVIRONMENT === env, `ENVIRONMENT is "${env}"`, `ENVIRONMENT is "${target.vars.ENVIRONMENT}", expected "${env}"`);
-for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET", "AI_PROVIDER"]) {
+for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET", "AI_PROVIDER", "CENTRE_FEED_BASE"]) {
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
 // Provider credentials are secrets; a plain var would be visible in the dashboard and in wrangler.jsonc.
@@ -33,6 +33,8 @@ for (const name of [
     "CLICKSEND_USERNAME",
     "CLICKSEND_API_KEY",
     "COMMS_WEBHOOK_SECRET",
+    "TFNSW_API_KEY",
+    "NASA_FIRMS_MAP_KEY",
 ]) {
     report.check(
         !(name in target.vars),
@@ -119,7 +121,7 @@ if (!listed) {
             `Secret ${name} is set`,
             `Secret ${name} is missing for the chosen provider: npx wrangler secret put ${name} ${envFlag(env)}`,
         );
-    for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS"]) {
+    for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "CENTRE_FEED_BASE"]) {
         report.check(!names.includes(name), `No ${name} secret`, `${name} is set as a secret: delete it (npx wrangler secret delete ${name} ${envFlag(env)})`);
     }
     for (const name of ["ADMIN_TOKEN", "CAPACITIES_API_TOKEN"]) {
