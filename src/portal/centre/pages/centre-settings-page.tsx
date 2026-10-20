@@ -95,6 +95,21 @@ export const CentreSettingsPage = ({ data }: { data: PageData<"centre-settings">
                                 isSelected={prefs.today.showFireDanger}
                                 onChange={(showFireDanger) => setPrefs((p) => ({ ...p, today: { ...p.today, showFireDanger } }))}
                             />
+                            {(
+                                [
+                                    ["developments", "Significant changes in my watch areas"],
+                                    ["ruleMatches", "My monitoring rules' matches"],
+                                    ["reports", "The latest scheduled report"],
+                                    ["sourceFailures", "Failures of the main warning sources"],
+                                ] as const
+                            ).map(([key, label]) => (
+                                <Toggle
+                                    key={key}
+                                    label={label}
+                                    isSelected={prefs.today[key]}
+                                    onChange={(on) => setPrefs((p) => ({ ...p, today: { ...p.today, [key]: on } }))}
+                                />
+                            ))}
                             <NativeSelect
                                 label="Incidents and warnings from"
                                 value={String(prefs.today.minLevel)}
@@ -216,7 +231,27 @@ export const CentreSettingsPage = ({ data }: { data: PageData<"centre-settings">
                             {retention("fetchRunDays", "Collection history (days)")}
                             {retention("alertDays", "Alerts (days)")}
                             {retention("snapshotsPerSource", "Raw snapshots per source", "0 keeps none")}
+                            {retention("versionDays", "Record history for timelines and replay (days)", "Replay can't go back further than this")}
+                            {retention("sourceDailyDays", "Daily source reliability (days)")}
+                            {retention("ruleMatchDays", "Monitoring rule matches (days)")}
+                            {retention("reportDays", "Situation reports (days)")}
                         </FormGrid>
+                    </FormSection>
+                    <FormSection
+                        title="Basemap"
+                        description="The detailed map is served from this site's own storage: no map company sees which areas are viewed."
+                    >
+                        <NativeSelect
+                            label="Map background"
+                            value={settings.basemap}
+                            onChange={(e) => setSettings((s) => ({ ...s, basemap: e.target.value as CentreSettings["basemap"] }))}
+                            disabled={!data.canManage}
+                            options={[
+                                { label: "Detailed (towns, roads, waterways, boundaries, labels)", value: "detailed" },
+                                { label: "Outline of the states only", value: "outline" },
+                            ]}
+                            hint="Detailed needs the OpenStreetMap basemap archive installed (docs/INTELLIGENCE_CENTRE_9_1.md); until then maps show the outline."
+                        />
                     </FormSection>
                     <FormSection title="Correlation" description="How near and how recent records must be to be shown as possibly related.">
                         <FormGrid>

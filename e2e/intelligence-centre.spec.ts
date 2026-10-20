@@ -94,7 +94,7 @@ test("the live map draws records, layers can be switched, and the list is the ac
     await page.getByLabel("Search").fill("Example Ridge");
     await list.getByRole("link", { name: "Example Ridge Rd, Exampleville", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Example Ridge Rd, Exampleville" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Official source" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Official source" }).first()).toBeVisible();
     await expect(page.getByText("© State of New South Wales (NSW Rural Fire Service)").first()).toBeVisible();
     await page.screenshot({ path: `test-results/centre-record-${info.project.name}.png`, fullPage: true });
     expect(errors).toEqual([]);
@@ -160,7 +160,7 @@ test.describe("Wallboard Mode", () => {
         await page.goto(`/display#t=${issued.token}`);
         await expect(page.getByRole("heading", { level: 1, name: "E2E screen" })).toBeVisible();
         await expect(page.getByText("Local Situation · view 1 of 2")).toBeVisible();
-        await expect(page.getByText("Warnings and incidents here")).toBeVisible();
+        await expect(page.getByText("Official warnings").first()).toBeVisible();
         await expect(page.getByText("Official", { exact: true }).first()).toBeVisible();
         await expect(page.getByText("Observed", { exact: true }).first()).toBeVisible();
         await expect(page.getByText("not an official warning service and not guaranteed real-time", { exact: false })).toBeVisible();
@@ -189,10 +189,10 @@ test.describe("Wallboard Mode", () => {
             }).toPass({ timeout: 3_000, intervals: [100] });
 
         // Losing the connection: the last data stays, with a prominent warning; reconnecting clears it.
-        await page.route("**/api/display/wallboard", (route) => route.abort());
+        await page.route("**/api/display/wallboard*", (route) => route.abort());
         await afterRefreshes(31_000, () => expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toBeVisible({ timeout: 500 }));
         await expect(page.getByRole("heading", { level: 1, name: "E2E screen" })).toBeVisible();
-        await page.unroute("**/api/display/wallboard");
+        await page.unroute("**/api/display/wallboard*");
         await afterRefreshes(60_000, () => expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toHaveCount(0, { timeout: 500 }));
 
         // 4K: the same layout scales up.

@@ -2,15 +2,18 @@
 // and attribution, and for the implemented ones their status, freshness and errors. Owners and
 // admins switch sources on and off and refresh them; nobody sees a key or a URL that carries one.
 import { useState } from "react";
-import { LinkExternal01, RefreshCw01 } from "@untitledui/icons";
+import { AlertTriangle, LinkExternal01, RefreshCw01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Toggle } from "@/components/base/toggle/toggle";
+import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatNumber } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
+import { sourceGapMessage } from "@/shared/centre/gaps";
+import type { SourceReliability } from "@/shared/centre/history";
 import { CATEGORY_LABELS } from "@/shared/centre/sources";
 import type { SourceHealth } from "@/shared/centre/types";
 import { centreApi } from "../centre-api";
@@ -24,7 +27,91 @@ const ELIGIBILITY: Record<string, string> = {
     unsupported: "No permitted interface",
 };
 
-const SourceCard = ({ health, canManage, onChange }: { health: SourceHealth; canManage: boolean; onChange: (sources: SourceHealth[]) => void }) => {
+/** Small daily bars (records collected, or availability), drawn from the daily rollups; the values are in the title and the text beside it. */
+const Bars = ({ values, label, max }: { values: (number | null)[]; label: string; max?: number }) => {
+    const top = max ?? Math.max(1, ...values.map((v) => v ?? 0));
+    return (
+        <span className="inline-flex h-6 items-end gap-px align-middle" role="img" aria-label={label}>
+            {values.map((v, i) => (
+                <span
+                    key={i}
+                    className={v === null ? "w-1 bg-quaternary" : "w-1 bg-fg-brand-secondary"}
+                    style={{ height: `${v === null ? 8 : Math.max(6, (v / top) * 100)}%` }}
+                />
+            ))}
+        </span>
+    );
+};
+
+const minutes = (m: number) => (m < 120 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`);
+
+const Reliability = ({ r }: { r: SourceReliability }) => (
+    <div className="flex flex-col gap-2 rounded-lg bg-secondary p-3">
+        <p className="text-xs font-semibold text-secondary">Reliability, last 30 days</p>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-2 xl:grid-cols-3">
+            <div>
+                <dt className="inline text-tertiary">Availability: </dt>
+                <dd className="inline text-secondary">{r.availability === null ? "–" : `${r.availability}% of attempts succeeded`}</dd>
+            </div>
+            <div>
+                <dt className="inline text-tertiary">Average retrieval: </dt>
+                <dd className="inline text-secondary">{r.avgMs === null ? "–" : `${formatNumber(r.avgMs)} ms`}</dd>
+            </div>
+            <div>
+                <dt className="inline text-tertiary">Publication to collection: </dt>
+                <dd className="inline text-secondary">
+                    {r.avgDelayS === null ? "provider gives no time" : `${minutes(Math.round(r.avgDelayS / 60))} on average`}
+                    {r.maxDelayS ? `, at most ${minutes(Math.round(r.maxDelayS / 60))}` : ""}
+                </dd>
+            </div>
+            <div>
+                <dt className="inline text-tertiary">Consecutive failures: </dt>
+                <dd className="inline text-secondary">{r.consecutiveFailures}</dd>
+            </div>
+            <div>
+                <dt className="inline text-tertiary">Longest gap: </dt>
+                <dd className="inline text-secondary">{r.longestGapMinutes ? minutes(r.longestGapMinutes) : "–"}</dd>
+            </div>
+            <div>
+                <dt className="inline text-tertiary">Last validated: </dt>
+                <dd className="inline text-secondary">
+                    <When iso={r.lastValidatedAt} />
+                </dd>
+            </div>
+        </dl>
+        {r.days.length > 1 && (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-tertiary">
+                <span className="flex items-center gap-2">
+                    Records per day{" "}
+                    <Bars
+                        values={r.days.map((d) => d.recordsMax)}
+                        label={`Records collected per day: ${r.days.map((d) => `${d.date} ${d.recordsMax}`).join(", ")}`}
+                    />
+                </span>
+                <span className="flex items-center gap-2">
+                    Availability per day{" "}
+                    <Bars
+                        values={r.days.map((d) => d.availability)}
+                        max={100}
+                        label={`Availability per day: ${r.days.map((d) => `${d.date} ${d.availability ?? "none"}%`).join(", ")}`}
+                    />
+                </span>
+            </div>
+        )}
+    </div>
+);
+
+const SourceCard = ({
+    health,
+    canManage,
+    onChange,
+    reliability,
+}: {
+    health: SourceHealth;
+    canManage: boolean;
+    onChange: (sources: SourceHealth[]) => void;
+    reliability?: SourceReliability;
+}) => {
     const toast = useToast();
     const [busy, setBusy] = useState<"toggle" | "refresh" | null>(null);
     const s = health.source;
@@ -66,6 +153,12 @@ const SourceCard = ({ health, canManage, onChange }: { health: SourceHealth; can
                     </div>
                     <p className="text-sm text-secondary">{s.dataset}</p>
                     <p className="text-xs text-tertiary">{health.statusDetail}</p>
+                    {s.implemented && sourceGapMessage(health) && (
+                        <p className="flex items-start gap-1.5 text-xs font-medium text-secondary">
+                            <AlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0 text-fg-warning-primary" />
+                            {sourceGapMessage(health)}
+                        </p>
+                    )}
                 </div>
                 {s.implemented && canManage && (
                     <div className="flex shrink-0 items-center gap-3">
@@ -173,6 +266,7 @@ const SourceCard = ({ health, canManage, onChange }: { health: SourceHealth; can
                     </>
                 )}
             </dl>
+            {reliability && <Reliability r={reliability} />}
             <p className="text-xs text-tertiary">{s.notes}</p>
             {s.attribution && <p className="text-xs text-quaternary">Attribution: {s.attribution}</p>}
             <Button
@@ -203,10 +297,28 @@ export const CentreSourcesPage = ({ data }: { data: PageData<"centre-sources"> }
                 description="Every public source investigated: what's connected, what needs a key or permission, and what can't be used. A source is Active only after a real retrieval was validated."
             />
             <CentreNotices shell={data} sources={sources} />
+            {implemented.some((s) => sourceGapMessage(s)) && (
+                <Notice title="Information gaps" color="warning">
+                    <ul className="flex list-disc flex-col gap-1 pl-4">
+                        {implemented
+                            .map((s) => sourceGapMessage(s))
+                            .filter((m): m is string => !!m)
+                            .map((m) => (
+                                <li key={m}>{m}</li>
+                            ))}
+                    </ul>
+                </Notice>
+            )}
             <Card title={`Connected and available (${implemented.length})`}>
                 <ul className="divide-y divide-secondary">
                     {implemented.map((s) => (
-                        <SourceCard key={s.source.id} health={s} canManage={data.canManage} onChange={setSources} />
+                        <SourceCard
+                            key={s.source.id}
+                            health={s}
+                            canManage={data.canManage}
+                            onChange={setSources}
+                            reliability={data.reliability.find((r) => r.sourceId === s.source.id)}
+                        />
                     ))}
                 </ul>
             </Card>

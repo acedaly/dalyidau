@@ -62,29 +62,31 @@ export const AttendanceBars = ({ rows, caption }: { rows: AttendanceRow[]; capti
                 );
             })}
         </ul>
-        <table className="sr-only">
-            <caption>{caption}</caption>
-            <thead>
-                <tr>
-                    <th scope="col">Event</th>
-                    <th scope="col">Invited</th>
-                    <th scope="col">Attending</th>
-                    <th scope="col">Declined</th>
-                    <th scope="col">Awaiting reply</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows.map((row) => (
-                    <tr key={row.label}>
-                        <th scope="row">{row.label}</th>
-                        <td>{row.invited}</td>
-                        <td>{row.attending}</td>
-                        <td>{row.declined}</td>
-                        <td>{Math.max(row.invited - row.attending - row.declined, 0)}</td>
+        <div className="sr-only">
+            <table>
+                <caption>{caption}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Event</th>
+                        <th scope="col">Invited</th>
+                        <th scope="col">Attending</th>
+                        <th scope="col">Declined</th>
+                        <th scope="col">Awaiting reply</th>
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={row.label}>
+                            <th scope="row">{row.label}</th>
+                            <td>{row.invited}</td>
+                            <td>{row.attending}</td>
+                            <td>{row.declined}</td>
+                            <td>{Math.max(row.invited - row.attending - row.declined, 0)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     </figure>
 );
 
@@ -95,7 +97,7 @@ export const TrendChart = ({ points, label, caption }: { points: { date: string;
             <div className="h-48 w-full" aria-hidden="true">
                 {mounted ? (
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+                        <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -16 }} accessibilityLayer={false}>
                             <defs>
                                 <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="0%" stopColor="var(--chart-series)" stopOpacity={0.25} />
@@ -139,23 +141,25 @@ export const TrendChart = ({ points, label, caption }: { points: { date: string;
                     <Skeleton className="size-full" />
                 )}
             </div>
-            <table className="sr-only">
-                <caption>{caption}</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Date</th>
-                        <th scope="col">{label}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {points.map((p) => (
-                        <tr key={p.date}>
-                            <td>{formatDate(p.date)}</td>
-                            <td>{p.value}</td>
+            <div className="sr-only">
+                <table>
+                    <caption>{caption}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">{label}</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {points.map((p) => (
+                            <tr key={p.date}>
+                                <td>{formatDate(p.date)}</td>
+                                <td>{p.value}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </figure>
     );
 };
@@ -221,25 +225,27 @@ export const CompletionBars = ({ points, caption }: { points: CompletionPoint[];
                     <Skeleton className="size-full" />
                 )}
             </div>
-            <table className="sr-only">
-                <caption>{caption}</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Period</th>
-                        <th scope="col">On time</th>
-                        <th scope="col">Late</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {points.map((p) => (
-                        <tr key={p.start}>
-                            <th scope="row">{p.label}</th>
-                            <td>{p.onTime}</td>
-                            <td>{p.late}</td>
+            <div className="sr-only">
+                <table>
+                    <caption>{caption}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Period</th>
+                            <th scope="col">On time</th>
+                            <th scope="col">Late</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {points.map((p) => (
+                            <tr key={p.start}>
+                                <th scope="row">{p.label}</th>
+                                <td>{p.onTime}</td>
+                                <td>{p.late}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </figure>
     );
 };

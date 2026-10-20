@@ -16,6 +16,14 @@ The source inventory for the [Intelligence Centre](INTELLIGENCE_CENTRE.md): ever
 | **Unsupported (no permitted interface)**                           | Ausgrid and Essential Energy outages; the BoM website's RSS/JSON and radar                                                                                                                                                                                                                                                     |
 | **Deferred** (not investigated in depth this milestone)            | Queensland, South Australia, Western Australia, Tasmania and Northern Territory emergency feeds; BoM Space Weather API; TfNSW traffic cameras; telecommunications and water-supply outages                                                                                                                                     |
 
+## Reliability and gaps (9.1)
+
+Each collection run now records its publication-to-collection delay, and rolls into a daily record per source (`ic_source_daily`): attempts, successes, timing, records and the longest gap between successful retrievals. The Sources page shows 30 days of availability, retrieval time, delay, consecutive failures and the last validated retrieval. Every source that isn't active has a plain gap message (`src/shared/centre/gaps.ts`), shown wherever its data would be: "Road disruptions aren't available: the Transport for NSW API key (TFNSW_API_KEY) hasn't been added. This isn't the same as there being none." See [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#analytics-and-source-health).
+
+**Radar and satellite imagery:** not used. The Bureau's radar and satellite images are published for viewing on its website; no interface licensed for redistribution in another application was found, so wallboards show none (satellite _thermal detections_ from DEA Hotspots and NASA FIRMS are points, not imagery).
+
+**Basemap:** OpenStreetMap data (© OpenStreetMap contributors, ODbL) through the Protomaps build, extracted once and hosted in this site's own R2 bucket; not a live provider and not fetched by the Centre's collector.
+
 ## Statuses
 
 Shown for every source on the Sources page, worked out on every request (`statusOf` in `worker/centre/store.ts`):

@@ -110,7 +110,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 101 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 117 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
@@ -199,6 +199,22 @@ describe("who may call the portal through the MCP gateway", () => {
                 "centre_list_watch_areas",
                 "centre_list_changes",
                 "centre_get_watch_briefing",
+                "centre_search_changes",
+                "centre_get_timeline",
+                "centre_get_replay_metadata",
+                "centre_get_trends",
+                "centre_list_rules",
+                "centre_list_rule_matches",
+                "centre_generate_report",
+                "centre_list_reports",
+                "centre_get_report",
+                "centre_list_correlations",
+                "centre_get_source_reliability",
+                "centre_list_wallboards",
+                "centre_create_rule",
+                "centre_update_rule",
+                "centre_schedule_report",
+                "centre_save_report",
                 "assets_search",
                 "assets_list",
                 "assets_get",
@@ -220,12 +236,12 @@ describe("who may call the portal through the MCP gateway", () => {
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
         expect(
             writes.every((n) =>
-                /_(create|update|append|reschedule|schedule|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion|refresh)/.test(
+                /_(create|update|append|reschedule|schedule|save|complete|reopen|add_comment|link_knowledge|archive|unarchive|capture_text|request_analysis|approve_suggestion|refresh)/.test(
                     n,
                 ),
             ),
         ).toBe(true);
-        expect(writes).toHaveLength(32);
+        expect(writes).toHaveLength(36);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {

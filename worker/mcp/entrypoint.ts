@@ -29,6 +29,7 @@ import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
 import { ASSETS_TOOLS } from "./assets";
 import { CALENDAR_TOOLS } from "./calendar";
 import { CENTRE_TOOLS } from "./centre";
+import { CENTRE_HISTORY_TOOLS } from "./centre-history";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
@@ -73,6 +74,7 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...PLANNER_TOOLS,
     ...TODAY_TOOLS,
     ...CENTRE_TOOLS,
+    ...CENTRE_HISTORY_TOOLS,
     ...ASSETS_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));

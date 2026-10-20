@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { PortalMcpRequest, PortalMcpResponse } from "../../worker/mcp/entrypoint";
 
 /**
- * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence, Daly Calendar, the Daily Planner and Home & Assets in Daly Portal) and how each one is advertised.
+ * The Daly MCP tools (Daly Tasks, Daly Knowledge, Daly Intelligence, Daly Calendar, the Daily Planner, the Intelligence Centre and Home & Assets in Daly Portal) and how each one is advertised.
  *
  * This Worker holds the MCP descriptions and a first round of input validation only. Every call
  * goes over the private `PORTAL` service binding to the portal Worker's `PortalMcpEntrypoint`
@@ -107,6 +107,22 @@ export const PORTAL_TOOL_NAMES = [
     "centre_list_watch_areas",
     "centre_list_changes",
     "centre_get_watch_briefing",
+    "centre_search_changes",
+    "centre_get_timeline",
+    "centre_get_replay_metadata",
+    "centre_get_trends",
+    "centre_list_rules",
+    "centre_list_rule_matches",
+    "centre_generate_report",
+    "centre_list_reports",
+    "centre_get_report",
+    "centre_list_correlations",
+    "centre_get_source_reliability",
+    "centre_list_wallboards",
+    "centre_create_rule",
+    "centre_update_rule",
+    "centre_schedule_report",
+    "centre_save_report",
     "assets_search",
     "assets_list",
     "assets_get",
@@ -155,6 +171,10 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "leave_update_proposal",
     "planner_schedule_task",
     "planner_update_block",
+    "centre_create_rule",
+    "centre_update_rule",
+    "centre_schedule_report",
+    "centre_save_report",
     "assets_create",
     "assets_update",
     "assets_create_maintenance",
@@ -252,6 +272,103 @@ const CENTRE =
 const centreRecordId = portalId("icr", "Intelligence Centre record");
 const watchAreaId = portalId("icw", "watch area");
 const hazard = z.enum(["fire", "fire_danger", "weather", "flood", "water", "transport", "air", "power", "earthquake", "hotspot", "space_weather", "emergency"]);
+const centreRuleId = portalId("icu", "monitoring rule");
+const centreReportId = portalId("icp", "situation report");
+const instant = z.iso.datetime({ offset: true }).describe("An ISO 8601 time with its offset, e.g. 2026-10-20T09:00:00+11:00.");
+const centreRegion = z
+    .enum([
+        "nsw",
+        "act",
+        "greater_sydney",
+        "hunter",
+        "illawarra_south_coast",
+        "north_coast",
+        "new_england_north_west",
+        "central_west_orana",
+        "riverina_murray",
+        "far_west",
+        "snowy_tablelands",
+        "australia",
+    ])
+    .describe("A named extent (approximate rectangles inside NSW). Incidents and warnings come from NSW and ACT sources only.");
+const centreReportScope = z
+    .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("nsw") }).strict(),
+        z.object({ kind: z.literal("watch"), watchId: watchAreaId }).strict(),
+        z.object({ kind: z.literal("region"), region: centreRegion }).strict(),
+        z.object({ kind: z.literal("incident"), recordId: centreRecordId }).strict(),
+        z.object({ kind: z.literal("hazard"), category: hazard, region: centreRegion.optional() }).strict(),
+    ])
+    .describe("What the report covers: all of NSW, one of the person's watch areas, a region, one incident, or one hazard in a region.");
+const km = z.literal("km").optional();
+const centreRuleDefinition = z
+    .discriminatedUnion("condition", [
+        z
+            .object({
+                condition: z.literal("official_level"),
+                watchId: watchAreaId,
+                minLevel: z.number().int().min(1).max(3).describe("1 Advice, 2 Watch and Act, 3 Emergency Warning, as the provider publishes them."),
+                radiusKm: z.number().min(0).max(100).optional(),
+                unit: km,
+                categories: z.array(hazard).optional(),
+            })
+            .strict(),
+        z
+            .object({
+                condition: z.literal("fire_within"),
+                watchId: watchAreaId,
+                radiusKm: z.number().min(1).max(100),
+                unit: km,
+                notUnderControlOnly: z.boolean().optional(),
+            })
+            .strict(),
+        z.object({ condition: z.literal("road_on_corridor"), watchId: watchAreaId, closuresOnly: z.boolean().optional() }).strict(),
+        z
+            .object({
+                condition: z.literal("gauge_threshold"),
+                station: z.string().regex(/^[A-Za-z0-9_-]{3,20}$/),
+                direction: z.enum(["above", "below"]),
+                threshold: z.number().min(-10).max(40),
+                unit: z.literal("m"),
+            })
+            .strict(),
+        z.object({ condition: z.literal("wind_gust"), watchId: watchAreaId, threshold: z.number().positive(), unit: z.enum(["km/h", "kn"]) }).strict(),
+        z
+            .object({
+                condition: z.literal("temperature"),
+                watchId: watchAreaId,
+                direction: z.enum(["above", "below"]),
+                threshold: z.number().min(-20).max(55),
+                unit: z.literal("°C"),
+            })
+            .strict(),
+        z
+            .object({
+                condition: z.literal("total_fire_ban"),
+                district: z.string().trim().min(1).max(80),
+                when: z.enum(["today", "tomorrow", "either"]).optional(),
+            })
+            .strict(),
+        z
+            .object({
+                condition: z.literal("earthquake"),
+                watchId: watchAreaId,
+                minMagnitude: z.number().min(0).max(10),
+                radiusKm: z.number().min(1).max(3000),
+                unit: km,
+            })
+            .strict(),
+        z
+            .object({
+                condition: z.literal("source_stale"),
+                sourceId: z.string().regex(/^[a-z0-9-]{3,40}$/),
+                minutes: z.number().int().min(15).max(10080).nullable().optional(),
+            })
+            .strict(),
+    ])
+    .describe(
+        "The condition, with its units stated. Areas are the person's own watch areas (by id, from centre_list_watch_areas): never coordinates. Thresholds the person chooses are theirs, not official thresholds.",
+    );
 const ASSETS =
     'Home & Assets (daly.id.au/portal/assets): what the household owns, maintains, insures or will replace. Only assets the person owns or that are shared with them; values, costs, insurance and documents only where those are shared. Report records as given: never estimate a value, a service interval or a date, and never say something is insured ("linked to a verified policy" is the most a record says).';
 const assetId = portalId("ast", "asset");
@@ -664,6 +781,161 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
         description: `${CENTRE} A deterministic briefing (NSW, or one watch area): facts from stored records with refs, times and links, what wasn't included, and an AI interpretation only if the person already prepared one. Never runs a model. Read-only.`,
         input: z.object({ watchId: watchAreaId.optional() }).strict(),
         annotations: READ,
+    },
+    centre_search_changes: {
+        description: `${CENTRE} The "What's changed" feed across every enabled source: new incidents and warnings, escalations and downgrades, changed areas, fire danger and Total Fire Ban changes, closures and reopenings, outages, river rises and source failures, filtered by period, hazard, region, watch area, level, source and change type. Significant only by default. Read-only.`,
+        input: z
+            .object({
+                hours: z.number().int().min(1).max(744).optional(),
+                hazard: hazard.optional(),
+                region: centreRegion.optional(),
+                watchId: watchAreaId.optional(),
+                minLevel: z.number().int().min(0).max(3).optional(),
+                sourceId: z
+                    .string()
+                    .regex(/^[a-z0-9-]{3,40}$/)
+                    .optional(),
+                changeType: z.enum(["new", "escalation", "area", "fire_danger", "ended", "measurement", "source", "updated"]).optional(),
+                significantOnly: z.boolean().optional(),
+                limit: limit(200),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_timeline: {
+        description: `${CENTRE} One record's timeline from what the Centre collected: first collection, the provider's publication and updates (with the provider's time and when it was collected), level, status and area changes, ending or leaving the feed, nearby observations, road disruptions and satellite detections, correlations and collection gaps, each labelled official, observed, derived or collection. Read-only.`,
+        input: z.object({ recordId: centreRecordId, limit: limit(300) }).strict(),
+        annotations: READ,
+    },
+    centre_get_replay_metadata: {
+        description: `${CENTRE} What historical replay can show: when history recording began, the oldest retained moment, the moments things changed (for a period of up to 31 days) and collection gaps; optionally the records the Centre had stored at one past moment. Never fills the past in with later information. Read-only.`,
+        input: z
+            .object({ from: instant.optional(), to: instant.optional(), at: instant.optional(), region: centreRegion.optional(), limit: limit(100) })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_trends: {
+        description: `${CENTRE} Counts over 7, 30 or 90 days of what the Centre collected: new official records by category and day, escalations and downgrades, significant changes, activity by region and event type, daily weather maxima, and how many days each source was collected. Not complete or official statistics, forecasts or risk scores: say so. Read-only.`,
+        input: z.object({ days: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional() }).strict(),
+        annotations: READ,
+    },
+    centre_list_rules: {
+        description: `${CENTRE} The person's own monitoring rules: condition, threshold with its unit (marked when it's the person's own rather than official), watch area id, lookback, cooldown, notification and matches in the last seven days. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    centre_list_rule_matches: {
+        description: `${CENTRE} Matches of the person's monitoring rules, newest first: why each matched, the value against the threshold, the evidence's own time and whether it notified. A match isn't an official warning. Read-only.`,
+        input: z.object({ ruleId: centreRuleId.optional(), openOnly: z.boolean().optional(), limit: limit(200) }).strict(),
+        annotations: READ,
+    },
+    centre_generate_report: {
+        description: `${CENTRE} Builds a deterministic situation report (not saved) for NSW, a watch area, a region, an incident or a hazard: overview, official warnings, incidents, significant changes, fire danger, observations, flood and water, transport and infrastructure, possible relationships, information gaps and sources, each fact with its nature, time and link. A past moment is reported as the Centre knew it then. Never runs a model. Read-only.`,
+        input: z.object({ scope: centreReportScope, at: instant.optional(), periodHours: z.number().int().min(1).max(744).optional() }).strict(),
+        annotations: READ,
+    },
+    centre_list_reports: {
+        description: `${CENTRE} The person's saved situation reports (newest first) and their report schedules. Read-only.`,
+        input: z.object({ limit: limit(100) }).strict(),
+        annotations: READ,
+    },
+    centre_get_report: {
+        description: `${CENTRE} One saved situation report in full, with any narrative labelled as AI interpretation, not facts. Read-only.`,
+        input: z.object({ reportId: centreReportId }).strict(),
+        annotations: READ,
+    },
+    centre_list_correlations: {
+        description: `${CENTRE} Cross-source relationships with their evidence: "explicit" when an authoritative source links the records itself, otherwise "derived" by a deterministic rule (may be related; not official; proximity isn't cause), each with factors, confidence and limitations. Read-only.`,
+        input: z
+            .object({
+                recordId: centreRecordId.optional(),
+                region: centreRegion.optional(),
+                basis: z.enum(["explicit", "derived"]).optional(),
+                limit: limit(100),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_get_source_reliability: {
+        description: `${CENTRE} Source reliability from the Centre's daily records: availability, retrieval time, publication-to-collection delay, consecutive failures, longest gap and last validation, per source (and per day for one source). Read-only.`,
+        input: z
+            .object({
+                sourceId: z
+                    .string()
+                    .regex(/^[a-z0-9-]{3,40}$/)
+                    .optional(),
+                days: z.number().int().min(1).max(400).optional(),
+            })
+            .strict(),
+        annotations: READ,
+    },
+    centre_list_wallboards: {
+        description: `${CENTRE} The person's wallboard profiles: views and their widgets, theme, rotation and how many screens are active. Display addresses are never returned. Read-only.`,
+        input: z.object({}).strict(),
+        annotations: READ,
+    },
+    centre_create_rule: {
+        description: `${CENTRE} WRITE: create one monitoring rule the person asked for, over one of their watch areas (never coordinates). Use the units stated in the schema; a gust can be km/h or knots. Their thresholds aren't official ones. Confirm with the person first. Send a fresh requestId.`,
+        input: z
+            .object({
+                name: z.string().trim().min(1).max(80),
+                definition: centreRuleDefinition,
+                lookbackMinutes: z.number().int().min(15).max(10080).optional(),
+                cooldownMinutes: z.number().int().min(0).max(10080).optional(),
+                notify: z.enum(["none", "in_app", "email"]).optional(),
+                enabled: z.boolean().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    centre_update_rule: {
+        description: `${CENTRE} WRITE: change one of the person's monitoring rules (only the fields given change; pause it with enabled: false). Pass the version you read. Rules can't be deleted through this connector.`,
+        input: z
+            .object({
+                ruleId: centreRuleId,
+                version,
+                name: z.string().trim().min(1).max(80).optional(),
+                definition: centreRuleDefinition.optional(),
+                lookbackMinutes: z.number().int().min(15).max(10080).optional(),
+                cooldownMinutes: z.number().int().min(0).max(10080).optional(),
+                notify: z.enum(["none", "in_app", "email"]).optional(),
+                enabled: z.boolean().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    centre_schedule_report: {
+        description: `${CENTRE} WRITE: schedule a daily or weekly situation report for NSW, a watch area, a region or a hazard (weekday 0 Sunday … 6 Saturday; hour in the time zone, default Australia/Sydney). Runs only when the owner has switched scheduled reports on, and skips a report whose facts haven't changed. Confirm first. Send a fresh requestId.`,
+        input: z
+            .object({
+                name: z.string().trim().min(1).max(80),
+                scope: centreReportScope,
+                frequency: z.enum(["daily", "weekly"]),
+                weekday: z.number().int().min(0).max(6).nullable().optional(),
+                hour: z.number().int().min(0).max(23),
+                timeZone: z.string().max(60).optional(),
+                periodHours: z.number().int().min(1).max(744).optional(),
+                notify: z.enum(["none", "in_app", "email"]).optional(),
+                saveToKnowledge: z.boolean().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
+    },
+    centre_save_report: {
+        description: `${CENTRE} WRITE: build a deterministic situation report and save it to the person's reports (it can then be opened, printed or saved to Knowledge in the portal). Never runs a model. Send a fresh requestId.`,
+        input: z
+            .object({
+                scope: centreReportScope,
+                at: instant.optional(),
+                periodHours: z.number().int().min(1).max(744).optional(),
+                title: z.string().trim().min(1).max(160).optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: WRITE,
     },
 
     /* ---------------------------- Home & Assets ----------------------------- */

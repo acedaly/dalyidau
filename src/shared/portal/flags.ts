@@ -79,6 +79,34 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Intelligence Centre",
     },
+    "intelligence_centre.history": {
+        label: "Intelligence Centre history recording",
+        description:
+            "Keep a versioned copy of each record's state at every collection, for incident timelines and historical replay. Records already collected when it's switched on start as a baseline: earlier states weren't kept. While off, nothing new is versioned; timelines show detected changes only and replay covers only the periods recorded.",
+        default: false,
+        group: "Intelligence Centre",
+    },
+    "intelligence_centre.rules": {
+        label: "Intelligence Centre monitoring rules",
+        description:
+            "Evaluate everyone's monitoring rules after each collection and notify them of matches (in the portal; by email only with alert emails on too). Rules can be created and tested against history while it's off; nothing is evaluated on a schedule.",
+        default: false,
+        group: "Intelligence Centre",
+    },
+    "intelligence_centre.reports": {
+        label: "Scheduled situation reports",
+        description:
+            "Generate scheduled daily and weekly situation reports. Reports can always be generated on demand. A scheduled report isn't regenerated when the facts haven't changed since the last one.",
+        default: false,
+        group: "Intelligence Centre",
+    },
+    "intelligence_centre.assistant": {
+        label: "Intelligence Centre assistant (AI)",
+        description:
+            "Let the Intelligence Centre's assistant use Daly Intelligence to understand questions and write grounded answers from stored records. Also needs Daly Intelligence switched on. While off, the assistant answers from built-in question types without any model.",
+        default: false,
+        group: "Intelligence Centre",
+    },
     "assets.ai": {
         label: "Home & Assets AI suggestions",
         description:

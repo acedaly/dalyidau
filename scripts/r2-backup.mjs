@@ -87,6 +87,7 @@ const rows = d1Query(
     env,
     `SELECT id, owner_email, object_id, r2_key, bytes, content_type FROM attachments WHERE status <> 'deleted' AND status <> 'uploading' AND (retention = 'permanent' OR keep = 1)
      UNION ALL SELECT id, owner_email, asset_id AS object_id, r2_key, bytes, content_type FROM asset_files WHERE status = 'stored'
+     UNION ALL SELECT id, email AS owner_email, id AS object_id, object_key AS r2_key, NULL AS bytes, 'application/json' AS content_type FROM ic_reports
      ORDER BY id`,
     source,
 )[0];
@@ -95,7 +96,9 @@ const out = join(ROOT, "backups", `r2-${env}-${stamp}`);
 mkdirSync(out, { recursive: true, mode: 0o700 });
 chmodSync(join(ROOT, "backups"), 0o700);
 // Photo previews (thumb_key) aren't copied: they're made from the photo and can be made again.
-console.log(`Backing up ${rows.length} permanent attachment(s) and asset file(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`);
+console.log(
+    `Backing up ${rows.length} permanent attachment(s), asset file(s) and situation report(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`,
+);
 
 const files = [];
 for (const row of rows) {
@@ -110,7 +113,8 @@ for (const row of rows) {
     }
     const bytes = readFileSync(tmp);
     rmSync(tmp);
-    if (bytes.length !== Number(row.bytes)) {
+    // Reports don't record their size in D1; every other file must match the size D1 holds.
+    if (row.bytes !== null && bytes.length !== Number(row.bytes)) {
         report.fail(`${row.id}: ${bytes.length} bytes, D1 says ${row.bytes}`);
         continue;
     }

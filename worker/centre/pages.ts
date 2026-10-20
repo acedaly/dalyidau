@@ -1,7 +1,11 @@
 // First-render data for the Intelligence Centre's pages (/portal/intelligence-centre/*). The
 // portal page router has already checked "centre.use". Anything the caller can't see returns null
 // (the 404 page): someone else's watch area or wallboard, an unknown record.
+import { ZodError } from "zod";
+import { ASSISTANT_EXAMPLES } from "../../src/shared/centre/assistant";
+import { REGION_IDS, type RegionId } from "../../src/shared/centre/regions";
 import type { HazardCategory } from "../../src/shared/centre/sources";
+import { IMPLEMENTED_SOURCES } from "../../src/shared/centre/sources";
 import { CENTRE_HAZARD_TABS, type CentreHazardTab, type CentreRoute, type CentreShell } from "../../src/shared/centre/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
@@ -11,14 +15,39 @@ import { loadFlags } from "../portal/flags";
 import { HttpError } from "../portal/http";
 import { listAlerts, unacknowledgedCount } from "./alerts";
 import { filteredRecords } from "./api";
+import { feedFilters } from "./api";
 import { buildBriefing, withInterpretation } from "./briefing";
 import { correlations } from "./correlate";
+import { centreAnalytics, changeFeed, recordTimeline, replayMeta, situationTimeline, sourceReliability } from "./history";
+import { getReport, listReports, listSchedules } from "./reports";
+import { listMatches, listRules } from "./rules";
 import { getRecord, listChanges, listRecords, listRuns, loadCentreSettings, loadPreferences, seriesFor, sourceHealth } from "./store";
 import { centreSummary } from "./summary";
-import { listWallboards } from "./wallboard";
+import { listWallboards, requireWallboard } from "./wallboard";
 import { fireDistricts, listWatches, requireWatch } from "./watch";
 
-export type CentrePage = "overview" | "map" | "records" | "record" | "hazards" | "history" | "briefings" | "watches" | "wallboards" | "sources" | "settings";
+export type CentrePage =
+    | "overview"
+    | "map"
+    | "records"
+    | "record"
+    | "hazards"
+    | "history"
+    | "briefings"
+    | "watches"
+    | "wallboards"
+    | "wallboard"
+    | "sources"
+    | "settings"
+    | "changes"
+    | "timeline"
+    | "replay"
+    | "analytics"
+    | "correlations"
+    | "rules"
+    | "reports"
+    | "report"
+    | "assistant";
 
 const HAZARD_CATEGORIES: Record<CentreHazardTab, HazardCategory[]> = {
     weather: ["weather"],
@@ -42,6 +71,10 @@ async function shell(env: Env, user: PortalUser): Promise<CentreShell> {
         ingestionOn: flags["intelligence_centre.ingestion"],
         wallboardOn: flags["intelligence_centre.wallboard"],
         emailOn: flags["intelligence_centre.alerts.email"],
+        historyOn: flags["intelligence_centre.history"],
+        rulesOn: flags["intelligence_centre.rules"],
+        reportsOn: flags["intelligence_centre.reports"],
+        assistantOn: flags["intelligence_centre.assistant"],
         aiAvailable: availability(env, config).recommendations,
         preferences: prefs.preferences,
         preferencesVersion: prefs.version,
@@ -61,6 +94,15 @@ const fireDangerOf = (records: Awaited<ReturnType<typeof listRecords>>["records"
             banTomorrow: r.attributes.banTomorrow === "yes",
             updatedAt: r.updatedAt,
         }));
+
+/** River gauges: the ones collected, by station number and name. */
+async function gaugeList(env: Env) {
+    const rows = await env.DB.prepare("SELECT external_id, title FROM ic_records WHERE source_id = 'bom-water' ORDER BY title LIMIT 50").all<{
+        external_id: string;
+        title: string;
+    }>();
+    return rows.results.map((r) => ({ station: r.external_id.replace(/^gauge-/, ""), name: r.title }));
+}
 
 export async function loadCentrePage(env: Env, user: PortalUser, url: URL, page: CentrePage, id?: string): Promise<CentreRoute | null> {
     const base = await shell(env, user);
@@ -118,10 +160,11 @@ export async function loadCentrePage(env: Env, user: PortalUser, url: URL, page:
             const found = await getRecord(env.DB, id);
             if (!found) return null;
             const health = await sourceHealth(env);
-            const [changes, series, related] = await Promise.all([
+            const [changes, series, related, timeline] = await Promise.all([
                 listChanges(env.DB, { recordId: id, limit: 100 }),
                 seriesFor(env.DB, id, new Date(Date.now() - settings.retention.seriesDays * 86_400_000).toISOString()),
                 correlations(env.DB, settings, { recordId: id }),
+                recordTimeline(env, id),
             ]);
             return {
                 route: "centre-record",
@@ -132,6 +175,7 @@ export async function loadCentrePage(env: Env, user: PortalUser, url: URL, page:
                 series,
                 related,
                 source: health.find((h) => h.source.id === found.record.sourceId)!,
+                timeline: timeline!,
             };
         }
         case "hazards": {
@@ -195,7 +239,115 @@ export async function loadCentrePage(env: Env, user: PortalUser, url: URL, page:
                 watches: await listWatches(env.DB, user.email),
             };
         case "sources":
-            return { route: "centre-sources", ...base, sources: await sourceHealth(env), runs: await listRuns(env.DB, { limit: 200 }) };
+            return {
+                route: "centre-sources",
+                ...base,
+                sources: await sourceHealth(env),
+                runs: await listRuns(env.DB, { limit: 200 }),
+                reliability: await sourceReliability(env.DB, 30),
+            };
+        case "wallboard": {
+            if (!id) return null;
+            const wallboard = await requireWallboard(env.DB, user.email, id).catch(() => null);
+            if (!wallboard) return null;
+            return {
+                route: "centre-wallboard",
+                ...base,
+                wallboard,
+                watches: await listWatches(env.DB, user.email),
+                districts: await fireDistricts(env.DB),
+                gauges: await gaugeList(env),
+            };
+        }
+        case "changes": {
+            const filters = await feedFilters(env, user, url).catch((error: unknown) => {
+                // Bad filters open the default feed.
+                if (error instanceof HttpError || error instanceof ZodError) return feedFilters(env, user, new URL(url.pathname, url));
+                throw error;
+            });
+            const feed = await changeFeed(env, filters, 300);
+            const { watchArea: _w, ...plain } = filters;
+            return {
+                route: "centre-changes",
+                ...base,
+                changes: feed.changes,
+                truncated: feed.truncated,
+                counts: feed.counts,
+                filters: plain,
+                watches: await listWatches(env.DB, user.email),
+                sources: await sourceHealth(env),
+            };
+        }
+        case "timeline": {
+            const watches = await listWatches(env.DB, user.email);
+            const watchId = url.searchParams.get("watch");
+            const watch = watchId ? (watches.find((w) => w.id === watchId) ?? null) : null;
+            const regionParam = url.searchParams.get("region");
+            const region = regionParam && (REGION_IDS as readonly string[]).includes(regionParam) ? (regionParam as RegionId) : null;
+            const hours = [6, 24, 72, 168, 720].includes(Number(url.searchParams.get("hours"))) ? Number(url.searchParams.get("hours")) : 24;
+            return {
+                route: "centre-timeline",
+                ...base,
+                timeline: await situationTimeline(env, { watch, region }, hours),
+                watches,
+                scope: { watch: watch?.id ?? null, region, hours },
+            };
+        }
+        case "replay":
+            return {
+                route: "centre-replay",
+                ...base,
+                meta: await replayMeta(env, new Date(Date.now() - 86_400_000), new Date()),
+                watches: await listWatches(env.DB, user.email),
+                basemap: settings.basemap,
+            };
+        case "analytics": {
+            const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
+            return { route: "centre-analytics", ...base, analytics: await centreAnalytics(env, days), days };
+        }
+        case "correlations":
+            return {
+                route: "centre-correlations",
+                ...base,
+                correlations: await correlations(env.DB, settings, {}),
+                windowHours: settings.correlation.windowHours,
+                distanceKm: settings.correlation.distanceKm,
+            };
+        case "rules":
+            return {
+                route: "centre-rules",
+                ...base,
+                rules: await listRules(env.DB, user.email),
+                matches: await listMatches(env.DB, user.email, { limit: 100 }),
+                watches: await listWatches(env.DB, user.email),
+                districts: await fireDistricts(env.DB),
+                gauges: await gaugeList(env),
+                sources: IMPLEMENTED_SOURCES.map((s) => ({ id: s.id, label: `${s.provider}: ${s.dataset}` })),
+            };
+        case "reports":
+            return {
+                route: "centre-reports",
+                ...base,
+                reports: await listReports(env.DB, user.email),
+                schedules: await listSchedules(env.DB, user.email),
+                watches: await listWatches(env.DB, user.email),
+            };
+        case "report": {
+            if (!id) return null;
+            const found = await getReport(env, user.email, id).catch((error: unknown) => {
+                if (error instanceof HttpError && (error.status === 404 || error.status === 410)) return null;
+                throw error;
+            });
+            return found ? { route: "centre-report", ...base, report: found.report, summary: found.summary } : null;
+        }
+        case "assistant":
+            return {
+                route: "centre-assistant",
+                ...base,
+                watches: await listWatches(env.DB, user.email),
+                aiAvailable: base.assistantOn && base.aiAvailable,
+                examples: ASSISTANT_EXAMPLES,
+            };
         case "settings": {
             const sites = await env.DB.prepare("SELECT json_extract(state, '$.sites') AS sites FROM ic_sources WHERE id = 'nsw-air-quality'").first<{
                 sites: string | null;

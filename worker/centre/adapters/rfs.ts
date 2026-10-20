@@ -339,6 +339,8 @@ export const rfsIncidentAlerts: Adapter = {
                         ["urgency", textOf(info, "urgency")],
                         ["certainty", textOf(info, "certainty")],
                         ["capIdentifier", identifier.slice(0, 200)],
+                        // The incident this alert is about, when CAP-AU names it: an explicit link the RFS publishes.
+                        ["incidentId", (params.IncidentId ?? params.incidentId ?? "").slice(0, 100)],
                     ].filter((e): e is [string, string] => !!e[1]),
                 ),
                 ended: msgType === "Cancel",

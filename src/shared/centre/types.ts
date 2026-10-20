@@ -5,8 +5,12 @@
 //  - observed: measurements and detections (weather, rivers, air, satellites), with their own times;
 //  - derived: what this application worked out (changes, correlations, briefings), always labelled.
 import { z } from "zod";
+import type { FeedChange, RecordTimeline, ReplayMeta, SituationTimeline, SourceReliability } from "./history";
+import type { ReportSchedule, ReportSummary, SituationReport } from "./reports";
+import type { MonitoringRule, RuleMatch } from "./rules";
 import type { HazardCategory, SourceDefinition, SourceStatus } from "./sources";
 import { HAZARD_CATEGORIES } from "./sources";
+import type { WallboardView } from "./wallboard";
 
 export const RECORD_KINDS = ["incident", "warning", "rating", "observation", "disruption", "detection", "event"] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
@@ -278,7 +282,7 @@ export interface CentreAlert {
     watchId: string | null;
     watchName: string | null;
     recordId: string | null;
-    kind: ChangeKind | "digest";
+    kind: ChangeKind | "digest" | "rule_match" | "report";
     title: string;
     detail: string | null;
     url: string;
@@ -293,7 +297,21 @@ export interface CentreAlert {
 export const centrePreferencesSchema = z
     .object({
         /** Show an Intelligence section on Today, and from which level. */
-        today: z.object({ enabled: z.boolean(), minLevel: z.number().int().min(0).max(3), showFireDanger: z.boolean() }).strict(),
+        today: z
+            .object({
+                enabled: z.boolean(),
+                minLevel: z.number().int().min(0).max(3),
+                showFireDanger: z.boolean(),
+                /** Significant changes in the person's watch areas (escalations, new warnings, rating and ban changes). */
+                developments: z.boolean().default(true),
+                /** Their monitoring rules' matches not yet acknowledged. */
+                ruleMatches: z.boolean().default(true),
+                /** The latest scheduled report's headline facts. */
+                reports: z.boolean().default(true),
+                /** Failures of the sources that matter most (RFS incidents, alerts, fire danger, BoM warnings). */
+                sourceFailures: z.boolean().default(true),
+            })
+            .strict(),
         /** Emails need the owner's switch, a provider, and this. Off by default. */
         email: z.object({ alerts: z.boolean(), digest: z.boolean(), digestHour: z.number().int().min(0).max(23) }).strict(),
         quietHours: z
@@ -310,7 +328,7 @@ export const centrePreferencesSchema = z
 export type CentrePreferences = z.output<typeof centrePreferencesSchema>;
 
 export const DEFAULT_CENTRE_PREFERENCES: CentrePreferences = {
-    today: { enabled: true, minLevel: 2, showFireDanger: true },
+    today: { enabled: true, minLevel: 2, showFireDanger: true, developments: true, ruleMatches: true, reports: true, sourceFailures: true },
     email: { alerts: false, digest: false, digestHour: 7 },
     quietHours: null,
     calendarMatching: false,
@@ -329,6 +347,12 @@ export const centreSettingsSchema = z
                 alertDays: z.number().int().min(7).max(400),
                 /** Raw response snapshots in R2 (only for sources whose terms allow keeping history). */
                 snapshotsPerSource: z.number().int().min(0).max(200),
+                /** Versioned record states (timelines and replay). Replay can't go back further than this. */
+                versionDays: z.number().int().min(7).max(400).default(120),
+                /** Daily source reliability rollups (far smaller than individual collection runs). */
+                sourceDailyDays: z.number().int().min(30).max(800).default(400),
+                ruleMatchDays: z.number().int().min(7).max(400).default(180),
+                reportDays: z.number().int().min(7).max(800).default(365),
             })
             .strict(),
         /** River gauges to follow from Water Data Online (station numbers). */
@@ -349,23 +373,36 @@ export const centreSettingsSchema = z
         /** Records drawn on the map at once. */
         maxMapRecords: z.number().int().min(100).max(5000),
         /**
-         * Basemap: an outline of Australia's states served from this site (Natural Earth, public domain).
-         * Third-party tiles aren't offered: every tile request would tell a tile host which area
-         * someone is looking at (often their home), and they'd need a wider Content Security Policy.
+         * Basemap. "detailed": OpenStreetMap vector tiles (towns, roads, waterways, boundaries,
+         * labels) from an archive in this site's own R2 bucket, served by the Worker, with the state
+         * outline wherever the archive doesn't reach. "outline": only the outline of Australia's
+         * states (Natural Earth). Third-party tile services aren't used: every tile request would
+         * tell a tile host which area someone is looking at (often their home).
          */
-        basemap: z.enum(["outline"]),
+        basemap: z.enum(["outline", "detailed"]),
     })
     .strict();
 export type CentreSettings = z.output<typeof centreSettingsSchema>;
 
 export const DEFAULT_CENTRE_SETTINGS: CentreSettings = {
-    retention: { recordDays: 90, changeDays: 180, seriesDays: 30, fetchRunDays: 30, alertDays: 90, snapshotsPerSource: 20 },
+    retention: {
+        recordDays: 90,
+        changeDays: 180,
+        seriesDays: 30,
+        fetchRunDays: 30,
+        alertDays: 90,
+        snapshotsPerSource: 20,
+        versionDays: 120,
+        sourceDailyDays: 400,
+        ruleMatchDays: 180,
+        reportDays: 365,
+    },
     gauges: [],
     airSites: [],
     correlation: { distanceKm: 25, windowHours: 48 },
     riverChangeMetres: 0.3,
     maxMapRecords: 2000,
-    basemap: "outline",
+    basemap: "detailed",
 };
 
 // --- Correlation ---------------------------------------------------------------------------------
@@ -381,14 +418,26 @@ export interface CorrelationEvidence {
     sourceUrl: string | null;
 }
 
+/** One consideration a correlation rule weighed, and what it found. */
+export interface CorrelationFactor {
+    factor: "geography" | "time" | "hazard" | "identifier" | "measurement" | "freshness" | "accuracy";
+    finding: string;
+}
+
 export interface Correlation {
     id: string;
     rule: string;
     title: string;
     explanation: string;
-    /** Never "high": correlation isn't confirmation. */
+    /**
+     * "explicit": an authoritative source itself links the records (a published identifier).
+     * "derived": the Centre's rule found them near each other in place and time. Never proof of cause.
+     */
+    basis: "explicit" | "derived";
+    /** Never "high": correlation isn't confirmation. An explicit link is shown as confirmed by its source instead. */
     confidence: "low" | "moderate";
     limitations: string;
+    factors: CorrelationFactor[];
     records: CorrelationEvidence[];
     centre: { lat: number; lon: number } | null;
 }
@@ -463,6 +512,9 @@ export const MAP_LAYER_LABELS: Record<MapLayer, string> = {
     watch: "My watch areas",
 };
 
+/** Wallboard themes (labels in wallboard.ts). Here so this module never imports wallboard.ts's values. */
+export const DISPLAY_THEMES = ["dark", "high_contrast"] as const;
+
 export const wallboardInputSchema = z
     .object({
         name: z.string().trim().min(1).max(60),
@@ -481,6 +533,15 @@ export const wallboardInputSchema = z
         showInterpretation: z.boolean().default(false),
         /** Draw the watch area's outline on the display (off by default: it shows a private location). */
         showWatchOutline: z.boolean().default(false),
+        theme: z.enum(DISPLAY_THEMES).default("dark"),
+        /** Type size, as a percentage of the size chosen for the screen's resolution. */
+        scale: z.number().int().min(75).max(175).default(100),
+        /** The clock and date in the header. */
+        clock: z.boolean().default(true),
+        /** Shift the whole picture by a few pixels every few minutes, for OLED and plasma screens. */
+        burnIn: z.boolean().default(false),
+        /** Rotate through the board's views (when it has more than one). */
+        rotate: z.boolean().default(true),
     })
     .strict();
 export type WallboardInput = z.output<typeof wallboardInputSchema>;
@@ -491,6 +552,10 @@ export interface Wallboard extends WallboardInput {
     createdAt: string;
     updatedAt: string;
     tokens: DisplayToken[];
+    /** The views shown (and rotated through, in order). Derived from layout and rotation for boards made before 9.1. */
+    views: WallboardView[];
+    /** True when the views come from the original layout settings rather than saved views. */
+    legacyViews: boolean;
 }
 
 export interface DisplayToken {
@@ -500,6 +565,9 @@ export interface DisplayToken {
     expiresAt: string | null;
     revokedAt: string | null;
     lastUsedAt: string | null;
+    /** The screen may swap this credential for a new one near its expiry. */
+    renewable: boolean;
+    renewedAt: string | null;
 }
 
 /** What a display receives: only this board's view, never a coordinate of the watch area itself. */
@@ -547,6 +615,10 @@ export interface CentreShell {
     ingestionOn: boolean;
     wallboardOn: boolean;
     emailOn: boolean;
+    historyOn: boolean;
+    rulesOn: boolean;
+    reportsOn: boolean;
+    assistantOn: boolean;
     aiAvailable: boolean;
     preferences: CentrePreferences;
     preferencesVersion: number;
@@ -584,6 +656,7 @@ export type CentreRoute =
               related: Correlation[];
               source: SourceHealth;
               geometry: unknown | null;
+              timeline: RecordTimeline;
           })
     | ({ route: "centre-hazards" } & CentreShell & {
               tab: CentreHazardTab;
@@ -601,7 +674,40 @@ export type CentreRoute =
     | ({ route: "centre-briefings" } & CentreShell & { briefing: CentreBriefing; watches: WatchArea[]; correlations: Correlation[] })
     | ({ route: "centre-watches" } & CentreShell & { watches: WatchArea[]; districts: string[]; alerts: CentreAlert[] })
     | ({ route: "centre-wallboards" } & CentreShell & { wallboards: Wallboard[]; watches: WatchArea[] })
-    | ({ route: "centre-sources" } & CentreShell & { sources: SourceHealth[]; runs: FetchRun[] })
+    | ({ route: "centre-wallboard" } & CentreShell & {
+              wallboard: Wallboard;
+              watches: WatchArea[];
+              districts: string[];
+              gauges: { station: string; name: string }[];
+          })
+    | ({ route: "centre-sources" } & CentreShell & { sources: SourceHealth[]; runs: FetchRun[]; reliability: SourceReliability[] })
+    | ({ route: "centre-changes" } & CentreShell & {
+              changes: FeedChange[];
+              filters: import("./history").FeedFilters;
+              truncated: boolean;
+              counts: { significant: number; routine: number };
+              watches: WatchArea[];
+              sources: SourceHealth[];
+          })
+    | ({ route: "centre-timeline" } & CentreShell & {
+              timeline: SituationTimeline;
+              watches: WatchArea[];
+              scope: { watch: string | null; region: string | null; hours: number };
+          })
+    | ({ route: "centre-replay" } & CentreShell & { meta: ReplayMeta; watches: WatchArea[]; basemap: CentreSettings["basemap"] })
+    | ({ route: "centre-analytics" } & CentreShell & { analytics: import("./history").CentreAnalytics; days: number })
+    | ({ route: "centre-correlations" } & CentreShell & { correlations: Correlation[]; windowHours: number; distanceKm: number })
+    | ({ route: "centre-rules" } & CentreShell & {
+              rules: MonitoringRule[];
+              matches: RuleMatch[];
+              watches: WatchArea[];
+              districts: string[];
+              gauges: { station: string; name: string }[];
+              sources: { id: string; label: string }[];
+          })
+    | ({ route: "centre-reports" } & CentreShell & { reports: ReportSummary[]; schedules: ReportSchedule[]; watches: WatchArea[] })
+    | ({ route: "centre-report" } & CentreShell & { report: SituationReport; summary: ReportSummary })
+    | ({ route: "centre-assistant" } & CentreShell & { watches: WatchArea[]; aiAvailable: boolean; examples: string[] })
     | ({ route: "centre-settings" } & CentreShell & {
               settings: CentreSettings;
               settingsVersion: number;
@@ -624,6 +730,16 @@ export interface TodayCentre {
     alerts: number;
     watches: number;
     staleNote: string | null;
+    /** Significant changes in the person's watch areas in the last 24 hours. */
+    developments: { id: string; label: string; summary: string; at: string; url: string }[];
+    /** Their monitoring rules' unacknowledged matches. */
+    ruleMatches: { id: string; rule: string; reason: string; at: string; url: string }[];
+    /** The latest scheduled report, with its first facts. */
+    report: { id: string; title: string; generatedAt: string; lines: string[]; url: string } | null;
+    /** Failing critical sources. */
+    sourceFailures: { sourceId: string; label: string; detail: string }[];
+    /** Calendar events linked to a watch area, coming up soon, with what concerns them. */
+    journeys: { eventId: string; title: string; start: string; watchName: string; matches: number; url: string }[];
 }
 
 export interface RecordFilters {

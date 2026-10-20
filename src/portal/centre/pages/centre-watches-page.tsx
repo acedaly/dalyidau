@@ -18,10 +18,12 @@ import { useToast } from "@/portal/components/toast";
 import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { ApiError, errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
+import { usePortal } from "@/portal/portal-context";
 import { CATEGORY_LABELS, HAZARD_CATEGORIES } from "@/shared/centre/sources";
 import type { CentreAlert, WatchArea, WatchDefinition, WatchInput, WatchKind } from "@/shared/centre/types";
 import { WATCH_KINDS, WATCH_KIND_LABELS } from "@/shared/centre/types";
 import { centreApi } from "../centre-api";
+import { JourneysCard } from "../journeys-card";
 import { CENTRE, CentreHeader, CentreNotices, When } from "../shared";
 
 const blank = (): WatchInput => ({
@@ -322,6 +324,7 @@ const WatchForm = ({
 
 export const CentreWatchesPage = ({ data }: { data: PageData<"centre-watches"> }) => {
     const toast = useToast();
+    const { can } = usePortal();
     const [watches, setWatches] = useState<WatchArea[]>(data.watches);
     const [alerts, setAlerts] = useState<CentreAlert[]>(data.alerts);
     const [editing, setEditing] = useState<WatchArea | "new" | null>(null);
@@ -451,6 +454,7 @@ export const CentreWatchesPage = ({ data }: { data: PageData<"centre-watches"> }
                     )}
                 </Card>
             </div>
+            {can("calendar.use") && <JourneysCard watches={watches} />}
             {editing && (
                 <WatchForm
                     initial={editing === "new" ? null : editing}

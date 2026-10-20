@@ -266,6 +266,23 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
+        // Intelligence Centre 9.1 (0027): one open version per record, and JSON the Worker validates.
+        name: "Intelligence Centre history has one current version per record and valid JSON",
+        sql: "SELECT record_id AS id FROM ic_record_versions WHERE valid_to IS NULL GROUP BY record_id HAVING COUNT(*) > 1 UNION ALL SELECT id FROM ic_record_versions WHERE json_valid(metrics) = 0 OR json_valid(attrs) = 0 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Rules and their matches belong to the owner of the watch area they name.
+        name: "Monitoring rules and matches belong to their owners",
+        sql: "SELECT id FROM ic_rules WHERE json_valid(definition) = 0 UNION ALL SELECT r.id FROM ic_rules r JOIN ic_watch_areas w ON w.id = r.watch_id WHERE w.email <> r.email UNION ALL SELECT m.id FROM ic_rule_matches m JOIN ic_rules r ON r.id = m.rule_id WHERE r.email <> m.email LIMIT 20",
+        level: "fail",
+    },
+    {
+        name: "Reports, schedules, wallboard views and journey links are valid and belong together",
+        sql: "SELECT id FROM ic_reports WHERE json_valid(scope) = 0 UNION ALL SELECT id FROM ic_report_schedules WHERE json_valid(scope) = 0 UNION ALL SELECT v.id FROM ic_wallboard_views v LEFT JOIN ic_wallboards b ON b.id = v.wallboard_id WHERE b.id IS NULL OR json_valid(v.widgets) = 0 UNION ALL SELECT l.id FROM ic_event_links l JOIN ic_watch_areas w ON w.id = l.watch_id WHERE w.email <> l.email LIMIT 20",
+        level: "fail",
+    },
+    {
         // Daily Planner (0023): triggers remove blocks when someone leaves a project or a task moves.
         // A row here is a block whose owner was since made a viewer (the planner already hides those).
         name: "Time blocks belong to people who can still work on their task",
@@ -476,4 +493,17 @@ export const TABLES = [
     "ic_briefings",
     "ic_wallboards",
     "ic_display_tokens",
+    // Intelligence Centre 9.1 (0027). Versions, reliability rollups and the cache are history the
+    // Centre can't collect again (the cache can); rules, matches, reports, schedules, wallboard
+    // views and journey links belong to people. Reports' full text is in R2 (backup:r2).
+    "ic_record_versions",
+    "ic_geometries",
+    "ic_source_daily",
+    "ic_rules",
+    "ic_rule_matches",
+    "ic_reports",
+    "ic_report_schedules",
+    "ic_wallboard_views",
+    "ic_event_links",
+    "ic_cache",
 ];

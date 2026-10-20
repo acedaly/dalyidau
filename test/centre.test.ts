@@ -442,10 +442,16 @@ describe("Tasks, Knowledge and Today", () => {
 });
 
 describe("MCP", () => {
-    it("serves twelve read-only Centre tools", () => {
+    it("serves 28 Centre tools: four writes (rules and reports), everything else read-only", () => {
         const tools = PORTAL_MCP_TOOLS.filter((t) => t.name.startsWith("centre_"));
-        expect(tools).toHaveLength(12);
-        expect(tools.every((t) => !t.write && t.permission === "centre.use")).toBe(true);
+        expect(tools).toHaveLength(28);
+        expect(tools.every((t) => t.permission === "centre.use")).toBe(true);
+        expect(
+            tools
+                .filter((t) => t.write)
+                .map((t) => t.name)
+                .sort(),
+        ).toEqual(["centre_create_rule", "centre_save_report", "centre_schedule_report", "centre_update_rule"]);
     });
 
     it("never gives an assistant a watch area's location, and only the caller's own areas", async () => {
