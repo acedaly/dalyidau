@@ -10,12 +10,14 @@ import { describeRule } from "@/shared/tasks/recurrence";
 import { PRIORITY_LABELS, type Priority, type TaskColor, type TaskSummary } from "@/shared/tasks/types";
 import { cx } from "@/utils/cx";
 
-/** Priority colours: P1 red, P2 amber, P3 blue, P4 grey, always with the "P1" text beside them. */
+/** Priority colours: P1 red, P2 amber, P3 blue, P4 grey, always with the "P1" text beside them.
+ *  `text` colours the "P1" label itself, so it uses tokens with at least 4.5:1 on bg-primary and
+ *  bg-secondary in both themes (the fg-* and utility-*-500 shades are for icons and fall short). */
 export const PRIORITY_COLORS: Record<Priority, { text: string; badge: BadgeColors; ring: string }> = {
-    1: { text: "text-fg-error-primary", badge: "error", ring: "ring-fg-error-primary" },
-    2: { text: "text-fg-warning-primary", badge: "warning", ring: "ring-fg-warning-primary" },
-    3: { text: "text-utility-blue-500", badge: "blue", ring: "ring-utility-blue-500" },
-    4: { text: "text-fg-quaternary", badge: "gray", ring: "ring-primary" },
+    1: { text: "text-error-primary", badge: "error", ring: "ring-fg-error-primary" },
+    2: { text: "text-utility-yellow-700", badge: "warning", ring: "ring-fg-warning-primary" },
+    3: { text: "text-utility-blue-700", badge: "blue", ring: "ring-utility-blue-500" },
+    4: { text: "text-tertiary", badge: "gray", ring: "ring-primary" },
 };
 
 export const DOT_COLORS: Record<TaskColor, string> = {
