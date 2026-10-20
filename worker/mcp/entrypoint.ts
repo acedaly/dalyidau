@@ -17,6 +17,8 @@
 // list.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZodError } from "zod";
+import { AssetConflict } from "../assets/assets";
+import { MaintenanceConflict } from "../assets/maintenance";
 import { EventConflict } from "../calendar/events";
 import type { Env } from "../env";
 import { KnowledgeConflict } from "../knowledge/objects";
@@ -24,6 +26,7 @@ import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
+import { ASSETS_TOOLS } from "./assets";
 import { CALENDAR_TOOLS } from "./calendar";
 import { CENTRE_TOOLS } from "./centre";
 import { CHIEF_TOOLS } from "./chief";
@@ -70,6 +73,7 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...PLANNER_TOOLS,
     ...TODAY_TOOLS,
     ...CENTRE_TOOLS,
+    ...ASSETS_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
@@ -88,6 +92,7 @@ export function toFailure(error: unknown): PortalMcpResponse {
     if (error instanceof EventConflict)
         return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
     if (error instanceof StaleProject) return fail("conflict", error.message, { current: error.current });
+    if (error instanceof AssetConflict || error instanceof MaintenanceConflict) return fail("conflict", error.message, { current: error.current });
     if (error instanceof DuplicateProject) return fail("duplicate", error.message, { matches: error.matches });
     if (error instanceof OpenSubtasks)
         return fail("open_subtasks", `${error.message} Ask whether to complete them too, then retry with includeSubtasks.`, { count: error.count });

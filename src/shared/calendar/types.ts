@@ -107,8 +107,10 @@ export const calendarPreferences = z
                 tasks: z.boolean().default(true),
                 leave: z.boolean().default(true),
                 sharedLeave: z.boolean().default(true),
+                /** Home & Assets dates (registration, renewals, servicing, warranties) as reminders. */
+                assets: z.boolean().default(true),
             })
-            .default({ holidays: true, school: true, tasks: true, leave: true, sharedLeave: true }),
+            .default({ holidays: true, school: true, tasks: true, leave: true, sharedLeave: true, assets: true }),
         /** Added to new events you create (minutes before); null for none. */
         defaultReminderMinutes: z.number().int().min(0).max(40320).nullable().default(null),
         /** Email reminders as well as in-app ones (also needs the portal's "Calendar reminder emails" switch). */
@@ -302,12 +304,23 @@ export interface CustomDateOverlay {
     end: string;
 }
 
+/** A Home & Assets date shown as a reminder (never an event): registration, a renewal, servicing, a warranty ending. */
+export interface AssetDateOverlay {
+    id: string;
+    date: string;
+    title: string;
+    kind: string;
+    url: string;
+}
+
 export interface Overlays {
     holidays: HolidayOverlay[];
     school: SchoolOverlay[];
     tasks: TaskOverlay[];
     leave: LeaveOverlay[];
     nonWorking: CustomDateOverlay[];
+    /** Home & Assets reminders, for people who can open it and kept them on. */
+    assets?: AssetDateOverlay[];
 }
 
 // --- Subscriptions and feeds ---------------------------------------------------------------------

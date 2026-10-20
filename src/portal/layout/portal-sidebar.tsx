@@ -16,6 +16,7 @@ import {
     CalendarDate,
     CalendarHeart01,
     CalendarPlus02,
+    Certificate01,
     CheckCircle,
     CheckDone01,
     ClipboardCheck,
@@ -24,6 +25,7 @@ import {
     X as CloseIcon,
     Compass03,
     Database01,
+    File04,
     File06,
     FilterLines,
     Flag01,
@@ -32,6 +34,7 @@ import {
     Globe02,
     Globe04,
     HeartRounded,
+    Home02,
     HomeLine,
     Inbox01,
     LayersThree01,
@@ -44,8 +47,10 @@ import {
     Menu02,
     Microphone01,
     Monitor01,
+    Package,
     Plane,
     Plus,
+    QrCode02,
     Receipt,
     Repeat04,
     Rows01,
@@ -59,7 +64,9 @@ import {
     Sunrise,
     Tag01,
     Target04,
+    Tool02,
     Trash01,
+    Truck01,
     UserCheck01,
     Users01,
     Users02,
@@ -164,6 +171,14 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     watch: Target04,
     wallboard: Monitor01,
     sources: Database01,
+    assets: Package,
+    vehicles: Truck01,
+    property: Home02,
+    maintenance: Tool02,
+    insurance: ShieldTick,
+    warranty: Certificate01,
+    documents: File04,
+    scan: QrCode02,
 };
 
 /** Sections a page adds to its application's navigation, e.g. Knowledge's favourites and collections. */
@@ -181,6 +196,7 @@ const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElem
     calendar: Calendar,
     intelligence: Stars02,
     centre: Globe04,
+    assets: Package,
 };
 
 /**

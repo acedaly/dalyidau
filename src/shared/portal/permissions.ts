@@ -26,6 +26,8 @@ export const PERMISSIONS = [
     "intelligence.use",
     /** Opening the Intelligence Centre (public hazard information). Watch areas, alerts and wallboards are each person's own. */
     "centre.use",
+    /** Opening Home & Assets. What each person sees inside is decided per asset (owner, or what it's shared with them for). */
+    "assets.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

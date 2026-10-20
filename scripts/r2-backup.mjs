@@ -1,5 +1,5 @@
-// Backs up the files Daly Intelligence keeps permanently (Knowledge attachments) from R2 to this
-// computer, so there's a copy outside Cloudflare. D1 backups (db-backup.mjs) hold the attachment
+// Backs up the files Daly Intelligence keeps permanently (Knowledge attachments) and every stored
+// Home & Assets photo and document from R2 to this computer, so there's a copy outside Cloudflare. D1 backups (db-backup.mjs) hold the attachment
 // rows; this holds the files they point at.
 //
 //   node scripts/r2-backup.mjs --env production                # download and verify
@@ -85,14 +85,17 @@ if (encrypt) keyFor(randomBytes(16)); // fail early without a passphrase
 
 const rows = d1Query(
     env,
-    "SELECT id, owner_email, object_id, r2_key, bytes, content_type, retention, keep FROM attachments WHERE status <> 'deleted' AND status <> 'uploading' AND (retention = 'permanent' OR keep = 1) ORDER BY id",
+    `SELECT id, owner_email, object_id, r2_key, bytes, content_type FROM attachments WHERE status <> 'deleted' AND status <> 'uploading' AND (retention = 'permanent' OR keep = 1)
+     UNION ALL SELECT id, owner_email, asset_id AS object_id, r2_key, bytes, content_type FROM asset_files WHERE status = 'stored'
+     ORDER BY id`,
     source,
 )[0];
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const out = join(ROOT, "backups", `r2-${env}-${stamp}`);
 mkdirSync(out, { recursive: true, mode: 0o700 });
 chmodSync(join(ROOT, "backups"), 0o700);
-console.log(`Backing up ${rows.length} permanent attachment(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`);
+// Photo previews (thumb_key) aren't copied: they're made from the photo and can be made again.
+console.log(`Backing up ${rows.length} permanent attachment(s) and asset file(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`);
 
 const files = [];
 for (const row of rows) {

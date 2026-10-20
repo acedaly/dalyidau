@@ -4,7 +4,20 @@
 // queries, so the number of columns follows the width actually available beside the sidebar:
 // one on small phones, two on large phones and tablets, three, then four on wide desktops. Below the
 // applications, the same cards lead to what's shared by all of them: Portal settings and the audit log.
-import { ArrowUpRight, BookOpen01, Calendar, CheckDone01, Globe04, HeartRounded, LayoutGrid01, Settings01, ShieldTick, Stars02, Sun } from "@untitledui/icons";
+import {
+    ArrowUpRight,
+    BookOpen01,
+    Calendar,
+    CheckDone01,
+    Globe04,
+    HeartRounded,
+    LayoutGrid01,
+    Package,
+    Settings01,
+    ShieldTick,
+    Stars02,
+    Sun,
+} from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Empty } from "@/portal/components/empty";
@@ -46,6 +59,7 @@ const ICONS: Record<ApplicationIcon, typeof HeartRounded> = {
     calendar: Calendar,
     intelligence: Stars02,
     centre: Globe04,
+    assets: Package,
 };
 
 export const ApplicationCard = ({ application }: { application: PortalApplication }) => {

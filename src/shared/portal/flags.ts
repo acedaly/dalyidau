@@ -79,6 +79,20 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Intelligence Centre",
     },
+    "assets.ai": {
+        label: "Home & Assets AI suggestions",
+        description:
+            "Let Home & Assets ask Daly Intelligence to read a receipt, a photo or a policy document and suggest values for a person to check and approve. Also needs Intelligence and its document feature switched on (Intelligence settings) and Workers AI connected. While off, every capture works by hand and nothing is sent to a model.",
+        default: false,
+        group: "Home & Assets",
+    },
+    "assets.reminders.email": {
+        label: "Home & Assets reminder emails",
+        description:
+            "Email reminders (servicing, registration, renewals, warranty expiry) to people who turned email on in Home & Assets → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, reminders appear only in the portal.",
+        default: false,
+        group: "Home & Assets",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

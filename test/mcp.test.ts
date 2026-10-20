@@ -110,7 +110,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 85 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 101 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         // The gateway side (mcp/src/portal-tools.ts) is compared with this field by field in mcp-contract.test.ts.
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
@@ -199,6 +199,22 @@ describe("who may call the portal through the MCP gateway", () => {
                 "centre_list_watch_areas",
                 "centre_list_changes",
                 "centre_get_watch_briefing",
+                "assets_search",
+                "assets_list",
+                "assets_get",
+                "assets_maintenance_history",
+                "assets_upcoming_maintenance",
+                "assets_insurance_renewals",
+                "assets_warranty_expiries",
+                "assets_list_documents",
+                "assets_summary",
+                "assets_get_attention",
+                "assets_create",
+                "assets_update",
+                "assets_create_maintenance",
+                "assets_complete_maintenance",
+                "assets_link_knowledge",
+                "assets_create_task",
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
@@ -209,7 +225,7 @@ describe("who may call the portal through the MCP gateway", () => {
                 ),
             ),
         ).toBe(true);
-        expect(writes).toHaveLength(26);
+        expect(writes).toHaveLength(32);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {
@@ -476,8 +492,8 @@ describe("Chief of Staff context", () => {
             };
             knowledge: { dailyNote: { exists: boolean; content: string } };
         }>("chief_of_staff_daily_context");
-        // Calendar is read now (Milestone 6); email and unsubscribed external calendars still never are.
-        expect(context.checked).toEqual({ tasks: true, knowledge: true, calendar: true });
+        // Calendar is read now (Milestone 6), and Home & Assets (Milestone 10); email and unsubscribed external calendars still never are.
+        expect(context.checked).toEqual({ tasks: true, knowledge: true, calendar: true, homeAssets: true });
         expect(context.notChecked).toContain("email");
         expect(context.notChecked).not.toContain("calendar");
         expect(context.calendar.events.count).toBe(0);

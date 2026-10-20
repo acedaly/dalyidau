@@ -121,6 +121,28 @@ INSERT INTO task_import_items (owner_email, source, kind, source_key, target_id,
 // Daly Tasks Milestone 3 (0017): health override and review frequency, a completed review with a
 // next action, a project Knowledge link, a shared goal with members, links, a milestone and history,
 // a routine whose people take turns, and dashboard preferences.
+// Home & Assets (0026): a shared place, an asset shared with the household with separate rights,
+// trailer details, an odometer reading, a schedule and its open record, a verified policy linking
+// it, a warranty, a stored file row and a task link. All invented.
+const HOME_ASSETS = `
+INSERT INTO asset_locations (id, owner_email, name, kind, visibility, created_by, created_at, updated_by, updated_at) VALUES ('alo_backuptest0001', 'owner@example.com', 'Shed', 'shed', 'household', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO assets (id, owner_email, name, category, location_id, purchase_price_cents, tags, custom, visibility, created_by, created_at, updated_by, updated_at) VALUES
+  ('ast_backuptest0001', 'owner@example.com', 'Camper trailer', 'trailers', 'alo_backuptest0001', 2500000, '["camping"]', '{}', 'household', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO asset_shares (asset_id, email, can_maintain, can_financial, added_by, added_at) VALUES ('ast_backuptest0001', '*', 1, 0, 'x', '${NOW}');
+INSERT INTO asset_vehicles (asset_id, kind, registration_expiry, atm_kg, specs, updated_by, updated_at) VALUES ('ast_backuptest0001', 'trailer', '2026-11-10', 1900, '{"brakeSystem":"Electric"}', 'x', '${NOW}');
+INSERT INTO asset_odometer (id, asset_id, reading, read_on, created_by, created_at) VALUES ('aodo_backuptest01', 'ast_backuptest0001', 12000, '2026-10-01', 'x', '${NOW}');
+INSERT INTO asset_schedules (id, asset_id, title, category, interval_count, interval_unit, last_done_on, next_due_on, created_by, created_at, updated_by, updated_at) VALUES
+  ('ams_backuptest0001', 'ast_backuptest0001', 'Bearings', 'inspection', 12, 'months', '2026-01-15', '2027-01-15', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO asset_maintenance (id, asset_id, schedule_id, title, status, due_on, created_by, created_at, updated_by, updated_at) VALUES
+  ('amr_backuptest0001', 'ast_backuptest0001', 'ams_backuptest0001', 'Bearings', 'open', '2027-01-15', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO asset_policies (id, owner_email, provider, policy_type, renews_on, verified_at, verified_by, created_by, created_at, updated_by, updated_at) VALUES
+  ('aip_backuptest0001', 'owner@example.com', 'Example Insurance', 'caravan_trailer', '2027-03-01', '${NOW}', 'owner@example.com', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO asset_policy_links (policy_id, asset_id, added_by, added_at) VALUES ('aip_backuptest0001', 'ast_backuptest0001', 'x', '${NOW}');
+INSERT INTO asset_warranties (id, asset_id, kind, months, expires_basis, created_by, created_at, updated_by, updated_at) VALUES ('awr_backuptest0001', 'ast_backuptest0001', 'manufacturer', 24, 'calculated', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO asset_files (id, owner_email, asset_id, kind, filename, content_type, bytes, sha256, r2_key, created_at, updated_at) VALUES
+  ('afl_backuptest0001', 'owner@example.com', 'ast_backuptest0001', 'receipt', 'receipt.pdf', 'application/pdf', 10, '${"0".repeat(64)}', 'private/assets/afl_backuptest0001/abc', '${NOW}', '${NOW}');
+INSERT INTO asset_task_links (id, task_id, asset_id, ref_kind, ref_id, ref_date, created_by, created_at) VALUES ('atl_backuptest0001', 'tsk_backuptest0001', 'ast_backuptest0001', 'registration', 'ast_backuptest0001', '2026-11-10', 'x', '${NOW}');
+`;
 const TASKS_M3 = `
 UPDATE task_projects SET review_frequency = 'fortnightly', health_override = 'on_track', health_note = 'Waiting on the nursery', health_set_by = 'owner@example.com', health_set_at = '${NOW}' WHERE id = 'tpj_backuptest0002';
 INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, due_date, recurrence_json, assignee_email, position, created_by, updated_by, created_at, updated_at) VALUES
@@ -406,6 +428,7 @@ try {
 
     run(TASKS);
     run(TASKS_M3);
+    run(HOME_ASSETS);
     report.check(
         [...TASK_TABLES, ...TASK_M3_TABLES].every((t) => count(t) > 0),
         "Every Tasks table has rows (Milestones 1–3)",
@@ -648,6 +671,28 @@ try {
                 ),
             "The restored copy still allows one routine per task, one draft review per project, and no personal projects in shared goals",
             "A Milestone 3 rule was lost in the restored copy",
+        );
+        // Home & Assets (0026): every kind of row, and the rules that keep sharing, schedules and files safe.
+        report.check(
+            query("SELECT visibility FROM assets WHERE id = 'ast_backuptest0001'", restored)[0]?.visibility === "household" &&
+                query("SELECT can_maintain, can_financial FROM asset_shares WHERE asset_id = 'ast_backuptest0001'", restored)[0]?.can_financial === 0 &&
+                query("SELECT specs FROM asset_vehicles WHERE asset_id = 'ast_backuptest0001'", restored)[0]?.specs === '{"brakeSystem":"Electric"}' &&
+                query("SELECT verified_by FROM asset_policies WHERE id = 'aip_backuptest0001'", restored)[0]?.verified_by === "owner@example.com" &&
+                query("SELECT r2_key FROM asset_files WHERE id = 'afl_backuptest0001'", restored)[0]?.r2_key === "private/assets/afl_backuptest0001/abc" &&
+                query("SELECT task_id FROM asset_task_links WHERE id = 'atl_backuptest0001'", restored)[0]?.task_id === "tsk_backuptest0001",
+            "Home & Assets records, sharing, vehicles, policies, files and task links restore intact",
+            "Home & Assets data was lost",
+        );
+        report.check(
+            refuses(
+                "INSERT INTO asset_maintenance (id, asset_id, schedule_id, title, status, created_by, created_at, updated_by, updated_at) VALUES ('amr_backuptest0009', 'ast_backuptest0001', 'ams_backuptest0001', 'Again', 'open', 'x', 'x', 'x', 'x');",
+            ) &&
+                refuses(
+                    "INSERT INTO asset_shares (asset_id, email, can_edit, can_maintain, added_by, added_at) VALUES ('ast_backuptest0001', 'a@example.com', 1, 0, 'x', 'x');",
+                ) &&
+                refuses("UPDATE asset_files SET r2_key = 'wedding/x' WHERE id = 'afl_backuptest0001';"),
+            "The restored copy still allows one open record per schedule, and keeps sharing and file rules",
+            "A Home & Assets rule was lost in the restored copy",
         );
     }
 } catch (error) {

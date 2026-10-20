@@ -10,6 +10,7 @@ import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
+import { usePortal } from "@/portal/portal-context";
 import { SwitchSummary } from "@/portal/settings/switch-summary";
 import type { CalendarPreferences } from "@/shared/calendar/types";
 import { calendarApi } from "../api";
@@ -31,6 +32,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => ({
 
 export const CalendarSettingsPage = ({ data }: { data: PageData<"calendar-settings"> }) => {
     const toast = useToast();
+    const { can } = usePortal();
     const [prefs, setPrefs] = useState<CalendarPreferences>(data.preferences);
     const writable = data.calendars.filter((c) => c.source === "local" && (c.role === "owner" || c.role === "editor"));
     const [importCalendar, setImportCalendar] = useState(writable.find((c) => c.isDefault)?.id ?? writable[0]?.id ?? "");
@@ -147,6 +149,15 @@ export const CalendarSettingsPage = ({ data }: { data: PageData<"calendar-settin
                         isSelected={prefs.overlays.sharedLeave}
                         onChange={(v) => void save({ ...prefs, overlays: { ...prefs.overlays, sharedLeave: v } })}
                     />
+                    {can("assets.use") && (
+                        <Toggle
+                            className="w-full"
+                            label="Home & Assets reminders"
+                            hint="Registration, renewals, servicing and warranty dates, shown as reminders (not appointments)"
+                            isSelected={prefs.overlays.assets}
+                            onChange={(v) => void save({ ...prefs, overlays: { ...prefs.overlays, assets: v } })}
+                        />
+                    )}
                 </Card>
                 <Card title="Reminders and notifications" description="Notifications appear under the bell on every Calendar page.">
                     <Select

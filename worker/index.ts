@@ -7,6 +7,7 @@ import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/c
 import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
 import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
+import { processAssetReminders } from "./assets/notify";
 import { serveFeed } from "./calendar/feeds";
 import { processCalendarNotifications } from "./calendar/notify";
 import { processDueSubscriptions } from "./calendar/subscriptions";
@@ -56,7 +57,7 @@ export default {
         }
     },
 
-    async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
         // Task reminders: a failure here never affects the other jobs (or anyone completing tasks).
@@ -81,6 +82,13 @@ export default {
             runCentreCron(env).then(
                 () => undefined,
                 (error) => console.error(JSON.stringify({ event: "centre_cron_error", message: (error as Error).message })),
+            ),
+        );
+        // Home & Assets: reminders (email only with its switch on), automatic Tasks people asked for, and purging deleted assets.
+        ctx.waitUntil(
+            processAssetReminders(env, { scheduledTime: controller.scheduledTime }).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "asset_reminders_error", message: (error as Error).message })),
             ),
         );
         // Daly Intelligence: retention always; jobs, briefings and the semantic index only when switched on.

@@ -146,6 +146,10 @@ No embeddings, Workers AI, Vectorize or external service is used. Ordinary D1 in
 
 Object pages show a **Tasks** section for people who can also open Tasks: tasks and Tasks projects that reference this object, from `GET /api/portal/tasks/knowledge/:objectId` (`src/portal/knowledge/related-tasks.tsx`). Knowledge itself isn't changed: Tasks stores only object ids, the Tasks API answers 404 unless the reader can read the object here, and then lists only tasks and projects the reader is a member of in Tasks, so a note shared with someone never shows them another person's private tasks. "Add linked task" opens Quick Add with this page pre-linked. Details: [TASKS_PROJECTS.md](TASKS_PROJECTS.md#tasks--knowledge).
 
+### Linked from Home & Assets
+
+Assets can link to Knowledge objects (manuals, notes, troubleshooting guides). Nothing is copied; each link is checked against space membership when added and on every read, so someone who can see the asset but not the space sees only that a link exists. Home & Assets search includes Knowledge through `searchObjects` and the caller's spaces. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
+
 ## Portable export
 
 - Any member may export an object they can read as Markdown or structured JSON. The JSON preserves its stable id, type and schema, full `daly.doc.v1` document, properties, tags, relations, linked-object labels, timestamps, status, source metadata and optional revisions.

@@ -10,6 +10,7 @@ import { holidayOverlays, schoolOverlays } from "../../src/shared/calendar/holid
 import { addDays, daysBetween } from "../../src/shared/calendar/time";
 import { CUSTOM_DATE_KINDS, type CalendarPreferences, type CustomDate, type LeaveData, type Overlays, type TaskOverlay } from "../../src/shared/calendar/types";
 import type { PortalUser } from "../../src/shared/portal/types";
+import { assetOverlays } from "../assets/dashboard";
 import { projectNames } from "../mcp/shared";
 import { can } from "../portal/auth";
 import { newId, nowIso } from "../portal/db";
@@ -164,5 +165,7 @@ export async function overlaysFor(
         nonWorking: leave.customDates
             .filter((d) => d.kind === "non_working" && d.mine && d.end >= from && d.start <= to)
             .map((d) => ({ id: d.id, kind: d.kind, name: d.name, start: d.start, end: d.end })),
+        // Reminders from Home & Assets, through its own access rules. A failure there never breaks the calendar.
+        assets: o.assets ? await assetOverlays(db, user, from, to).catch(() => []) : [],
     };
 }

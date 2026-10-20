@@ -2,7 +2,7 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard across the applications, and five applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md), [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, a [daily planner with time blocking](docs/DAILY_PLANNER.md), family planning, NSW holidays and a leave planner) [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default) and the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard across the applications, and six applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md), [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, a [daily planner with time blocking](docs/DAILY_PLANNER.md), family planning, NSW holidays and a leave planner) [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default) and the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default) and [Home & Assets](docs/HOME_ASSETS.md) (what the household owns, maintains, insures or will replace), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
 Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
@@ -76,6 +76,7 @@ docs/                Setup, deployment and operations
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
 - [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model
 - [Daly Intelligence](docs/INTELLIGENCE.md): Workers AI, Vectorize, suggestions, briefings, meetings, costs, backups and activation
+- [Home & Assets](docs/HOME_ASSETS.md): the asset register, vehicles and trailers, places and rentals, maintenance, insurance, warranties, files, QR labels, reports, integrations, MCP, deployment and rollback
 - [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) and its [public sources](docs/INTELLIGENCE_SOURCES.md): ingestion, map, watch areas, alerts, correlation, briefings, wallboards, MCP, costs, activation and rollback
 - [Communications](docs/COMMUNICATIONS.md): SMTP2Go email, ClickSend SMS, webhooks, consent and the activation checklist
 - [Privacy and personal data](docs/PRIVACY.md): what's collected, retention, deleting and erasing
