@@ -177,14 +177,23 @@ test.describe("Wallboard Mode", () => {
         await page.clock.runFor(45_000);
         await expect(page.getByText("Weather & Environment · view 2 of 2")).toBeVisible();
 
+        // The display schedules its next refresh only once the previous request settles, and requests
+        // take real time while the page clock is fake, so a refresh may still be in flight when the
+        // clock jumps. Advance one refresh at a time until the screen reacts. The 3 s limit keeps the
+        // total jump under the 3-minute "no update" threshold, so the offline warning below can only
+        // come from the failed refreshes themselves.
+        const afterRefreshes = (ms: number, check: () => Promise<void>) =>
+            expect(async () => {
+                await page.clock.runFor(ms);
+                await check();
+            }).toPass({ timeout: 3_000, intervals: [100] });
+
         // Losing the connection: the last data stays, with a prominent warning; reconnecting clears it.
         await page.route("**/api/display/wallboard", (route) => route.abort());
-        await page.clock.runFor(31_000);
-        await expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toBeVisible();
+        await afterRefreshes(31_000, () => expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toBeVisible({ timeout: 500 }));
         await expect(page.getByRole("heading", { level: 1, name: "E2E screen" })).toBeVisible();
         await page.unroute("**/api/display/wallboard");
-        await page.clock.runFor(60_000);
-        await expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toHaveCount(0);
+        await afterRefreshes(60_000, () => expect(page.getByRole("alert").filter({ hasText: "Not updating" })).toHaveCount(0, { timeout: 500 }));
 
         // 4K: the same layout scales up.
         await page.setViewportSize({ width: 3840, height: 2160 });
@@ -193,8 +202,7 @@ test.describe("Wallboard Mode", () => {
 
         // Revoked: the screen says so at its next refresh.
         await request.delete(`/api/portal/centre/wallboards/${board.wallboard.id}/displays/${issued.id}`, { headers: { Origin: "http://localhost:8787" } });
-        await page.clock.runFor(31_000);
-        await expect(page.getByRole("alert").filter({ hasText: "stopped receiving updates" })).toBeVisible();
+        await afterRefreshes(31_000, () => expect(page.getByRole("alert").filter({ hasText: "stopped receiving updates" })).toBeVisible({ timeout: 500 }));
         expect(errors.filter((e) => !e.includes("net::ERR_FAILED"))).toEqual([]);
         await context.close();
         await request.delete(`/api/portal/centre/wallboards/${board.wallboard.id}`, { headers: { Origin: "http://localhost:8787" } });
