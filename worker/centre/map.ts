@@ -38,6 +38,13 @@ export interface MapFeature {
 
 const SCREEN_VERTICES = 1_500;
 
+/** A published area thinned evenly for the screen (never smoothed or grown); null if it has no area. */
+export function screenArea(json: string | null): Geometry | null {
+    const g = json ? parseJson<Geometry | null>(json, null) : null;
+    const polys = g ? polygonsOf(g) : [];
+    return polys.length ? cleanGeometry({ type: "MultiPolygon", coordinates: polys }, SCREEN_VERTICES) : null;
+}
+
 export async function mapFeatures(db: D1Database, records: CentreRecord[]): Promise<{ type: "FeatureCollection"; features: MapFeature[] }> {
     const withAreas = records.filter((r) => r.hasGeometry).map((r) => r.id);
     const areas = new Map<string, Geometry>();
@@ -48,14 +55,18 @@ export async function mapFeatures(db: D1Database, records: CentreRecord[]): Prom
             .bind(...part)
             .all<{ id: string; geometry: string | null }>();
         for (const row of rows.results) {
-            const g = row.geometry ? parseJson<Geometry | null>(row.geometry, null) : null;
-            const polys = g ? polygonsOf(g) : [];
-            if (polys.length) {
-                const thinned = cleanGeometry({ type: "MultiPolygon", coordinates: polys }, SCREEN_VERTICES);
-                if (thinned) areas.set(row.id, thinned);
-            }
+            const area = screenArea(row.geometry);
+            if (area) areas.set(row.id, area);
         }
     }
+    return buildFeatures(records, areas);
+}
+
+/** Map features for records whose published areas are already loaded (replay loads them by version). */
+export function buildFeatures(
+    records: Pick<CentreRecord, "id" | "category" | "kind" | "sourceId" | "title" | "warningLevel" | "severityRank" | "observedAt" | "updatedAt" | "publishedAt" | "firstSeenAt" | "lat" | "lon">[],
+    areas: Map<string, Geometry>,
+): { type: "FeatureCollection"; features: MapFeature[] } {
     const features: MapFeature[] = [];
     for (const r of records) {
         const props = {

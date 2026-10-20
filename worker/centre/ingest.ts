@@ -7,6 +7,11 @@
 // than one already stored is refused), idempotent upserts keyed by the provider's own id, change
 // detection, history and alerts. Failures back off exponentially; nothing a feed contains is ever
 // executed, and nothing it omits is ever taken to mean "resolved".
+//
+// With history recording on (intelligence_centre.history), every state a record is stored in is
+// also copied into ic_record_versions, straight from the row just written, so replay and timelines
+// show exactly what was collected at that moment and nothing learnt later. Each run also adds to
+// the source's daily reliability rollup (ic_source_daily).
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { type SourceDefinition, sourceById } from "../../src/shared/centre/sources";
 import { type CentreSettings, type ChangeKind, fireDangerRank } from "../../src/shared/centre/types";
@@ -16,6 +21,9 @@ import { isEnabled } from "../portal/flags";
 import { ADAPTERS } from "./adapters";
 import { type ParsedBatch, type ParsedRecord, sha256Hex } from "./adapters/types";
 import { alertsForChanges, deliverAlertEmails } from "./alerts";
+import { markHistoryStarted } from "./history";
+import { expireReports, runDueReports } from "./reports";
+import { evaluateRules } from "./rules";
 import { type Geometry, bboxOf } from "./geo";
 import { type CentreTransport, FetchFailure, defaultTransport } from "./net";
 import { type SourceRow, ensureSources, loadCentreSettings, secretFor } from "./store";
@@ -26,6 +34,8 @@ const CONCURRENCY = 3;
 const MAX_BACKOFF_MS = 6 * 3_600_000;
 /** Below these kinds, being added or dropped from a feed is routine and not a "change". */
 const QUIET_KINDS = new Set(["observation", "detection"]);
+/** Kept as measurement series instead of versions (they change at every collection). */
+const UNVERSIONED_KINDS = "('observation', 'detection')";
 
 export interface CollectOptions {
     now?: Date;
@@ -101,6 +111,55 @@ interface Change {
     rank: number;
 }
 
+// --- Versions (replay and timelines) ---------------------------------------------------------------
+
+const VERSION_COLUMNS = `id, record_id, source_id, seq, valid_from, baseline, change_kind, kind, category, event_type, title, description, status,
+    warning_level, severity_rank, lat, lon, min_lat, min_lon, max_lat, max_lon, geometry_quality, geometry_hash, uncertainty_m, area_name,
+    published_at, updated_at, observed_at, active, missing, source_url, metrics, attrs, fixture`;
+const VERSION_FROM_RECORD = `r.kind, r.category, r.event_type, r.title, substr(r.description, 1, 2000), r.status, r.warning_level, r.severity_rank,
+    r.lat, r.lon, r.min_lat, r.min_lon, r.max_lat, r.max_lon, r.geometry_quality, r.geometry_hash, r.uncertainty_m, r.area_name,
+    r.published_at, r.updated_at, r.observed_at, r.active, CASE WHEN r.missing_since IS NULL THEN 0 ELSE 1 END, r.source_url, r.metrics, r.attrs, r.fixture`;
+
+/**
+ * The record's stored state as a new version: the open version is closed at `at` and the row as it
+ * now is (after this batch's write to it) is copied, published area included.
+ */
+export const versionStatements = (db: D1Database, recordId: string, at: string, changeKind: string | null, baseline = false): D1PreparedStatement[] => [
+    db.prepare("UPDATE ic_record_versions SET valid_to = ? WHERE record_id = ? AND valid_to IS NULL").bind(at, recordId),
+    db
+        .prepare(
+            `INSERT INTO ic_record_versions (${VERSION_COLUMNS})
+             SELECT ?, r.id, r.source_id, (SELECT COALESCE(MAX(v.seq), 0) + 1 FROM ic_record_versions v WHERE v.record_id = r.id), ?, ?, ?, ${VERSION_FROM_RECORD}
+             FROM ic_records r WHERE r.id = ? AND r.kind NOT IN ${UNVERSIONED_KINDS}`,
+        )
+        .bind(newId("icv"), at, baseline ? 1 : 0, changeKind, recordId),
+    db
+        .prepare("INSERT OR IGNORE INTO ic_geometries (hash, geometry, first_seen_at) SELECT geometry_hash, geometry, ? FROM ic_records WHERE id = ? AND geometry IS NOT NULL")
+        .bind(at, recordId),
+];
+
+/**
+ * Records stored before history recording began get one baseline version, dated now: their state
+ * as it is, honestly marked, and nothing about what it was before.
+ */
+const baselineStatements = (db: D1Database, sourceId: string, at: string): D1PreparedStatement[] => [
+    db
+        .prepare(
+            `INSERT OR IGNORE INTO ic_geometries (hash, geometry, first_seen_at)
+             SELECT geometry_hash, geometry, ? FROM ic_records r WHERE r.source_id = ? AND r.geometry IS NOT NULL AND r.kind NOT IN ${UNVERSIONED_KINDS}
+             AND NOT EXISTS (SELECT 1 FROM ic_record_versions v WHERE v.record_id = r.id)`,
+        )
+        .bind(at, sourceId),
+    db
+        .prepare(
+            `INSERT INTO ic_record_versions (${VERSION_COLUMNS})
+             SELECT 'icv_' || lower(hex(randomblob(7))), r.id, r.source_id, 1, ?, 1, NULL, ${VERSION_FROM_RECORD}
+             FROM ic_records r WHERE r.source_id = ? AND r.kind NOT IN ${UNVERSIONED_KINDS}
+             AND NOT EXISTS (SELECT 1 FROM ic_record_versions v WHERE v.record_id = r.id)`,
+        )
+        .bind(at, sourceId),
+];
+
 const changeStatement = (db: D1Database, c: Change) =>
     db
         .prepare("INSERT INTO ic_changes (id, record_id, source_id, kind, at, from_value, to_value, summary, severity_rank) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -124,9 +183,12 @@ export async function storeBatch(
     db: D1Database,
     source: SourceDefinition,
     batch: ParsedBatch,
-    options: { now: string; fixture: boolean; baseline: boolean; settings: CentreSettings },
+    options: { now: string; fixture: boolean; baseline: boolean; settings: CentreSettings; history?: boolean },
 ): Promise<StoreOutcome> {
     const { now } = options;
+    const versioned = !!options.history && source.history;
+    // Before anything changes: records already stored but never versioned get their baseline.
+    if (versioned) await statements(db, baselineStatements(db, source.id, now));
     const hourAgo = new Date(Date.parse(now) - 3_600_000).toISOString();
     const existing = new Map(
         (
@@ -141,6 +203,8 @@ export async function storeBatch(
     const writes: D1PreparedStatement[] = [];
     const changes: Change[] = [];
     const seen = new Set<string>();
+    /** Records written in this batch, for their new versions (written after every record's own write). */
+    const touched = new Map<string, string | null>();
     let created = 0;
     let changed = 0;
     const change = (recordId: string | null, kind: ChangeKind, summary: string, rank: number, from: string | null = null, to: string | null = null) =>
@@ -201,6 +265,7 @@ export async function storeBatch(
                     )
                     .bind(id, source.id, r.externalId, ...values, now, now, active),
             );
+            if (versioned) touched.set(id, options.baseline ? "baseline" : r.ended ? "ended" : "new");
             // The first collection is a baseline: what's already there isn't "new".
             if (!options.baseline && !QUIET_KINDS.has(r.kind) && !r.ended)
                 change(id, r.category === "fire_danger" ? "updated" : "new", `New: ${r.title}`, r.severityRank ?? 0, null, r.warningLevel ?? r.status ?? null);
@@ -225,6 +290,7 @@ export async function storeBatch(
                 )
                 .bind(...values, now, active, prior.id),
         );
+        if (versioned && !QUIET_KINDS.has(r.kind)) touched.set(prior.id, null);
         if (QUIET_KINDS.has(r.kind)) {
             // Observations change every time; only a material river level change is recorded.
             if (r.category === "water") {
@@ -305,12 +371,21 @@ export async function storeBatch(
         for (const [externalId, prior] of existing) {
             if (seen.has(externalId) || !prior.active) continue;
             writes.push(db.prepare("UPDATE ic_records SET active = 0, missing_since = COALESCE(missing_since, ?) WHERE id = ?").bind(now, prior.id));
+            if (versioned && !QUIET_KINDS.has(prior.kind)) touched.set(prior.id, "not_in_feed");
             if (!QUIET_KINDS.has(prior.kind))
                 change(prior.id, "not_in_feed", `No longer in the ${source.provider} feed (not confirmed resolved): ${prior.title}`, prior.severity_rank);
         }
     }
 
     for (const c of changes) writes.push(changeStatement(db, c));
+    if (versioned) writes.push(markHistoryStarted(db, now));
+    // Each written record's new version, labelled with the change detected for it (if any).
+    for (const [recordId, label] of touched) {
+        const detected = changes.find((c) => c.recordId === recordId)?.kind ?? label;
+        // The first collection of a source is a baseline: the provider published these before it.
+        if (label === "baseline") writes.push(...versionStatements(db, recordId, now, null, true));
+        else writes.push(...versionStatements(db, recordId, now, detected ?? "updated"));
+    }
     await statements(db, writes);
 
     if (batch.series?.length && source.history) {
@@ -370,27 +445,81 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
             .prepare(`UPDATE ic_sources SET ${sets}, lease_until = NULL, lease_token = NULL, updated_at = ? WHERE id = ? AND lease_token = ?`)
             .bind(...binds, at, sourceId, token);
     const run = (
-        outcome: string,
-        extra: { status?: number | null; bytes?: number; records?: number; created?: number; changed?: number; code?: string | null },
-    ) =>
-        db
-            .prepare(
-                "INSERT INTO ic_fetch_runs (id, source_id, started_at, outcome, http_status, bytes, records, created, changed, ms, error_code, trigger) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(
-                runId,
-                sourceId,
-                at,
-                outcome,
-                extra.status ?? null,
-                extra.bytes ?? 0,
-                extra.records ?? 0,
-                extra.created ?? 0,
-                extra.changed ?? 0,
-                Date.now() - started,
-                extra.code ?? null,
-                options.trigger ?? "cron",
-            );
+        outcome: "ok" | "unchanged" | "error" | "rejected",
+        extra: {
+            status?: number | null;
+            bytes?: number;
+            records?: number;
+            created?: number;
+            changed?: number;
+            code?: string | null;
+            publishedAt?: string | null;
+            active?: number;
+        },
+    ): D1PreparedStatement[] => {
+        const ms = Date.now() - started;
+        // How long after the provider's own publication time this collection stored it.
+        const delay = extra.publishedAt ? Math.round((Date.parse(at) - Date.parse(extra.publishedAt)) / 1000) : null;
+        const delayS = delay !== null && Number.isFinite(delay) && delay >= 0 && delay < 30 * 86_400 ? delay : null;
+        const success = outcome === "ok" || outcome === "unchanged";
+        const gap = success && row.last_success_at ? Math.max(0, Math.round((Date.parse(at) - Date.parse(row.last_success_at)) / 60_000)) : 0;
+        return [
+            db
+                .prepare(
+                    "INSERT INTO ic_fetch_runs (id, source_id, started_at, outcome, http_status, bytes, records, created, changed, ms, error_code, trigger, delay_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(
+                    runId,
+                    sourceId,
+                    at,
+                    outcome,
+                    extra.status ?? null,
+                    extra.bytes ?? 0,
+                    extra.records ?? 0,
+                    extra.created ?? 0,
+                    extra.changed ?? 0,
+                    ms,
+                    extra.code ?? null,
+                    options.trigger ?? "cron",
+                    delayS,
+                ),
+            db
+                .prepare(
+                    `INSERT INTO ic_source_daily (source_id, day, attempts, ok, unchanged, errors, rejected, total_ms, max_ms, bytes, records_max, created, changed,
+                        delay_total_s, delay_count, delay_max_s, first_success_at, last_success_at, longest_gap_minutes)
+                     VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(source_id, day) DO UPDATE SET
+                        attempts = attempts + 1, ok = ok + excluded.ok, unchanged = unchanged + excluded.unchanged, errors = errors + excluded.errors,
+                        rejected = rejected + excluded.rejected, total_ms = total_ms + excluded.total_ms, max_ms = MAX(max_ms, excluded.max_ms),
+                        bytes = bytes + excluded.bytes, records_max = MAX(records_max, excluded.records_max), created = created + excluded.created,
+                        changed = changed + excluded.changed, delay_total_s = delay_total_s + excluded.delay_total_s,
+                        delay_count = delay_count + excluded.delay_count, delay_max_s = MAX(delay_max_s, excluded.delay_max_s),
+                        first_success_at = COALESCE(first_success_at, excluded.first_success_at),
+                        last_success_at = COALESCE(excluded.last_success_at, last_success_at),
+                        longest_gap_minutes = MAX(longest_gap_minutes, excluded.longest_gap_minutes)`,
+                )
+                .bind(
+                    sourceId,
+                    at.slice(0, 10),
+                    outcome === "ok" ? 1 : 0,
+                    outcome === "unchanged" ? 1 : 0,
+                    outcome === "error" ? 1 : 0,
+                    outcome === "rejected" ? 1 : 0,
+                    ms,
+                    ms,
+                    extra.bytes ?? 0,
+                    extra.active ?? 0,
+                    extra.created ?? 0,
+                    extra.changed ?? 0,
+                    delayS ?? 0,
+                    delayS === null ? 0 : 1,
+                    delayS ?? 0,
+                    success ? at : null,
+                    success ? at : null,
+                    gap,
+                ),
+        ];
+    };
     const nextDue = (ms: number) => new Date(now.getTime() + ms).toISOString();
     const secret = secretFor(env, source);
     try {
@@ -418,7 +547,7 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
                     nextDue(source.refreshMinutes * 60_000),
                     "The service sent data older than what's already stored; it was ignored.",
                 ]),
-                run("rejected", { status: batch.httpStatus, bytes: batch.bytes, code: "replayed" }),
+                ...run("rejected", { status: batch.httpStatus, bytes: batch.bytes, code: "replayed" }),
             ]);
             return { sourceId, outcome: "rejected", records: 0, created: 0, changed: 0, errorCode: "replayed" };
         }
@@ -429,12 +558,13 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
                     "last_attempt_at = ?, last_success_at = ?, next_due_at = ?, consecutive_failures = 0, error_code = NULL, error_message = NULL, etag = COALESCE(?, etag), last_modified = COALESCE(?, last_modified), state = ?",
                     [at, at, nextDue(source.refreshMinutes * 60_000), batch.etag ?? null, batch.lastModified ?? null, state],
                 ),
-                run("unchanged", { status: batch.httpStatus, bytes: batch.bytes }),
+                ...run("unchanged", { status: batch.httpStatus, bytes: batch.bytes, active: row.record_count }),
             ]);
             if (recovered) await sourceChange(db, sourceId, "source_recovered", `${source.dataset} is being retrieved again`);
             return { sourceId, outcome: "unchanged", records: row.record_count, created: 0, changed: 0 };
         }
-        const stored = await storeBatch(db, source, batch, { now: at, fixture: transport.fixture, baseline: !row.last_success_at, settings });
+        const history = await isEnabled(db, "intelligence_centre.history");
+        const stored = await storeBatch(db, source, batch, { now: at, fixture: transport.fixture, baseline: !row.last_success_at, settings, history });
         const count = await db.prepare("SELECT COUNT(*) AS n FROM ic_records WHERE source_id = ? AND active = 1").bind(sourceId).first<{ n: number }>();
         await db.batch([
             release(
@@ -456,7 +586,15 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
                     batch.publishedAt,
                 ],
             ),
-            run("ok", { status: batch.httpStatus, bytes: batch.bytes, records: batch.records.length, created: stored.created, changed: stored.changed }),
+            ...run("ok", {
+                status: batch.httpStatus,
+                bytes: batch.bytes,
+                records: batch.records.length,
+                created: stored.created,
+                changed: stored.changed,
+                publishedAt: batch.publishedAt,
+                active: count?.n ?? 0,
+            }),
         ]);
         if (recovered) await sourceChange(db, sourceId, "source_recovered", `${source.dataset} is being retrieved again`);
         if (batch.snapshot) {
@@ -495,7 +633,7 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
                 f.code,
                 f.message,
             ]),
-            run("error", { status: f.status, code: f.code }),
+            ...run("error", { status: f.status, code: f.code }),
         ]);
         if (failures === 3) await sourceChange(db, sourceId, "source_failed", `${source.dataset}: three attempts in a row failed (${f.message})`);
         // Operational log: the source and the code. Never a URL (it can carry a key) or a response.
@@ -547,7 +685,7 @@ export async function checkStaleSources(env: Env, now = new Date()) {
 }
 
 /** Warnings past the provider's own expiry time stop being current (the provider set the time). */
-export async function expireWarnings(db: D1Database, now = new Date()) {
+export async function expireWarnings(db: D1Database, now = new Date(), history = false) {
     const rows = await db
         .prepare(
             "SELECT id, title FROM ic_records WHERE active = 1 AND kind = 'warning' AND json_extract(attrs, '$.expires') IS NOT NULL AND json_extract(attrs, '$.expires') < ?",
@@ -559,6 +697,7 @@ export async function expireWarnings(db: D1Database, now = new Date()) {
         db,
         rows.results.flatMap((r) => [
             db.prepare("UPDATE ic_records SET active = 0 WHERE id = ?").bind(r.id),
+            ...(history ? versionStatements(db, r.id, at, "ended") : []),
             changeStatement(db, {
                 id: newId("icc"),
                 recordId: r.id,
@@ -588,7 +727,20 @@ export async function applyRetention(env: Env, now = new Date()) {
         env.DB.prepare("DELETE FROM ic_alerts WHERE created_at < ?").bind(before(settings.retention.alertDays)),
         env.DB.prepare("DELETE FROM ic_series WHERE record_id NOT IN (SELECT id FROM ic_records)"),
         env.DB.prepare("UPDATE ic_watch_areas SET enabled = 0 WHERE enabled = 1 AND expires_at IS NOT NULL AND expires_at < ?").bind(now.toISOString()),
+        // History (9.1): superseded versions past their retention; open versions stay while the record does.
+        env.DB.prepare("DELETE FROM ic_record_versions WHERE valid_to IS NOT NULL AND valid_to < ?").bind(before(settings.retention.versionDays)),
+        env.DB.prepare("DELETE FROM ic_record_versions WHERE valid_to IS NULL AND valid_from < ? AND record_id NOT IN (SELECT id FROM ic_records)").bind(
+            before(settings.retention.versionDays),
+        ),
+        env.DB.prepare(
+            `DELETE FROM ic_geometries WHERE first_seen_at < ? AND hash NOT IN (SELECT geometry_hash FROM ic_record_versions WHERE geometry_hash IS NOT NULL)
+             AND hash NOT IN (SELECT geometry_hash FROM ic_records WHERE geometry_hash IS NOT NULL)`,
+        ).bind(before(1)),
+        env.DB.prepare("DELETE FROM ic_source_daily WHERE day < ?").bind(before(settings.retention.sourceDailyDays).slice(0, 10)),
+        env.DB.prepare("DELETE FROM ic_rule_matches WHERE at < ?").bind(before(settings.retention.ruleMatchDays)),
+        env.DB.prepare("DELETE FROM ic_cache WHERE expires_at < ?").bind(now.toISOString()),
     ]);
+    await expireReports(env, before(settings.retention.reportDays));
 }
 
 /** The cron step. Retention always runs; collection only with the owner's switch on. */
@@ -599,7 +751,17 @@ export async function runCentreCron(env: Env, options: CollectOptions = {}) {
         await runDueSources(env, { ...options, now });
         await checkStaleSources(env, now);
     }
-    await expireWarnings(env.DB, now);
+    await expireWarnings(env.DB, now, await isEnabled(env.DB, "intelligence_centre.history"));
+    // Each step's failure is contained: rules and reports never stop retention or email delivery.
+    const step = async (name: string, work: () => Promise<unknown>) => {
+        try {
+            await work();
+        } catch (error) {
+            console.log(JSON.stringify({ event: "centre_cron_step_failed", step: name, message: (error as Error).message.slice(0, 200) }));
+        }
+    };
+    if (await isEnabled(env.DB, "intelligence_centre.rules")) await step("rules", () => evaluateRules(env, { now }));
+    if (await isEnabled(env.DB, "intelligence_centre.reports")) await step("reports", () => runDueReports(env, { now }));
     await applyRetention(env, now);
     await deliverAlertEmails(env, { now });
 }

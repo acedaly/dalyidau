@@ -12,9 +12,17 @@
 // 10 km), never the watch area's own coordinates or name; drawing the watch outline is a separate
 // opt-in. A display never runs a model: it can only show an interpretation the owner already
 // generated.
+//
+// Wallboard 2.0 (9.1): a board has views (presets or custom widget grids, in ic_wallboard_views)
+// that it rotates through; boards saved before then show the views their layout and rotation
+// describe. A credential the owner marked renewable can be swapped by the screen itself for a new
+// one near its expiry; the old one keeps working for a few minutes so a screen mid-refresh isn't
+// cut off. The payload a screen gets is built in display.ts.
 import type { D1Database } from "@cloudflare/workers-types";
 import type { CentreChange, CentreRecord, DisplayToken, MapLayer, Wallboard, WallboardInput, WallboardPayload } from "../../src/shared/centre/types";
 import { wallboardInputSchema } from "../../src/shared/centre/types";
+import type { ViewInput, WallboardView, Widget } from "../../src/shared/centre/wallboard";
+import { legacyViews, viewsInputSchema } from "../../src/shared/centre/wallboard";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { can, userForEmail } from "../portal/auth";
@@ -59,7 +67,21 @@ interface TokenRow {
     expires_at: string | null;
     revoked_at: string | null;
     last_used_at: string | null;
+    renewable: number;
+    renewed_at: string | null;
 }
+
+interface ViewRow {
+    id: string;
+    wallboard_id: string;
+    position: number;
+    name: string;
+    preset: WallboardView["preset"];
+    customised: number;
+    widgets: string;
+}
+
+const TOKEN_COLUMNS = "id, wallboard_id, label, created_at, expires_at, revoked_at, last_used_at, renewable, renewed_at";
 
 const toToken = (t: TokenRow): DisplayToken => ({
     id: t.id,
@@ -68,27 +90,50 @@ const toToken = (t: TokenRow): DisplayToken => ({
     expiresAt: t.expires_at,
     revokedAt: t.revoked_at,
     lastUsedAt: t.last_used_at,
+    renewable: t.renewable === 1,
+    renewedAt: t.renewed_at,
 });
 
-function toBoard(row: BoardRow, tokens: TokenRow[]): Wallboard {
+const toView = (v: ViewRow): WallboardView => ({
+    id: v.id,
+    name: v.name,
+    preset: v.preset,
+    customised: v.customised === 1,
+    widgets: parseJson<Widget[]>(v.widgets, []),
+});
+
+function toBoard(row: BoardRow, tokens: TokenRow[], views: ViewRow[]): Wallboard {
     const config = wallboardInputSchema.safeParse({ ...parseJson<object>(row.config, {}), name: row.name });
     const base = config.success ? config.data : wallboardInputSchema.parse({ name: row.name, layout: "nsw" });
-    return { ...base, id: row.id, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at, tokens: tokens.map(toToken) };
+    // A board saved before Wallboard 2.0 shows the views its layout and rotation describe.
+    const saved = views.sort((a, b) => a.position - b.position).map(toView);
+    const derived = saved.length ? saved : legacyViews(base.layout, base.rotation).map((v, i) => ({ ...v, id: `legacy_${i}` }));
+    return {
+        ...base,
+        id: row.id,
+        version: row.version,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        tokens: tokens.map(toToken),
+        views: derived,
+        legacyViews: !saved.length,
+    };
 }
 
 export async function listWallboards(db: D1Database, email: string): Promise<Wallboard[]> {
     const boards = await db.prepare("SELECT * FROM ic_wallboards WHERE email = ? ORDER BY name COLLATE NOCASE").bind(email).all<BoardRow>();
     if (!boards.results.length) return [];
-    const tokens = await db
-        .prepare(
-            `SELECT id, wallboard_id, label, created_at, expires_at, revoked_at, last_used_at FROM ic_display_tokens WHERE wallboard_id IN (${boards.results.map(() => "?").join(",")}) ORDER BY created_at DESC`,
-        )
-        .bind(...boards.results.map((b) => b.id))
-        .all<TokenRow>();
+    const ids = boards.results.map((b) => b.id);
+    const marks = ids.map(() => "?").join(",");
+    const [tokens, views] = await Promise.all([
+        db.prepare(`SELECT ${TOKEN_COLUMNS} FROM ic_display_tokens WHERE wallboard_id IN (${marks}) ORDER BY created_at DESC`).bind(...ids).all<TokenRow>(),
+        db.prepare(`SELECT * FROM ic_wallboard_views WHERE wallboard_id IN (${marks}) ORDER BY position`).bind(...ids).all<ViewRow>(),
+    ]);
     return boards.results.map((b) =>
         toBoard(
             b,
             tokens.results.filter((t) => t.wallboard_id === b.id),
+            views.results.filter((v) => v.wallboard_id === b.id),
         ),
     );
 }
@@ -97,13 +142,11 @@ export async function requireWallboard(db: D1Database, email: string, id: string
     if (!/^icb_[a-z0-9]{14}$/.test(id)) throw new HttpError(404, "not_found", "Not found");
     const row = await db.prepare("SELECT * FROM ic_wallboards WHERE id = ? AND email = ?").bind(id, email).first<BoardRow>();
     if (!row) throw new HttpError(404, "not_found", "Not found");
-    const tokens = await db
-        .prepare(
-            "SELECT id, wallboard_id, label, created_at, expires_at, revoked_at, last_used_at FROM ic_display_tokens WHERE wallboard_id = ? ORDER BY created_at DESC",
-        )
-        .bind(id)
-        .all<TokenRow>();
-    return toBoard(row, tokens.results);
+    const [tokens, views] = await Promise.all([
+        db.prepare(`SELECT ${TOKEN_COLUMNS} FROM ic_display_tokens WHERE wallboard_id = ? ORDER BY created_at DESC`).bind(id).all<TokenRow>(),
+        db.prepare("SELECT * FROM ic_wallboard_views WHERE wallboard_id = ? ORDER BY position").bind(id).all<ViewRow>(),
+    ]);
+    return toBoard(row, tokens.results, views.results);
 }
 
 async function checkInput(db: D1Database, user: PortalUser, body: unknown): Promise<WallboardInput> {
@@ -114,13 +157,78 @@ async function checkInput(db: D1Database, user: PortalUser, body: unknown): Prom
     return input;
 }
 
+/** Views as saved: valid layouts, and only the owner's own watch areas and existing records in widget settings. */
+async function checkViews(db: D1Database, user: PortalUser, body: unknown, board: Pick<WallboardInput, "watchId">): Promise<ViewInput[]> {
+    const views = viewsInputSchema.parse(body);
+    const watchIds = new Set<string>();
+    const recordIds = new Set<string>();
+    for (const view of views)
+        for (const w of view.widgets) {
+            if (w.settings.scope?.kind === "watch") watchIds.add(w.settings.scope.watchId);
+            if (w.settings.recordId) recordIds.add(w.settings.recordId);
+            if (view.preset === "local" && !board.watchId && (!w.settings.scope || w.settings.scope.kind === "board") && w.type === "map")
+                throw new HttpError(422, "validation", "Local Situation needs the board's area to be a watch area, or each widget's own area");
+        }
+    for (const id of watchIds) await requireWatch(db, user.email, id);
+    for (const id of recordIds)
+        if (!(await db.prepare("SELECT 1 FROM ic_records WHERE id = ?").bind(id).first())) throw new HttpError(422, "validation", "A timeline widget names a record that isn't stored");
+    return views;
+}
+
+const viewStatements = (db: D1Database, boardId: string, views: ViewInput[], now: string) => [
+    db.prepare("DELETE FROM ic_wallboard_views WHERE wallboard_id = ?").bind(boardId),
+    ...views.map((v, position) =>
+        db
+            .prepare("INSERT INTO ic_wallboard_views (id, wallboard_id, position, name, preset, customised, widgets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(v.id ?? newId("icl"), boardId, position, v.name, v.preset, v.customised ? 1 : 0, JSON.stringify(v.widgets), now, now),
+    ),
+];
+
+/** Replaces a board's views (and so its rotation) in one step; the board's version goes up. */
+export async function saveViews(db: D1Database, user: PortalUser, id: string, body: unknown) {
+    const { version, views } = (body ?? {}) as { version?: unknown; views?: unknown };
+    if (typeof version !== "number") throw new HttpError(422, "validation", "Send the version you edited");
+    const board = await requireWallboard(db, user.email, id);
+    const checked = await checkViews(db, user, views, board);
+    // Ids are kept only when they're this board's own (never another board's view).
+    const own = new Set(board.legacyViews ? [] : board.views.map((v) => v.id));
+    const list = checked.map((v) => (v.id && own.has(v.id) ? v : { ...v, id: undefined }));
+    if (board.version !== version) throw new HttpError(409, "conflict", "This wallboard was changed elsewhere. Reload and try again.");
+    const now = nowIso();
+    // One transaction: the version and every view change together, or not at all.
+    await db.batch([
+        db.prepare("UPDATE ic_wallboards SET version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?").bind(now, id, user.email, version),
+        ...viewStatements(db, id, list, now),
+        auditStatement(db, {
+            actor: user.email,
+            action: "centre.wallboard.views",
+            entityType: "centre_wallboard",
+            entityId: id,
+            summary: `Saved ${list.length} wallboard ${list.length === 1 ? "view" : "views"}`,
+        }),
+    ]);
+    return requireWallboard(db, user.email, id);
+}
+
+/** A copy of a board (settings and views, never its display credentials). */
+export async function duplicateWallboard(db: D1Database, user: PortalUser, id: string, body: unknown) {
+    const board = await requireWallboard(db, user.email, id);
+    const name = typeof (body as { name?: unknown })?.name === "string" ? (body as { name: string }).name.trim().slice(0, 60) : "";
+    const { id: _id, version: _v, createdAt: _c, updatedAt: _u, tokens: _t, views, legacyViews: legacy, ...config } = board;
+    const copy = await createWallboard(db, user, { ...config, name: name || `${board.name} (copy)`.slice(0, 60) });
+    if (legacy) return copy;
+    return saveViews(db, user, copy.id, { version: copy.version, views: views.map(({ id: _view, ...v }) => v) });
+}
+
 const configJson = (input: WallboardInput) => {
     const { name: _name, ...config } = input;
     return JSON.stringify(config);
 };
 
 export async function createWallboard(db: D1Database, user: PortalUser, body: unknown) {
-    const input = await checkInput(db, user, body);
+    const { views: viewBody, ...rest } = (body ?? {}) as { views?: unknown };
+    const input = await checkInput(db, user, rest);
+    const views = viewBody === undefined ? null : await checkViews(db, user, viewBody, input);
     const count = await db.prepare("SELECT COUNT(*) AS n FROM ic_wallboards WHERE email = ?").bind(user.email).first<{ n: number }>();
     if ((count?.n ?? 0) >= MAX_WALLBOARDS) throw new HttpError(422, "validation", `You can have up to ${MAX_WALLBOARDS} wallboards`);
     const id = newId("icb");
@@ -129,6 +237,7 @@ export async function createWallboard(db: D1Database, user: PortalUser, body: un
         db
             .prepare("INSERT INTO ic_wallboards (id, email, name, config, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)")
             .bind(id, user.email, input.name, configJson(input), now, now),
+        ...(views ? viewStatements(db, id, views.map((v) => ({ ...v, id: undefined })), now) : []),
         auditStatement(db, {
             actor: user.email,
             action: "centre.wallboard.create",
@@ -167,6 +276,7 @@ export async function deleteWallboard(db: D1Database, user: PortalUser, id: stri
     await db.batch([
         // Its credentials stop working at once.
         db.prepare("UPDATE ic_display_tokens SET revoked_at = COALESCE(revoked_at, ?) WHERE wallboard_id = ?").bind(now, id),
+        db.prepare("DELETE FROM ic_wallboard_views WHERE wallboard_id = ?").bind(id),
         db.prepare("DELETE FROM ic_wallboards WHERE id = ? AND email = ?").bind(id, user.email),
         auditStatement(db, {
             actor: user.email,
@@ -181,7 +291,7 @@ export async function deleteWallboard(db: D1Database, user: PortalUser, id: stri
 /** A new display credential. The token is returned once and never again. */
 export async function createDisplayToken(db: D1Database, user: PortalUser, boardId: string, body: unknown) {
     const board = await requireWallboard(db, user.email, boardId);
-    const { label, expiresInDays } = (body ?? {}) as { label?: unknown; expiresInDays?: unknown };
+    const { label, expiresInDays, renewable } = (body ?? {}) as { label?: unknown; expiresInDays?: unknown; renewable?: unknown };
     if (typeof label !== "string" || !label.trim() || label.trim().length > 60)
         throw new HttpError(422, "validation", "Name the display (up to 60 characters), e.g. Kitchen TV");
     if (
@@ -190,6 +300,8 @@ export async function createDisplayToken(db: D1Database, user: PortalUser, board
         (typeof expiresInDays !== "number" || !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 730)
     )
         throw new HttpError(422, "validation", "Expiry is 1 to 730 days, or none");
+    if (renewable !== undefined && typeof renewable !== "boolean") throw new HttpError(422, "validation", "Renewable is true or false");
+    if (renewable && typeof expiresInDays !== "number") throw new HttpError(422, "validation", "Only an expiring display address can renew itself");
     if (board.tokens.filter((t) => !t.revokedAt).length >= MAX_TOKENS_PER_BOARD)
         throw new HttpError(422, "validation", `Up to ${MAX_TOKENS_PER_BOARD} active displays per wallboard`);
     const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -198,8 +310,10 @@ export async function createDisplayToken(db: D1Database, user: PortalUser, board
     const expires = typeof expiresInDays === "number" ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString() : null;
     await db.batch([
         db
-            .prepare("INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-            .bind(id, boardId, await hashDisplayToken(token), label.trim(), user.email, now, expires),
+            .prepare(
+                "INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, expires_at, renewable, lifetime_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id, boardId, await hashDisplayToken(token), label.trim(), user.email, now, expires, renewable ? 1 : 0, typeof expiresInDays === "number" ? expiresInDays : null),
         auditStatement(db, {
             actor: user.email,
             action: "centre.display.create",
@@ -250,24 +364,103 @@ export class DisplayRefused extends Error {
     }
 }
 
-/** Who a display credential belongs to, or a refusal that looks the same for every reason. */
-export async function authenticateDisplay(env: Env, request: Request): Promise<{ board: Wallboard; owner: PortalUser; tokenId: string }> {
+interface CredentialRow {
+    id: string;
+    wallboard_id: string;
+    expires_at: string | null;
+    revoked_at: string | null;
+    renewable: number;
+    lifetime_days: number | null;
+    email: string;
+    current: number;
+}
+
+/** A display credential by its hash, or by the hash it just replaced (only during the short overlap). */
+async function credential(env: Env, request: Request): Promise<CredentialRow> {
     if (!(await isEnabled(env.DB, "intelligence_centre.wallboard"))) throw new DisplayRefused(404);
     const header = request.headers.get("Authorization") ?? "";
     const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(header)?.[1];
     if (!token) throw new DisplayRefused(404);
+    const hash = await hashDisplayToken(token);
+    const now = new Date().toISOString();
     const row = await env.DB.prepare(
-        `SELECT t.id, t.wallboard_id, t.expires_at, t.revoked_at, b.email FROM ic_display_tokens t JOIN ic_wallboards b ON b.id = t.wallboard_id WHERE t.token_hash = ?`,
+        `SELECT t.id, t.wallboard_id, t.expires_at, t.revoked_at, t.renewable, t.lifetime_days, b.email, CASE WHEN t.token_hash = ?1 THEN 1 ELSE 0 END AS current
+         FROM ic_display_tokens t JOIN ic_wallboards b ON b.id = t.wallboard_id
+         WHERE t.token_hash = ?1 OR (t.previous_hash = ?1 AND t.previous_until > ?2)`,
     )
-        .bind(await hashDisplayToken(token))
-        .first<{ id: string; wallboard_id: string; expires_at: string | null; revoked_at: string | null; email: string }>();
+        .bind(hash, now)
+        .first<CredentialRow>();
     if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at) < Date.now())) throw new DisplayRefused(404);
+    return row;
+}
+
+/** Who a display credential belongs to, or a refusal that looks the same for every reason. */
+export async function authenticateDisplay(
+    env: Env,
+    request: Request,
+): Promise<{ board: Wallboard; owner: PortalUser; tokenId: string; expiresAt: string | null; renewable: boolean }> {
+    const row = await credential(env, request);
     // Generous for one screen refreshing every 30 seconds; stops anything hammering the database.
     if (!(await allow(env.DB, "centre-display", row.id, 30, 60))) throw new DisplayRefused(429);
     const auth = await userForEmail(env, row.email);
     if (!auth.ok || !can(auth.user, "centre.use")) throw new DisplayRefused(404);
     await env.DB.prepare("UPDATE ic_display_tokens SET last_used_at = ?, uses = uses + 1 WHERE id = ?").bind(nowIso(), row.id).run();
-    return { board: await requireWallboard(env.DB, row.email, row.wallboard_id), owner: auth.user, tokenId: row.id };
+    return {
+        board: await requireWallboard(env.DB, row.email, row.wallboard_id),
+        owner: auth.user,
+        tokenId: row.id,
+        expiresAt: row.expires_at,
+        renewable: row.renewable === 1 && row.current === 1,
+    };
+}
+
+/**
+ * For map tiles: the same checks as a refresh (switch on, credential valid and unexpired, owner
+ * still allowed), with its own higher rate limit and without recording a use for every tile.
+ */
+export async function authenticateDisplayTiles(env: Env, request: Request): Promise<void> {
+    const row = await credential(env, request);
+    if (!(await allow(env.DB, "centre-display-tiles", row.id, 600, 60))) throw new DisplayRefused(429);
+    const auth = await userForEmail(env, row.email);
+    if (!auth.ok || !can(auth.user, "centre.use")) throw new DisplayRefused(404);
+}
+
+/** How close to its expiry a renewable credential may be renewed by its screen. */
+export const RENEW_WITHIN_MS = 14 * 86_400_000;
+/** How long the replaced credential keeps working, for a screen that's mid-refresh. */
+const OVERLAP_MS = 15 * 60_000;
+
+/**
+ * A screen swapping its renewable credential for a new one near expiry. The credential row stays
+ * the same (the owner revokes it as before); only its hash and expiry change, and the old hash
+ * works for a short overlap. The new token is returned once.
+ */
+export async function renewDisplayToken(env: Env, request: Request): Promise<{ token: string; expiresAt: string }> {
+    const row = await credential(env, request);
+    if (!(await allow(env.DB, "centre-display-renew", row.id, 3, 3600))) throw new DisplayRefused(429);
+    const auth = await userForEmail(env, row.email);
+    if (!auth.ok || !can(auth.user, "centre.use")) throw new DisplayRefused(404);
+    if (!row.current || row.renewable !== 1 || !row.expires_at || !row.lifetime_days || Date.parse(row.expires_at) - Date.now() > RENEW_WITHIN_MS)
+        throw new HttpError(409, "not_renewable", "This display address can't be renewed now");
+    const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    const now = Date.now();
+    const expiresAt = new Date(now + row.lifetime_days * 86_400_000).toISOString();
+    const old = await hashDisplayToken(/^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")![1]);
+    const [updated] = await env.DB.batch([
+        env.DB.prepare(
+            `UPDATE ic_display_tokens SET token_hash = ?, previous_hash = ?, previous_until = ?, expires_at = ?, renewed_at = ?
+             WHERE id = ? AND token_hash = ? AND revoked_at IS NULL`,
+        ).bind(await hashDisplayToken(token), old, new Date(now + OVERLAP_MS).toISOString(), expiresAt, new Date(now).toISOString(), row.id, old),
+        auditStatement(env.DB, {
+            actor: row.email,
+            action: "centre.display.renew",
+            entityType: "centre_display",
+            entityId: row.id,
+            summary: "A wallboard display renewed its own credential",
+        }),
+    ]);
+    if (!updated.meta.changes) throw new DisplayRefused(404);
+    return { token, expiresAt };
 }
 
 export async function wallboardPayload(env: Env, board: Wallboard, owner: PortalUser, now = new Date()): Promise<WallboardPayload> {

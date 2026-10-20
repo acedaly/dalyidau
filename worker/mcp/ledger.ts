@@ -1,4 +1,4 @@
-// The MCP write ledger (mcp_writes, migrations 0018, 0020, 0021, 0022, 0023 and 0026).
+// The MCP write ledger (mcp_writes, migrations 0018, 0020, 0021, 0022, 0023, 0026 and 0027).
 //
 // Every write an AI client makes through the gateway is claimed here before anything changes and
 // settled afterwards, so there is always an audit row naming the person, the tool and the record,
@@ -23,7 +23,10 @@ export type EntityType =
     | "task_time_block"
     | "asset"
     | "asset_maintenance"
-    | "asset_link";
+    | "asset_link"
+    | "centre_rule"
+    | "centre_report"
+    | "centre_report_schedule";
 
 export interface WriteOutcome {
     entityType: EntityType;

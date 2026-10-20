@@ -12,7 +12,9 @@ import { serveFeed } from "./calendar/feeds";
 import { processCalendarNotifications } from "./calendar/notify";
 import { processDueSubscriptions } from "./calendar/subscriptions";
 import { runCentreCron } from "./centre/ingest";
-import { DisplayRefused, authenticateDisplay, wallboardPayload } from "./centre/wallboard";
+import { serveTile, tilePath } from "./centre/basemap";
+import { displayStateKey, wallboardPayloadV2 } from "./centre/display";
+import { DisplayRefused, authenticateDisplay, authenticateDisplayTiles, renewDisplayToken, wallboardPayload } from "./centre/wallboard";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { runIntelligenceCron } from "./intelligence/runner";
@@ -141,6 +143,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
     // Wallboard displays: a display credential, not Cloudflare Access (worker/centre/wallboard.ts).
     if (path === "/api/display/wallboard") return displayApi(request, env);
+    if (path === "/api/display/renew") return displayRenew(request, env);
+    if (path.startsWith("/api/display/tiles/")) return displayTiles(request, env, path);
     if (path === "/display") return displayPage(request, env, path);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
     if (path.startsWith("/api/")) return api(request, env, url);
@@ -399,12 +403,51 @@ async function displayApi(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET") return apiJson({ error: "method_not_allowed" }, 405);
     try {
         checkCrossSiteDisplay(request);
-        const { board, owner } = await authenticateDisplay(env, request);
-        return apiJson({ wallboard: await wallboardPayload(env, board, owner) }, 200, { "Referrer-Policy": "no-referrer" });
+        const { board, owner, expiresAt, renewable } = await authenticateDisplay(env, request);
+        // Wallboard 2.0 screens ask for version 2; a screen still running the earlier page keeps the payload it understands.
+        if (new URL(request.url).searchParams.get("v") !== "2")
+            return apiJson({ wallboard: await wallboardPayload(env, board, owner) }, 200, { "Referrer-Policy": "no-referrer" });
+        const stateKey = await displayStateKey(env.DB, board);
+        // Nothing that could change this board has changed since the screen's last refresh.
+        if (request.headers.get("If-None-Match") === `"${stateKey}"`)
+            return new Response(null, { status: 304, headers: { ...DISPLAY_HEADERS, ETag: `"${stateKey}"` } });
+        return apiJson({ wallboard: await wallboardPayloadV2(env, board, owner, { stateKey, expiresAt, renewable }) }, 200, {
+            "Referrer-Policy": "no-referrer",
+            ETag: `"${stateKey}"`,
+        });
     } catch (error) {
         // Every refusal looks the same: an unknown, revoked or expired credential, or the switch off.
         if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
         return errorResponse(error, "/api/display/wallboard");
+    }
+}
+
+/** A screen swapping its renewable credential for a new one near expiry (the new one is returned once). */
+async function displayRenew(request: Request, env: Env): Promise<Response> {
+    if (request.method !== "POST") return apiJson({ error: "method_not_allowed" }, 405);
+    try {
+        checkCrossSiteDisplay(request);
+        return apiJson(await renewDisplayToken(env, request), 200, { "Referrer-Policy": "no-referrer" });
+    } catch (error) {
+        if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
+        return errorResponse(error, "/api/display/renew");
+    }
+}
+
+/** Basemap tiles for a screen: its credential (in the Authorization header), never Cloudflare Access. */
+async function displayTiles(request: Request, env: Env, path: string): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") return apiJson({ error: "method_not_allowed" }, 405);
+    const tile = tilePath(path);
+    if (!tile || path !== `/api/display/tiles/${tile.z}/${tile.x}/${tile.y}.mvt`) return new Response("Not found", { status: 404, headers: DISPLAY_HEADERS });
+    try {
+        checkCrossSiteDisplay(request);
+        await authenticateDisplayTiles(env, request);
+        const response = await serveTile(env, request, tile.z, tile.x, tile.y);
+        response.headers.set("Referrer-Policy", "no-referrer");
+        return response;
+    } catch (error) {
+        if (error instanceof DisplayRefused) return new Response(null, { status: error.status, headers: DISPLAY_HEADERS });
+        return errorResponse(error, "/api/display/tiles");
     }
 }
 

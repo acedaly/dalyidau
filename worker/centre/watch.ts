@@ -180,11 +180,16 @@ export const matchContextFor = async (db: D1Database, watch: WatchArea): Promise
     bomDistrict: await nearestBomDistrict(db, watchCentre(watch.definition)),
 });
 
-/** Active records that concern this watch area, with the reason for each. */
-export async function recordsForWatch(db: D1Database, watch: WatchArea, limit = 300): Promise<{ record: CentreRecord; reason: string }[]> {
+/** Active records that concern this watch area, with the reason for each (or every stored record, for history). */
+export async function recordsForWatch(
+    db: D1Database,
+    watch: WatchArea,
+    limit = 300,
+    options: { includeInactive?: boolean } = {},
+): Promise<{ record: CentreRecord; reason: string }[]> {
     const bbox = watchBBox(watch.definition);
     const context = await matchContextFor(db, watch);
-    const where = ["active = 1"];
+    const where = [options.includeInactive ? "1 = 1" : "active = 1"];
     const binds: unknown[] = [];
     if (bbox) {
         // Points in the box, areas whose box meets it, and anything without coordinates (district and text warnings).

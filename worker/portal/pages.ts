@@ -513,7 +513,7 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url }) => loadCentrePage(env, user, url, "overview"),
     },
     {
-        pattern: /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings)$/,
+        pattern: /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings|changes|timeline|replay|analytics|correlations|rules|reports|assistant)$/,
         title: "Intelligence Centre",
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, match[1] as CentrePage),
@@ -523,6 +523,18 @@ const PAGES: PageDef[] = [
         title: "Record",
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "record", match[1]),
+    },
+    {
+        pattern: /^\/portal\/intelligence-centre\/wallboards\/(icb_[a-z0-9]{14})$/,
+        title: "Wallboard",
+        application: "intelligence-centre",
+        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "wallboard", match[1]),
+    },
+    {
+        pattern: /^\/portal\/intelligence-centre\/reports\/(icp_[a-z0-9]{14})$/,
+        title: "Situation report",
+        application: "intelligence-centre",
+        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "report", match[1]),
     },
     {
         pattern: /^\/portal\/intelligence-centre\/hazards\/(weather|fire-danger|flood|transport|environment|infrastructure)$/,

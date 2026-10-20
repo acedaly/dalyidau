@@ -189,7 +189,7 @@ Rules:
 - Remind the reader to follow official warnings when you mention a warning.
 Answer with one JSON object and nothing else: {"items": [{"text": string (one sentence, at most 40 words), "refs": string[] (fact ids)}]} with at most 5 items.`;
 
-const interpretationSchema = z.object({
+export const interpretationSchema = z.object({
     items: z.array(z.object({ text: z.string().min(1).max(400), refs: z.array(z.string().max(10)).max(8).default([]) })).max(8),
 });
 

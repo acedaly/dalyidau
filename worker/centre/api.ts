@@ -11,8 +11,28 @@ import type { Env } from "../env";
 import { can } from "../portal/auth";
 import { HttpError, json, readJson } from "../portal/http";
 import { allow } from "../wedding/rsvp";
-import { knowledgeFromBriefing, knowledgeFromRecord, taskFromRecord } from "./actions";
+import { REGION_IDS, type RegionId, regionById } from "../../src/shared/centre/regions";
+import { FEED_CHANGE_GROUPS, type FeedFilters } from "../../src/shared/centre/history";
+import { MAP_LAYERS } from "../../src/shared/centre/types";
+import { knowledgeFromBriefing, knowledgeFromRecord, knowledgeFromTimeline, linkEvent, listEventLinks, taskFromRecord, unlinkEvent } from "./actions";
 import { acknowledgeAlerts, listAlerts } from "./alerts";
+import { askAssistant } from "./assistant";
+import { basemapInfo, serveTile } from "./basemap";
+import { displayStateKey, wallboardPayloadV2 } from "./display";
+import { centreAnalytics, changeFeed, recordTimeline, replayCompare, replayFrame, replayMeta, situationTimeline, sourceReliability } from "./history";
+import {
+    buildReport,
+    createSchedule,
+    deleteReport,
+    deleteSchedule,
+    generateReport,
+    getReport,
+    listReports,
+    listSchedules,
+    reportToKnowledge,
+    updateSchedule,
+} from "./reports";
+import { acknowledgeMatches, createRule, deleteRule, listMatches, listRules, taskFromMatch, testRule, updateRule } from "./rules";
 import { buildBriefing, withInterpretation } from "./briefing";
 import { correlations } from "./correlate";
 import { type BBox, NSW_BBOX } from "./geo";
@@ -32,7 +52,18 @@ import {
     sourceHealth,
 } from "./store";
 import { centreSummary } from "./summary";
-import { createDisplayToken, createWallboard, deleteWallboard, listWallboards, revokeDisplayToken, updateWallboard } from "./wallboard";
+import { reportRequestSchema } from "../../src/shared/centre/reports";
+import {
+    createDisplayToken,
+    createWallboard,
+    deleteWallboard,
+    duplicateWallboard,
+    listWallboards,
+    requireWallboard,
+    revokeDisplayToken,
+    saveViews,
+    updateWallboard,
+} from "./wallboard";
 import { createWatch, deleteWatch, listWatches, recordsForWatch, requireWatch, updateWatch } from "./watch";
 
 interface Ctx {
@@ -318,5 +349,198 @@ export async function handleCentreApi(request: Request, env: Env, user: PortalUs
     if (pathMatched) throw new HttpError(405, "method_not_allowed", "Method not allowed");
     throw new HttpError(404, "not_found", "Not found");
 }
+
+// --- History: timelines, replay, the change feed, analytics (9.1) ------------------------------------
+
+const iso = z.iso.datetime({ offset: true });
+const region = z.enum(REGION_IDS).nullable();
+
+/** The "What's changed" filters from a query string (bad values are refused, not guessed). */
+export async function feedFilters(env: Env, user: PortalUser, url: URL): Promise<FeedFilters & { watchArea: Awaited<ReturnType<typeof requireWatch>> | null }> {
+    const get = (k: string) => url.searchParams.get(k) || undefined;
+    const now = Date.now();
+    const f = z
+        .object({
+            hazard: z.enum(HAZARD_CATEGORIES).nullable().default(null),
+            region: region.default(null),
+            watch: z
+                .string()
+                .regex(/^icw_[a-z0-9]{14}$/)
+                .nullable()
+                .default(null),
+            from: iso.default(new Date(now - 86_400_000).toISOString()),
+            to: iso.default(new Date(now).toISOString()),
+            minLevel: z.coerce.number().int().min(0).max(5).default(0),
+            source: z
+                .string()
+                .regex(/^[a-z0-9-]{3,40}$/)
+                .nullable()
+                .default(null),
+            group: z
+                .enum(FEED_CHANGE_GROUPS.map((g) => g.id) as [string, ...string[]])
+                .nullable()
+                .default(null),
+            significance: z.enum(["significant", "all"]).default("significant"),
+        })
+        .parse({
+            hazard: get("hazard") ?? null,
+            region: get("region") ?? null,
+            watch: get("watch") ?? null,
+            from: get("from"),
+            to: get("to"),
+            minLevel: get("minLevel"),
+            source: get("source") ?? null,
+            group: get("group") ?? null,
+            significance: get("significance"),
+        });
+    if (Date.parse(f.to) - Date.parse(f.from) > 31 * 86_400_000) throw new HttpError(400, "bad_range", "Choose at most 31 days");
+    return { ...f, watchArea: f.watch ? await requireWatch(env.DB, user.email, f.watch) : null };
+}
+
+add("GET", "/feed", async ({ env, user, url }) => {
+    const filters = await feedFilters(env, user, url);
+    return json(await changeFeed(env, filters, Math.min(500, Number(url.searchParams.get("limit") ?? 300) || 300)));
+});
+add("GET", "/records/:id/timeline", async ({ env, params }) => {
+    const timeline = await recordTimeline(env, recordId(params.id));
+    if (!timeline) throw new HttpError(404, "not_found", "Not found");
+    return json({ timeline });
+});
+add("POST", "/records/:id/timeline/knowledge", async ({ env, user, request, params }) =>
+    json(await knowledgeFromTimeline(env, user, recordId(params.id), await readJson(request))),
+);
+add("GET", "/timeline", async ({ env, user, url }) => {
+    const watchId = url.searchParams.get("watch");
+    const regionId = region.parse(url.searchParams.get("region") || null) as RegionId | null;
+    const hours = z.coerce.number().int().min(1).max(720).default(24).parse(url.searchParams.get("hours") ?? undefined);
+    const watch = watchId ? await requireWatch(env.DB, user.email, watchId) : null;
+    return json({ timeline: await situationTimeline(env, { watch, region: regionId }, hours) });
+});
+
+const replayScope = async (env: Env, user: PortalUser, url: URL) => {
+    const watchId = url.searchParams.get("watch");
+    const regionId = region.parse(url.searchParams.get("region") || null);
+    const layers = (url.searchParams.get("layers") ?? "").split(",").filter(Boolean);
+    return {
+        watch: watchId ? await requireWatch(env.DB, user.email, watchId) : null,
+        bbox: regionId && regionId !== "nsw" && regionId !== "australia" ? regionById(regionId)!.bbox : null,
+        layers: z.array(z.enum(MAP_LAYERS)).max(MAP_LAYERS.length).parse(layers),
+        includeInactive: url.searchParams.get("includeInactive") === "1",
+    };
+};
+add("GET", "/replay", async ({ env, user, url }) => {
+    const at = iso.parse(url.searchParams.get("at") ?? undefined);
+    if (Date.parse(at) > Date.now() + 60_000) throw new HttpError(400, "bad_time", "Replay can't show the future");
+    return json({ frame: await replayFrame(env, new Date(at), await replayScope(env, user, url)) });
+});
+add("GET", "/replay/meta", async ({ env, url }) => {
+    const to = new Date(iso.default(new Date().toISOString()).parse(url.searchParams.get("to") ?? undefined));
+    const from = new Date(iso.default(new Date(to.getTime() - 86_400_000).toISOString()).parse(url.searchParams.get("from") ?? undefined));
+    if (to.getTime() - from.getTime() > 31 * 86_400_000 || to <= from) throw new HttpError(400, "bad_range", "Choose up to 31 days");
+    return json({ meta: await replayMeta(env, from, to) });
+});
+add("GET", "/replay/compare", async ({ env, user, url }) => {
+    const a = iso.parse(url.searchParams.get("a") ?? undefined);
+    const b = iso.parse(url.searchParams.get("b") ?? undefined);
+    return json({ comparison: await replayCompare(env, new Date(a), new Date(b), await replayScope(env, user, url)) });
+});
+add("GET", "/analytics", async ({ env, url }) => {
+    const days = z.coerce.number().int().refine((d) => [7, 30, 90].includes(d), "7, 30 or 90 days").default(30).parse(url.searchParams.get("days") ?? undefined);
+    return json({ analytics: await centreAnalytics(env, days) });
+});
+add("GET", "/reliability", async ({ env, url }) => {
+    const days = z.coerce.number().int().min(1).max(400).default(30).parse(url.searchParams.get("days") ?? undefined);
+    return json({ reliability: await sourceReliability(env.DB, days) });
+});
+
+// --- Monitoring rules ----------------------------------------------------------------------------------
+
+add("GET", "/rules", async ({ env, user }) => json({ rules: await listRules(env.DB, user.email), matches: await listMatches(env.DB, user.email, { limit: 100 }) }));
+add("POST", "/rules", async ({ env, user, request }) => json({ rule: await createRule(env.DB, user, await readJson(request)) }, 201));
+add("POST", "/rules/test", async ({ env, user, request, url }) => {
+    if (!(await allow(env.DB, "centre-rule-test", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many tests this hour. Try again later.");
+    const days = z.coerce.number().int().min(1).max(30).default(7).parse(url.searchParams.get("days") ?? undefined);
+    return json({ result: await testRule(env, user, await readJson(request), days) });
+});
+add("GET", "/rules/matches", async ({ env, user, url }) =>
+    json({ matches: await listMatches(env.DB, user.email, { open: url.searchParams.get("open") === "1", ruleId: url.searchParams.get("rule") ?? undefined, limit: 200 }) }),
+);
+add("POST", "/rules/matches/acknowledge", async ({ env, user, request }) => {
+    const body = z
+        .object({ ids: z.union([z.array(z.string()).max(200), z.literal("all")]) })
+        .strict()
+        .parse(await readJson(request));
+    await acknowledgeMatches(env.DB, user, body.ids);
+    return json({ ok: true });
+});
+add("POST", "/rules/matches/:id/task", async ({ env, user, request, params }) => json(await taskFromMatch(env, user, params.id, await readJson(request))));
+add("PUT", "/rules/:id", async ({ env, user, request, params }) => json({ rule: await updateRule(env.DB, user, params.id, await readJson(request)) }));
+add("DELETE", "/rules/:id", async ({ env, user, params }) => {
+    await deleteRule(env.DB, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Situation reports -----------------------------------------------------------------------------------
+
+add("GET", "/reports", async ({ env, user }) => json({ reports: await listReports(env.DB, user.email), schedules: await listSchedules(env.DB, user.email) }));
+add("POST", "/reports/preview", async ({ env, user, request }) => {
+    if (!(await allow(env.DB, "centre-report", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many reports this hour. Try again later.");
+    return json({ report: await buildReport(env, user, reportRequestSchema.parse(await readJson(request))) });
+});
+add(
+    "POST",
+    "/reports",
+    async ({ env, user, request }) => {
+        if (!(await allow(env.DB, "centre-report", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many reports this hour. Try again later.");
+        return json(await generateReport(env, user, await readJson(request)), 201);
+    },
+);
+add("GET", "/reports/:id", async ({ env, user, params }) => json(await getReport(env, user.email, params.id)));
+add("DELETE", "/reports/:id", async ({ env, user, params }) => {
+    await deleteReport(env, user, params.id);
+    return json({ ok: true });
+});
+add("POST", "/reports/:id/knowledge", async ({ env, user, request, params }) => json(await reportToKnowledge(env, user, params.id, await readJson(request))));
+add("GET", "/schedules", async ({ env, user }) => json({ schedules: await listSchedules(env.DB, user.email) }));
+add("POST", "/schedules", async ({ env, user, request }) => json({ schedule: await createSchedule(env.DB, user, await readJson(request)) }, 201));
+add("PUT", "/schedules/:id", async ({ env, user, request, params }) => json({ schedule: await updateSchedule(env.DB, user, params.id, await readJson(request)) }));
+add("DELETE", "/schedules/:id", async ({ env, user, params }) => {
+    await deleteSchedule(env.DB, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Assistant ---------------------------------------------------------------------------------------
+
+add("POST", "/assistant", async ({ env, user, request }) => json({ answer: await askAssistant(env, user, await readJson(request)) }));
+
+// --- Wallboard 2.0 -------------------------------------------------------------------------------------
+
+add("PUT", "/wallboards/:id/views", async ({ env, user, request, params }) => json({ wallboard: await saveViews(env.DB, user, params.id, await readJson(request)) }));
+add("POST", "/wallboards/:id/duplicate", async ({ env, user, request, params }) =>
+    json({ wallboard: await duplicateWallboard(env.DB, user, params.id, await readJson(request)) }, 201),
+);
+/** The owner's own preview of a board: exactly what a screen would get (no credential involved). */
+add("GET", "/wallboards/:id/preview", async ({ env, user, params }) => {
+    const board = await requireWallboard(env.DB, user.email, params.id);
+    return json({ wallboard: await wallboardPayloadV2(env, board, user, { stateKey: await displayStateKey(env.DB, board) }) });
+});
+
+// --- Journeys ---------------------------------------------------------------------------------------
+
+add("GET", "/events/links", async ({ env, user }) => json({ links: await listEventLinks(env, user) }));
+add("POST", "/events/links", async ({ env, user, request }) => json({ links: await linkEvent(env, user, await readJson(request)) }, 201));
+add("DELETE", "/events/links/:id", async ({ env, user, params }) => {
+    await unlinkEvent(env, user, params.id);
+    return json({ ok: true });
+});
+
+// --- Detailed basemap ---------------------------------------------------------------------------------
+
+add("GET", "/basemap", async ({ env }) => json({ basemap: await basemapInfo(env, "portal") }));
+add("GET", "/basemap/:z/:x/:tile", async ({ env, request, params }) => {
+    const y = /^(\d{1,6})\.mvt$/.exec(params.tile)?.[1];
+    if (!y || !/^\d{1,2}$/.test(params.z) || !/^\d{1,6}$/.test(params.x)) throw new HttpError(404, "not_found", "Not found");
+    return serveTile(env, request, Number(params.z), Number(params.x), Number(y));
+});
 
 export const DEFAULT_BBOX = NSW_BBOX;
