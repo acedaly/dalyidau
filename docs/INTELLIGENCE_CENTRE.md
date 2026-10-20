@@ -6,6 +6,8 @@ Milestone 9, at `/portal/intelligence-centre`: public emergency, weather and env
 
 **Status: built and tested; off by default; not deployed.** The code, migration `0025_intelligence_centre.sql`, tests and documentation are in this pull request. Nothing has been deployed or migrated remotely, and no switch, source, secret or binding has been added in production. Collection was **live-tested locally** against the real public services (see [What has and hasn't been validated](#what-has-and-hasnt-been-validated)). Sources and their evidence: [INTELLIGENCE_SOURCES.md](INTELLIGENCE_SOURCES.md).
 
+> **Milestone 9.1** adds Wallboard 2.0 (five presets, a layout editor, renewable screens), a detailed OpenStreetMap basemap served from this site, versioned history with incident timelines and replay, a "What's changed" feed, more correlation rules with explicit links and evidence factors, monitoring rules, situation reports, an assistant, analytics and source reliability, and sixteen more MCP tools. See [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md); sections below that 9.1 changes point there.
+
 Three kinds of information are kept apart everywhere they appear, each with its own label:
 
 | Kind         | What                                                                                       | Label                                                    |
@@ -101,6 +103,8 @@ Every page that shows a source's data shows its freshness: "Retrieved 12 minutes
 
 ## Correlation methodology
 
+9.1 adds explicit links (an RFS alert naming the incident's identifier), four more derived rules, evidence factors on every correlation and caps: see [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#correlation).
+
 `worker/centre/correlate.ts`. Deterministic rules over active records from the correlation window (48 hours by default), each with its evidence, distances, times and limitations. Confidence is only ever "low" or "moderate":
 
 | Rule               | Finds                                                                                                                                                                              | Confidence                                            |
@@ -116,6 +120,7 @@ The district of a located record is the BoM forecast district of the nearest wea
 
 - **Only what was published is drawn.** Points stay points (an incident or road closure is never buffered into an area or a length of road). Published polygons (RFS incident areas, CAP alert areas) are drawn as published: validated and evenly thinned for storage (5,000 vertices) and the screen (1,500), never smoothed or grown. District and text-only warnings (BoM, fire danger districts) have no shape and are listed beside the map.
 - **Accuracy is stated.** Each record carries its geometry quality ("a published point; the incident may cover a much larger area", "a named district", "described in words only") and the provider's accuracy where given (satellite detections ±2 km, earthquake uncertainty).
+- **Detailed basemap (9.1):** OpenStreetMap vector tiles from an archive in this site's own R2 bucket, served by the Worker, with the outline below as the fallback: see [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#detailed-basemap). The rest of this bullet describes the outline.
 - **The map** is MapLibre GL JS 6.11.2 (BSD-3). Its basemap is an outline of Australia's states served from this site (`public/centre/australia.geojson`, Natural Earth v5.1.2, public domain, simplified to 25 KB). There are **no third-party tiles**: a tile request would tell a tile host which area someone is looking at, often their home, and would need a wider Content Security Policy. MapLibre's worker is bundled and served from this origin (`worker-src` falls back to `script-src 'self'`), so the CSP is unchanged. The library loads only on pages with a map (a separate chunk, about 286 KB gzipped).
 - **Layers:** bush and grass fires, official warning areas, weather, flood, river gauges, roads, power, air quality, satellite detections, earthquakes, other incidents and your watch areas. Official points are solid with a halo, sized by level and coloured by the Australian Warning System where there's a level (Advice yellow, Watch and Act orange, Emergency Warning red). Satellite detections are diamonds, and their clusters are pale. Map controls: zoom, full screen, clustering (click to expand), time filter (6 h, 24 h, 72 h, 7 days, by each record's own time), search, "list only what's in the map view", a details panel and a legend.
 - **The map is never the only way to see something.** Every record on it is in the list beside it, and the record page gives everything the map shows, in words.
@@ -172,7 +177,7 @@ The model never sees a watch area's name, place name or coordinates: a watch bri
 
 ## Wallboard Mode
 
-A full-screen, read-only view for a monitor, TV or kiosk at `https://daly.id.au/display#t=<credential>`, with no portal navigation. It reuses the Centre's records, watch areas and map; there's no second collection system.
+A full-screen, read-only view for a monitor, TV or kiosk at `https://daly.id.au/display#t=<credential>`, with no portal navigation. **Wallboard 2.0 (9.1)** replaces the layouts below with five presets and custom widget grids, and adds themes, renewal and basemap tiles: see [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#wallboard-20). Boards made before it show their original layout and rotation as views. It reuses the Centre's records, watch areas and map; there's no second collection system.
 
 - **Profiles** (Intelligence Centre → Wallboards), per person, up to ten. Each has a name shown on screen, a layout and an area (one of the owner's watch areas, or NSW). It also sets map layers, optional rotation between layouts, seconds per view, refresh interval (30–900 s), and whether to show an interpretation already prepared.
 - **Layouts:** **Local Situation** (map, warnings and incidents in the area, fire danger, weather, interpretation), **NSW Overview** (the same for NSW), **Map Focus** (a large map with legend and the most serious records) and **Weather & Environment** (observations, fire danger, weather and flood warnings).
@@ -197,7 +202,7 @@ A full-screen, read-only view for a monitor, TV or kiosk at `https://daly.id.au/
 
 ## MCP
 
-Twelve **read-only** tools (85 in all), served by `worker/mcp/centre.ts` and advertised by the gateway (`mcp/src/portal-tools.ts`, version **2.6.0**). They need `centre.use`, have strict schemas and no identity fields, use the gateway's existing rate limits, and write nothing (`mcp_writes` doesn't change). Every result includes the providers' attribution and the disclaimer.
+Twelve **read-only** tools (85 in all at the time; 9.1 adds sixteen more, 117 in all, gateway 2.8.0: see [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#mcp)), served by `worker/mcp/centre.ts` and advertised by the gateway (`mcp/src/portal-tools.ts`, version **2.6.0**). They need `centre.use`, have strict schemas and no identity fields, use the gateway's existing rate limits, and write nothing (`mcp_writes` doesn't change). Every result includes the providers' attribution and the disclaimer.
 
 | Tool                           | What                                                                                          |
 | ------------------------------ | --------------------------------------------------------------------------------------------- |

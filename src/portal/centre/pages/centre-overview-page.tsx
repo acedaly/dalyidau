@@ -7,11 +7,15 @@ import {
     AlertTriangle,
     ArrowRight,
     Bell01,
+    ClockRewind,
     CloudRaining01,
     Database01,
+    FileCheck02,
     Flash,
     Globe04,
+    Lightning01,
     Map01,
+    MessageChatSquare,
     Route,
     Stars02,
     Target04,
@@ -30,6 +34,7 @@ import type { PageData } from "@/portal/lib/page-types";
 import type { CentreAlert } from "@/shared/centre/types";
 import { BriefingView } from "../briefing-view";
 import { centreApi } from "../centre-api";
+import { CorrelationItem } from "../history-ui";
 import { CENTRE, CentreHeader, CentreNotices, ChangeRow, FireDangerBadge, Freshness, RecordRow, SourceStatusBadge, When } from "../shared";
 
 export const CentreOverviewPage = ({ data }: { data: PageData<"centre-overview"> }) => {
@@ -52,9 +57,23 @@ export const CentreOverviewPage = ({ data }: { data: PageData<"centre-overview">
                 description="What public sources are reporting across NSW, and in your own watch areas."
                 shell={data}
                 actions={
-                    <Button size="md" iconLeading={Map01} href={`${CENTRE}/map`}>
-                        Live map
-                    </Button>
+                    <>
+                        <Button size="md" color="secondary" iconLeading={Lightning01} href={`${CENTRE}/changes`}>
+                            What's changed
+                        </Button>
+                        <Button size="md" color="secondary" iconLeading={ClockRewind} href={`${CENTRE}/replay`}>
+                            Replay
+                        </Button>
+                        <Button size="md" color="secondary" iconLeading={MessageChatSquare} href={`${CENTRE}/assistant`}>
+                            Ask
+                        </Button>
+                        <Button size="md" color="secondary" iconLeading={FileCheck02} href={`${CENTRE}/reports`}>
+                            Report
+                        </Button>
+                        <Button size="md" iconLeading={Map01} href={`${CENTRE}/map`}>
+                            Live map
+                        </Button>
+                    </>
                 }
             />
             <CentreNotices shell={data} sources={sources} />
@@ -184,18 +203,14 @@ export const CentreOverviewPage = ({ data }: { data: PageData<"centre-overview">
                         <Card title="Possibly related observations" icon={Stars02}>
                             <ul className="divide-y divide-secondary">
                                 {data.correlations.map((c) => (
-                                    <li key={c.id} className="flex flex-col gap-1 px-4 py-3 sm:px-5">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Badge size="sm" type="color" color="purple">
-                                                Derived · {c.confidence} confidence
-                                            </Badge>
-                                            <span className="text-sm font-semibold text-primary">{c.title}</span>
-                                        </div>
-                                        <p className="text-sm text-tertiary">{c.explanation}</p>
-                                        <p className="text-xs text-quaternary">{c.limitations}</p>
-                                    </li>
+                                    <CorrelationItem key={c.id} correlation={c} />
                                 ))}
                             </ul>
+                            <div className="border-t border-secondary px-4 py-3 sm:px-5">
+                                <Button size="sm" color="link-color" iconTrailing={ArrowRight} href={`${CENTRE}/correlations`}>
+                                    Every correlation, with its evidence
+                                </Button>
+                            </div>
                         </Card>
                     )}
                 </div>

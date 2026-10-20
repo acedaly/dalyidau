@@ -513,7 +513,8 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url }) => loadCentrePage(env, user, url, "overview"),
     },
     {
-        pattern: /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings|changes|timeline|replay|analytics|correlations|rules|reports|assistant)$/,
+        pattern:
+            /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings|changes|timeline|replay|analytics|correlations|rules|reports|assistant)$/,
         title: "Intelligence Centre",
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, match[1] as CentrePage),

@@ -26,7 +26,13 @@ export function isSignificant(change: Pick<CentreChange, "kind" | "category" | "
             return true;
         case "new":
             // A new official warning or levelled incident, a road closure, an outage; not every minor incident.
-            return change.severityRank >= 1 || change.category === "flood" || change.category === "weather" || change.category === "transport" || change.category === "power";
+            return (
+                change.severityRank >= 1 ||
+                change.category === "flood" ||
+                change.category === "weather" ||
+                change.category === "transport" ||
+                change.category === "power"
+            );
         case "rating_changed":
             return change.severityRank >= 2;
         case "measurement_change":
@@ -45,7 +51,13 @@ export function feedLabel(change: Pick<CentreChange, "kind" | "category">): stri
     const power = change.category === "power";
     switch (change.kind) {
         case "new":
-            return transport ? "New road closure or hazard" : power ? "New power outage" : change.category === "fire_danger" ? "Rating published" : "New official record";
+            return transport
+                ? "New road closure or hazard"
+                : power
+                  ? "New power outage"
+                  : change.category === "fire_danger"
+                    ? "Rating published"
+                    : "New official record";
         case "ended":
             return transport ? "Road reopened or hazard cleared (as the provider marked it)" : power ? "Outage marked restored" : "Provider marked it ended";
         case "escalated":
@@ -268,7 +280,17 @@ export interface SourceReliability {
     sourceId: string;
     provider: string;
     dataset: string;
-    days: { date: string; attempts: number; ok: number; errors: number; availability: number | null; avgMs: number | null; delayS: number | null; recordsMax: number; longestGapMinutes: number }[];
+    days: {
+        date: string;
+        attempts: number;
+        ok: number;
+        errors: number;
+        availability: number | null;
+        avgMs: number | null;
+        delayS: number | null;
+        recordsMax: number;
+        longestGapMinutes: number;
+    }[];
     availability: number | null;
     avgMs: number | null;
     avgDelayS: number | null;

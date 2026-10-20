@@ -8,7 +8,7 @@
 // reads. The archive is a bounded extract (NSW, the ACT and a margin) the owner builds and uploads
 // once (scripts/centre-basemap.mjs). Without it, maps fall back to the state outline.
 // Tiles are only served behind Cloudflare Access (the portal) or a display credential (wallboards).
-import { Compression, type Header, PMTiles, type RangeResponse, type Source } from "pmtiles";
+import { type Header, PMTiles, type RangeResponse, type Source } from "pmtiles";
 import type { BasemapInfo } from "../../src/shared/centre/wallboard";
 import type { Env } from "../env";
 import { loadCentreSettings } from "./store";
@@ -67,7 +67,15 @@ async function archive(env: Env): Promise<{ tiles: PMTiles; header: Header; etag
 /** What a map should draw, for the portal or a display. */
 export async function basemapInfo(env: Env, audience: "portal" | "display"): Promise<BasemapInfo> {
     const { settings } = await loadCentreSettings(env.DB);
-    const outline = (note: string | null): BasemapInfo => ({ kind: "outline", tiles: null, minZoom: 0, maxZoom: 0, bounds: null, attribution: OUTLINE_ATTRIBUTION, note });
+    const outline = (note: string | null): BasemapInfo => ({
+        kind: "outline",
+        tiles: null,
+        minZoom: 0,
+        maxZoom: 0,
+        bounds: null,
+        attribution: OUTLINE_ATTRIBUTION,
+        note,
+    });
     if (settings.basemap !== "detailed") return outline(null);
     const found = await archive(env);
     if (!found) return outline("The detailed map isn't installed (no basemap archive in storage), so only the state outline is shown.");
@@ -85,15 +93,10 @@ export async function basemapInfo(env: Env, audience: "portal" | "display"): Pro
     };
 }
 
-const decompress = async (data: ArrayBuffer, compression: Compression) => {
-    if (compression === Compression.None) return data;
-    if (compression === Compression.Gzip) return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
-    throw new Error("The basemap uses a compression this Worker can't read");
-};
-
 /** One tile, or 204 when the archive has none there (outside its extract or zoom range). */
 export async function serveTile(env: Env, request: Request, z: number, x: number, y: number): Promise<Response> {
-    if (![z, x, y].every(Number.isInteger) || z < 0 || z > 16 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) return new Response("Not found", { status: 404 });
+    if (![z, x, y].every(Number.isInteger) || z < 0 || z > 16 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z)
+        return new Response("Not found", { status: 404 });
     const found = await archive(env);
     if (!found) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
     const { tiles, header, etag } = found;
@@ -105,7 +108,8 @@ export async function serveTile(env: Env, request: Request, z: number, x: number
     if (z < header.minZoom || z > header.maxZoom) return new Response(null, { status: 204, headers });
     const tile = await tiles.getZxy(z, x, y);
     if (!tile) return new Response(null, { status: 204, headers });
-    return new Response(await decompress(tile.data, header.tileCompression), { status: 200, headers });
+    // The reader has already decompressed the tile (the archive's own tile compression).
+    return new Response(tile.data, { status: 200, headers });
 }
 
 /** /{z}/{x}/{y}.mvt at the end of a path. */

@@ -64,7 +64,22 @@ export async function mapFeatures(db: D1Database, records: CentreRecord[]): Prom
 
 /** Map features for records whose published areas are already loaded (replay loads them by version). */
 export function buildFeatures(
-    records: Pick<CentreRecord, "id" | "category" | "kind" | "sourceId" | "title" | "warningLevel" | "severityRank" | "observedAt" | "updatedAt" | "publishedAt" | "firstSeenAt" | "lat" | "lon">[],
+    records: Pick<
+        CentreRecord,
+        | "id"
+        | "category"
+        | "kind"
+        | "sourceId"
+        | "title"
+        | "warningLevel"
+        | "severityRank"
+        | "observedAt"
+        | "updatedAt"
+        | "publishedAt"
+        | "firstSeenAt"
+        | "lat"
+        | "lon"
+    >[],
     areas: Map<string, Geometry>,
 ): { type: "FeatureCollection"; features: MapFeature[] } {
     const features: MapFeature[] = [];

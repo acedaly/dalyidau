@@ -70,6 +70,13 @@ export type NavigationIcon =
     | "watch"
     | "wallboard"
     | "sources"
+    | "changes"
+    | "situation"
+    | "replay"
+    | "analytics"
+    | "correlations"
+    | "rules"
+    | "assistant"
     | "assets"
     | "vehicles"
     | "property"
@@ -367,6 +374,7 @@ export const APPLICATIONS = [
                 items: [
                     { label: "Overview", href: "/portal/intelligence-centre", icon: "centre" },
                     { label: "Live map", href: "/portal/intelligence-centre/map", icon: "map" },
+                    { label: "What's changed", href: "/portal/intelligence-centre/changes", icon: "changes" },
                     { label: "Incidents and warnings", href: "/portal/intelligence-centre/records", icon: "incidents", active: "prefix" },
                     { label: "Hazards", href: "/portal/intelligence-centre/hazards/weather", icon: "hazards", active: "prefix" },
                 ],
@@ -374,15 +382,22 @@ export const APPLICATIONS = [
             {
                 label: "Analysis",
                 items: [
+                    { label: "Timelines", href: "/portal/intelligence-centre/timeline", icon: "situation" },
+                    { label: "Replay", href: "/portal/intelligence-centre/replay", icon: "replay" },
+                    { label: "Analytics", href: "/portal/intelligence-centre/analytics", icon: "analytics" },
+                    { label: "Correlations", href: "/portal/intelligence-centre/correlations", icon: "correlations" },
                     { label: "History", href: "/portal/intelligence-centre/history", icon: "history" },
                     { label: "Briefings", href: "/portal/intelligence-centre/briefings", icon: "briefing" },
+                    { label: "Reports", href: "/portal/intelligence-centre/reports", icon: "reports", active: "prefix" },
+                    { label: "Assistant", href: "/portal/intelligence-centre/assistant", icon: "assistant" },
                 ],
             },
             {
                 label: "Manage",
                 items: [
                     { label: "Watch areas", href: "/portal/intelligence-centre/watches", icon: "watch" },
-                    { label: "Wallboards", href: "/portal/intelligence-centre/wallboards", icon: "wallboard" },
+                    { label: "Monitoring rules", href: "/portal/intelligence-centre/rules", icon: "rules" },
+                    { label: "Wallboards", href: "/portal/intelligence-centre/wallboards", icon: "wallboard", active: "prefix" },
                     { label: "Sources", href: "/portal/intelligence-centre/sources", icon: "sources" },
                     { label: "Settings", href: "/portal/intelligence-centre/settings", icon: "settings" },
                 ],

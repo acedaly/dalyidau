@@ -4,22 +4,22 @@
 // another application's tables.
 import { z } from "zod";
 import { addDays, localDate } from "../../src/shared/calendar/time";
+import { feedLabel, isSignificant } from "../../src/shared/centre/history";
+import type { SituationReport } from "../../src/shared/centre/reports";
 import { sourceById } from "../../src/shared/centre/sources";
 import type { CentreBriefing, CentreRecord, TodayCentre, TodayCentreItem } from "../../src/shared/centre/types";
 import { RECORD_KIND_LABELS } from "../../src/shared/centre/types";
 import { paragraphsFromText } from "../../src/shared/knowledge/content";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { occurrencesInWindow } from "../calendar/events";
-import type { Env } from "../env";
 import { eventDetail } from "../calendar/events";
+import type { Env } from "../env";
 import { ensurePersonalSpace, listSpaces } from "../knowledge/access";
 import { addRelation, createObject } from "../knowledge/objects";
 import { can } from "../portal/auth";
 import { auditStatement, newId, nowIso } from "../portal/db";
 import { HttpError } from "../portal/http";
 import { createTask } from "../tasks/tasks";
-import { feedLabel, isSignificant } from "../../src/shared/centre/history";
-import type { SituationReport } from "../../src/shared/centre/reports";
 import { listAlerts } from "./alerts";
 import { recordTimeline } from "./history";
 import { listMatches } from "./rules";
@@ -150,7 +150,10 @@ export async function knowledgeFromTimeline(env: Env, user: PortalUser, recordId
     const nature = { official: "Official", observed: "Observed", derived: "Derived, not official", collection: "Collection" } as const;
     const lines = [
         `Timeline of ${timeline.title}, from what the Intelligence Centre collected. Saved ${when(nowIso())}.`,
-        ...timeline.events.map((e) => `${when(e.at)} · ${nature[e.nature]} · ${e.label}: ${e.detail}${e.collectedAt && e.collectedAt !== e.at ? ` (collected ${when(e.collectedAt)})` : ""}`),
+        ...timeline.events.map(
+            (e) =>
+                `${when(e.at)} · ${nature[e.nature]} · ${e.label}: ${e.detail}${e.collectedAt && e.collectedAt !== e.at ? ` (collected ${when(e.collectedAt)})` : ""}`,
+        ),
         ...timeline.notes,
         `In the Intelligence Centre: ${site}/portal/intelligence-centre/records/${recordId}`,
         "This is not an official warning. Follow official warnings and directions.",
@@ -231,7 +234,13 @@ export async function linkEvent(env: Env, user: PortalUser, body: unknown) {
             nowIso(),
         ),
         // Ids only: an event's title and a watch area's location are private.
-        auditStatement(env.DB, { actor: user.email, action: "centre.event_link.create", entityType: "centre_event_link", entityId: id, summary: "Linked a calendar event to a watch area" }),
+        auditStatement(env.DB, {
+            actor: user.email,
+            action: "centre.event_link.create",
+            entityType: "centre_event_link",
+            entityId: id,
+            summary: "Linked a calendar event to a watch area",
+        }),
     ]);
     return listEventLinks(env, user);
 }
@@ -240,12 +249,20 @@ export async function unlinkEvent(env: Env, user: PortalUser, id: string) {
     if (!/^ick_[a-z0-9]{14}$/.test(id)) throw new HttpError(404, "not_found", "Not found");
     const result = await env.DB.prepare("DELETE FROM ic_event_links WHERE id = ? AND email = ?").bind(id, user.email).run();
     if (!result.meta.changes) throw new HttpError(404, "not_found", "Not found");
-    await auditStatement(env.DB, { actor: user.email, action: "centre.event_link.delete", entityType: "centre_event_link", entityId: id, summary: "Unlinked a calendar event" }).run();
+    await auditStatement(env.DB, {
+        actor: user.email,
+        action: "centre.event_link.delete",
+        entityType: "centre_event_link",
+        entityId: id,
+        summary: "Unlinked a calendar event",
+    }).run();
 }
 
 export async function listEventLinks(env: Env, user: PortalUser): Promise<EventLink[]> {
     const rows = (
-        await env.DB.prepare("SELECT l.id, l.event_id, l.watch_id, w.name AS watch_name FROM ic_event_links l JOIN ic_watch_areas w ON w.id = l.watch_id AND w.email = l.email WHERE l.email = ? ORDER BY l.created_at")
+        await env.DB.prepare(
+            "SELECT l.id, l.event_id, l.watch_id, w.name AS watch_name FROM ic_event_links l JOIN ic_watch_areas w ON w.id = l.watch_id AND w.email = l.email WHERE l.email = ? ORDER BY l.created_at",
+        )
             .bind(user.email)
             .all<{ id: string; event_id: string; watch_id: string; watch_name: string }>()
     ).results;
@@ -269,7 +286,9 @@ export async function listEventLinks(env: Env, user: PortalUser): Promise<EventL
 async function upcomingJourneys(env: Env, user: PortalUser, timeZone: string): Promise<TodayCentre["journeys"]> {
     if (!can(user, "calendar.use")) return [];
     const links = (
-        await env.DB.prepare("SELECT l.event_id, l.watch_id FROM ic_event_links l WHERE l.email = ? LIMIT 50").bind(user.email).all<{ event_id: string; watch_id: string }>()
+        await env.DB.prepare("SELECT l.event_id, l.watch_id FROM ic_event_links l WHERE l.email = ? LIMIT 50")
+            .bind(user.email)
+            .all<{ event_id: string; watch_id: string }>()
     ).results;
     if (!links.length) return [];
     const today = localDate(new Date(), timeZone);
@@ -280,10 +299,19 @@ async function upcomingJourneys(env: Env, user: PortalUser, timeZone: string): P
         if (!next) continue;
         const watch = await requireWatch(env.DB, user.email, link.watch_id).catch(() => null);
         if (!watch) continue;
-        const matches = (await recordsForWatch(env.DB, { ...watch, categories: [] }, 200)).filter(
-            ({ record }) => (record.kind === "warning" || record.kind === "incident") ? record.severityRank >= 1 : record.kind === "disruption" && record.attributes.closure === "yes",
+        const matches = (await recordsForWatch(env.DB, { ...watch, categories: [] }, 200)).filter(({ record }) =>
+            record.kind === "warning" || record.kind === "incident"
+                ? record.severityRank >= 1
+                : record.kind === "disruption" && record.attributes.closure === "yes",
         ).length;
-        out.push({ eventId: link.event_id, title: next.title, start: next.start, watchName: watch.name, matches, url: `/portal/intelligence-centre/records?watch=${watch.id}` });
+        out.push({
+            eventId: link.event_id,
+            title: next.title,
+            start: next.start,
+            watchName: watch.name,
+            matches,
+            url: `/portal/intelligence-centre/records?watch=${watch.id}`,
+        });
     }
     return out.sort((a, b) => a.start.localeCompare(b.start)).slice(0, 4);
 }
@@ -344,7 +372,13 @@ export async function todayCentre(env: Env, user: PortalUser): Promise<TodayCent
             ? (await listChanges(env.DB, { since, limit: 500 }))
                   .filter((c) => c.recordId && watched.has(c.recordId) && isSignificant(c) && c.kind !== "not_in_feed")
                   .slice(0, 4)
-                  .map((c) => ({ id: c.id, label: `${feedLabel(c)} · ${watched.get(c.recordId!)}`, summary: c.summary, at: c.at, url: `/portal/intelligence-centre/records/${c.recordId}` }))
+                  .map((c) => ({
+                      id: c.id,
+                      label: `${feedLabel(c)} · ${watched.get(c.recordId!)}`,
+                      summary: c.summary,
+                      at: c.at,
+                      url: `/portal/intelligence-centre/records/${c.recordId}`,
+                  }))
             : [];
     const ruleMatches: TodayCentre["ruleMatches"] = t.ruleMatches
         ? (await listMatches(env.DB, user.email, { open: true, since: new Date(Date.now() - 7 * 86_400_000).toISOString(), limit: 4 })).map((m) => ({

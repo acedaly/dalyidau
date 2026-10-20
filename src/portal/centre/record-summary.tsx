@@ -13,6 +13,7 @@ import { sourceById } from "@/shared/centre/sources";
 import type { CentreRecord } from "@/shared/centre/types";
 import { RECORD_KIND_LABELS } from "@/shared/centre/types";
 import { centreApi } from "./centre-api";
+import { KnowledgeSaveDialog } from "./history-ui";
 import { Attribution, GeometryNote, LevelBadge, RecordNature, When } from "./shared";
 
 export const RecordFacts = ({ record }: { record: CentreRecord }) => (
@@ -84,7 +85,7 @@ export const RecordActions = ({ record }: { record: CentreRecord }) => {
     const [dialog, setDialog] = useState(false);
     const [title, setTitle] = useState(`Follow up: ${record.title}`.slice(0, 200));
     const [dueDate, setDueDate] = useState("");
-    const [busy, setBusy] = useState<"task" | "note" | null>(null);
+    const [busy, setBusy] = useState<"task" | null>(null);
     const task = async () => {
         setBusy("task");
         try {
@@ -98,18 +99,7 @@ export const RecordActions = ({ record }: { record: CentreRecord }) => {
             setBusy(null);
         }
     };
-    const note = async () => {
-        setBusy("note");
-        try {
-            const r = await centreApi.saveToKnowledge(record.id);
-            toast.success("Saved to Knowledge");
-            window.location.href = r.url;
-        } catch (e) {
-            toast.error("Couldn't save it", errorMessage(e));
-        } finally {
-            setBusy(null);
-        }
-    };
+    const [saving, setSaving] = useState(false);
     return (
         <div className="flex flex-wrap gap-2">
             {record.sourceUrl && (
@@ -123,10 +113,17 @@ export const RecordActions = ({ record }: { record: CentreRecord }) => {
                 </Button>
             )}
             {can("knowledge.use") && (
-                <Button size="sm" color="secondary" iconLeading={BookOpen01} onClick={() => void note()} isLoading={busy === "note"} showTextWhileLoading>
+                <Button size="sm" color="secondary" iconLeading={BookOpen01} onClick={() => setSaving(true)}>
                     Save to Knowledge
                 </Button>
             )}
+            <KnowledgeSaveDialog
+                isOpen={saving}
+                onOpenChange={setSaving}
+                title="Save to Knowledge"
+                description="A note with the record as published, its source and times. Saving again returns the same note."
+                save={(target) => centreApi.saveToKnowledge(record.id, target)}
+            />
             <PortalDialog
                 isOpen={dialog}
                 onOpenChange={setDialog}

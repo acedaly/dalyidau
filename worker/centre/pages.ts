@@ -1,7 +1,11 @@
 // First-render data for the Intelligence Centre's pages (/portal/intelligence-centre/*). The
 // portal page router has already checked "centre.use". Anything the caller can't see returns null
 // (the 404 page): someone else's watch area or wallboard, an unknown record.
+import { ZodError } from "zod";
+import { ASSISTANT_EXAMPLES } from "../../src/shared/centre/assistant";
+import { REGION_IDS, type RegionId } from "../../src/shared/centre/regions";
 import type { HazardCategory } from "../../src/shared/centre/sources";
+import { IMPLEMENTED_SOURCES } from "../../src/shared/centre/sources";
 import { CENTRE_HAZARD_TABS, type CentreHazardTab, type CentreRoute, type CentreShell } from "../../src/shared/centre/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
@@ -11,17 +15,14 @@ import { loadFlags } from "../portal/flags";
 import { HttpError } from "../portal/http";
 import { listAlerts, unacknowledgedCount } from "./alerts";
 import { filteredRecords } from "./api";
+import { feedFilters } from "./api";
 import { buildBriefing, withInterpretation } from "./briefing";
 import { correlations } from "./correlate";
-import { getRecord, listChanges, listRecords, listRuns, loadCentreSettings, loadPreferences, seriesFor, sourceHealth } from "./store";
-import { centreSummary } from "./summary";
-import { ASSISTANT_EXAMPLES } from "../../src/shared/centre/assistant";
-import { REGION_IDS, type RegionId } from "../../src/shared/centre/regions";
-import { IMPLEMENTED_SOURCES } from "../../src/shared/centre/sources";
-import { feedFilters } from "./api";
 import { centreAnalytics, changeFeed, recordTimeline, replayMeta, situationTimeline, sourceReliability } from "./history";
 import { getReport, listReports, listSchedules } from "./reports";
 import { listMatches, listRules } from "./rules";
+import { getRecord, listChanges, listRecords, listRuns, loadCentreSettings, loadPreferences, seriesFor, sourceHealth } from "./store";
+import { centreSummary } from "./summary";
 import { listWallboards, requireWallboard } from "./wallboard";
 import { fireDistricts, listWatches, requireWatch } from "./watch";
 
@@ -96,7 +97,10 @@ const fireDangerOf = (records: Awaited<ReturnType<typeof listRecords>>["records"
 
 /** River gauges: the ones collected, by station number and name. */
 async function gaugeList(env: Env) {
-    const rows = await env.DB.prepare("SELECT external_id, title FROM ic_records WHERE source_id = 'bom-water' ORDER BY title LIMIT 50").all<{ external_id: string; title: string }>();
+    const rows = await env.DB.prepare("SELECT external_id, title FROM ic_records WHERE source_id = 'bom-water' ORDER BY title LIMIT 50").all<{
+        external_id: string;
+        title: string;
+    }>();
     return rows.results.map((r) => ({ station: r.external_id.replace(/^gauge-/, ""), name: r.title }));
 }
 
@@ -258,7 +262,7 @@ export async function loadCentrePage(env: Env, user: PortalUser, url: URL, page:
         case "changes": {
             const filters = await feedFilters(env, user, url).catch((error: unknown) => {
                 // Bad filters open the default feed.
-                if (error instanceof HttpError || (error as Error).name === "ZodError") return feedFilters(env, user, new URL(url.pathname, url));
+                if (error instanceof HttpError || error instanceof ZodError) return feedFilters(env, user, new URL(url.pathname, url));
                 throw error;
             });
             const feed = await changeFeed(env, filters, 300);

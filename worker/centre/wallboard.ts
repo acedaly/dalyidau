@@ -126,8 +126,14 @@ export async function listWallboards(db: D1Database, email: string): Promise<Wal
     const ids = boards.results.map((b) => b.id);
     const marks = ids.map(() => "?").join(",");
     const [tokens, views] = await Promise.all([
-        db.prepare(`SELECT ${TOKEN_COLUMNS} FROM ic_display_tokens WHERE wallboard_id IN (${marks}) ORDER BY created_at DESC`).bind(...ids).all<TokenRow>(),
-        db.prepare(`SELECT * FROM ic_wallboard_views WHERE wallboard_id IN (${marks}) ORDER BY position`).bind(...ids).all<ViewRow>(),
+        db
+            .prepare(`SELECT ${TOKEN_COLUMNS} FROM ic_display_tokens WHERE wallboard_id IN (${marks}) ORDER BY created_at DESC`)
+            .bind(...ids)
+            .all<TokenRow>(),
+        db
+            .prepare(`SELECT * FROM ic_wallboard_views WHERE wallboard_id IN (${marks}) ORDER BY position`)
+            .bind(...ids)
+            .all<ViewRow>(),
     ]);
     return boards.results.map((b) =>
         toBoard(
@@ -171,7 +177,8 @@ async function checkViews(db: D1Database, user: PortalUser, body: unknown, board
         }
     for (const id of watchIds) await requireWatch(db, user.email, id);
     for (const id of recordIds)
-        if (!(await db.prepare("SELECT 1 FROM ic_records WHERE id = ?").bind(id).first())) throw new HttpError(422, "validation", "A timeline widget names a record that isn't stored");
+        if (!(await db.prepare("SELECT 1 FROM ic_records WHERE id = ?").bind(id).first()))
+            throw new HttpError(422, "validation", "A timeline widget names a record that isn't stored");
     return views;
 }
 
@@ -179,7 +186,9 @@ const viewStatements = (db: D1Database, boardId: string, views: ViewInput[], now
     db.prepare("DELETE FROM ic_wallboard_views WHERE wallboard_id = ?").bind(boardId),
     ...views.map((v, position) =>
         db
-            .prepare("INSERT INTO ic_wallboard_views (id, wallboard_id, position, name, preset, customised, widgets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .prepare(
+                "INSERT INTO ic_wallboard_views (id, wallboard_id, position, name, preset, customised, widgets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
             .bind(v.id ?? newId("icl"), boardId, position, v.name, v.preset, v.customised ? 1 : 0, JSON.stringify(v.widgets), now, now),
     ),
 ];
@@ -197,7 +206,9 @@ export async function saveViews(db: D1Database, user: PortalUser, id: string, bo
     const now = nowIso();
     // One transaction: the version and every view change together, or not at all.
     await db.batch([
-        db.prepare("UPDATE ic_wallboards SET version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?").bind(now, id, user.email, version),
+        db
+            .prepare("UPDATE ic_wallboards SET version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?")
+            .bind(now, id, user.email, version),
         ...viewStatements(db, id, list, now),
         auditStatement(db, {
             actor: user.email,
@@ -237,7 +248,14 @@ export async function createWallboard(db: D1Database, user: PortalUser, body: un
         db
             .prepare("INSERT INTO ic_wallboards (id, email, name, config, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)")
             .bind(id, user.email, input.name, configJson(input), now, now),
-        ...(views ? viewStatements(db, id, views.map((v) => ({ ...v, id: undefined })), now) : []),
+        ...(views
+            ? viewStatements(
+                  db,
+                  id,
+                  views.map((v) => ({ ...v, id: undefined })),
+                  now,
+              )
+            : []),
         auditStatement(db, {
             actor: user.email,
             action: "centre.wallboard.create",
@@ -313,7 +331,17 @@ export async function createDisplayToken(db: D1Database, user: PortalUser, board
             .prepare(
                 "INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, expires_at, renewable, lifetime_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .bind(id, boardId, await hashDisplayToken(token), label.trim(), user.email, now, expires, renewable ? 1 : 0, typeof expiresInDays === "number" ? expiresInDays : null),
+            .bind(
+                id,
+                boardId,
+                await hashDisplayToken(token),
+                label.trim(),
+                user.email,
+                now,
+                expires,
+                renewable ? 1 : 0,
+                typeof expiresInDays === "number" ? expiresInDays : null,
+            ),
         auditStatement(db, {
             actor: user.email,
             action: "centre.display.create",

@@ -24,15 +24,25 @@ import { CalendarYearPage } from "@/portal/calendar/pages/calendar-year-page";
 import { LeavePage } from "@/portal/calendar/pages/leave-page";
 import { LeavePlannerPage } from "@/portal/calendar/pages/leave-planner-page";
 import { LeaveSettingsPage } from "@/portal/calendar/pages/leave-settings-page";
+import { CentreAnalyticsPage } from "@/portal/centre/pages/centre-analytics-page";
+import { CentreAssistantPage } from "@/portal/centre/pages/centre-assistant-page";
 import { CentreBriefingsPage } from "@/portal/centre/pages/centre-briefings-page";
+import { CentreChangesPage } from "@/portal/centre/pages/centre-changes-page";
+import { CentreCorrelationsPage } from "@/portal/centre/pages/centre-correlations-page";
 import { CentreHazardsPage } from "@/portal/centre/pages/centre-hazards-page";
 import { CentreHistoryPage } from "@/portal/centre/pages/centre-history-page";
 import { CentreMapPage } from "@/portal/centre/pages/centre-map-page";
 import { CentreOverviewPage } from "@/portal/centre/pages/centre-overview-page";
 import { CentreRecordPage } from "@/portal/centre/pages/centre-record-page";
 import { CentreRecordsPage } from "@/portal/centre/pages/centre-records-page";
+import { CentreReplayPage } from "@/portal/centre/pages/centre-replay-page";
+import { CentreReportPage } from "@/portal/centre/pages/centre-report-page";
+import { CentreReportsPage } from "@/portal/centre/pages/centre-reports-page";
+import { CentreRulesPage } from "@/portal/centre/pages/centre-rules-page";
 import { CentreSettingsPage } from "@/portal/centre/pages/centre-settings-page";
 import { CentreSourcesPage } from "@/portal/centre/pages/centre-sources-page";
+import { CentreTimelinePage } from "@/portal/centre/pages/centre-timeline-page";
+import { CentreWallboardEditorPage } from "@/portal/centre/pages/centre-wallboard-editor-page";
 import { CentreWallboardsPage } from "@/portal/centre/pages/centre-wallboards-page";
 import { CentreWatchesPage } from "@/portal/centre/pages/centre-watches-page";
 import { ToastProvider } from "@/portal/components/toast";
@@ -268,6 +278,26 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <CentreSourcesPage data={data} />;
         case "centre-settings":
             return <CentreSettingsPage data={data} />;
+        case "centre-changes":
+            return <CentreChangesPage data={data} />;
+        case "centre-timeline":
+            return <CentreTimelinePage data={data} />;
+        case "centre-replay":
+            return <CentreReplayPage data={data} />;
+        case "centre-analytics":
+            return <CentreAnalyticsPage data={data} />;
+        case "centre-correlations":
+            return <CentreCorrelationsPage data={data} />;
+        case "centre-rules":
+            return <CentreRulesPage data={data} />;
+        case "centre-reports":
+            return <CentreReportsPage data={data} />;
+        case "centre-report":
+            return <CentreReportPage key={data.summary.id} data={data} />;
+        case "centre-assistant":
+            return <CentreAssistantPage data={data} />;
+        case "centre-wallboard":
+            return <CentreWallboardEditorPage key={data.wallboard.id} data={data} />;
         case "assets-overview":
             return <AssetsOverviewPage data={data} />;
         case "assets-list":

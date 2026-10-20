@@ -21,11 +21,11 @@ import { isEnabled } from "../portal/flags";
 import { ADAPTERS } from "./adapters";
 import { type ParsedBatch, type ParsedRecord, sha256Hex } from "./adapters/types";
 import { alertsForChanges, deliverAlertEmails } from "./alerts";
+import { type Geometry, bboxOf } from "./geo";
 import { markHistoryStarted } from "./history";
+import { type CentreTransport, FetchFailure, defaultTransport } from "./net";
 import { expireReports, runDueReports } from "./reports";
 import { evaluateRules } from "./rules";
-import { type Geometry, bboxOf } from "./geo";
-import { type CentreTransport, FetchFailure, defaultTransport } from "./net";
 import { type SourceRow, ensureSources, loadCentreSettings, secretFor } from "./store";
 
 const LEASE_MS = 3 * 60_000;
@@ -41,6 +41,8 @@ export interface CollectOptions {
     now?: Date;
     transport?: CentreTransport;
     trigger?: "cron" | "manual";
+    /** When the collection is recorded as stored (tests that build history at chosen times). Defaults to now. */
+    recordedAt?: Date;
 }
 
 export interface CollectResult {
@@ -134,7 +136,9 @@ export const versionStatements = (db: D1Database, recordId: string, at: string, 
         )
         .bind(newId("icv"), at, baseline ? 1 : 0, changeKind, recordId),
     db
-        .prepare("INSERT OR IGNORE INTO ic_geometries (hash, geometry, first_seen_at) SELECT geometry_hash, geometry, ? FROM ic_records WHERE id = ? AND geometry IS NOT NULL")
+        .prepare(
+            "INSERT OR IGNORE INTO ic_geometries (hash, geometry, first_seen_at) SELECT geometry_hash, geometry, ? FROM ic_records WHERE id = ? AND geometry IS NOT NULL",
+        )
         .bind(at, recordId),
 ];
 
@@ -187,8 +191,14 @@ export async function storeBatch(
 ): Promise<StoreOutcome> {
     const { now } = options;
     const versioned = !!options.history && source.history;
-    // Before anything changes: records already stored but never versioned get their baseline.
-    if (versioned) await statements(db, baselineStatements(db, source.id, now));
+    // Records already versioned: anything else written now starts its history here, as a baseline.
+    const hasHistory = versioned
+        ? new Set(
+              (
+                  await db.prepare("SELECT DISTINCT record_id FROM ic_record_versions WHERE source_id = ?").bind(source.id).all<{ record_id: string }>()
+              ).results.map((r) => r.record_id),
+          )
+        : new Set<string>();
     const hourAgo = new Date(Date.parse(now) - 3_600_000).toISOString();
     const existing = new Map(
         (
@@ -203,6 +213,7 @@ export async function storeBatch(
     const writes: D1PreparedStatement[] = [];
     const changes: Change[] = [];
     const seen = new Set<string>();
+    const existingIds = new Set([...existing.values()].map((r) => r.id));
     /** Records written in this batch, for their new versions (written after every record's own write). */
     const touched = new Map<string, string | null>();
     let created = 0;
@@ -382,10 +393,13 @@ export async function storeBatch(
     // Each written record's new version, labelled with the change detected for it (if any).
     for (const [recordId, label] of touched) {
         const detected = changes.find((c) => c.recordId === recordId)?.kind ?? label;
-        // The first collection of a source is a baseline: the provider published these before it.
+        // The first collection of a source is a baseline: the provider published these before it. So
+        // is the first version of a record stored before history recording began.
         if (label === "baseline") writes.push(...versionStatements(db, recordId, now, null, true));
-        else writes.push(...versionStatements(db, recordId, now, detected ?? "updated"));
+        else writes.push(...versionStatements(db, recordId, now, detected ?? "updated", !hasHistory.has(recordId) && existingIds.has(recordId)));
     }
+    // Unchanged records stored before history recording began get one baseline version, dated now.
+    if (versioned) writes.push(...baselineStatements(db, source.id, now));
     await statements(db, writes);
 
     if (batch.series?.length && source.history) {
@@ -428,7 +442,7 @@ export async function collectSource(env: Env, sourceId: string, options: Collect
     const adapter = ADAPTERS[sourceId];
     if (!source || !adapter) return { sourceId, outcome: "skipped", records: 0, created: 0, changed: 0, message: "Not implemented" };
     const now = options.now ?? new Date();
-    const at = nowIso();
+    const at = options.recordedAt?.toISOString() ?? nowIso();
     const transport = options.transport ?? defaultTransport(env);
     await ensureSources(db);
     const token = crypto.randomUUID();

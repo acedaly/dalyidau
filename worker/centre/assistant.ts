@@ -11,8 +11,8 @@
 import { z } from "zod";
 import type { AssistantAnswer, AssistantRequest, AssistantTool } from "../../src/shared/centre/assistant";
 import { ASSISTANT_TOOLS, ASSISTANT_TOOL_LABELS, assistantRequestSchema } from "../../src/shared/centre/assistant";
-import type { CentreRecord, WatchArea } from "../../src/shared/centre/types";
 import type { ReportFact } from "../../src/shared/centre/reports";
+import type { CentreRecord, WatchArea } from "../../src/shared/centre/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { fence } from "../intelligence/prompts";
@@ -157,7 +157,16 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                 lead: list.length
                     ? `${list.length} ${plan.tool === "escalations" ? "escalation" : "significant change"}${list.length === 1 ? " was" : "s were"} recorded for ${scopeLabel} from ${period}.`
                     : `No ${plan.tool === "escalations" ? "escalations" : "significant changes"} were recorded for ${scopeLabel} from ${period}.`,
-                facts: list.slice(0, 15).map((c) => fact(`${c.label}: ${c.summary} (${c.provider}, detected ${when(c.at)}).`, "derived", c.recordId ? { id: c.recordId, sourceId: c.sourceId } : null, c.at)),
+                facts: list
+                    .slice(0, 15)
+                    .map((c) =>
+                        fact(
+                            `${c.label}: ${c.summary} (${c.provider}, detected ${when(c.at)}).`,
+                            "derived",
+                            c.recordId ? { id: c.recordId, sourceId: c.sourceId } : null,
+                            c.at,
+                        ),
+                    ),
                 looked: [`Scope: ${scopeLabel}`, `Period: ${period}`],
                 limitations: ["Changes are detected when the Centre collects; an update the provider made between collections is seen at the next collection."],
             };
@@ -173,7 +182,14 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                     : `No official warnings are in force for ${scopeLabel} in the sources collected. That isn't confirmation none are: check official channels.`,
                 facts: warnings
                     .slice(0, 15)
-                    .map((w) => fact(`${w.provider}: ${w.title}${w.warningLevel ? ` (${w.warningLevel}, as published)` : ""}. Issued ${when(w.publishedAt)}.`, "official", w, w.publishedAt)),
+                    .map((w) =>
+                        fact(
+                            `${w.provider}: ${w.title}${w.warningLevel ? ` (${w.warningLevel}, as published)` : ""}. Issued ${when(w.publishedAt)}.`,
+                            "official",
+                            w,
+                            w.publishedAt,
+                        ),
+                    ),
                 looked: [`Scope: ${scopeLabel}`, "Warnings in force now"],
                 limitations: ["NSW SES flood and storm warnings aren't collected (permission is needed)."],
             };
@@ -203,10 +219,15 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                 );
             }
             return {
-                lead: facts.length ? `Readings from ${facts.length} followed river ${facts.length === 1 ? "gauge" : "gauges"} from ${period}.` : "No river gauge readings are stored for this period.",
+                lead: facts.length
+                    ? `Readings from ${facts.length} followed river ${facts.length === 1 ? "gauge" : "gauges"} from ${period}.`
+                    : "No river gauge readings are stored for this period.",
                 facts,
                 looked: [`Gauges followed in Settings (${gauges.length})`, `Period: ${period}`],
-                limitations: ["Only the gauges chosen in Settings are collected. Water Data Online readings can lag by a day or more.", "These are observations, not flood warnings or forecasts."],
+                limitations: [
+                    "Only the gauges chosen in Settings are collected. Water Data Online readings can lag by a day or more.",
+                    "These are observations, not flood warnings or forecasts.",
+                ],
             };
         }
         case "roads_near_incidents": {
@@ -224,7 +245,14 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                     .filter((x) => x.km <= 25)
                     .sort((a, b) => a.km - b.km);
                 for (const { r, km } of near.slice(0, 3))
-                    facts.push(fact(`${r.title} (Live Traffic NSW) is about ${Math.round(km)} km from ${inc.title}. Nearby isn't the same as related.`, "derived", r, r.publishedAt));
+                    facts.push(
+                        fact(
+                            `${r.title} (Live Traffic NSW) is about ${Math.round(km)} km from ${inc.title}. Nearby isn't the same as related.`,
+                            "derived",
+                            r,
+                            r.publishedAt,
+                        ),
+                    );
             }
             const tfnsw = (await sourceHealth(env)).find((h) => h.source.id === "tfnsw-live-traffic");
             return {
@@ -236,7 +264,9 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                 facts,
                 looked: [`Incidents you follow (${ids.length}) and incidents at Watch and Act or above`, "Road disruptions within 25 km"],
                 limitations: [
-                    ...(tfnsw && tfnsw.status !== "active" ? [`Road disruptions aren't available (${tfnsw.statusDetail}), so this can't say there are none.`] : []),
+                    ...(tfnsw && tfnsw.status !== "active"
+                        ? [`Road disruptions aren't available (${tfnsw.statusDetail}), so this can't say there are none.`]
+                        : []),
                     "Distances are to each record's published point.",
                 ],
             };
@@ -262,9 +292,16 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                             ? `${events.length} observations and nearby records around ${timeline.title}.`
                             : `No observations or nearby records are stored around ${timeline.title}.`
                         : `${timeline.title}: ${events.length} events, from what the Centre collected.`,
-                facts: events.slice(-20).map((e) =>
-                    fact(`${e.label}: ${e.detail}${e.collectedAt && e.collectedAt !== e.at ? ` (collected ${when(e.collectedAt)})` : ""}`, e.nature === "collection" ? "collection" : e.nature, e.recordId ? { id: e.recordId, sourceId: e.sourceId ?? "" } : null, e.at),
-                ),
+                facts: events
+                    .slice(-20)
+                    .map((e) =>
+                        fact(
+                            `${e.label}: ${e.detail}${e.collectedAt && e.collectedAt !== e.at ? ` (collected ${when(e.collectedAt)})` : ""}`,
+                            e.nature === "collection" ? "collection" : e.nature,
+                            e.recordId ? { id: e.recordId, sourceId: e.sourceId ?? "" } : null,
+                            e.at,
+                        ),
+                    ),
                 looked: [`Record: ${timeline.title}`],
                 limitations: timeline.notes,
             };
@@ -279,11 +316,29 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                     null,
                     result.b,
                 ),
-                ...result.added.slice(0, 6).map((r) => fact(`New by ${when(result.b)}: ${r.title}${r.warningLevel ? ` (${r.warningLevel})` : ""}.`, "official", { id: r.id, sourceId: r.sourceId }, r.validFrom)),
-                ...result.removed.slice(0, 6).map((r) => fact(`No longer current by ${when(result.b)}: ${r.title}.`, "derived", { id: r.id, sourceId: r.sourceId }, r.validTo)),
-                ...result.changed.slice(0, 6).map((c) =>
-                    fact(`${c.after.title}: ${c.fields.join(", ")} changed${c.fields.includes("warningLevel") ? ` (${c.before.warningLevel ?? "no level"} → ${c.after.warningLevel ?? "no level"})` : ""}.`, "official", { id: c.after.id, sourceId: c.after.sourceId }, c.after.validFrom),
-                ),
+                ...result.added
+                    .slice(0, 6)
+                    .map((r) =>
+                        fact(
+                            `New by ${when(result.b)}: ${r.title}${r.warningLevel ? ` (${r.warningLevel})` : ""}.`,
+                            "official",
+                            { id: r.id, sourceId: r.sourceId },
+                            r.validFrom,
+                        ),
+                    ),
+                ...result.removed
+                    .slice(0, 6)
+                    .map((r) => fact(`No longer current by ${when(result.b)}: ${r.title}.`, "derived", { id: r.id, sourceId: r.sourceId }, r.validTo)),
+                ...result.changed
+                    .slice(0, 6)
+                    .map((c) =>
+                        fact(
+                            `${c.after.title}: ${c.fields.join(", ")} changed${c.fields.includes("warningLevel") ? ` (${c.before.warningLevel ?? "no level"} → ${c.after.warningLevel ?? "no level"})` : ""}.`,
+                            "official",
+                            { id: c.after.id, sourceId: c.after.sourceId },
+                            c.after.validFrom,
+                        ),
+                    ),
             ];
             return {
                 lead: `Compared what the Centre had stored at ${when(result.a)} and ${when(result.b)} for ${scopeLabel}: ${result.added.length} added, ${result.removed.length} no longer current, ${result.changed.length} changed.`,
@@ -301,8 +356,17 @@ async function runTool(env: Env, user: PortalUser, plan: Plan, now: Date): Promi
                     ? `${problems.length} ${problems.length === 1 ? "source isn't" : "sources aren't"} active, and ${gaps.length} collection ${gaps.length === 1 ? "gap was" : "gaps were"} recorded in the last 24 hours.`
                     : `Every implemented source is active; ${gaps.length} collection ${gaps.length === 1 ? "gap was" : "gaps were"} recorded in the last 24 hours.`,
                 facts: [
-                    ...problems.map((h) => fact(`${h.source.provider}: ${h.source.dataset} is ${h.status.replace(/_/g, " ")}. ${h.statusDetail}`, "collection", null, h.lastSuccessAt)),
-                    ...gaps.slice(0, 8).map((g) => fact(`${g.sourceId}: no successful retrieval for ${g.minutes} minutes from ${when(g.from)}.`, "collection", null, g.from)),
+                    ...problems.map((h) =>
+                        fact(
+                            `${h.source.provider}: ${h.source.dataset} is ${h.status.replace(/_/g, " ")}. ${h.statusDetail}`,
+                            "collection",
+                            null,
+                            h.lastSuccessAt,
+                        ),
+                    ),
+                    ...gaps
+                        .slice(0, 8)
+                        .map((g) => fact(`${g.sourceId}: no successful retrieval for ${g.minutes} minutes from ${when(g.from)}.`, "collection", null, g.from)),
                 ],
                 looked: ["Every source the Centre implements", "Collection runs in the last 24 hours"],
                 limitations: ["Sources the Centre can't use (restricted or unsupported) are listed on the Sources page."],
@@ -338,7 +402,10 @@ const planSchema = z.object({
         .regex(/^W\d{1,2}$/)
         .nullable()
         .default(null),
-    dates: z.tuple([z.string().max(40), z.string().max(40)]).nullable().default(null),
+    dates: z
+        .tuple([z.string().max(40), z.string().max(40)])
+        .nullable()
+        .default(null),
     recordQuery: z.string().max(100).nullable().default(null),
 });
 
@@ -357,7 +424,8 @@ const isoOf = (value: string) => {
 
 export async function askAssistant(env: Env, user: PortalUser, body: unknown, now = new Date()): Promise<AssistantAnswer> {
     const request: AssistantRequest = assistantRequestSchema.parse(body);
-    if (!(await allow(env.DB, "centre-assistant", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "That's a lot of questions this hour. Try again later.");
+    if (!(await allow(env.DB, "centre-assistant", user.email, 30, 3600)))
+        throw new HttpError(429, "rate_limited", "That's a lot of questions this hour. Try again later.");
     const watches = await listWatches(env.DB, user.email);
     const contextWatch = request.watchId ? await requireWatch(env.DB, user.email, request.watchId) : null;
     const { config } = await loadConfig(env.DB);
@@ -381,7 +449,8 @@ export async function askAssistant(env: Env, user: PortalUser, body: unknown, no
                 { role: "summarise", system: PLAN_SYSTEM, prompt: fence("question", text, 1_000), maxTokens: 200, schema: planSchema },
             );
             const watch = value.watch ? (aliases.get(value.watch) ?? null) : null;
-            const chosenDates = value.dates && value.dates.every((d) => isoOf(d)) ? ([isoOf(value.dates[0])!, isoOf(value.dates[1])!] as [string, string]) : plan.dates;
+            const chosenDates =
+                value.dates && value.dates.every((d) => isoOf(d)) ? ([isoOf(value.dates[0])!, isoOf(value.dates[1])!] as [string, string]) : plan.dates;
             plan = {
                 tool: value.tool,
                 hours: value.hours,

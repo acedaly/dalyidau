@@ -82,6 +82,10 @@ The configuration change does not activate itself from this feature branch: do n
 
 **Undo the cut-over:** remove the two Custom Domains (Workers & Pages → dalyidau → Settings → Domains & Routes), comment out the `routes` block, then recreate the three records above.
 
+## Intelligence Centre 9.1
+
+Merging applies `0027` (take `npm run db:backup -- --env production` first). The detailed basemap is a separate, optional, owner-only step: `npm run centre:basemap -- --maxzoom 13` builds the archive in `migration-work/` and prints the upload command for the MEDIA bucket (`private/centre/basemap/basemap.pmtiles`); nothing is uploaded by CI. Deploy the MCP gateway (2.8.0) by hand only after the portal Worker. New switches stay off until the owner turns them on. Order and rollback: [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#activation).
+
 ## Rollback
 
 | Problem | Fix |

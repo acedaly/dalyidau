@@ -28,8 +28,18 @@ export const REGIONS = [
         bbox: [148.75, -35.93, 149.4, -35.12],
         note: "ACT Emergency Services Agency incidents, plus NSW and national sources that reach into the territory.",
     },
-    { id: "greater_sydney", label: "Greater Sydney (approximate)", bbox: [150.0, -34.4, 151.4, -33.3], note: "An approximate rectangle, not an official boundary." },
-    { id: "hunter", label: "Hunter and Central Coast (approximate)", bbox: [150.0, -33.6, 152.6, -31.5], note: "An approximate rectangle, not an official boundary." },
+    {
+        id: "greater_sydney",
+        label: "Greater Sydney (approximate)",
+        bbox: [150.0, -34.4, 151.4, -33.3],
+        note: "An approximate rectangle, not an official boundary.",
+    },
+    {
+        id: "hunter",
+        label: "Hunter and Central Coast (approximate)",
+        bbox: [150.0, -33.6, 152.6, -31.5],
+        note: "An approximate rectangle, not an official boundary.",
+    },
     {
         id: "illawarra_south_coast",
         label: "Illawarra and South Coast (approximate)",
@@ -49,7 +59,12 @@ export const REGIONS = [
         bbox: [146.5, -34.3, 150.4, -30.5],
         note: "An approximate rectangle, not an official boundary.",
     },
-    { id: "riverina_murray", label: "Riverina and Murray (approximate)", bbox: [143.0, -36.2, 148.6, -33.5], note: "An approximate rectangle, not an official boundary." },
+    {
+        id: "riverina_murray",
+        label: "Riverina and Murray (approximate)",
+        bbox: [143.0, -36.2, 148.6, -33.5],
+        note: "An approximate rectangle, not an official boundary.",
+    },
     { id: "far_west", label: "Far West (approximate)", bbox: [140.9, -34.5, 146.5, -28.9], note: "An approximate rectangle, not an official boundary." },
     {
         id: "snowy_tablelands",

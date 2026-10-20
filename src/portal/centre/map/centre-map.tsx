@@ -1,10 +1,12 @@
 // The Intelligence Centre's map (MapLibre GL JS, BSD-3), shared by the Live Map page, record pages
 // and wallboards.
 //
-// No third-party tiles: the basemap is an outline of Australia's states served from this site
-// (public/centre/australia.geojson, Natural Earth, public domain), so viewing an area never tells a
-// tile host where someone is looking. MapLibre's worker is bundled and served from this origin, so
-// the site's Content Security Policy stays as it is.
+// No third-party tiles. The basemap is either the detailed OpenStreetMap vector tiles this site
+// serves from its own R2 archive (towns, roads, waterways, boundaries, labels: basemap-style.ts) or,
+// when that isn't installed, an outline of Australia's states (public/centre/australia.geojson,
+// Natural Earth). Viewing an area never tells a tile host where someone is looking. MapLibre's
+// worker, the tiles and the glyphs all come from this origin, so the Content Security Policy stays
+// as it is. Wallboards send their display credential with tile requests (never a cookie).
 //
 // What's drawn is only what providers published: points as points, published areas as areas.
 // Official records and satellite detections use different shapes; text-only and district records
@@ -14,7 +16,10 @@ import { useEffect, useRef, useState } from "react";
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
 import type { MapLayer } from "@/shared/centre/types";
 import { MAP_LAYER_LABELS } from "@/shared/centre/types";
+import type { BasemapInfo } from "@/shared/centre/wallboard";
 import { cx } from "@/utils/cx";
+import type { BasemapFlavor } from "./basemap-style";
+import { useBasemap } from "./use-basemap";
 
 export interface MapFeature {
     type: "Feature";
@@ -183,6 +188,12 @@ export interface CentreMapProps {
     /** Wallboards: no interaction, larger symbols. */
     display?: boolean;
     fullscreen?: boolean;
+    /** The basemap to draw. Undefined: the portal asks the Worker (display mode draws the outline). */
+    basemap?: BasemapInfo | null;
+    /** A wallboard's display credential, sent with its tile requests. */
+    authToken?: string | null;
+    /** Basemap colours; by default light or dark from the portal theme, dark on wallboards. */
+    flavor?: BasemapFlavor;
 }
 
 export const CentreMap = ({
@@ -197,6 +208,9 @@ export const CentreMap = ({
     className,
     display = false,
     fullscreen = true,
+    basemap,
+    authToken = null,
+    flavor,
 }: CentreMapProps) => {
     const container = useRef<HTMLDivElement>(null);
     const mapRef = useRef<MapLibreMap | null>(null);
@@ -204,39 +218,54 @@ export const CentreMap = ({
     const [failed, setFailed] = useState<string | null>(null);
     const callbacks = useRef({ onSelect, onMove });
     callbacks.current = { onSelect, onMove };
+    const token = useRef(authToken);
+    token.current = authToken;
+    const asked = useBasemap(basemap === undefined && !display);
+    const chosen = basemap === undefined ? (display ? null : asked) : basemap;
+    // The map waits for the portal's answer (a quick request), then is made once per basemap.
+    const styleKey = chosen === undefined ? null : `${chosen?.kind ?? "outline"}:${chosen?.tiles ?? ""}:${flavor ?? ""}`;
 
-    // Create the map once.
     useEffect(() => {
+        if (styleKey === null) return;
         let cancelled = false;
         let map: MapLibreMap | null = null;
         (async () => {
             try {
-                const [maplibre, worker] = await Promise.all([
+                // The basemap's style (and its OpenStreetMap layer definitions) loads with MapLibre, only on pages with a map.
+                const [maplibre, worker, , { basemapStyle, glyphUrl }] = await Promise.all([
                     import("maplibre-gl"),
                     import("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"),
                     import("maplibre-gl/dist/maplibre-gl.css"),
+                    import("./basemap-style"),
                 ]);
                 if (cancelled || !container.current) return;
                 maplibre.setWorkerUrl(new URL(worker.default, window.location.href).href);
                 const p = mapPalette();
                 const colour = colourExpression(p);
+                const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark-mode");
+                const detailed = chosen?.kind === "detailed";
                 map = new maplibre.Map({
                     container: container.current,
-                    style: {
-                        version: 8,
-                        sources: { base: { type: "geojson", data: "/centre/australia.geojson" } },
-                        layers: [
-                            { id: "background", type: "background", paint: { "background-color": p.background } },
-                            { id: "land", type: "fill", source: "base", paint: { "fill-color": p.land } },
-                            { id: "borders", type: "line", source: "base", paint: { "line-color": p.border, "line-width": 1 } },
-                        ],
+                    style: basemapStyle(chosen ?? null, flavor ?? (display || dark ? "dark" : "light"), {
+                        background: p.background,
+                        land: p.land,
+                        border: p.border,
+                    }) as never,
+                    transformRequest: (url, type) => {
+                        if (type === "Glyphs") return { url: glyphUrl(url) };
+                        if (type === "Tile" && token.current && url.includes("/api/display/tiles/"))
+                            return { url, headers: { Authorization: `Bearer ${token.current}` } };
+                        return { url };
                     },
                     bounds: frame,
                     fitBoundsOptions: { padding: 24 },
-                    attributionControl: { compact: true, customAttribution: "Boundaries: Natural Earth. Data: the providers listed beside the map." },
+                    attributionControl: {
+                        compact: true,
+                        customAttribution: `${detailed ? chosen!.attribution : "Boundaries: Natural Earth."} Data: the providers listed beside the map.`,
+                    },
                     interactive: !display,
                     cooperativeGestures: !display,
-                    maxZoom: 14,
+                    maxZoom: detailed ? 16 : 14,
                     minZoom: 3,
                 });
                 map.getCanvas().setAttribute("aria-label", label);
@@ -371,10 +400,11 @@ export const CentreMap = ({
             cancelled = true;
             map?.remove();
             mapRef.current = null;
+            setReady(false);
         };
-        // The map is created once; frame and data changes are applied below.
+        // The map is created once per basemap; frame and data changes are applied below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [styleKey]);
 
     // Data and layer visibility.
     useEffect(() => {

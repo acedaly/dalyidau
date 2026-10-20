@@ -98,7 +98,7 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
 
         const s = await session(OWNER, { env });
         expect(s.init.status).toBe(200);
-        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(101);
+        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(117);
         const task = (await s.ok<{ task: { id: string } }>("tasks_create", { title: "Renew passport", dueDate: "2030-03-01", requestId: "isolation-0001" }))
             .task;
         const again = await s.ok<{ task: { id: string } }>("tasks_create", { title: "Renew passport", dueDate: "2030-03-01", requestId: "isolation-0001" });

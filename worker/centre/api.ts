@@ -4,22 +4,28 @@
 // Watch areas, alerts, preferences and wallboards are the caller's own (404 for anyone else's).
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { z } from "zod";
+import { FEED_CHANGE_GROUPS, type FeedFilters } from "../../src/shared/centre/history";
+import { REGION_IDS, type RegionId, regionById } from "../../src/shared/centre/regions";
+import { reportRequestSchema } from "../../src/shared/centre/reports";
 import { HAZARD_CATEGORIES } from "../../src/shared/centre/sources";
 import { RECORD_KINDS } from "../../src/shared/centre/types";
+import { MAP_LAYERS } from "../../src/shared/centre/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { can } from "../portal/auth";
 import { HttpError, json, readJson } from "../portal/http";
 import { allow } from "../wedding/rsvp";
-import { REGION_IDS, type RegionId, regionById } from "../../src/shared/centre/regions";
-import { FEED_CHANGE_GROUPS, type FeedFilters } from "../../src/shared/centre/history";
-import { MAP_LAYERS } from "../../src/shared/centre/types";
 import { knowledgeFromBriefing, knowledgeFromRecord, knowledgeFromTimeline, linkEvent, listEventLinks, taskFromRecord, unlinkEvent } from "./actions";
 import { acknowledgeAlerts, listAlerts } from "./alerts";
 import { askAssistant } from "./assistant";
 import { basemapInfo, serveTile } from "./basemap";
+import { buildBriefing, withInterpretation } from "./briefing";
+import { correlations } from "./correlate";
 import { displayStateKey, wallboardPayloadV2 } from "./display";
+import { type BBox, NSW_BBOX } from "./geo";
 import { centreAnalytics, changeFeed, recordTimeline, replayCompare, replayFrame, replayMeta, situationTimeline, sourceReliability } from "./history";
+import { collectSource } from "./ingest";
+import { mapFeatures } from "./map";
 import {
     buildReport,
     createSchedule,
@@ -33,11 +39,6 @@ import {
     updateSchedule,
 } from "./reports";
 import { acknowledgeMatches, createRule, deleteRule, listMatches, listRules, taskFromMatch, testRule, updateRule } from "./rules";
-import { buildBriefing, withInterpretation } from "./briefing";
-import { correlations } from "./correlate";
-import { type BBox, NSW_BBOX } from "./geo";
-import { collectSource } from "./ingest";
-import { mapFeatures } from "./map";
 import {
     getRecord,
     listChanges,
@@ -52,7 +53,6 @@ import {
     sourceHealth,
 } from "./store";
 import { centreSummary } from "./summary";
-import { reportRequestSchema } from "../../src/shared/centre/reports";
 import {
     createDisplayToken,
     createWallboard,
@@ -412,7 +412,13 @@ add("POST", "/records/:id/timeline/knowledge", async ({ env, user, request, para
 add("GET", "/timeline", async ({ env, user, url }) => {
     const watchId = url.searchParams.get("watch");
     const regionId = region.parse(url.searchParams.get("region") || null) as RegionId | null;
-    const hours = z.coerce.number().int().min(1).max(720).default(24).parse(url.searchParams.get("hours") ?? undefined);
+    const hours = z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(720)
+        .default(24)
+        .parse(url.searchParams.get("hours") ?? undefined);
     const watch = watchId ? await requireWatch(env.DB, user.email, watchId) : null;
     return json({ timeline: await situationTimeline(env, { watch, region: regionId }, hours) });
 });
@@ -445,25 +451,51 @@ add("GET", "/replay/compare", async ({ env, user, url }) => {
     return json({ comparison: await replayCompare(env, new Date(a), new Date(b), await replayScope(env, user, url)) });
 });
 add("GET", "/analytics", async ({ env, url }) => {
-    const days = z.coerce.number().int().refine((d) => [7, 30, 90].includes(d), "7, 30 or 90 days").default(30).parse(url.searchParams.get("days") ?? undefined);
+    const days = z.coerce
+        .number()
+        .int()
+        .refine((d) => [7, 30, 90].includes(d), "7, 30 or 90 days")
+        .default(30)
+        .parse(url.searchParams.get("days") ?? undefined);
     return json({ analytics: await centreAnalytics(env, days) });
 });
 add("GET", "/reliability", async ({ env, url }) => {
-    const days = z.coerce.number().int().min(1).max(400).default(30).parse(url.searchParams.get("days") ?? undefined);
+    const days = z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(400)
+        .default(30)
+        .parse(url.searchParams.get("days") ?? undefined);
     return json({ reliability: await sourceReliability(env.DB, days) });
 });
 
 // --- Monitoring rules ----------------------------------------------------------------------------------
 
-add("GET", "/rules", async ({ env, user }) => json({ rules: await listRules(env.DB, user.email), matches: await listMatches(env.DB, user.email, { limit: 100 }) }));
+add("GET", "/rules", async ({ env, user }) =>
+    json({ rules: await listRules(env.DB, user.email), matches: await listMatches(env.DB, user.email, { limit: 100 }) }),
+);
 add("POST", "/rules", async ({ env, user, request }) => json({ rule: await createRule(env.DB, user, await readJson(request)) }, 201));
 add("POST", "/rules/test", async ({ env, user, request, url }) => {
-    if (!(await allow(env.DB, "centre-rule-test", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many tests this hour. Try again later.");
-    const days = z.coerce.number().int().min(1).max(30).default(7).parse(url.searchParams.get("days") ?? undefined);
+    if (!(await allow(env.DB, "centre-rule-test", user.email, 30, 3600)))
+        throw new HttpError(429, "rate_limited", "Too many tests this hour. Try again later.");
+    const days = z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(30)
+        .default(7)
+        .parse(url.searchParams.get("days") ?? undefined);
     return json({ result: await testRule(env, user, await readJson(request), days) });
 });
 add("GET", "/rules/matches", async ({ env, user, url }) =>
-    json({ matches: await listMatches(env.DB, user.email, { open: url.searchParams.get("open") === "1", ruleId: url.searchParams.get("rule") ?? undefined, limit: 200 }) }),
+    json({
+        matches: await listMatches(env.DB, user.email, {
+            open: url.searchParams.get("open") === "1",
+            ruleId: url.searchParams.get("rule") ?? undefined,
+            limit: 200,
+        }),
+    }),
 );
 add("POST", "/rules/matches/acknowledge", async ({ env, user, request }) => {
     const body = z
@@ -487,14 +519,10 @@ add("POST", "/reports/preview", async ({ env, user, request }) => {
     if (!(await allow(env.DB, "centre-report", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many reports this hour. Try again later.");
     return json({ report: await buildReport(env, user, reportRequestSchema.parse(await readJson(request))) });
 });
-add(
-    "POST",
-    "/reports",
-    async ({ env, user, request }) => {
-        if (!(await allow(env.DB, "centre-report", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many reports this hour. Try again later.");
-        return json(await generateReport(env, user, await readJson(request)), 201);
-    },
-);
+add("POST", "/reports", async ({ env, user, request }) => {
+    if (!(await allow(env.DB, "centre-report", user.email, 30, 3600))) throw new HttpError(429, "rate_limited", "Too many reports this hour. Try again later.");
+    return json(await generateReport(env, user, await readJson(request)), 201);
+});
 add("GET", "/reports/:id", async ({ env, user, params }) => json(await getReport(env, user.email, params.id)));
 add("DELETE", "/reports/:id", async ({ env, user, params }) => {
     await deleteReport(env, user, params.id);
@@ -503,7 +531,9 @@ add("DELETE", "/reports/:id", async ({ env, user, params }) => {
 add("POST", "/reports/:id/knowledge", async ({ env, user, request, params }) => json(await reportToKnowledge(env, user, params.id, await readJson(request))));
 add("GET", "/schedules", async ({ env, user }) => json({ schedules: await listSchedules(env.DB, user.email) }));
 add("POST", "/schedules", async ({ env, user, request }) => json({ schedule: await createSchedule(env.DB, user, await readJson(request)) }, 201));
-add("PUT", "/schedules/:id", async ({ env, user, request, params }) => json({ schedule: await updateSchedule(env.DB, user, params.id, await readJson(request)) }));
+add("PUT", "/schedules/:id", async ({ env, user, request, params }) =>
+    json({ schedule: await updateSchedule(env.DB, user, params.id, await readJson(request)) }),
+);
 add("DELETE", "/schedules/:id", async ({ env, user, params }) => {
     await deleteSchedule(env.DB, user, params.id);
     return json({ ok: true });
@@ -515,14 +545,18 @@ add("POST", "/assistant", async ({ env, user, request }) => json({ answer: await
 
 // --- Wallboard 2.0 -------------------------------------------------------------------------------------
 
-add("PUT", "/wallboards/:id/views", async ({ env, user, request, params }) => json({ wallboard: await saveViews(env.DB, user, params.id, await readJson(request)) }));
+add("PUT", "/wallboards/:id/views", async ({ env, user, request, params }) =>
+    json({ wallboard: await saveViews(env.DB, user, params.id, await readJson(request)) }),
+);
 add("POST", "/wallboards/:id/duplicate", async ({ env, user, request, params }) =>
     json({ wallboard: await duplicateWallboard(env.DB, user, params.id, await readJson(request)) }, 201),
 );
 /** The owner's own preview of a board: exactly what a screen would get (no credential involved). */
 add("GET", "/wallboards/:id/preview", async ({ env, user, params }) => {
     const board = await requireWallboard(env.DB, user.email, params.id);
-    return json({ wallboard: await wallboardPayloadV2(env, board, user, { stateKey: await displayStateKey(env.DB, board) }) });
+    const wallboard = await wallboardPayloadV2(env, board, user, { stateKey: await displayStateKey(env.DB, board) });
+    // The owner's browser fetches tiles through Access, not a display credential.
+    return json({ wallboard: { ...wallboard, basemap: await basemapInfo(env, "portal") } });
 });
 
 // --- Journeys ---------------------------------------------------------------------------------------

@@ -41,7 +41,9 @@ export function sourceGapMessage(h: Pick<SourceHealth, "source" | "status" | "st
         case "stale":
             return `${subject} may be out of date: ${h.statusDetail}`;
         case "error":
-            return h.lastSuccessAt ? `${subject} may be out of date: the latest attempts failed. ${h.statusDetail}` : `${subject} aren't available: ${h.statusDetail}`;
+            return h.lastSuccessAt
+                ? `${subject} may be out of date: the latest attempts failed. ${h.statusDetail}`
+                : `${subject} aren't available: ${h.statusDetail}`;
         case "unavailable":
             return `${subject} aren't available: the provider no longer serves this.`;
         case "restricted":

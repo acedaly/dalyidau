@@ -322,7 +322,19 @@ INSERT INTO ic_preferences (email, value, updated_at) VALUES ('partner@example.c
 INSERT INTO ic_config (key, value, updated_at, updated_by) VALUES ('settings', '{"gauges":["410001"]}', '${NOW}', 'partner@example.com');
 INSERT INTO ic_briefings (email, scope, fingerprint, interpretation, generated_at) VALUES ('partner@example.com', 'nsw:nsw', 'fp', '[]', '${NOW}');
 INSERT INTO ic_wallboards (id, email, name, config, created_at, updated_at) VALUES ('icb_backuptest0001', 'partner@example.com', 'Invented board', '{"layout":"nsw"}', '${NOW}', '${NOW}');
-INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at) VALUES ('icd_backuptest0001', 'icb_backuptest0001', 'invented-hash-not-a-token', 'Test screen', 'partner@example.com', '${NOW}');
+INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, renewable, lifetime_days) VALUES ('icd_backuptest0001', 'icb_backuptest0001', 'invented-hash-not-a-token', 'Test screen', 'partner@example.com', '${NOW}', 1, 90);
+INSERT INTO ic_record_versions (id, record_id, source_id, seq, valid_from, baseline, kind, category, title, severity_rank, geometry_quality, active) VALUES
+  ('icv_backuptest0001', 'icr_backuptest0001', 'rfs-incidents', 1, '${NOW}', 1, 'incident', 'fire', 'Invented Rd, Exampletown', 1, 'point', 1);
+INSERT INTO ic_geometries (hash, geometry, first_seen_at) VALUES ('invented-geometry-hash', '{"type":"Point","coordinates":[150.5,-33.5]}', '${NOW}');
+INSERT INTO ic_source_daily (source_id, day, attempts, ok, last_success_at) VALUES ('rfs-incidents', '${NOW.slice(0, 10)}', 4, 4, '${NOW}');
+INSERT INTO ic_rules (id, email, name, condition, definition, watch_id, lookback_minutes, cooldown_minutes, notify, created_at, updated_at) VALUES
+  ('icu_backuptest0001', 'partner@example.com', 'Invented rule', 'fire_within', '{"condition":"fire_within","watchId":"icw_backuptest0001","radiusKm":10,"unit":"km","notUnderControlOnly":false}', 'icw_backuptest0001', 180, 60, 'in_app', '${NOW}', '${NOW}');
+INSERT INTO ic_rule_matches (id, rule_id, email, dedupe_key, at, record_id, reason) VALUES ('icm_backuptest0001', 'icu_backuptest0001', 'partner@example.com', 'icr_backuptest0001', '${NOW}', 'icr_backuptest0001', 'Invented reason');
+INSERT INTO ic_reports (id, email, title, scope, period_to, generated_at, fingerprint, object_key) VALUES ('icp_backuptest0001', 'partner@example.com', 'Invented report', '{"kind":"nsw"}', '${NOW}', '${NOW}', 'fp', 'private/centre/reports/icp_backuptest0001.json');
+INSERT INTO ic_report_schedules (id, email, name, scope, frequency, hour, time_zone, created_at, updated_at) VALUES ('ics_backuptest0001', 'partner@example.com', 'Invented schedule', '{"kind":"nsw"}', 'daily', 7, 'Australia/Sydney', '${NOW}', '${NOW}');
+INSERT INTO ic_wallboard_views (id, wallboard_id, position, name, preset, widgets, created_at, updated_at) VALUES ('icl_backuptest0001', 'icb_backuptest0001', 0, 'Local Situation', 'local', '[]', '${NOW}', '${NOW}');
+INSERT INTO ic_event_links (id, email, event_id, watch_id, created_at) VALUES ('ick_backuptest0001', 'partner@example.com', 'cev_backuptest0001', 'icw_backuptest0001', '${NOW}');
+INSERT INTO ic_cache (key, value, computed_at, expires_at) VALUES ('analytics:invented', '{}', '${NOW}', '${NOW}');
 `;
 const CENTRE_TABLES = [
     "ic_sources",
@@ -337,6 +349,16 @@ const CENTRE_TABLES = [
     "ic_briefings",
     "ic_wallboards",
     "ic_display_tokens",
+    "ic_record_versions",
+    "ic_geometries",
+    "ic_source_daily",
+    "ic_rules",
+    "ic_rule_matches",
+    "ic_reports",
+    "ic_report_schedules",
+    "ic_wallboard_views",
+    "ic_event_links",
+    "ic_cache",
 ];
 
 const TASK_M3_TABLES = [

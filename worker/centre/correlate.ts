@@ -75,7 +75,11 @@ const accuracyOf = (items: Item[]) => {
     return qualities.map((q) => GEOMETRY_QUALITY_LABELS[q]).join(" ");
 };
 
-async function load(db: D1Database, bbox: BBox | null, since: string): Promise<{ items: Item[]; stations: { id: string; lat: number; lon: number; district: string; title: string }[] }> {
+async function load(
+    db: D1Database,
+    bbox: BBox | null,
+    since: string,
+): Promise<{ items: Item[]; stations: { id: string; lat: number; lon: number; district: string; title: string }[] }> {
     const where = ["active = 1", "COALESCE(observed_at, updated_at, published_at, first_seen_at) >= ?"];
     const binds: unknown[] = [since];
     if (bbox) {
@@ -187,9 +191,7 @@ export async function correlations(
     const districtsOf = (i: Item) => new Set((i.record.attributes.districts ?? "").split(",").filter(Boolean));
 
     // 0. Explicit: an RFS alert that names the incident it's about (CAP-AU IncidentId).
-    const incidentsById = new Map(
-        of((i) => i.record.sourceId === "rfs-incidents").map((i) => [i.record.externalId.replace(/^incident-/, ""), i] as const),
-    );
+    const incidentsById = new Map(of((i) => i.record.sourceId === "rfs-incidents").map((i) => [i.record.externalId.replace(/^incident-/, ""), i] as const));
     for (const alert of of((i) => i.record.sourceId === "rfs-incident-alerts" && !!i.record.attributes.incidentId)) {
         const incident = incidentsById.get(alert.record.attributes.incidentId);
         if (!incident) continue;
@@ -222,7 +224,10 @@ export async function correlations(
             near.length >= 3 ? "moderate" : "low",
             "Detections are satellite heat signatures with a stated accuracy (often ±2 km). They don't confirm the fire's extent, intensity or that the detection is this fire.",
             [
-                { factor: "geography", finding: `Nearest ${Math.min(...near.map((m) => m.km!)).toFixed(1)} km from ${fire.geometry ? "the published area" : "the published point"}.` },
+                {
+                    factor: "geography",
+                    finding: `Nearest ${Math.min(...near.map((m) => m.km!)).toFixed(1)} km from ${fire.geometry ? "the published area" : "the published point"}.`,
+                },
                 { factor: "time", finding: `Within ${Math.max(...near.map((m) => hoursApart(m.item.at, fire.at)))} hours of the incident's last update.` },
                 { factor: "hazard", finding: "A fire incident and thermal detections." },
                 { factor: "accuracy", finding: accuracyOf([fire, ...near.map((m) => m.item)]) },
@@ -248,7 +253,10 @@ export async function correlations(
             [
                 { factor: "geography", finding: `Within ${D} km (nearest ${Math.min(...near.map((m) => m.km!)).toFixed(1)} km).` },
                 { factor: "time", finding: `In the same ${W}-hour window.` },
-                { factor: "hazard", finding: fireRelated ? "Transport for NSW lists at least one as fire-related." : "No road hazard is listed as fire-related." },
+                {
+                    factor: "hazard",
+                    finding: fireRelated ? "Transport for NSW lists at least one as fire-related." : "No road hazard is listed as fire-related.",
+                },
             ],
             [{ item: fire, km: null }, ...near.slice(0, MAX_MEMBERS)],
         );
@@ -282,7 +290,12 @@ export async function correlations(
             [
                 { factor: "geography", finding: `Same BoM forecast district (${[...districts].join(", ")}), by nearest station.` },
                 { factor: "time", finding: `Within the last ${W} hours.` },
-                { factor: "measurement", finding: rising.length ? `River rises of at least ${settings.riverChangeMetres} m between collections (observed).` : "No river measurements involved." },
+                {
+                    factor: "measurement",
+                    finding: rising.length
+                        ? `River rises of at least ${settings.riverChangeMetres} m between collections (observed).`
+                        : "No river measurements involved.",
+                },
             ],
             [{ item: warning, km: null }, ...members.slice(0, MAX_MEMBERS).map((m) => ({ item: m, km: null }))],
         );
@@ -377,7 +390,10 @@ export async function correlations(
                 members.length >= 2 ? "moderate" : "low",
                 `${DAMAGING_GUST_KMH} km/h is the Bureau's threshold for damaging gusts in its severe thunderstorm warnings; a single gust at one station doesn't describe the whole district. Matched by forecast district.`,
                 [
-                    { factor: "measurement", finding: `Highest observed gust ${Math.max(...members.map((m) => Number(m.record.title.match(/: ([\d.]+)/)?.[1] ?? 0)))} km/h (Bureau station observation).` },
+                    {
+                        factor: "measurement",
+                        finding: `Highest observed gust ${Math.max(...members.map((m) => Number(m.record.title.match(/: ([\d.]+)/)?.[1] ?? 0)))} km/h (Bureau station observation).`,
+                    },
                     { factor: "geography", finding: "Stations in the forecast districts the warning names." },
                     { factor: "time", finding: "Observed after the warning was issued and within the correlation window." },
                 ],
@@ -423,7 +439,10 @@ export async function correlations(
             nearFires.length ? "moderate" : "low",
             "Smoke travels with the wind, and poor air quality has other causes (dust, traffic, inversions). This doesn't say where the smoke came from.",
             [
-                { factor: "measurement", finding: `${site.record.status}, the provider's own category (observed ${new Date(site.at).toISOString().slice(11, 16)} UTC).` },
+                {
+                    factor: "measurement",
+                    finding: `${site.record.status}, the provider's own category (observed ${new Date(site.at).toISOString().slice(11, 16)} UTC).`,
+                },
                 { factor: "geography", finding: "Fire activity within 50 km of the monitoring site." },
                 { factor: "freshness", finding: `The reading is within the ${W}-hour window.` },
             ],

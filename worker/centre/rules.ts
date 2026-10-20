@@ -8,14 +8,7 @@
 // recorded, marked as not notified. Rules name a watch area for anything geographic, so no rule
 // holds coordinates of its own, and nothing about a rule's area is logged or audited.
 import type { D1Database } from "@cloudflare/workers-types";
-import type {
-    MonitoringRule,
-    RuleDefinition,
-    RuleInput,
-    RuleMatch,
-    RuleTestMatch,
-    RuleTestResult,
-} from "../../src/shared/centre/rules";
+import type { MonitoringRule, RuleDefinition, RuleInput, RuleMatch, RuleTestMatch, RuleTestResult } from "../../src/shared/centre/rules";
 import { CONDITION_META, MAX_RULES, gustKmh, ruleInputSchema } from "../../src/shared/centre/rules";
 import { sourceById } from "../../src/shared/centre/sources";
 import type { CentreRecord, WatchArea } from "../../src/shared/centre/types";
@@ -38,7 +31,9 @@ const MAX_NOTIFICATIONS_PER_HOUR = 20;
 const MAX_RULES_PER_RUN = 200;
 
 const sydneyDate = (iso: string | null) =>
-    iso ? new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) : "unknown";
+    iso
+        ? new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso))
+        : "unknown";
 const when = (iso: string | null) =>
     iso
         ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(
@@ -112,7 +107,8 @@ async function checkInput(db: D1Database, user: PortalUser, body: unknown): Prom
         const watch = await requireWatch(db, user.email, watchId);
         if (!watchBBox(watch.definition) && d.condition !== "road_on_corridor")
             throw new HttpError(422, "validation", "Choose a watch area with a location (a place, drawn area, region or corridor)");
-        if (d.condition === "road_on_corridor" && !watchBBox(watch.definition)) throw new HttpError(422, "validation", "Choose a corridor or another area with a location");
+        if (d.condition === "road_on_corridor" && !watchBBox(watch.definition))
+            throw new HttpError(422, "validation", "Choose a corridor or another area with a location");
     }
     if (d.condition === "source_stale") {
         const source = sourceById(d.sourceId);
@@ -122,7 +118,8 @@ async function checkInput(db: D1Database, user: PortalUser, body: unknown): Prom
         const districts = await fireDistricts(db);
         if (districts.length && !districts.includes(d.district)) throw new HttpError(422, "validation", "Choose a fire weather district from the list");
     }
-    if (input.notify === "email" && input.cooldownMinutes < 30) throw new HttpError(422, "validation", "Email notifications need a cooldown of at least 30 minutes");
+    if (input.notify === "email" && input.cooldownMinutes < 30)
+        throw new HttpError(422, "validation", "Email notifications need a cooldown of at least 30 minutes");
     return input;
 }
 
@@ -271,7 +268,10 @@ export async function acknowledgeMatches(db: D1Database, user: PortalUser, ids: 
     const now = nowIso();
     if (ids === "all") {
         await db.prepare("UPDATE ic_rule_matches SET acknowledged_at = ? WHERE email = ? AND acknowledged_at IS NULL").bind(now, user.email).run();
-        await db.prepare("UPDATE ic_alerts SET acknowledged_at = ? WHERE email = ? AND kind = 'rule_match' AND acknowledged_at IS NULL").bind(now, user.email).run();
+        await db
+            .prepare("UPDATE ic_alerts SET acknowledged_at = ? WHERE email = ? AND kind = 'rule_match' AND acknowledged_at IS NULL")
+            .bind(now, user.email)
+            .run();
         return;
     }
     for (const id of ids.filter((x) => /^icm_[a-z0-9]{14}$/.test(x)).slice(0, 200)) {
@@ -376,7 +376,12 @@ const crossings = (points: { at: string; value: number }[], meets: (v: number) =
     points.filter((p, i) => meets(p.value) && (i === 0 || !meets(points[i - 1].value)));
 
 /** The current candidates for a rule, from records and readings as stored now. */
-export async function candidatesFor(env: Env, owner: PortalUser, rule: Pick<MonitoringRule, "definition" | "lookbackMinutes">, now = new Date()): Promise<Candidate[]> {
+export async function candidatesFor(
+    env: Env,
+    owner: PortalUser,
+    rule: Pick<MonitoringRule, "definition" | "lookbackMinutes">,
+    now = new Date(),
+): Promise<Candidate[]> {
     const db = env.DB;
     const d = rule.definition;
     const since = new Date(now.getTime() - rule.lookbackMinutes * MINUTE).toISOString();
@@ -388,7 +393,13 @@ export async function candidatesFor(env: Env, owner: PortalUser, rule: Pick<Moni
     switch (d.condition) {
         case "official_level": {
             const context = await matchContextFor(db, anyHazard!);
-            for (const { record, geometry } of await loadAround(db, anyHazard!, d.radiusKm, "active = 1 AND kind IN ('warning', 'incident') AND severity_rank >= ?", [d.minLevel])) {
+            for (const { record, geometry } of await loadAround(
+                db,
+                anyHazard!,
+                d.radiusKm,
+                "active = 1 AND kind IN ('warning', 'incident') AND severity_rank >= ?",
+                [d.minLevel],
+            )) {
                 if (d.categories.length && !d.categories.includes(record.category)) continue;
                 const time = record.updatedAt ?? record.publishedAt ?? record.firstSeenAt;
                 if (time < since) continue;
@@ -517,7 +528,9 @@ export async function candidatesFor(env: Env, owner: PortalUser, rule: Pick<Moni
         case "total_fire_ban": {
             const rows = (
                 await db
-                    .prepare(`SELECT ${RECORD_COLUMNS} FROM ic_records WHERE source_id = 'rfs-fire-danger' AND active = 1 AND (title = ? OR json_extract(attrs, '$.district') = ?)`)
+                    .prepare(
+                        `SELECT ${RECORD_COLUMNS} FROM ic_records WHERE source_id = 'rfs-fire-danger' AND active = 1 AND (title = ? OR json_extract(attrs, '$.district') = ?)`,
+                    )
                     .bind(d.district, d.district)
                     .all<RecordRow>()
             ).results.map(toRecord);
@@ -632,10 +645,7 @@ export async function evaluateRules(env: Env, options: { now?: Date; email?: str
         }
         const at = nowIso();
         let lastNotified = (
-            await db
-                .prepare("SELECT MAX(at) AS at FROM ic_rule_matches WHERE rule_id = ? AND notified = 1")
-                .bind(row.id)
-                .first<{ at: string | null }>()
+            await db.prepare("SELECT MAX(at) AS at FROM ic_rule_matches WHERE rule_id = ? AND notified = 1").bind(row.id).first<{ at: string | null }>()
         )?.at;
         let matched = false;
         for (const c of candidates.slice(0, 50)) {
@@ -763,7 +773,11 @@ export async function testRule(env: Env, user: PortalUser, body: unknown, days =
         if (!versions.length) notes.push("No versioned history is stored for this period, so only current records were tested.");
         const watch = "watchId" in d ? { ...(await requireWatch(db, user.email, d.watchId)), categories: [] } : null;
         const states = versions.length
-            ? versions.map((v) => ({ at: v.valid_from > from.toISOString() ? v.valid_from : from.toISOString(), record: toReplayRecord(v), hash: v.geometry_hash }))
+            ? versions.map((v) => ({
+                  at: v.valid_from > from.toISOString() ? v.valid_from : from.toISOString(),
+                  record: toReplayRecord(v),
+                  hash: v.geometry_hash,
+              }))
             : [];
         examined = states.length;
         if (states.length) {

@@ -317,8 +317,16 @@ export const widgetSchema = z
     .object({
         id: z.string().regex(/^w[a-z0-9]{1,15}$/),
         type: z.enum(WIDGET_TYPES),
-        x: z.number().int().min(0).max(GRID_COLUMNS - 1),
-        y: z.number().int().min(0).max(GRID_ROWS - 1),
+        x: z
+            .number()
+            .int()
+            .min(0)
+            .max(GRID_COLUMNS - 1),
+        y: z
+            .number()
+            .int()
+            .min(0)
+            .max(GRID_ROWS - 1),
         w: z.number().int().min(1).max(GRID_COLUMNS),
         h: z.number().int().min(1).max(GRID_ROWS),
         settings: widgetSettingsSchema.default({}),
@@ -444,7 +452,10 @@ export function presetWidgets(preset: WallboardPreset): Widget[] {
                 w("whealth", "source_health", 8, 8, 4, 4),
             ];
         case "map":
-            return [w("wmap", "map", 0, 0, 9, 12, { layers: MAP_ALL, legend: true }), w("wwarnings", "warnings", 9, 0, 3, 12, { limit: 8, title: "Most serious" })];
+            return [
+                w("wmap", "map", 0, 0, 9, 12, { layers: MAP_ALL, legend: true }),
+                w("wwarnings", "warnings", 9, 0, 3, 12, { limit: 8, title: "Most serious" }),
+            ];
     }
 }
 
@@ -572,9 +583,20 @@ export type WidgetData = WidgetBase &
               /** District and text-only records that have no shape to draw (listed beside the map). */
               unmapped: number;
           }
-        | { type: "warnings" | "nearby_incidents" | "roads" | "outages" | "detections" | "air_quality" | "weather"; records: DisplayRecord[]; total: number; corridorIds: string[]; customers: number | null }
+        | {
+              type: "warnings" | "nearby_incidents" | "roads" | "outages" | "detections" | "air_quality" | "weather";
+              records: DisplayRecord[];
+              total: number;
+              corridorIds: string[];
+              customers: number | null;
+          }
         | { type: "fire_danger" | "fire_bans"; districts: FireDangerRow[]; updatedAt: string | null }
-        | { type: "observation_chart" | "rainfall_chart" | "river_gauge"; metric: ChartMetric; unit: string; series: { label: string; recordId: string; latest: number | null; latestAt: string | null; points: { at: string; value: number }[] }[] }
+        | {
+              type: "observation_chart" | "rainfall_chart" | "river_gauge";
+              metric: ChartMetric;
+              unit: string;
+              series: { label: string; recordId: string; latest: number | null; latestAt: string | null; points: { at: string; value: number }[] }[];
+          }
         | { type: "recent_changes"; changes: DisplayChange[]; total: number }
         | { type: "incident_timeline"; record: DisplayRecord | null; events: DisplayTimelineEvent[] }
         | { type: "correlations"; correlations: Correlation[] }

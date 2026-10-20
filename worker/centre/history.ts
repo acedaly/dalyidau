@@ -164,7 +164,12 @@ async function geometriesByHash(db: D1Database, hashes: string[]): Promise<Map<s
 // --- Source gaps -------------------------------------------------------------------------------------
 
 /** Periods with no successful retrieval for longer than the source's own limit, from collection runs. */
-export async function sourceGaps(db: D1Database, from: string, to: string, sourceIds?: string[]): Promise<{ sourceId: string; from: string; to: string; minutes: number }[]> {
+export async function sourceGaps(
+    db: D1Database,
+    from: string,
+    to: string,
+    sourceIds?: string[],
+): Promise<{ sourceId: string; from: string; to: string; minutes: number }[]> {
     const ids = sourceIds ?? IMPLEMENTED_SOURCES.map((s) => s.id);
     if (!ids.length) return [];
     const rows = await db
@@ -250,7 +255,12 @@ function versionEvents(versions: VersionRow[], provider: string): TimelineEvent[
                 at,
                 kind: "level_change",
                 nature: "official",
-                label: b.severity_rank > a.severity_rank ? "Warning level raised" : b.severity_rank < a.severity_rank ? "Warning level lowered" : "Warning level changed",
+                label:
+                    b.severity_rank > a.severity_rank
+                        ? "Warning level raised"
+                        : b.severity_rank < a.severity_rank
+                          ? "Warning level lowered"
+                          : "Warning level changed",
                 detail: `${a.warning_level ?? "No level"} → ${b.warning_level ?? "no level"}, as ${provider} published it.`,
             });
             described = true;
@@ -278,7 +288,14 @@ function versionEvents(versions: VersionRow[], provider: string): TimelineEvent[
             described = true;
         }
         if (a.status !== b.status && b.active === 1) {
-            events.push({ ...base, at, kind: "status_change", nature: "official", label: "Status changed", detail: `${a.status ?? "No status"} → ${b.status ?? "no status"}.` });
+            events.push({
+                ...base,
+                at,
+                kind: "status_change",
+                nature: "official",
+                label: "Status changed",
+                detail: `${a.status ?? "No status"} → ${b.status ?? "no status"}.`,
+            });
             described = true;
         }
         if (a.geometry_hash !== b.geometry_hash) {
@@ -293,7 +310,14 @@ function versionEvents(versions: VersionRow[], provider: string): TimelineEvent[
             described = true;
         }
         if (a.active === 1 && b.active === 0 && b.missing === 0) {
-            events.push({ ...base, at, kind: "ended", nature: "official", label: "Provider marked it ended", detail: `${provider} marked it ${b.status ?? "ended"}.` });
+            events.push({
+                ...base,
+                at,
+                kind: "ended",
+                nature: "official",
+                label: "Provider marked it ended",
+                detail: `${provider} marked it ${b.status ?? "ended"}.`,
+            });
             described = true;
         }
         if (a.missing === 0 && b.missing === 1) {
@@ -308,7 +332,14 @@ function versionEvents(versions: VersionRow[], provider: string): TimelineEvent[
             described = true;
         }
         if ((a.missing === 1 || a.active === 0) && b.active === 1) {
-            events.push({ ...base, at: b.valid_from, kind: "reappeared", nature: "official", label: "Back in the feed", detail: `${provider} listed it again.` });
+            events.push({
+                ...base,
+                at: b.valid_from,
+                kind: "reappeared",
+                nature: "official",
+                label: "Back in the feed",
+                detail: `${provider} listed it again.`,
+            });
             described = true;
         }
         if (!described)
@@ -318,7 +349,10 @@ function versionEvents(versions: VersionRow[], provider: string): TimelineEvent[
                 kind: "provider_update",
                 nature: "official",
                 label: "Provider updated it",
-                detail: b.updated_at && b.updated_at !== a.updated_at ? `${provider}'s update of ${when(b.updated_at)}.` : `${provider} changed the record's details.`,
+                detail:
+                    b.updated_at && b.updated_at !== a.updated_at
+                        ? `${provider}'s update of ${when(b.updated_at)}.`
+                        : `${provider} changed the record's details.`,
             });
     }
     return events;
@@ -480,7 +514,10 @@ export async function recordTimeline(env: Env, recordId: string, options: { now?
             });
         events.push(...versionEvents(versions, provider));
         notes.push(`Each official update shows the provider's own time where it gave one, and when the Centre collected it.`);
-    } else notes.push("No versioned history is stored for this record (history recording was off, or it wasn't collected since). The changes detected between collections are shown instead.");
+    } else
+        notes.push(
+            "No versioned history is stored for this record (history recording was off, or it wasn't collected since). The changes detected between collections are shown instead.",
+        );
 
     // Changes detected before history recording reached it (or all of them, without versions).
     const changes = await listChanges(db, { recordId, limit: 300 });
@@ -495,7 +532,12 @@ export async function recordTimeline(env: Env, recordId: string, options: { now?
     if (record.active)
         for (const c of await correlations(db, settings, { recordId }))
             events.push({
-                at: c.records.map((r) => r.at).filter((x): x is string => !!x).sort().pop() ?? now.toISOString(),
+                at:
+                    c.records
+                        .map((r) => r.at)
+                        .filter((x): x is string => !!x)
+                        .sort()
+                        .pop() ?? now.toISOString(),
                 kind: "correlation",
                 nature: "derived",
                 label: c.basis === "explicit" ? "Linked by the provider" : "Possibly related (derived)",
@@ -508,8 +550,12 @@ export async function recordTimeline(env: Env, recordId: string, options: { now?
 
     const gaps = await sourceGaps(db, from, to, [record.sourceId]);
     events.push(...gaps.map(gapEvent));
-    const oldestRun = await db.prepare("SELECT MIN(started_at) AS at FROM ic_fetch_runs WHERE source_id = ?").bind(record.sourceId).first<{ at: string | null }>();
-    if (oldestRun?.at && oldestRun.at > from) notes.push(`Collection gaps before ${when(oldestRun.at)} can't be shown: older collection runs are past their retention.`);
+    const oldestRun = await db
+        .prepare("SELECT MIN(started_at) AS at FROM ic_fetch_runs WHERE source_id = ?")
+        .bind(record.sourceId)
+        .first<{ at: string | null }>();
+    if (oldestRun?.at && oldestRun.at > from)
+        notes.push(`Collection gaps before ${when(oldestRun.at)} can't be shown: older collection runs are past their retention.`);
     if (record.category === "fire") notes.push("Satellite detections are kept for only a few days, so older detections aren't shown.");
 
     events.sort((a, b) => a.at.localeCompare(b.at) || a.kind.localeCompare(b.kind));
@@ -587,7 +633,8 @@ async function replaySourceStates(db: D1Database, at: string, startedAt: string 
         sourceRows(db),
     ]);
     const last = new Map<string, string>();
-    for (const r of [...runs.results, ...daily.results]) if (r.last && (!last.has(r.source_id) || r.last > last.get(r.source_id)!)) last.set(r.source_id, r.last);
+    for (const r of [...runs.results, ...daily.results])
+        if (r.last && (!last.has(r.source_id) || r.last > last.get(r.source_id)!)) last.set(r.source_id, r.last);
     const first = new Map(firsts.results.map((r) => [r.source_id, r.first]));
     return IMPLEMENTED_SOURCES.filter((s) => rows.get(s.id)?.enabled || last.has(s.id) || first.has(s.id)).map((s) => {
         const lastSuccessBefore = last.get(s.id) ?? null;
@@ -599,7 +646,11 @@ async function replaySourceStates(db: D1Database, at: string, startedAt: string 
                 : { ...base, state: "not_collected" as const, note: "Not collected before this moment." };
         const age = Date.parse(at) - Date.parse(lastSuccessBefore);
         if (age > s.staleAfterMinutes * 60_000)
-            return { ...base, state: "stale" as const, note: `Not retrieved for ${minutesLabel(Math.round(age / 60_000))} at this moment: what's shown from it may be out of date.` };
+            return {
+                ...base,
+                state: "stale" as const,
+                note: `Not retrieved for ${minutesLabel(Math.round(age / 60_000))} at this moment: what's shown from it may be out of date.`,
+            };
         if (startedAt && at < startedAt) return { ...base, state: "before_history" as const, note: "Before history recording began." };
         return { ...base, state: "current" as const, note: `Last retrieved ${when(lastSuccessBefore)}.` };
     });
@@ -643,7 +694,12 @@ export async function replayFrame(env: Env, at: Date, options: ReplayOptions = {
     if (options.watch) {
         const context = await matchContextFor(db, options.watch);
         chosen = rows.filter((v) =>
-            matchWatch(options.watch!, asRecord(v), v.geometry_hash ? parseJson<Geometry | null>(geometries.get(v.geometry_hash) ?? null, null) : null, context),
+            matchWatch(
+                options.watch!,
+                asRecord(v),
+                v.geometry_hash ? parseJson<Geometry | null>(geometries.get(v.geometry_hash) ?? null, null) : null,
+                context,
+            ),
         );
     }
     if (options.layers?.length) chosen = chosen.filter((v) => options.layers!.includes(layerOf({ category: v.category, kind: v.kind, sourceId: v.source_id })));
@@ -669,15 +725,23 @@ export async function replayFrame(env: Env, at: Date, options: ReplayOptions = {
     if (oldest?.at && startedAt && oldest.at > startedAt && iso < oldest.at)
         notes.push(`Versions older than ${settings.retention.versionDays} days have been removed (retention), so this moment may be incomplete.`);
     const stale = sources.filter((s) => s.state === "stale");
-    if (stale.length) notes.push(`${stale.length} ${stale.length === 1 ? "source wasn't" : "sources weren't"} up to date at this moment: ${stale.map((s) => s.dataset).join("; ")}.`);
-    if (records.some((r) => r.baseline)) notes.push("Records marked baseline were already in their feed when first recorded; their earlier states weren't kept.");
+    if (stale.length)
+        notes.push(
+            `${stale.length} ${stale.length === 1 ? "source wasn't" : "sources weren't"} up to date at this moment: ${stale.map((s) => s.dataset).join("; ")}.`,
+        );
+    if (records.some((r) => r.baseline))
+        notes.push("Records marked baseline were already in their feed when first recorded; their earlier states weren't kept.");
     notes.push("Observations (weather, rivers, air) and satellite detections aren't replayed as records: see their charts and the record timelines.");
     return { at: iso, records, map, sources, truncated, notes, historyStartedAt: startedAt };
 }
 
 export async function replayMeta(env: Env, from: Date, to: Date): Promise<ReplayMeta> {
     const db = env.DB;
-    const [startedAt, { settings }, recording] = await Promise.all([historyStartedAt(db), loadCentreSettings(db), isEnabled(db, "intelligence_centre.history")]);
+    const [startedAt, { settings }, recording] = await Promise.all([
+        historyStartedAt(db),
+        loadCentreSettings(db),
+        isEnabled(db, "intelligence_centre.history"),
+    ]);
     const steps = await db
         .prepare(
             "SELECT substr(valid_from, 1, 16) AS minute, MIN(valid_from) AS at, COUNT(*) AS n FROM ic_record_versions WHERE valid_from BETWEEN ? AND ? GROUP BY minute ORDER BY minute LIMIT 601",
@@ -771,7 +835,9 @@ export async function changeFeed(
     const region = filters.region && filters.region !== "nsw" && filters.region !== "australia" ? regionById(filters.region) : null;
     if (region) {
         const [w, s, e, n] = region.bbox;
-        where.push("((r.lat BETWEEN ? AND ? AND r.lon BETWEEN ? AND ?) OR (r.max_lat >= ? AND r.min_lat <= ? AND r.max_lon >= ? AND r.min_lon <= ?) OR c.record_id IS NULL)");
+        where.push(
+            "((r.lat BETWEEN ? AND ? AND r.lon BETWEEN ? AND ?) OR (r.max_lat >= ? AND r.min_lat <= ? AND r.max_lon >= ? AND r.min_lon <= ?) OR c.record_id IS NULL)",
+        );
         binds.push(s, n, w, e, s, n, w, e);
     }
     const rows = await db
@@ -913,7 +979,9 @@ async function computeAnalytics(env: Env, days: number, now: Date): Promise<Cent
             .bind(from)
             .all<{ day: string; category: HazardCategory; n: number }>(),
         db
-            .prepare("SELECT substr(at, 1, 10) AS day, kind, COUNT(*) AS n FROM ic_changes WHERE kind IN ('escalated', 'downgraded') AND at >= ? GROUP BY day, kind")
+            .prepare(
+                "SELECT substr(at, 1, 10) AS day, kind, COUNT(*) AS n FROM ic_changes WHERE kind IN ('escalated', 'downgraded') AND at >= ? GROUP BY day, kind",
+            )
             .bind(from)
             .all<{ day: string; kind: string; n: number }>(),
         db
@@ -927,7 +995,9 @@ async function computeAnalytics(env: Env, days: number, now: Date): Promise<Cent
             .bind(from)
             .all<{ event_type: string; n: number }>(),
         db
-            .prepare("SELECT c.kind, c.at, c.severity_rank, c.to_value, r.category FROM ic_changes c LEFT JOIN ic_records r ON r.id = c.record_id WHERE c.at >= ? LIMIT 50000")
+            .prepare(
+                "SELECT c.kind, c.at, c.severity_rank, c.to_value, r.category FROM ic_changes c LEFT JOIN ic_records r ON r.id = c.record_id WHERE c.at >= ? LIMIT 50000",
+            )
             .bind(from)
             .all<{ kind: ChangeKind; at: string; severity_rank: number; to_value: string | null; category: HazardCategory | null }>(),
         db
@@ -994,7 +1064,9 @@ async function computeAnalytics(env: Env, days: number, now: Date): Promise<Cent
         computedAt: nowIso(),
         newRecords,
         transitions: transitionSeries,
-        byCategory: [...byCategory].map(([category, count]) => ({ category, label: CATEGORY_LABELS[category] ?? category, count })).sort((a, b) => b.count - a.count),
+        byCategory: [...byCategory]
+            .map(([category, count]) => ({ category, label: CATEGORY_LABELS[category] ?? category, count }))
+            .sort((a, b) => b.count - a.count),
         byRegion: byRegion.sort((a, b) => b.count - a.count),
         byEventType: eventTypes.results.map((r) => ({ eventType: r.event_type, count: r.n })),
         significantChanges: series("significant", "Significant changes", significantByDay),

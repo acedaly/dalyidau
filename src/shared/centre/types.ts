@@ -6,8 +6,8 @@
 //  - derived: what this application worked out (changes, correlations, briefings), always labelled.
 import { z } from "zod";
 import type { FeedChange, RecordTimeline, ReplayMeta, SituationTimeline, SourceReliability } from "./history";
-import type { MonitoringRule, RuleMatch } from "./rules";
 import type { ReportSchedule, ReportSummary, SituationReport } from "./reports";
+import type { MonitoringRule, RuleMatch } from "./rules";
 import type { HazardCategory, SourceDefinition, SourceStatus } from "./sources";
 import { HAZARD_CATEGORIES } from "./sources";
 import type { WallboardView } from "./wallboard";
@@ -674,7 +674,12 @@ export type CentreRoute =
     | ({ route: "centre-briefings" } & CentreShell & { briefing: CentreBriefing; watches: WatchArea[]; correlations: Correlation[] })
     | ({ route: "centre-watches" } & CentreShell & { watches: WatchArea[]; districts: string[]; alerts: CentreAlert[] })
     | ({ route: "centre-wallboards" } & CentreShell & { wallboards: Wallboard[]; watches: WatchArea[] })
-    | ({ route: "centre-wallboard" } & CentreShell & { wallboard: Wallboard; watches: WatchArea[]; districts: string[]; gauges: { station: string; name: string }[] })
+    | ({ route: "centre-wallboard" } & CentreShell & {
+              wallboard: Wallboard;
+              watches: WatchArea[];
+              districts: string[];
+              gauges: { station: string; name: string }[];
+          })
     | ({ route: "centre-sources" } & CentreShell & { sources: SourceHealth[]; runs: FetchRun[]; reliability: SourceReliability[] })
     | ({ route: "centre-changes" } & CentreShell & {
               changes: FeedChange[];
@@ -684,7 +689,11 @@ export type CentreRoute =
               watches: WatchArea[];
               sources: SourceHealth[];
           })
-    | ({ route: "centre-timeline" } & CentreShell & { timeline: SituationTimeline; watches: WatchArea[]; scope: { watch: string | null; region: string | null; hours: number } })
+    | ({ route: "centre-timeline" } & CentreShell & {
+              timeline: SituationTimeline;
+              watches: WatchArea[];
+              scope: { watch: string | null; region: string | null; hours: number };
+          })
     | ({ route: "centre-replay" } & CentreShell & { meta: ReplayMeta; watches: WatchArea[]; basemap: CentreSettings["basemap"] })
     | ({ route: "centre-analytics" } & CentreShell & { analytics: import("./history").CentreAnalytics; days: number })
     | ({ route: "centre-correlations" } & CentreShell & { correlations: Correlation[]; windowHours: number; distanceKm: number })

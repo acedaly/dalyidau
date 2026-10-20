@@ -8,6 +8,7 @@
 // level its facts don't contain, is dropped. Reports are stored in R2 (private/centre/reports/),
 // listed from D1, and owned by the person who made them.
 import type { D1Database } from "@cloudflare/workers-types";
+import { addDays, isoWeekday, localDate, zonedInstant } from "../../src/shared/calendar/time";
 import { regionById } from "../../src/shared/centre/regions";
 import type {
     ReportFact,
@@ -24,7 +25,6 @@ import { MAX_SCHEDULES, REPORT_SECTIONS, reportRequestSchema, reportScopeSchema,
 import { CATEGORY_LABELS } from "../../src/shared/centre/sources";
 import type { CentreRecord, Correlation, WatchArea } from "../../src/shared/centre/types";
 import { FIRE_DANGER_RATINGS, fireDangerRank } from "../../src/shared/centre/types";
-import { addDays, isoWeekday, localDate, zonedInstant } from "../../src/shared/calendar/time";
 import { paragraphsFromText } from "../../src/shared/knowledge/content";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
@@ -36,6 +36,7 @@ import { addRelation, createObject } from "../knowledge/objects";
 import { can, userForEmail } from "../portal/auth";
 import { auditStatement, newId, nowIso, parseJson } from "../portal/db";
 import { HttpError } from "../portal/http";
+import { writableSpace } from "./actions";
 import { sha256Hex } from "./adapters/types";
 import { CENTRE_BRIEFING_SYSTEM, groundInterpretation, interpretationSchema } from "./briefing";
 import { correlations } from "./correlate";
@@ -43,7 +44,6 @@ import { type BBox, distanceKm } from "./geo";
 import { changeFeed, replayFrame } from "./history";
 import { listRecords, loadCentreSettings, loadPreferences, sourceHealth } from "./store";
 import { recordsForWatch, requireWatch, watchBBox } from "./watch";
-import { writableSpace } from "./actions";
 
 const REPORT_PREFIX = "private/centre/reports/";
 const RECORD_PATH = "/portal/intelligence-centre/records/";
@@ -77,7 +77,13 @@ async function resolveScope(db: D1Database, user: PortalUser, scope: ReportScope
         }
         case "region": {
             const region = regionById(scope.region)!;
-            return { label: region.label, watch: null, bbox: scope.region === "nsw" || scope.region === "australia" ? null : region.bbox, category: null, recordId: null };
+            return {
+                label: region.label,
+                watch: null,
+                bbox: scope.region === "nsw" || scope.region === "australia" ? null : region.bbox,
+                category: null,
+                recordId: null,
+            };
         }
         case "hazard": {
             const region = regionById(scope.region)!;
@@ -93,7 +99,10 @@ async function resolveScope(db: D1Database, user: PortalUser, scope: ReportScope
             const row = await db.prepare("SELECT title FROM ic_records WHERE id = ?").bind(scope.recordId).first<{ title: string }>();
             const version = row
                 ? null
-                : await db.prepare("SELECT title FROM ic_record_versions WHERE record_id = ? ORDER BY seq DESC LIMIT 1").bind(scope.recordId).first<{ title: string }>();
+                : await db
+                      .prepare("SELECT title FROM ic_record_versions WHERE record_id = ? ORDER BY seq DESC LIMIT 1")
+                      .bind(scope.recordId)
+                      .first<{ title: string }>();
             if (!row && !version) throw new HttpError(404, "not_found", "Not found");
             return { label: (row ?? version)!.title, watch: null, bbox: null, category: null, recordId: scope.recordId };
         }
@@ -128,7 +137,9 @@ async function scopeRecords(env: Env, scope: ResolvedScope, at: Date, historical
         const anchor = records.find((r) => r.id === scope.recordId);
         if (anchor?.lat !== null && anchor?.lat !== undefined && anchor.lon !== null) {
             const p: [number, number] = [anchor.lon, anchor.lat];
-            records = records.filter((r) => r.id === anchor.id || (r.lat !== null && r.lon !== null && distanceKm(p, [r.lon, r.lat]) <= 30) || r.kind === "rating");
+            records = records.filter(
+                (r) => r.id === anchor.id || (r.lat !== null && r.lon !== null && distanceKm(p, [r.lon, r.lat]) <= 30) || r.kind === "rating",
+            );
             notes.push("An incident report covers the incident and records within 30 km of it.");
         } else records = anchor ? [anchor] : [];
     }
@@ -148,7 +159,12 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
     const health = await sourceHealth(env);
     const { settings } = await loadCentreSettings(db);
     let n = 0;
-    const fact = (text: string, nature: ReportFact["nature"], r?: Pick<CentreRecord, "id" | "sourceId" | "updatedAt" | "publishedAt" | "observedAt"> | null, time?: string | null): ReportFact => ({
+    const fact = (
+        text: string,
+        nature: ReportFact["nature"],
+        r?: Pick<CentreRecord, "id" | "sourceId" | "updatedAt" | "publishedAt" | "observedAt"> | null,
+        time?: string | null,
+    ): ReportFact => ({
         ref: `F${++n}`,
         text,
         nature,
@@ -174,7 +190,9 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
         "warnings",
         warnings
             .slice(0, 10)
-            .map((w) => fact(`${w.provider}: ${w.title}${w.warningLevel ? ` (${w.warningLevel}, as published)` : ""}. Issued ${when(w.publishedAt)}.`, "official", w)),
+            .map((w) =>
+                fact(`${w.provider}: ${w.title}${w.warningLevel ? ` (${w.warningLevel}, as published)` : ""}. Issued ${when(w.publishedAt)}.`, "official", w),
+            ),
         "No official warnings in the sources collected for this scope. That isn't confirmation that none are in force: check official channels.",
     );
 
@@ -184,7 +202,14 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
         "incidents",
         [
             ...(incidents.length
-                ? [fact(`${incidents.length} ${incidents.length === 1 ? "incident is" : "incidents are"} listed by the emergency services sources collected for this scope.`, "official", null, at.toISOString())]
+                ? [
+                      fact(
+                          `${incidents.length} ${incidents.length === 1 ? "incident is" : "incidents are"} listed by the emergency services sources collected for this scope.`,
+                          "official",
+                          null,
+                          at.toISOString(),
+                      ),
+                  ]
                 : []),
             ...(levelled.length ? levelled : incidents)
                 .slice(0, 8)
@@ -221,7 +246,14 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
         "changes",
         [
             ...(changes.length
-                ? [fact(`${changes.length} significant ${changes.length === 1 ? "change was" : "changes were"} detected between ${when(periodFrom)} and ${when(at.toISOString())}.`, "derived", null, at.toISOString())]
+                ? [
+                      fact(
+                          `${changes.length} significant ${changes.length === 1 ? "change was" : "changes were"} detected between ${when(periodFrom)} and ${when(at.toISOString())}.`,
+                          "derived",
+                          null,
+                          at.toISOString(),
+                      ),
+                  ]
                 : []),
             ...changes.slice(0, 10).map((c) => ({
                 ...fact(`${c.label}: ${c.summary} (detected ${when(c.at)}).`, "derived", null, c.at),
@@ -239,14 +271,25 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
         const bans = ratings.filter((r) => r.attributes.banToday === "yes");
         const published = ratings[0].publishedAt ?? ratings[0].updatedAt;
         put("fire_danger", [
-            fact(`Highest Fire Danger Rating today: ${FIRE_DANGER_RATINGS[top("today")]}; tomorrow: ${FIRE_DANGER_RATINGS[top("tomorrow")]} (NSW RFS).`, "official", null, published),
-            fact(bans.length ? `Total Fire Ban today in: ${bans.map((b) => b.title).join(", ")}.` : "No Total Fire Ban is listed for today.", "official", null, published),
+            fact(
+                `Highest Fire Danger Rating today: ${FIRE_DANGER_RATINGS[top("today")]}; tomorrow: ${FIRE_DANGER_RATINGS[top("tomorrow")]} (NSW RFS).`,
+                "official",
+                null,
+                published,
+            ),
+            fact(
+                bans.length ? `Total Fire Ban today in: ${bans.map((b) => b.title).join(", ")}.` : "No Total Fire Ban is listed for today.",
+                "official",
+                null,
+                published,
+            ),
             ...ratings
                 .filter((r) => fireDangerRank(r.attributes.today) >= 2)
                 .slice(0, 6)
                 .map((r) => fact(`${r.title}: ${r.attributes.today} today, ${r.attributes.tomorrow} tomorrow.`, "official", r)),
         ]);
-        if (scope.bbox && !scope.watch) notes.push("Fire danger districts have no published boundaries, so a region's report lists the ratings for every district.");
+        if (scope.bbox && !scope.watch)
+            notes.push("Fire danger districts have no published boundaries, so a region's report lists the ratings for every district.");
     } else put("fire_danger", [], "Fire danger isn't being collected, or no rating was stored for this scope.");
 
     // 6. Weather and environmental observations (current readings, or the highest in the period for a past moment).
@@ -264,7 +307,14 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
             const label: Record<string, string> = { air_temperature: "Highest temperature", gust_kmh: "Strongest gust", rainfall: "Most rain since 9 am" };
             const unit: Record<string, string> = { air_temperature: " °C", gust_kmh: " km/h", rainfall: " mm" };
             for (const p of peaks.results)
-                weather.push(fact(`${label[p.metric]}: ${p.value}${unit[p.metric]} at ${p.title} (observed ${when(p.at)}).`, "observed", { id: p.record_id, sourceId: "bom-observations", updatedAt: null, publishedAt: null, observedAt: p.at }, p.at));
+                weather.push(
+                    fact(
+                        `${label[p.metric]}: ${p.value}${unit[p.metric]} at ${p.title} (observed ${when(p.at)}).`,
+                        "observed",
+                        { id: p.record_id, sourceId: "bom-observations", updatedAt: null, publishedAt: null, observedAt: p.at },
+                        p.at,
+                    ),
+                );
         }
     } else {
         const extreme = (key: string, label: string, unit: string) => {
@@ -272,14 +322,34 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
                 .map((s) => ({ s, v: s.metrics.find((m) => m.key === key)?.value }))
                 .filter((x): x is { s: CentreRecord; v: number } => typeof x.v === "number")
                 .sort((a, b) => b.v - a.v)[0];
-            return best ? fact(`${label}: ${best.v}${unit} at ${best.s.title} (observed ${when(best.s.observedAt)}).`, "observed", best.s, best.s.observedAt) : null;
+            return best
+                ? fact(`${label}: ${best.v}${unit} at ${best.s.title} (observed ${when(best.s.observedAt)}).`, "observed", best.s, best.s.observedAt)
+                : null;
         };
-        for (const f of [extreme("air_temperature", "Highest temperature", " °C"), extreme("gust_kmh", "Strongest gust", " km/h"), extreme("rainfall", "Most rain since 9 am", " mm")])
+        for (const f of [
+            extreme("air_temperature", "Highest temperature", " °C"),
+            extreme("gust_kmh", "Strongest gust", " km/h"),
+            extreme("rainfall", "Most rain since 9 am", " mm"),
+        ])
             if (f) weather.push(f);
         const air = records.filter((r) => r.category === "air").sort((a, b) => b.severityRank - a.severityRank)[0];
-        if (air?.status) weather.push(fact(`Poorest air quality category reported: ${air.status} at ${air.title} (NSW Government category, observed ${when(air.observedAt)}).`, "observed", air, air.observedAt));
+        if (air?.status)
+            weather.push(
+                fact(
+                    `Poorest air quality category reported: ${air.status} at ${air.title} (NSW Government category, observed ${when(air.observedAt)}).`,
+                    "observed",
+                    air,
+                    air.observedAt,
+                ),
+            );
     }
-    put("weather", weather, historical ? "No weather readings are stored for this period (measurements are kept for the retention period)." : "No weather observations in this scope.");
+    put(
+        "weather",
+        weather,
+        historical
+            ? "No weather readings are stored for this period (measurements are kept for the retention period)."
+            : "No weather observations in this scope.",
+    );
 
     // 7. Flood and water.
     const floodWarnings = warnings.filter((w) => w.category === "flood");
@@ -288,7 +358,9 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
         "water",
         [
             ...floodWarnings.slice(0, 5).map((w) => fact(`Flood warning: ${w.title} (${w.provider}, issued ${when(w.publishedAt)}).`, "official", w)),
-            ...rises.slice(0, 5).map((c) => ({ ...fact(c.summary, "observed", null, c.at), recordId: c.recordId, url: c.recordId ? `${RECORD_PATH}${c.recordId}` : null })),
+            ...rises
+                .slice(0, 5)
+                .map((c) => ({ ...fact(c.summary, "observed", null, c.at), recordId: c.recordId, url: c.recordId ? `${RECORD_PATH}${c.recordId}` : null })),
             ...gauges
                 .slice(0, 5)
                 .map((g) => {
@@ -307,9 +379,27 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
     put(
         "transport",
         [
-            ...(roads.length ? [fact(`${roads.length} road ${roads.length === 1 ? "hazard" : "hazards"} listed by Live Traffic NSW, ${closures.length} of them closures.`, "official", null, at.toISOString())] : []),
+            ...(roads.length
+                ? [
+                      fact(
+                          `${roads.length} road ${roads.length === 1 ? "hazard" : "hazards"} listed by Live Traffic NSW, ${closures.length} of them closures.`,
+                          "official",
+                          null,
+                          at.toISOString(),
+                      ),
+                  ]
+                : []),
             ...closures.slice(0, 6).map((r) => fact(`Closure: ${r.title} (published ${when(r.publishedAt)}).`, "official", r)),
-            ...(outages.length ? [fact(`${outages.length} unplanned power ${outages.length === 1 ? "outage" : "outages"} listed, affecting ${customers} customers.`, "official", null, at.toISOString())] : []),
+            ...(outages.length
+                ? [
+                      fact(
+                          `${outages.length} unplanned power ${outages.length === 1 ? "outage" : "outages"} listed, affecting ${customers} customers.`,
+                          "official",
+                          null,
+                          at.toISOString(),
+                      ),
+                  ]
+                : []),
         ],
         tfnsw && tfnsw.status !== "active"
             ? `Road disruptions aren't available: ${tfnsw.statusDetail} This is not the same as no disruptions.`
@@ -327,23 +417,31 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
     }
     put(
         "correlations",
-        related
-            .slice(0, 6)
-            .map((c) =>
-                fact(
-                    `${c.title}. ${c.basis === "explicit" ? "Linked by the provider." : `May be related (${c.confidence} confidence; derived by rule, not official, not evidence of cause).`}`,
-                    "derived",
-                    null,
-                    c.records.map((r) => r.at).filter((x): x is string => !!x).sort().pop() ?? at.toISOString(),
-                ),
+        related.slice(0, 6).map((c) =>
+            fact(
+                `${c.title}. ${c.basis === "explicit" ? "Linked by the provider." : `May be related (${c.confidence} confidence; derived by rule, not official, not evidence of cause).`}`,
+                "derived",
+                null,
+                c.records
+                    .map((r) => r.at)
+                    .filter((x): x is string => !!x)
+                    .sort()
+                    .pop() ?? at.toISOString(),
             ),
-        historical ? "Correlations are worked out from current records, so they aren't available for a past moment." : "No possible relationships were found by the Centre's rules.",
+        ),
+        historical
+            ? "Correlations are worked out from current records, so they aren't available for a past moment."
+            : "No possible relationships were found by the Centre's rules.",
     );
 
     // 10. Source health and information gaps.
     put(
         "gaps",
-        inactive.slice(0, 12).map((h) => fact(`${h.source.provider}: ${h.source.dataset} is ${h.status.replace(/_/g, " ")}. ${h.statusDetail}`, "collection", null, h.lastSuccessAt)),
+        inactive
+            .slice(0, 12)
+            .map((h) =>
+                fact(`${h.source.provider}: ${h.source.dataset} is ${h.status.replace(/_/g, " ")}. ${h.statusDetail}`, "collection", null, h.lastSuccessAt),
+            ),
         "Every source the Centre implements was active when this report was generated.",
     );
 
@@ -374,8 +472,17 @@ export async function buildReport(env: Env, user: PortalUser, request: ReportReq
             at.toISOString(),
         ),
     ];
-    if (changes.length) overview.push(fact(`${changes.length} significant changes in the ${request.periodHours} hours before.`, "derived", null, at.toISOString()));
-    if (inactive.length) overview.push(fact(`${inactive.length} ${inactive.length === 1 ? "source wasn't" : "sources weren't"} active, so parts of the picture are missing (see Source health).`, "derived", null, at.toISOString()));
+    if (changes.length)
+        overview.push(fact(`${changes.length} significant changes in the ${request.periodHours} hours before.`, "derived", null, at.toISOString()));
+    if (inactive.length)
+        overview.push(
+            fact(
+                `${inactive.length} ${inactive.length === 1 ? "source wasn't" : "sources weren't"} active, so parts of the picture are missing (see Source health).`,
+                "derived",
+                null,
+                at.toISOString(),
+            ),
+        );
     put("overview", overview);
 
     // Renumber in reading order so F1 is the first fact a reader meets.
@@ -490,7 +597,12 @@ const toSummary = (r: ReportRow): ReportSummary => ({
     hasNarrative: !!r.narrative,
 });
 
-export async function saveReport(env: Env, user: PortalUser, report: SituationReport, options: { trigger: ReportSummary["trigger"]; scheduleId?: string | null }) {
+export async function saveReport(
+    env: Env,
+    user: PortalUser,
+    report: SituationReport,
+    options: { trigger: ReportSummary["trigger"]; scheduleId?: string | null },
+) {
     const id = newId("icp");
     const key = `${REPORT_PREFIX}${id}.json`;
     const stored = { ...report, id };
@@ -555,13 +667,21 @@ export async function deleteReport(env: Env, user: PortalUser, id: string) {
     await env.MEDIA.delete(row.object_key);
     await env.DB.batch([
         env.DB.prepare("DELETE FROM ic_reports WHERE id = ? AND email = ?").bind(id, user.email),
-        auditStatement(env.DB, { actor: user.email, action: "centre.report.delete", entityType: "centre_report", entityId: id, summary: "Deleted a situation report" }),
+        auditStatement(env.DB, {
+            actor: user.email,
+            action: "centre.report.delete",
+            entityType: "centre_report",
+            entityId: id,
+            summary: "Deleted a situation report",
+        }),
     ]);
 }
 
 /** Reports past retention: their R2 content and their rows. */
 export async function expireReports(env: Env, before: string) {
-    const rows = await env.DB.prepare("SELECT id, object_key FROM ic_reports WHERE generated_at < ? LIMIT 100").bind(before).all<{ id: string; object_key: string }>();
+    const rows = await env.DB.prepare("SELECT id, object_key FROM ic_reports WHERE generated_at < ? LIMIT 100")
+        .bind(before)
+        .all<{ id: string; object_key: string }>();
     if (!rows.results.length) return;
     await env.MEDIA.delete(rows.results.map((r) => r.object_key));
     await env.DB.batch(rows.results.map((r) => env.DB.prepare("DELETE FROM ic_reports WHERE id = ?").bind(r.id)));
@@ -575,7 +695,9 @@ export function reportText(report: SituationReport, site: string): string {
             s.title,
             ...(s.facts.length ? s.facts.map((f) => `[${f.ref}] ${f.text}${f.url ? ` (${site}${f.url})` : ""}`) : [s.empty ?? "Nothing to report."]),
         ]),
-        ...(report.narrative.items.length ? ["Narrative (AI interpretation of the facts above, not facts):", ...report.narrative.items.map((i) => `${i.text} [${i.refs.join(", ")}]`)] : []),
+        ...(report.narrative.items.length
+            ? ["Narrative (AI interpretation of the facts above, not facts):", ...report.narrative.items.map((i) => `${i.text} [${i.refs.join(", ")}]`)]
+            : []),
         "Limitations",
         ...report.limitations,
         ...[...new Set(report.sources.map((s) => s.attribution).filter(Boolean))],
@@ -683,7 +805,8 @@ export async function requireSchedule(db: D1Database, email: string, id: string)
 async function checkSchedule(db: D1Database, user: PortalUser, body: unknown): Promise<ScheduleInput> {
     const input = scheduleInputSchema.parse(body);
     if (input.scope.kind === "watch") await requireWatch(db, user.email, input.scope.watchId);
-    if (input.scope.kind === "incident") throw new HttpError(422, "validation", "Schedule a report for an area or a hazard; an incident report is made on demand");
+    if (input.scope.kind === "incident")
+        throw new HttpError(422, "validation", "Schedule a report for an area or a hazard; an incident report is made on demand");
     try {
         new Intl.DateTimeFormat("en-AU", { timeZone: input.timeZone });
     } catch {
@@ -742,7 +865,13 @@ export async function updateSchedule(db: D1Database, user: PortalUser, id: strin
                     narrative = ?, enabled = ?, next_run_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?`,
             )
             .bind(...scheduleValues(input), nextRun(input, new Date()), nowIso(), id, user.email, version),
-        auditStatement(db, { actor: user.email, action: "centre.report_schedule.update", entityType: "centre_report_schedule", entityId: id, summary: "Changed a report schedule" }),
+        auditStatement(db, {
+            actor: user.email,
+            action: "centre.report_schedule.update",
+            entityType: "centre_report_schedule",
+            entityId: id,
+            summary: "Changed a report schedule",
+        }),
     ]);
     if (!result.meta.changes) throw new HttpError(409, "conflict", "This schedule was changed elsewhere. Reload and try again.");
     return requireSchedule(db, user.email, id);
@@ -752,7 +881,13 @@ export async function deleteSchedule(db: D1Database, user: PortalUser, id: strin
     await requireSchedule(db, user.email, id);
     await db.batch([
         db.prepare("DELETE FROM ic_report_schedules WHERE id = ? AND email = ?").bind(id, user.email),
-        auditStatement(db, { actor: user.email, action: "centre.report_schedule.delete", entityType: "centre_report_schedule", entityId: id, summary: "Deleted a report schedule" }),
+        auditStatement(db, {
+            actor: user.email,
+            action: "centre.report_schedule.delete",
+            entityType: "centre_report_schedule",
+            entityId: id,
+            summary: "Deleted a report schedule",
+        }),
     ]);
 }
 
@@ -779,13 +914,26 @@ export async function runDueReports(env: Env, options: { now?: Date; max?: numbe
             continue;
         }
         try {
-            const report = await buildReport(env, auth.user, { scope: schedule.scope, at: null, periodHours: schedule.periodHours, narrative: schedule.narrative }, now);
+            const report = await buildReport(
+                env,
+                auth.user,
+                { scope: schedule.scope, at: null, periodHours: schedule.periodHours, narrative: schedule.narrative },
+                now,
+            );
             if (row.last_fingerprint && row.last_fingerprint === report.fingerprint) {
                 results.push({ scheduleId: row.id, outcome: "unchanged" });
                 continue;
             }
-            const { summary } = await saveReport(env, auth.user, { ...report, title: `${schedule.name}: ${report.title}`.slice(0, 160) }, { trigger: "schedule", scheduleId: row.id });
-            await db.prepare("UPDATE ic_report_schedules SET last_report_id = ?, last_fingerprint = ? WHERE id = ?").bind(summary.id, report.fingerprint, row.id).run();
+            const { summary } = await saveReport(
+                env,
+                auth.user,
+                { ...report, title: `${schedule.name}: ${report.title}`.slice(0, 160) },
+                { trigger: "schedule", scheduleId: row.id },
+            );
+            await db
+                .prepare("UPDATE ic_report_schedules SET last_report_id = ?, last_fingerprint = ? WHERE id = ?")
+                .bind(summary.id, report.fingerprint, row.id)
+                .run();
             if (schedule.saveToKnowledge && can(auth.user, "knowledge.use")) await reportToKnowledge(env, auth.user, summary.id, {}).catch(() => undefined);
             if (schedule.notify !== "none") {
                 const prefs = await loadPreferences(db, row.email);

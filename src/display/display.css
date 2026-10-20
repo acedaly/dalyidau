@@ -1,0 +1,16 @@
+/* High-contrast wallboard theme: black background, white text and borders (well above WCAG AA).
+   Set on <html> by the display app, so every semantic token resolves to these values. */
+html.dark-mode.wb-hc {
+    --color-bg-primary: rgb(0 0 0);
+    --color-bg-primary_hover: rgb(28 28 28);
+    --color-bg-secondary: rgb(0 0 0);
+    --color-bg-tertiary: rgb(36 36 36);
+    --color-text-primary: rgb(255 255 255);
+    --color-text-secondary: rgb(255 255 255);
+    --color-text-tertiary: rgb(235 235 235);
+    --color-text-quaternary: rgb(220 220 220);
+    --color-border-primary: rgb(255 255 255);
+    --color-border-secondary: rgb(200 200 200);
+    --color-fg-quaternary: rgb(220 220 220);
+    background-color: rgb(0 0 0);
+}

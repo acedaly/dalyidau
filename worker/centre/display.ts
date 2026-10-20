@@ -8,12 +8,12 @@
 // rounded outwards to 0.1° (about 10 km), never the area's coordinates or name (a widget's title
 // is the owner's own words). "Nearby" lists are ordered by distance without showing distances.
 import type { D1Database } from "@cloudflare/workers-types";
-import { recordNature } from "../../src/shared/centre/types";
-import type { CentreBriefing, CentreChange, CentreRecord, MapLayer, SourceHealth, Wallboard, WatchArea } from "../../src/shared/centre/types";
-import { CHANGE_KIND_LABELS, fireDangerRank } from "../../src/shared/centre/types";
 import { sourceGapMessage } from "../../src/shared/centre/gaps";
 import { feedLabel, isSignificant } from "../../src/shared/centre/history";
 import { type RegionId, regionById } from "../../src/shared/centre/regions";
+import { recordNature } from "../../src/shared/centre/types";
+import type { CentreBriefing, CentreChange, CentreRecord, MapLayer, SourceHealth, Wallboard, WatchArea } from "../../src/shared/centre/types";
+import { CHANGE_KIND_LABELS, fireDangerRank } from "../../src/shared/centre/types";
 import type {
     ChartMetric,
     DisplayAlert,
@@ -82,7 +82,9 @@ export const toDisplay = (r: CentreRecord): DisplayRecord => ({
     sourceUrl: r.sourceUrl,
     metrics: r.metrics,
     attributes: Object.fromEntries(
-        Object.entries(r.attributes).filter(([k]) => ["closure", "major", "today", "tomorrow", "banToday", "banTomorrow", "hazardType", "council", "district"].includes(k)),
+        Object.entries(r.attributes).filter(([k]) =>
+            ["closure", "major", "today", "tomorrow", "banToday", "banTomorrow", "hazardType", "council", "district"].includes(k),
+        ),
     ),
     fixture: r.fixture,
 });
@@ -279,7 +281,14 @@ class Builder {
         const s = w.type === "clock" || w.type === "source_health" || w.type === "source_timestamps" ? null : await this.scope(st.scope, st.title);
         const base = {
             key: `${viewId}:${w.id}`,
-            title: st.title || meta.label,
+            // A chart is named by what it measures unless the owner titled it.
+            title:
+                st.title ||
+                (w.type === "observation_chart"
+                    ? CHART_METRIC_LABELS[st.metric ?? "air_temperature"].label
+                    : w.type === "rainfall_chart"
+                      ? "Rain since 9 am"
+                      : meta.label),
             nature: meta.nature,
             scopeLabel: s?.label ?? this.board.name,
             ...this.problems(w.type),
@@ -287,7 +296,11 @@ class Builder {
         const limit = st.limit ?? 5;
         const official = (s?.records ?? []).filter((r) => OFFICIAL_KINDS.includes(r.kind));
         const byCategory = (list: CentreRecord[]) => (st.categories?.length ? list.filter((r) => st.categories!.includes(r.category)) : list);
-        const list = (type: "warnings" | "nearby_incidents" | "roads" | "outages" | "detections" | "air_quality" | "weather", items: CentreRecord[], extra: { corridorIds?: string[]; customers?: number | null } = {}): WidgetData => ({
+        const list = (
+            type: "warnings" | "nearby_incidents" | "roads" | "outages" | "detections" | "air_quality" | "weather",
+            items: CentreRecord[],
+            extra: { corridorIds?: string[]; customers?: number | null } = {},
+        ): WidgetData => ({
             ...base,
             type,
             records: items.slice(0, limit).map(toDisplay),
@@ -319,7 +332,10 @@ class Builder {
                 };
             }
             case "warnings":
-                return list("warnings", byCategory(official.filter((r) => r.kind === "warning")).sort((a, b) => b.severityRank - a.severityRank));
+                return list(
+                    "warnings",
+                    byCategory(official.filter((r) => r.kind === "warning")).sort((a, b) => b.severityRank - a.severityRank),
+                );
             case "nearby_incidents": {
                 const centre = s!.centre;
                 const incidents = byCategory(official.filter((r) => r.kind === "incident" || r.kind === "event"));
@@ -353,7 +369,8 @@ class Builder {
             case "observation_chart":
             case "rainfall_chart":
             case "river_gauge": {
-                const metric: ChartMetric = w.type === "rainfall_chart" ? "rainfall" : w.type === "river_gauge" ? "water_level" : (st.metric ?? "air_temperature");
+                const metric: ChartMetric =
+                    w.type === "rainfall_chart" ? "rainfall" : w.type === "river_gauge" ? "water_level" : (st.metric ?? "air_temperature");
                 const hours = st.hours ?? (w.type === "river_gauge" ? 72 : 24);
                 const prefix = w.type === "river_gauge" ? "gauge-" : "station-";
                 let candidates: CentreRecord[];
@@ -362,7 +379,9 @@ class Builder {
                         (g) => !st.station || g.externalId === `${prefix}${st.station}`,
                     );
                 else {
-                    const obs = (await this.observations(s!)).filter((o) => o.sourceId === "bom-observations" || (o.category === "air" && ["pm25", "pm10", "ozone"].includes(metric)));
+                    const obs = (await this.observations(s!)).filter(
+                        (o) => o.sourceId === "bom-observations" || (o.category === "air" && ["pm25", "pm10", "ozone"].includes(metric)),
+                    );
                     candidates = st.station
                         ? obs.filter((o) => o.externalId === `${prefix}${st.station}`)
                         : obs
@@ -394,7 +413,9 @@ class Builder {
                 // The record the owner chose, or the most serious current incident in the area.
                 const target =
                     (st.recordId ? (s!.records.find((r) => r.id === st.recordId) ?? (await getRecord(this.db, st.recordId))?.record) : null) ??
-                    official.filter((r) => r.kind === "incident").sort((a, b) => b.severityRank - a.severityRank || (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+                    official
+                        .filter((r) => r.kind === "incident")
+                        .sort((a, b) => b.severityRank - a.severityRank || (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
                 const timeline = target ? await recordTimeline(this.env, target.id, { now: this.now }) : null;
                 const events: DisplayTimelineEvent[] = (timeline?.events ?? [])
                     .slice(-(st.limit ?? 8))
@@ -425,7 +446,9 @@ class Builder {
                 const outages = official.filter((r) => r.category === "power");
                 return list(
                     "outages",
-                    outages.sort((a, b) => (b.metrics.find((m) => m.key === "customers")?.value ?? 0) - (a.metrics.find((m) => m.key === "customers")?.value ?? 0)),
+                    outages.sort(
+                        (a, b) => (b.metrics.find((m) => m.key === "customers")?.value ?? 0) - (a.metrics.find((m) => m.key === "customers")?.value ?? 0),
+                    ),
                     { customers: outages.reduce((n, o) => n + (o.metrics.find((m) => m.key === "customers")?.value ?? 0), 0) },
                 );
             }
@@ -433,18 +456,24 @@ class Builder {
                 const since = new Date(this.now.getTime() - (st.hours ?? 24) * HOUR).toISOString();
                 return list(
                     "detections",
-                    s!.records.filter((r) => r.kind === "detection" && (r.observedAt ?? "") >= since).sort((a, b) => (b.observedAt ?? "").localeCompare(a.observedAt ?? "")),
+                    s!.records
+                        .filter((r) => r.kind === "detection" && (r.observedAt ?? "") >= since)
+                        .sort((a, b) => (b.observedAt ?? "").localeCompare(a.observedAt ?? "")),
                 );
             }
             case "correlations": {
                 const { settings } = await loadCentreSettings(this.db);
                 const ids = new Set(s!.records.map((r) => r.id));
-                const found = (await correlations(this.db, settings, { bbox: s!.frame, now: this.now })).filter((c) => !s!.watch || c.records.some((r) => ids.has(r.recordId)));
+                const found = (await correlations(this.db, settings, { bbox: s!.frame, now: this.now })).filter(
+                    (c) => !s!.watch || c.records.some((r) => ids.has(r.recordId)),
+                );
                 return { ...base, type: "correlations", correlations: found.slice(0, limit) };
             }
             case "trends": {
                 const hours = st.hours ?? 168;
-                const changes = (await this.changesIn(s!, hours)).filter((c) => c.kind === "new" && c.category && (!st.categories?.length || st.categories.includes(c.category)));
+                const changes = (await this.changesIn(s!, hours)).filter(
+                    (c) => c.kind === "new" && c.category && (!st.categories?.length || st.categories.includes(c.category)),
+                );
                 const days = new Map<string, Record<string, number>>();
                 for (let t = this.now.getTime() - hours * HOUR; t <= this.now.getTime(); t += 24 * HOUR) days.set(new Date(t).toISOString().slice(0, 10), {});
                 for (const c of changes) {
@@ -477,7 +506,9 @@ class Builder {
                     level(3) || level(2)
                         ? `${level(3)} at Emergency Warning, ${level(2)} at Watch and Act, as published.`
                         : "None at Watch and Act or Emergency Warning in the sources collected.",
-                    ratings.length ? `Highest Fire Danger Rating today: ${["No rating", "Moderate", "High", "Extreme", "Catastrophic"][top]}${bans ? `; Total Fire Ban in ${bans} ${bans === 1 ? "district" : "districts"}` : ""}.` : "Fire danger isn't being collected.",
+                    ratings.length
+                        ? `Highest Fire Danger Rating today: ${["No rating", "Moderate", "High", "Extreme", "Catastrophic"][top]}${bans ? `; Total Fire Ban in ${bans} ${bans === 1 ? "district" : "districts"}` : ""}.`
+                        : "Fire danger isn't being collected.",
                     `${recent} significant ${recent === 1 ? "change" : "changes"} in the last six hours.`,
                     newest
                         ? `Latest successful collection ${Math.max(0, Math.round((this.now.getTime() - Date.parse(newest)) / 60_000))} minutes before this refresh (${new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" }).format(new Date(newest))}).`
@@ -489,12 +520,22 @@ class Builder {
                     { label: "Warnings", value: warnings.length },
                     { label: "Road hazards", value: official.filter((r) => r.category === "transport").length },
                     { label: "Power outages", value: official.filter((r) => r.category === "power").length },
-                    { label: "Detections (24 h)", value: s!.records.filter((r) => r.kind === "detection" && (r.observedAt ?? "") >= new Date(this.now.getTime() - 24 * HOUR).toISOString()).length },
+                    {
+                        label: "Detections (24 h)",
+                        value: s!.records.filter(
+                            (r) => r.kind === "detection" && (r.observedAt ?? "") >= new Date(this.now.getTime() - 24 * HOUR).toISOString(),
+                        ).length,
+                    },
                 ];
                 return { ...base, type: "summary", lines, counts };
             }
             case "briefing": {
-                const b = await buildBriefing(this.env, this.owner, this.health, { scope: s!.watch ? "watch" : "nsw", watch: s!.watch, correlations: [], now: this.now });
+                const b = await buildBriefing(this.env, this.owner, this.health, {
+                    scope: s!.watch ? "watch" : "nsw",
+                    watch: s!.watch,
+                    correlations: [],
+                    now: this.now,
+                });
                 const facts = b.sections.flatMap((x) => x.facts).slice(0, limit);
                 let interpretation: CentreBriefing["interpretation"] | null = null;
                 if (st.showInterpretation ?? this.board.showInterpretation) {
@@ -523,7 +564,11 @@ class Builder {
         const recordById = new Map(s.records.map((r) => [r.id, r]));
         const since = new Date(this.now.getTime() - 2 * HOUR).toISOString();
         const changes = (await this.changesIn(s, 2)).filter(
-            (c) => c.at >= since && HIGHLIGHT_KINDS.has(c.kind) && c.recordId && ["warning", "incident", "rating"].includes(recordById.get(c.recordId)?.kind ?? ""),
+            (c) =>
+                c.at >= since &&
+                HIGHLIGHT_KINDS.has(c.kind) &&
+                c.recordId &&
+                ["warning", "incident", "rating"].includes(recordById.get(c.recordId)?.kind ?? ""),
         );
         const out = new Map<string, DisplayAlert>();
         for (const c of changes) {
@@ -558,7 +603,9 @@ class Builder {
                     change: null,
                     changedAt: null,
                 });
-        return [...out.values()].sort((a, b) => b.rank - a.rank || (b.changedAt ?? b.updatedAt ?? "").localeCompare(a.changedAt ?? a.updatedAt ?? "")).slice(0, 6);
+        return [...out.values()]
+            .sort((a, b) => b.rank - a.rank || (b.changedAt ?? b.updatedAt ?? "").localeCompare(a.changedAt ?? a.updatedAt ?? ""))
+            .slice(0, 6);
     }
 }
 
@@ -597,7 +644,12 @@ export async function wallboardPayloadV2(
             rotationSeconds: board.rotationSeconds,
             refreshSeconds: board.refreshSeconds,
         },
-        views: board.views.map((v) => ({ id: v.id, name: v.name, preset: v.preset, widgets: v.widgets.map(({ id, type, x, y, w, h }) => ({ id, type, x, y, w, h })) })),
+        views: board.views.map((v) => ({
+            id: v.id,
+            name: v.name,
+            preset: v.preset,
+            widgets: v.widgets.map(({ id, type, x, y, w, h }) => ({ id, type, x, y, w, h })),
+        })),
         data,
         alerts: await builder.alerts(),
         sources: await builder.sources(),

@@ -1,14 +1,17 @@
 // One record: what the provider published, in its words, with every time it carries, where it is
 // (as precisely as published), what changed and when, measurements over time, possibly related
 // records (derived, labelled) and the source's own details and health.
-import { ClockRewind, Database01, Map01, Stars02 } from "@untitledui/icons";
-import { Badge } from "@/components/base/badges/badges";
+import { useState } from "react";
+import { BellRinging01, BookOpen01, ClockRewind, Database01, Map01, MessageChatSquare, Route, Stars02 } from "@untitledui/icons";
+import { Button } from "@/components/base/buttons/button";
 import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import type { PageData } from "@/portal/lib/page-types";
+import { centreApi } from "../centre-api";
+import { CorrelationItem, KnowledgeSaveDialog, TimelineList } from "../history-ui";
 import { CentreMap, type MapFeature } from "../map/centre-map";
 import { RecordSummary } from "../record-summary";
 import { SeriesChart } from "../series-chart";
-import { CentreHeader, CentreNotices, ChangeRow, Freshness, SourceStatusBadge, recordHref } from "../shared";
+import { CENTRE, CentreHeader, CentreNotices, ChangeRow, Freshness, SourceStatusBadge } from "../shared";
 
 export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) => {
     const { record, source } = data;
@@ -33,10 +36,29 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
           ? [point[0] - 0.2, point[1] - 0.15, point[0] + 0.2, point[1] + 0.15]
           : null;
     const metricLabel = (key: string) => record.metrics.find((m) => m.key === key);
+    const [savingTimeline, setSavingTimeline] = useState(false);
+    const official = record.kind !== "observation" && record.kind !== "detection";
 
     return (
         <>
-            <CentreHeader title={record.title} crumb="Record" shell={data} description={record.areaName ?? undefined} />
+            <CentreHeader
+                title={record.title}
+                crumb="Record"
+                shell={data}
+                description={record.areaName ?? undefined}
+                actions={
+                    <>
+                        <Button size="md" color="secondary" iconLeading={MessageChatSquare} href={`${CENTRE}/assistant?record=${record.id}`}>
+                            Ask the assistant
+                        </Button>
+                        {official && (
+                            <Button size="md" color="secondary" iconLeading={BellRinging01} href={`${CENTRE}/rules`}>
+                                Monitor this
+                            </Button>
+                        )}
+                    </>
+                }
+            />
             <CentreNotices shell={data} sources={[source]} />
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                 <Card title="As published">
@@ -90,6 +112,36 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
                     </Card>
                 );
             })}
+            <Card
+                title="Timeline"
+                icon={Route}
+                action={
+                    <Button size="sm" color="secondary" iconLeading={BookOpen01} onClick={() => setSavingTimeline(true)}>
+                        Save timeline to Knowledge
+                    </Button>
+                }
+            >
+                {data.timeline.startsAtBaseline && (
+                    <p className="px-4 pt-3 text-xs text-tertiary sm:px-5">
+                        History for this record begins when it was first recorded as it stood: earlier updates weren't kept as versions.
+                    </p>
+                )}
+                <TimelineList events={data.timeline.events} emptyText="Nothing recorded for this record yet." />
+                {data.timeline.notes.length > 0 && (
+                    <ul className="flex flex-col gap-0.5 border-t border-secondary px-4 py-3 text-xs text-tertiary sm:px-5">
+                        {data.timeline.notes.map((n) => (
+                            <li key={n}>{n}</li>
+                        ))}
+                    </ul>
+                )}
+            </Card>
+            <KnowledgeSaveDialog
+                isOpen={savingTimeline}
+                onOpenChange={setSavingTimeline}
+                title="Save the timeline to Knowledge"
+                description="A note listing every event with its nature, the provider's time and when it was collected."
+                save={(target) => centreApi.timelineToKnowledge(record.id, target)}
+            />
             <Card title="Changes" icon={ClockRewind}>
                 {data.changes.length ? (
                     <ul className="divide-y divide-secondary">
@@ -105,33 +157,7 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
                 <Card title="Possibly related records" icon={Stars02}>
                     <ul className="divide-y divide-secondary">
                         {data.related.map((c) => (
-                            <li key={c.id} className="flex flex-col gap-2 px-4 py-3 sm:px-5">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Badge size="sm" type="color" color="purple">
-                                        Derived · {c.confidence} confidence
-                                    </Badge>
-                                    <span className="text-sm font-semibold text-primary">{c.title}</span>
-                                </div>
-                                <p className="text-sm text-tertiary">{c.explanation}</p>
-                                <ul className="flex flex-col gap-0.5 text-sm">
-                                    {c.records
-                                        .filter((r) => r.recordId !== record.id)
-                                        .slice(0, 8)
-                                        .map((r) => (
-                                            <li key={r.recordId}>
-                                                <a href={recordHref(r.recordId)} className="text-secondary hover:underline">
-                                                    {r.title}
-                                                </a>
-                                                <span className="text-xs text-tertiary">
-                                                    {" "}
-                                                    · {r.provider}
-                                                    {r.distanceKm !== null ? ` · ${r.distanceKm} km` : ""}
-                                                </span>
-                                            </li>
-                                        ))}
-                                </ul>
-                                <p className="text-xs text-quaternary">Limitations: {c.limitations} Correlation isn't causation.</p>
-                            </li>
+                            <CorrelationItem key={c.id} correlation={c} excludeId={record.id} />
                         ))}
                     </ul>
                 </Card>
