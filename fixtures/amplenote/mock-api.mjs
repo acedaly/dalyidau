@@ -100,6 +100,8 @@ export function createAmplenoteMock({
     let refresh = new Set();
     let calls = [];
     let failures = { listing: 0, token: 0, links: false };
+    let rotate = false;
+    let refreshesUsed = [];
     let counter = 0;
 
     const reset = () => {
@@ -108,14 +110,16 @@ export function createAmplenoteMock({
         refresh = new Set();
         calls = [];
         failures = { listing: 0, token: 0, links: false };
+        rotate = false;
+        refreshesUsed = [];
     };
     reset();
 
     const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-    const issue = () => {
+    const issue = (keep) => {
         counter++;
         const a = `access-${counter}`;
-        const r = `refresh-${counter}`;
+        const r = keep ?? `refresh-${counter}`;
         access.set(a, Date.now() + 7200_000);
         refresh.add(r);
         return { access_token: a, refresh_token: r, expires_in: 7200, token_type: "Bearer", scope: "notes:list" };
@@ -142,7 +146,10 @@ export function createAmplenoteMock({
             if (form.get("grant_type") === "refresh_token") {
                 const old = form.get("refresh_token");
                 if (!refresh.has(old)) return json({ error: "invalid_grant" }, 400);
-                refresh.delete(old); // Rotated, as many providers do.
+                refreshesUsed.push(old);
+                // The real service kept the same refresh token in the owner's live check; rotation can be switched on.
+                if (!rotate) return json(issue(old));
+                refresh.delete(old);
                 return json(issue());
             }
             return json({ error: "unsupported_grant_type" }, 400);
@@ -167,7 +174,8 @@ export function createAmplenoteMock({
                     deleted: n.deleted,
                     timestamps: { created: Math.floor(Date.parse(n.created) / 1000), updated: Math.floor(Date.parse(n.updated) / 1000) },
                 }));
-            return json(list);
+            // Like the real service: an object holding the notes (and the account's tags), not a bare array.
+            return json({ notes: list, tags: [...new Set(list.flatMap((n) => n.tags))] });
         }
 
         if (href === loginBase) {
@@ -241,6 +249,8 @@ export function createAmplenoteMock({
             for (const key of access.keys()) access.set(key, 0);
         },
         revokeRefresh: () => refresh.clear(),
+        rotateRefresh: (on = true) => (rotate = on),
+        refreshesUsed: () => [...refreshesUsed],
         calls: () => [...calls],
     };
 

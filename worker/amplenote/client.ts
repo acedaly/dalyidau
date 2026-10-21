@@ -2,9 +2,11 @@
 // https://api.amplenote.com/doc/swagger.json). What it offers, and what this site uses it for:
 //
 //   OAuth2 authorization code flow (PKCE), login.amplenote.com/login → api.amplenote.com/oauth/token.
-//   Access tokens last two hours and come with refresh tokens. Only the notes:list scope is asked for.
-//   GET /v4/notes[?since=<unix>]: metadata for every note (uuid, name, tags, timestamps, deleted and
-//   "public": whether the note has been shared publicly). No content, and no public URL or token.
+//   Access tokens last two hours (expires_in 7200) and come with a refresh token, which Amplenote
+//   didn't rotate in the owner's live check (rotation is still handled). Only notes:list is asked for.
+//   GET /v4/notes[?since=<unix>]: { notes: [...] } with metadata for every note (uuid, name, tags,
+//   timestamps, deleted and "public": whether the note has been shared publicly). No content, and no
+//   public URL or token (confirmed live).
 //
 // So the API can confirm that a note is tagged and public, and follow title changes, untagging,
 // unpublishing and deletion without anyone opening Amplenote, but it can't supply the article
@@ -283,7 +285,8 @@ export interface ApiNote {
 }
 
 /**
- * GET /v4/notes. Anything but a well-formed list throws, so a failed or garbled response can never
+ * GET /v4/notes, which answers { notes: [...], tags: [...] } (a bare array is accepted too). Anything
+ * but a well-formed list throws, so a failed or garbled response can never
  * be mistaken for "these notes are gone".
  */
 export async function listNotes(env: Env, token: string, since: number | null, fetchImpl: typeof fetch = fetch): Promise<ApiNote[]> {
@@ -315,7 +318,10 @@ export async function listNotes(env: Env, token: string, since: number | null, f
             {
                 uuid: note.uuid.toLowerCase(),
                 name: typeof note.name === "string" ? note.name : null,
-                tags: Array.isArray(note.tags) ? note.tags.filter((t): t is string => typeof t === "string") : [],
+                // Strings in the spec; { text } objects (the shape notes are created with) are read too.
+                tags: Array.isArray(note.tags)
+                    ? note.tags.flatMap((t) => (typeof t === "string" ? [t] : typeof t?.text === "string" ? [t.text as string] : []))
+                    : [],
                 public: note.public === true,
                 deleted: note.deleted === true || note.unrestorable === true,
                 created: num(timestamps.created),

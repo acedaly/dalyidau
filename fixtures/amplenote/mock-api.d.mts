@@ -38,6 +38,8 @@ export declare function createAmplenoteMock(options?: { apiBase?: string; loginB
         linksDown(down?: boolean): void;
         expireAccess(): void;
         revokeRefresh(): void;
+        rotateRefresh(on?: boolean): void;
+        refreshesUsed(): string[];
         calls(): string[];
     };
 };

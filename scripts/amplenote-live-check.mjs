@@ -133,30 +133,36 @@ if (exchanged.data.refresh_token) {
 } else line("No refresh token was issued");
 
 // 3. The note list: what each note carries, and whether anything identifies a public page.
-const listing = await fetch(`${API}/v4/notes`, { headers: { Authorization: `Bearer ${access}`, Accept: "application/json" } });
-const text = await listing.text();
-line(`GET /v4/notes: ${listing.status}, ${text.length} bytes`);
-let notes = [];
-try {
-    const parsed = JSON.parse(text);
-    notes = Array.isArray(parsed) ? parsed : (parsed.notes ?? []);
-    if (!Array.isArray(parsed)) line(`  Response is an object with keys: ${Object.keys(parsed).join(", ")}`);
-} catch {
-    line("  Not JSON");
-}
+// Amplenote answers with an object holding a `notes` array (and the account's tags), not a bare array.
+const listNotes = async (query = "") => {
+    const response = await fetch(`${API}/v4/notes${query}`, { headers: { Authorization: `Bearer ${access}`, Accept: "application/json" } });
+    const text = await response.text();
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch {}
+    const notes = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.notes) ? parsed.notes : null;
+    const shape = parsed === null ? "not JSON" : Array.isArray(parsed) ? "an array" : `an object with keys: ${Object.keys(parsed).sort().join(", ")}`;
+    return { status: response.status, text, notes, shape };
+};
+
+const full = await listNotes();
+line(`GET /v4/notes: ${full.status}, ${full.text.length} bytes; response is ${full.shape}`);
+const notes = full.notes ?? [];
 const keys = new Set(notes.flatMap((n) => Object.keys(n)));
-line(`  ${notes.length} notes; fields seen: ${[...keys].sort().join(", ")}`);
+line(`  ${full.notes ? notes.length : "?"} notes; fields seen: ${[...keys].sort().join(", ")}`);
 line(`  timestamps fields: ${[...new Set(notes.flatMap((n) => Object.keys(n.timestamps ?? {})))].sort().join(", ")}`);
+line(`  tag value types: ${[...new Set(notes.flatMap((n) => (n.tags ?? []).map((t) => typeof t)))].sort().join(", ") || "(no tags)"}`);
 line(`  public: true on ${notes.filter((n) => n.public === true).length} note(s)`);
-const tagged = notes.filter((n) => (n.tags ?? []).some((t) => String(t).toLowerCase() === TAG));
+const tagText = (t) => String(typeof t === "object" && t !== null ? t.text : t).toLowerCase();
+const tagged = notes.filter((n) => (n.tags ?? []).some((t) => tagText(t) === TAG));
 line(`  Tagged ${TAG}: ${tagged.length}`);
 for (const n of tagged) line(`    "${n.name}" public=${n.public} deleted=${!!n.deleted} updated=${n.timestamps?.updated ?? "?"}`);
-line(`  Mentions public.amplenote.com anywhere: ${text.includes("public.amplenote.com")}`);
+line(`  Mentions public.amplenote.com anywhere: ${full.text.includes("public.amplenote.com")}`);
 const publicToken = option("token");
-if (publicToken) line(`  Contains the public token ${publicToken.slice(0, 4)}…: ${text.includes(publicToken)}`);
+if (publicToken) line(`  Contains the public token ${publicToken.slice(0, 4)}…: ${full.text.includes(publicToken)}`);
 
 const since = Math.floor(Date.now() / 1000) - 86_400;
-const incremental = await fetch(`${API}/v4/notes?since=${since}`, { headers: { Authorization: `Bearer ${access}`, Accept: "application/json" } });
-const changed = await incremental.json().catch(() => null);
-line(`GET /v4/notes?since=<24h ago>: ${incremental.status}, ${Array.isArray(changed) ? changed.length : "?"} note(s)`);
+const changed = await listNotes(`?since=${since}`);
+line(`GET /v4/notes?since=<24h ago>: ${changed.status}, response is ${changed.shape}; ${changed.notes ? changed.notes.length : "?"} note(s)`);
 console.log("\nNothing was saved. Paste the lines above (they contain no tokens) back into the conversation.");

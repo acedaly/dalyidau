@@ -63,6 +63,16 @@ providing access to a user's encryption keys or (encrypted) note content". So, t
   two-hour access tokens with refresh tokens, and scopes `notes:list`, `notes:create`,
   `notes:create-content-action` and `notes:create-image`. This site asks only for `notes:list`.
 
+**Confirmed against the owner's approved application (live check, 21 October 2026):**
+
+- The authorization code exchange (PKCE, `client_id` in the form body) and a refresh both answered 200.
+- Access tokens last 7,200 seconds. The refresh token did **not** rotate; the code keeps the stored one
+  unless a refresh returns a new one, so rotation starting later is handled too.
+- `GET /v4/notes` answered 200 with an **object** holding a `notes` array (the spec describes it as
+  "metadata for all notes and tags"), not a bare array. Both listings are read that way.
+- No public note URL or publication token appears anywhere in the response, so the plugin is needed
+  for every new article.
+
 **The Plugin API can.** `app.filterNotes({ tag })`, `app.getNotePublicURL(note)` ("String URL for the
 published note, or null if the note is not published") and `app.getNoteContent(note)` (markdown) give
 everything an article needs. The `onNavigate` hook is "called when the user changes locations in the
@@ -141,9 +151,12 @@ node scripts/amplenote-live-check.mjs start
 node scripts/amplenote-live-check.mjs finish "<that whole address>" --token 32pmddtDM8Xfgwca3nbmfTLm
 ```
 
-It reports which token fields come back, whether refresh tokens rotate, every field on your notes, your
-`website/blog` notes with their `public` flag, and whether the public token appears anywhere in the
-API's response. It prints and saves no tokens.
+It reports which token fields come back, whether refresh tokens rotate, the shape of both listings,
+every field on your notes (and the type of tag values), your `website/blog` notes with their `public`
+flag, and whether the public token appears anywhere in the API's response. It prints and saves no
+tokens. The first run is recorded above under "Confirmed". Run it again once a note is tagged
+`website/blog` and published: it should then list that note with `public=true`, and the `?since=`
+line should count it if you published it in the last 24 hours.
 
 ### 3. Install the plugin (once)
 
@@ -198,11 +211,11 @@ here; to revoke the grant on Amplenote's side as well, remove it in your Ampleno
   images and footnotes. Amplenote-specific embeds and colours are left out.
 - Images must be on Amplenote's image host (`images.amplenote.com`, inferred from published notes,
   not documented). Any that can't be copied are left out and logged.
-- Not verified against the live service yet: the token endpoint's exact parameters, whether refresh
-  tokens rotate, whether `?since=` includes notes whose `public` flag changed, and the plugin
-  sandbox's CORS behaviour. Step 2 checks the first three. The code tolerates each going either way:
-  rotation is optional, and a full listing runs every six hours and whenever a new article is
-  unconfirmed.
+- Not verified against the live service yet: a tagged note in the listing (the first live check had
+  none), whether `?since=` includes notes whose `public` flag changed, and the plugin sandbox's CORS
+  behaviour. A second run of step 2 checks the first two; "Publish to website now" after the deploy
+  checks CORS. The code tolerates `?since=` going either way: a full listing runs every six hours and
+  whenever a new article is unconfirmed.
 
 ## Local development and tests
 

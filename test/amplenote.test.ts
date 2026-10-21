@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "../amplenote/plugin.js";
 import { type MockApp, NOTE_IDS, createAmplenoteMock, secondNote } from "../fixtures/amplenote/mock-api.mjs";
+import { listNotes } from "../worker/amplenote/client";
 import { renderMarkdown } from "../worker/amplenote/markdown";
 import { conventions, extractMetadata, publicToken, tagMetadata, websiteTags, withoutRepeatedTitle } from "../worker/amplenote/metadata";
 import { type ArticleRow, ineligibility, reconcile } from "../worker/amplenote/publisher";
@@ -214,6 +215,28 @@ describe("eligibility", () => {
         expect(ineligibility({ ...confirmed, rest_public: 0 }, true)).toMatch(/Not published/);
         expect(ineligibility({ ...confirmed, rest_tagged: 0 }, true)).toMatch(/tagged/);
         expect(ineligibility({ ...confirmed, rest_deleted: 1 }, true)).toMatch(/Deleted/);
+    });
+});
+
+describe("reading Amplenote's note list", () => {
+    const uuid = NOTE_IDS.garden;
+    const answer = (body: unknown) => (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+    const read = (body: unknown) => listNotes(env, "token", null, answer(body));
+
+    it("reads the object Amplenote answers with, and a bare array", async () => {
+        const note = { uuid, name: "Garden", tags: ["website/blog"], public: true, timestamps: { created: 1, updated: 2 } };
+        const expected = [{ uuid, name: "Garden", tags: ["website/blog"], public: true, deleted: false, created: 1, updated: 2 }];
+        expect(await read({ notes: [note], tags: ["website/blog"] })).toEqual(expected);
+        expect(await read([note])).toEqual(expected);
+    });
+
+    it("reads tags given as { text } objects and ignores anything else", async () => {
+        const [note] = await read({ notes: [{ uuid, tags: [{ text: "website/blog" }, 7, null, "other"] }] });
+        expect(note.tags).toEqual(["website/blog", "other"]);
+    });
+
+    it("throws rather than report an empty list for anything else", async () => {
+        for (const body of [{}, { notes: "none" }, null, "notes"]) await expect(read(body)).rejects.toThrow(/isn't a note list/);
     });
 });
 
@@ -545,20 +568,34 @@ describe("the Amplenote API connection", () => {
         expect(await article(NOTE_IDS.private)).toBeNull();
     });
 
-    it("refreshes an expired access token and keeps the rotated refresh token", async () => {
-        await connectApi();
-        await runPlugin();
-        const before = await db().prepare("SELECT refresh_token FROM amplenote_connection").first<{ refresh_token: string }>();
+    const expireAndReconcile = async () => {
         mock.control.expireAccess();
         await db().prepare("UPDATE amplenote_connection SET expires_at = '2000-01-01T00:00:00.000Z'").run();
-        const summary = await reconcile(env);
-        expect(summary.errors).toBe(0);
-        expect(mock.control.calls().filter((c) => c.endsWith("/oauth/token"))).toHaveLength(2);
-        const after = await db()
-            .prepare("SELECT refresh_token, last_error FROM amplenote_connection")
-            .first<{ refresh_token: string; last_error: string | null }>();
-        expect(after!.refresh_token).not.toBe(before!.refresh_token);
-        expect(after!.last_error).toBeNull();
+        return reconcile(env);
+    };
+
+    it("refreshes an expired access token again and again with the same refresh token, as Amplenote does", async () => {
+        await connectApi();
+        await runPlugin();
+        expect((await expireAndReconcile()).errors).toBe(0);
+        expect((await expireAndReconcile()).errors).toBe(0);
+        const used = mock.control.refreshesUsed();
+        expect(used).toHaveLength(2);
+        expect(used[1]).toBe(used[0]);
+        expect(await db().prepare("SELECT last_error FROM amplenote_connection").first()).toEqual({ last_error: null });
+        expect(await amplenotePosts()).toHaveLength(1);
+    });
+
+    it("keeps a rotated refresh token if Amplenote starts rotating them", async () => {
+        await connectApi();
+        await runPlugin();
+        mock.control.rotateRefresh();
+        expect((await expireAndReconcile()).errors).toBe(0);
+        expect((await expireAndReconcile()).errors).toBe(0);
+        const used = mock.control.refreshesUsed();
+        expect(used).toHaveLength(2);
+        expect(used[1]).not.toBe(used[0]);
+        expect(await db().prepare("SELECT last_error FROM amplenote_connection").first()).toEqual({ last_error: null });
     });
 
     it("keeps everything as it was when the connection or the listing fails", async () => {
