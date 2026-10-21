@@ -53,8 +53,7 @@ export default {
             return withSecurityHeaders(await handle(request, env, ctx), {
                 allowAmplenoteEmbed:
                     request.method === "GET" &&
-                    new URL(request.url).pathname === "/blog/amplenote-test" &&
-                    new URL(request.url).hostname === new URL(env.SITE_URL).hostname,
+                    new URL(request.url).pathname === "/blog/amplenote-test",
             });
         } catch (error) {
             console.error(JSON.stringify({ event: "request_error", path: loggablePath(new URL(request.url).pathname), message: (error as Error).message }));
