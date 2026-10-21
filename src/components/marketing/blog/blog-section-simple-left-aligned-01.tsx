@@ -14,9 +14,9 @@ export const BlogSectionSimpleLeftAligned01 = ({ posts }: { posts: PostSummary[]
             <div className="mx-auto max-w-container px-4 md:px-8">
                 <div className="flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
                     <div className="max-w-3xl">
-                        <p className="text-sm font-semibold text-brand-secondary md:text-md">From the blog</p>
-                        <h2 id="latest-heading" className="mt-3 text-display-sm font-semibold text-primary md:text-display-md">
-                            Latest writing
+                        <p className="text-sm font-semibold text-brand-secondary md:text-md">From the notebook</p>
+                        <h2 id="latest-heading" className="personal-display mt-3 text-display-md font-medium text-primary md:text-display-lg">
+                            Recent writing
                         </h2>
                     </div>
 
