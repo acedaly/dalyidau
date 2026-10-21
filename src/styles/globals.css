@@ -5,6 +5,7 @@
  * component folders, remove it from this list. The portal and wedding site use apps.css.
  */
 @import "tailwindcss";
+@import "@fontsource-variable/cormorant-garamond";
 @source not "../portal";
 @source not "../wedding";
 @source not "../entry-portal.tsx";
@@ -44,3 +45,70 @@
 @source not "../components/shared-assets/illustrations";
 @import "./base.css";
 @import "./article.css";
+
+
+/*
+ * Public personal-site styling. Not imported into the portal or wedding bundles.
+ * Keep these deliberately small and editorial, using Untitled UI theme tokens
+ * for text and borders so the page still respects light/dark mode.
+ */
+.personal-hero {
+    background: #f6f2eb;
+}
+.dark-mode .personal-hero {
+    background: #25231f;
+}
+.personal-display {
+    font-family: "Cormorant Garamond Variable", Georgia, "Times New Roman", serif;
+    font-weight: 500;
+}
+.personal-display em {
+    font-weight: 500;
+    color: #9b674a;
+}
+.dark-mode .personal-display em {
+    color: #d6a17c;
+}
+.personal-eyebrow {
+    letter-spacing: 0.19em;
+}
+.personal-hero-doodle {
+    font-family: "Cormorant Garamond Variable", Georgia, serif;
+    font-size: 27rem;
+    font-weight: 300;
+    line-height: 0.7;
+    color: #bd9476;
+    opacity: 0.15;
+    transform: rotate(-14deg);
+}
+.personal-text-link {
+    text-underline-offset: 4px;
+    transition: color 150ms ease, gap 150ms ease;
+}
+.personal-text-link:hover {
+    color: #9b674a;
+    gap: 0.8rem;
+}
+.amplenote-preview-panel {
+    border: 1px solid var(--color-border-secondary);
+    border-radius: 1.25rem;
+    background: var(--color-bg-primary);
+}
+.amplenote-preview-panel .amplenote-embed {
+    display: block;
+    width: 100%;
+    min-height: 32rem;
+}
+.amplenote-preview-panel .amplenote-embed iframe {
+    display: block;
+    width: 100%;
+    min-height: 32rem;
+    height: 70vh;
+    border: 0;
+    background: transparent;
+}
+@media (max-width: 640px) {
+    .amplenote-preview-panel .amplenote-embed iframe {
+        min-height: 38rem;
+    }
+}
