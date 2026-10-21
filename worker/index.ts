@@ -50,7 +50,12 @@ export { PortalMcpEntrypoint } from "./mcp/entrypoint";
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         try {
-            return withSecurityHeaders(await handle(request, env, ctx));
+            return withSecurityHeaders(await handle(request, env, ctx), {
+                allowAmplenoteEmbed:
+                    request.method === "GET" &&
+                    new URL(request.url).pathname === "/blog/amplenote-test" &&
+                    new URL(request.url).hostname === new URL(env.SITE_URL).hostname,
+            });
         } catch (error) {
             console.error(JSON.stringify({ event: "request_error", path: loggablePath(new URL(request.url).pathname), message: (error as Error).message }));
             return withSecurityHeaders(
@@ -174,7 +179,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     return cachedPage(request, env, ctx, indexable, weddingPublished ? "wedding-public" : "wedding-private", async () => {
         const result = await route(path, url, store);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
-        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable);
+        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable || path === "/blog/amplenote-test");
     });
 }
 
@@ -184,6 +189,7 @@ async function route(path: string, url: URL, store: PostStore): Promise<RouteRes
     if (path === "/") return { data: { route: "home", latest: await store.latest(3) }, status: 200 };
     if (path === "/about") return { data: { route: "about" }, status: 200 };
     if (path === "/contact") return { data: { route: "contact" }, status: 200 };
+    if (path === "/blog/amplenote-test") return { data: { route: "amplenote-preview" }, status: 200 };
 
     if (path === "/blog") {
         const filters = readFilters(url);
