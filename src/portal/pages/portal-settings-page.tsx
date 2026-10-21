@@ -31,6 +31,7 @@ import { PeoplePanel } from "@/portal/settings/people-panel";
 import { PrivacyPanel } from "@/portal/settings/privacy-panel";
 import { SettingsCard, type SettingsLink, SettingsLinks, StatusRow } from "@/portal/settings/settings-card";
 import { SwitchSummary } from "@/portal/settings/switch-summary";
+import { WebsitePanel } from "@/portal/settings/website-panel";
 import { type ApplicationId, applicationById, availableApplications, canAccessApplication } from "@/shared/portal/applications";
 import { ROLES, ROLE_LABELS } from "@/shared/portal/permissions";
 import { PORTAL_SETTINGS_SECTIONS, type PortalSettingsTab, portalSettingsPath, visibleSettingsTabs } from "@/shared/portal/settings-sections";
@@ -378,6 +379,7 @@ export const PortalSettingsPage = ({ data }: { data: Data }) => {
                         {id === "calendar" && <CalendarTab data={data} />}
                         {id === "tasks" && <TasksTab data={data} />}
                         {id === "knowledge" && <KnowledgeTab />}
+                        {id === "website" && data.website && <WebsitePanel initial={data.website} />}
                         {id === "security" && <SecurityTab data={data} tabs={tabs} />}
                         {id === "privacy" && data.privacy && <PrivacyPanel initial={data.privacy} />}
                     </Tabs.Panel>

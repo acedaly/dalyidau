@@ -15,6 +15,7 @@
         "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
         "mock:capacities": "node scripts/mock-capacities.mjs",
         "mock:feeds": "node scripts/mock-feeds.mjs",
+        "mock:amplenote": "node scripts/mock-amplenote.mjs",
         "sync:local": "node scripts/trigger-sync.mjs http://localhost:8787",
         "deploy": "npm run build:client && wrangler d1 migrations apply DB --remote --env=\"\" && wrangler deploy --env=\"\"",
         "format": "prettier --write .",

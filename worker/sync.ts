@@ -180,11 +180,21 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
         fail(`Listing failed (${(error as Error).message}); checking known posts only and skipping deletion checks`);
     }
 
+    // Only Capacities' own rows: posts from other publishers (Amplenote) are never checked, renamed or removed here.
     const posts = new Map(
-        (await db.prepare("SELECT id, slug, title, content_hash, source_updated_at, render_context, synced_at FROM posts").all<PostRow>()).results.map((r) => [
-            r.id,
-            r,
-        ]),
+        (
+            await db
+                .prepare("SELECT id, slug, title, content_hash, source_updated_at, render_context, synced_at FROM posts WHERE source = 'capacities'")
+                .all<PostRow>()
+        ).results.map((r) => [r.id, r]),
+    );
+    // Slugs other publishers hold (or have reserved), which a Capacities post must not take.
+    const otherSlugs = new Set(
+        (
+            await db
+                .prepare("SELECT slug FROM posts WHERE source != 'capacities' UNION SELECT slug FROM amplenote_articles WHERE slug IS NOT NULL")
+                .all<{ slug: string }>()
+        ).results.map((r) => r.slug),
     );
     const sources = new Map(
         (await db.prepare("SELECT id, status, last_checked_at, missing_count FROM sources").all<SourceRow>()).results.map((r) => [r.id, r]),
@@ -274,7 +284,9 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     for (const post of posts.values()) linkTargets.set(post.id, { slug: post.slug, title: post.title });
     const accepted: Candidate[] = [];
     for (const candidate of toPublish) {
-        const clash = [...linkTargets.entries()].find(([otherId, target]) => target.slug === candidate.slug && otherId !== candidate.id);
+        const clash =
+            otherSlugs.has(candidate.slug) ||
+            [...linkTargets.entries()].some(([otherId, target]) => target.slug === candidate.slug && otherId !== candidate.id);
         if (clash) {
             await recordError(candidate.id, new Error(`Slug "${candidate.slug}" is already used by another published post`));
             continue;

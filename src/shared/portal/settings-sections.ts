@@ -8,7 +8,7 @@ import { type ApplicationId, applicationById, canAccessApplication } from "./app
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "calendar", "tasks", "knowledge", "security", "privacy"] as const;
+export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "calendar", "tasks", "knowledge", "website", "security", "privacy"] as const;
 export type PortalSettingsTab = (typeof PORTAL_SETTINGS_TABS)[number];
 
 export interface PortalSettingsSection {
@@ -33,6 +33,11 @@ export const PORTAL_SETTINGS_SECTIONS: Record<PortalSettingsTab, PortalSettingsS
         label: "Knowledge & Intelligence",
         description: "Knowledge export and Daly Intelligence's AI and storage settings.",
         applications: ["knowledge", "intelligence"],
+    },
+    website: {
+        label: "Website & Blog",
+        description: "Publishing blog articles from Amplenote: the plugin, the Amplenote API connection and what each tagged note is doing.",
+        permission: "portal.settings.manage",
     },
     security: { label: "Integrations & Security", description: "Sign-in, email and SMS providers, AI assistant access and the audit log." },
     privacy: { label: "Privacy", description: "Deleted guest records and retention.", permission: "wedding.guests.edit" },

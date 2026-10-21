@@ -7,6 +7,9 @@ import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/c
 import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
 import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
+import { INGEST_PATH, amplenoteCallback, handleIngest } from "./amplenote/api";
+import { CALLBACK_PATH as AMPLENOTE_CALLBACK_PATH } from "./amplenote/client";
+import { reconcile as reconcileAmplenote } from "./amplenote/publisher";
 import { processAssetReminders } from "./assets/notify";
 import { serveFeed } from "./calendar/feeds";
 import { processCalendarNotifications } from "./calendar/notify";
@@ -18,6 +21,7 @@ import { DisplayRefused, authenticateDisplay, authenticateDisplayTiles, renewDis
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { runIntelligenceCron } from "./intelligence/runner";
+import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { loggablePath } from "./lib/log";
@@ -50,11 +54,7 @@ export { PortalMcpEntrypoint } from "./mcp/entrypoint";
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         try {
-            return withSecurityHeaders(await handle(request, env, ctx), {
-                allowAmplenoteEmbed:
-                    request.method === "GET" &&
-                    new URL(request.url).pathname === "/blog/amplenote-test",
-            });
+            return withSecurityHeaders(await handle(request, env, ctx));
         } catch (error) {
             console.error(JSON.stringify({ event: "request_error", path: loggablePath(new URL(request.url).pathname), message: (error as Error).message }));
             return withSecurityHeaders(
@@ -65,6 +65,13 @@ export default {
 
     async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
+        // Amplenote publishing: the API's view and link checks. Does nothing until it's set up (docs/AMPLENOTE.md).
+        ctx.waitUntil(
+            reconcileAmplenote(env).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "amplenote_cron_error", message: (error as Error).message })),
+            ),
+        );
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
         // Task reminders: a failure here never affects the other jobs (or anyone completing tasks).
         ctx.waitUntil(
@@ -151,6 +158,10 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path.startsWith("/api/display/tiles/")) return displayTiles(request, env, path);
     if (path === "/display") return displayPage(request, env, path);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
+    // The Amplenote plugin's reports: a bearer token, not Cloudflare Access (worker/amplenote/api.ts).
+    if (path === INGEST_PATH) return handleIngest(request, env);
+    // Amplenote's OAuth redirect (the address registered with Amplenote). See worker/amplenote/client.ts.
+    if (path === AMPLENOTE_CALLBACK_PATH) return amplenoteCallback(request, env);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 
@@ -178,7 +189,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     return cachedPage(request, env, ctx, indexable, weddingPublished ? "wedding-public" : "wedding-private", async () => {
         const result = await route(path, url, store);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
-        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable || path === "/blog/amplenote-test");
+        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable);
     });
 }
 
@@ -188,7 +199,6 @@ async function route(path: string, url: URL, store: PostStore): Promise<RouteRes
     if (path === "/") return { data: { route: "home", latest: await store.latest(3) }, status: 200 };
     if (path === "/about") return { data: { route: "about" }, status: 200 };
     if (path === "/contact") return { data: { route: "contact" }, status: 200 };
-    if (path === "/blog/amplenote-test") return { data: { route: "amplenote-preview" }, status: 200 };
 
     if (path === "/blog") {
         const filters = readFilters(url);
@@ -480,7 +490,14 @@ async function weddingPage(request: Request, env: Env, url: URL, indexable: bool
 async function weddingHost(request: Request, env: Env, url: URL, canonical: URL): Promise<Response> {
     const path = url.pathname;
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
-    if (path.startsWith("/portal") || path.startsWith("/api/portal/") || path.startsWith("/api/admin/") || path.startsWith("/api/comms/")) {
+    if (
+        path.startsWith("/portal") ||
+        path.startsWith("/api/portal/") ||
+        path.startsWith("/api/admin/") ||
+        path.startsWith("/api/comms/") ||
+        path.startsWith("/api/amplenote/") ||
+        path.startsWith("/api/integrations/")
+    ) {
         return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
     }
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
@@ -750,7 +767,9 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
 
 async function api(request: Request, env: Env, url: URL): Promise<Response> {
     if (url.pathname === "/api/health") {
-        const last = await env.DB.prepare("SELECT finished_at, status FROM sync_runs WHERE status != 'running' ORDER BY id DESC LIMIT 1").first<{
+        const last = await env.DB.prepare(
+            "SELECT finished_at, status FROM sync_runs WHERE status != 'running' AND trigger NOT LIKE 'amplenote:%' ORDER BY id DESC LIMIT 1",
+        ).first<{
             finished_at: string;
             status: string;
         }>();
@@ -770,7 +789,7 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
         if (url.pathname === "/api/admin/status") {
             const runs = await env.DB.prepare("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 20").all();
             const errors = await env.DB.prepare("SELECT id, status, last_checked_at, last_error FROM sources WHERE last_error IS NOT NULL").all();
-            const posts = await env.DB.prepare("SELECT slug, title, published_at, synced_at FROM posts ORDER BY published_at DESC").all();
+            const posts = await env.DB.prepare("SELECT slug, title, source, published_at, synced_at FROM posts ORDER BY published_at DESC").all();
             return json(
                 { runs: runs.results.map((r) => ({ ...r, log: JSON.parse(String(r.log ?? "[]")) })), sourceErrors: errors.results, posts: posts.results },
                 200,
@@ -807,23 +826,7 @@ export async function guardedSync(env: Env, trigger: "cron" | "manual", force: b
     }
 }
 
-async function authorised(request: Request, env: Env) {
-    const expected = env.ADMIN_TOKEN;
-    const header = request.headers.get("Authorization") ?? "";
-    if (!expected || expected.length < 24 || !header.startsWith("Bearer ")) return false;
-    const encoder = new TextEncoder();
-    const [a, b] = await Promise.all([
-        crypto.subtle.digest("SHA-256", encoder.encode(header.slice(7))),
-        crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-    ]);
-    const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: ArrayBuffer, b: ArrayBuffer) => boolean };
-    if (subtle.timingSafeEqual) return subtle.timingSafeEqual(a, b);
-    const x = new Uint8Array(a);
-    const y = new Uint8Array(b);
-    let diff = 0;
-    for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
-    return diff === 0;
-}
+const authorised = (request: Request, env: Env) => bearerMatches(request.headers.get("Authorization"), env.ADMIN_TOKEN);
 
 const json = (body: unknown, status: number, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body, null, 2), {

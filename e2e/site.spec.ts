@@ -100,18 +100,3 @@ test.describe("without JavaScript", () => {
         await expect(page.getByRole("heading", { name: /Small tools & big wins/ })).toBeVisible();
     });
 });
-
-
-test("Amplenote proof of concept is unindexed and keeps the CSP narrow", async ({ page }) => {
-    const response = await page.goto("/blog/amplenote-test");
-    expect(response?.status()).toBe(200);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("A note from Amplenote.");
-    await expect(page.locator('iframe[src="https://public.amplenote.com/embed/32pmddtDM8Xfgwca3nbmfTLm"]')).toHaveCount(1);
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
-    expect(response?.headers()["x-robots-tag"]).toContain("noindex");
-    expect(response?.headers()["content-security-policy"]).toContain("https://public.amplenote.com");
-
-    const home = await page.goto("/");
-    expect(home?.headers()["content-security-policy"]).not.toContain("public.amplenote.com");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Some things are worth");
-});
