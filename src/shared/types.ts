@@ -53,6 +53,7 @@ export type PageRoute =
           totalPosts: number;
       }
     | { route: "post"; post: Post; related: PostSummary[]; url: string }
+    | { route: "amplenote-preview" }
     | { route: "about" }
     | { route: "contact" }
     | { route: "not-found"; path: string };
