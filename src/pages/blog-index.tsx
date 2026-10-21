@@ -32,7 +32,7 @@ export const BlogIndexPage = ({ data }: { data: BlogData }) => {
         <div className="mx-auto max-w-container px-4 pt-12 pb-16 md:px-8 md:pt-20 md:pb-24">
             <header className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
                 <div className="flex max-w-3xl flex-col gap-3 md:gap-4">
-                    <p className="text-sm font-semibold text-brand-secondary md:text-md">Writing</p>
+                    <p className="text-sm font-semibold text-brand-secondary md:text-md">The archive</p>
                     <h1 className="text-display-md font-semibold text-primary md:text-display-lg">{site.blogTitle}</h1>
                     <p className="text-lg text-tertiary md:text-xl">{site.blogDescription}</p>
                 </div>
