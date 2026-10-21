@@ -18,8 +18,6 @@ export const pageTitle = (data: PageData) => {
     switch (data.route) {
         case "home":
             return site.title;
-        case "amplenote-preview":
-            return `Amplenote preview — ${site.name}`;
         case "blog": {
             const parts = [site.blogTitle];
             if (data.filters.category) parts.unshift(data.filters.category);
@@ -40,8 +38,6 @@ export const pageTitle = (data: PageData) => {
 
 const pageDescription = (data: PageData) => {
     switch (data.route) {
-        case "amplenote-preview":
-            return "A non-indexed preview of an Amplenote article on the personal site.";
         case "post":
             return data.post.summary ?? data.post.subtitle ?? site.description;
         case "blog":
@@ -108,8 +104,6 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
         if (post.category) tags.push(`<meta property="article:section" content="${escapeHtml(post.category)}">`);
         for (const tag of post.tags) tags.push(`<meta property="article:tag" content="${escapeHtml(tag)}">`);
     }
-
-    if (data.route === "amplenote-preview") tags.push(`<script defer src="https://public.amplenote.com/embed.js"></script>`);
 
     tags.push(`<script type="application/ld+json">${jsonForScript(structuredData(data, siteUrl, canonical, image, description))}</script>`);
     return tags.filter(Boolean).join("\n        ");
@@ -221,4 +215,6 @@ ${items}
 };
 
 export const robotsTxt = (siteUrl: string, allowIndexing: boolean) =>
-    allowIndexing ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /portal\n\nSitemap: ${absolute(siteUrl, "/sitemap.xml")}\n` : "User-agent: *\nDisallow: /\n";
+    allowIndexing
+        ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /portal\n\nSitemap: ${absolute(siteUrl, "/sitemap.xml")}\n`
+        : "User-agent: *\nDisallow: /\n";

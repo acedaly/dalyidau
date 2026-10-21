@@ -6,6 +6,7 @@ import type { IntelligenceRoute } from "../intelligence/types";
 import type { KnowledgeRoute } from "../knowledge/types";
 import type { TasksRoute } from "../tasks/types";
 import type { TodayRoute } from "../today/types";
+import type { AmplenoteStatus } from "../website";
 import type { ApplicationId } from "./applications";
 import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
@@ -915,6 +916,8 @@ export type PortalRoute =
           privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
           /** What's configured on the Worker, as names and yes/no only. Owners and admins only. */
           integrations: PortalIntegrations | null;
+          /** Amplenote blog publishing. Owners and admins only. */
+          website: AmplenoteStatus | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
     | KnowledgeRoute

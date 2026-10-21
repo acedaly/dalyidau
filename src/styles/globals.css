@@ -46,7 +46,6 @@
 @import "./base.css";
 @import "./article.css";
 
-
 /*
  * Public personal-site styling. Not imported into the portal or wedding bundles.
  * Keep these deliberately small and editorial, using Untitled UI theme tokens
@@ -83,32 +82,11 @@
 }
 .personal-text-link {
     text-underline-offset: 4px;
-    transition: color 150ms ease, gap 150ms ease;
+    transition:
+        color 150ms ease,
+        gap 150ms ease;
 }
 .personal-text-link:hover {
     color: #9b674a;
     gap: 0.8rem;
-}
-.amplenote-preview-panel {
-    border: 1px solid var(--color-border-secondary);
-    border-radius: 1.25rem;
-    background: var(--color-bg-primary);
-}
-.amplenote-preview-panel .amplenote-embed {
-    display: block;
-    width: 100%;
-    min-height: 32rem;
-}
-.amplenote-preview-panel .amplenote-embed iframe {
-    display: block;
-    width: 100%;
-    min-height: 32rem;
-    height: 70vh;
-    border: 0;
-    background: transparent;
-}
-@media (max-width: 640px) {
-    .amplenote-preview-panel .amplenote-embed iframe {
-        min-height: 38rem;
-    }
 }

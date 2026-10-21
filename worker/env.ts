@@ -22,6 +22,20 @@ export interface Env {
     CAPACITIES_API_TOKEN?: string;
     ADMIN_TOKEN?: string;
 
+    // Amplenote publishing (docs/AMPLENOTE.md). Everything is off until these are set.
+    /** Secret: shared with the Amplenote plugin, which sends its reports with it. At least 32 characters. */
+    AMPLENOTE_PUBLISH_TOKEN?: string;
+    /** Secret, optional: the approved Amplenote API application's client id (enables the 15-minute API checks). */
+    AMPLENOTE_CLIENT_ID?: string;
+    /** Secret, optional: the application's client secret, if Amplenote issued one. */
+    AMPLENOTE_CLIENT_SECRET?: string;
+    /** Secret: seals the API's access and refresh tokens at rest (AES-GCM). At least 32 characters. Required to connect. */
+    AMPLENOTE_TOKEN_KEY?: string;
+    /** Optional var: the tag that marks a note for the blog (default "website/blog"). */
+    AMPLENOTE_TAG?: string;
+    /** Development only (ENVIRONMENT=development): a local stand-in for Amplenote's hosts (scripts/mock-amplenote.mjs). */
+    AMPLENOTE_TEST_BASE?: string;
+
     // Portal (see docs/PORTAL.md). Without ACCESS_TEAM_DOMAIN and ACCESS_AUD every portal request is refused.
     /** e.g. "daly.cloudflareaccess.com" */
     ACCESS_TEAM_DOMAIN?: string;

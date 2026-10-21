@@ -7,6 +7,9 @@ import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
+import { amplenoteStatus } from "../amplenote/api";
+import { disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
+import { reconcile as reconcileAmplenote } from "../amplenote/publisher";
 import { handleAssetsApi } from "../assets/api";
 import { handleCalendarApi } from "../calendar/api";
 import { handleCentreApi } from "../centre/api";
@@ -125,6 +128,33 @@ const collection = (ctx: Ctx) => {
     // The generic routes don't need the concrete row type.
     return def;
 };
+
+// --- Website: Amplenote publishing (worker/amplenote, docs/AMPLENOTE.md) ---------------------------
+
+add("GET", "/api/portal/website/amplenote", "portal.settings.manage", async ({ env }) => json({ status: await amplenoteStatus(env) }));
+
+add("POST", "/api/portal/website/amplenote/connect", "portal.settings.manage", async ({ env, user }) => {
+    if (!restConfigured(env)) throw new HttpError(409, "not_configured", "Set AMPLENOTE_CLIENT_ID and AMPLENOTE_TOKEN_KEY on the Worker first");
+    const { url, cookie } = await startConnect(env, user.email);
+    return json({ url }, 200, { "Set-Cookie": cookie });
+});
+
+add("POST", "/api/portal/website/amplenote/check", "portal.settings.manage", async ({ env, user }) => {
+    const summary = await reconcileAmplenote(env, { trigger: "manual" });
+    await audit(env.DB, {
+        actor: user.email,
+        action: "website.amplenote.check",
+        entityType: "website",
+        entityId: "amplenote",
+        summary: `Checked Amplenote articles: ${summary.published} published, ${summary.updated} updated, ${summary.unpublished} unpublished`,
+    });
+    return json({ summary, status: await amplenoteStatus(env) });
+});
+
+add("POST", "/api/portal/website/amplenote/disconnect", "portal.settings.manage", async ({ env, user }) => {
+    await disconnectAmplenote(env, user.email);
+    return json({ status: await amplenoteStatus(env) });
+});
 
 // --- Session ------------------------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import type { TodayDashboard } from "../../src/shared/today/types";
+import { amplenoteStatus } from "../amplenote/api";
 import { todayAssets } from "../assets/dashboard";
 import { type AssetsPage, loadAssetsPage } from "../assets/pages";
 import { preferences as calendarPreferences } from "../calendar/access";
@@ -364,11 +365,12 @@ const PAGES: PageDef[] = [
         title: "Portal settings",
         load: async ({ env, user, match }) => {
             const requested = (match[1] ?? "general") as PortalSettingsTab;
-            const [users, privacy, deleted, retention] = await Promise.all([
+            const [users, privacy, deleted, retention, website] = await Promise.all([
                 can(user, "portal.users.manage") ? listUsers(env, env.DB) : Promise.resolve(null),
                 getSettings(env.DB, "privacy"),
                 can(user, "wedding.guests.edit") ? listDeleted(env.DB) : Promise.resolve(null),
                 can(user, "portal.data.erase") ? retentionPreview(env.DB) : Promise.resolve(null),
+                can(user, "portal.settings.manage") ? amplenoteStatus(env) : Promise.resolve(null),
             ]);
             // A section this person can't see opens General instead, as before.
             const tab = canSeeSettingsTab(user, requested) ? requested : "general";
@@ -382,7 +384,7 @@ const PAGES: PageDef[] = [
                       calendarEncryption: !!env.CALENDAR_ENCRYPTION_KEY,
                   }
                 : null;
-            return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null, integrations };
+            return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null, integrations, website };
         },
     },
     // Daly Knowledge. The application's permission is checked here; space membership in the loaders.
