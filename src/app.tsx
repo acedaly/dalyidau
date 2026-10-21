@@ -1,6 +1,7 @@
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
 import { AboutPage } from "@/pages/about";
+import { AmplenotePreviewPage } from "@/pages/amplenote-preview";
 import { BlogIndexPage } from "@/pages/blog-index";
 import { BlogPostPage } from "@/pages/blog-post";
 import { ContactPage } from "@/pages/contact";
@@ -17,6 +18,8 @@ const Page = ({ data }: PageProps) => {
             return <BlogIndexPage data={data} />;
         case "post":
             return <BlogPostPage data={data} />;
+        case "amplenote-preview":
+            return <AmplenotePreviewPage />;
         case "about":
             return <AboutPage />;
         case "contact":
