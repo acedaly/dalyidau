@@ -273,10 +273,10 @@ class Run {
         }
         if (report.complete) {
             const publishedCount = [...existing.values()].filter((r) => r.state === "published").length;
-            if (seen.size === 0 && publishedCount >= 2) {
+            if (seen.size === 0 && publishedCount >= 1) {
                 // An empty list while articles are live looks like a client that hasn't loaded yet, not
                 // like every tag being removed at once. Nothing is withdrawn on its say-so.
-                this.fail("The plugin reported no tagged notes at all; ignored. Remove tags one at a time, or use the API connection.");
+                this.fail("The plugin reported no tagged notes at all; ignored. Unpublish the last article in Amplenote, or use the API connection.");
             } else {
                 for (const row of existing.values()) {
                     if (seen.has(row.uuid) || row.plugin_tagged !== 1) continue;
@@ -290,15 +290,19 @@ class Run {
         if (statements.length) await db.batch(statements);
     }
 
-    /** Applies the REST API's view. Returns false (and changes nothing) when it can't be used. */
+    /**
+     * Applies the REST API's view. Returns whether the API is connected, so its checks apply; when it
+     * is connected but can't be used, its last answers stand and nothing is changed.
+     */
     async applyRest(forceFull = false): Promise<boolean> {
         const env = this.env;
         const connection = await loadConnection(env);
         if (!connection) return false;
         const token = await accessToken(env, connection, this.fetchImpl, this.now());
         if (!token) {
-            this.fail("The Amplenote API connection needs to be renewed; its checks were skipped and nothing was changed");
-            return false;
+            // Still connected: a lapsed token mustn't drop the API's veto. Disconnecting does that.
+            this.fail("The Amplenote API connection needs to be renewed; its last answers stand and nothing was changed");
+            return true;
         }
         const now = this.now();
         const full =
@@ -327,6 +331,8 @@ class Run {
         const listed = new Set<string>();
         for (const note of notes) {
             listed.add(note.uuid);
+            // A note without a readable "public" flag or tag list proves nothing either way: keep its last state.
+            if (note.public === null || note.tags === null) continue;
             const tagged = hasTag(note.tags, this.c.tag);
             const row = existing.get(note.uuid);
             if (!row && !(tagged && note.public && !note.deleted)) continue; // Only blog notes are stored.
@@ -653,9 +659,15 @@ class Run {
                 continue;
             }
             try {
-                const response = await this.fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+                // No redirects (they could leave the allowed hosts), and nothing read that says it's too large.
+                const response = await this.fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
                 const type = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
                 const ext = ALLOWED_IMAGE_TYPES[type];
+                if (Number(response.headers.get("content-length") ?? 0) > MAX_IMAGE_BYTES) {
+                    await response.body?.cancel();
+                    this.log(`/blog/${slug}: an image is too large; left out`);
+                    continue;
+                }
                 if (!response.ok || !ext) {
                     await response.body?.cancel();
                     this.log(`/blog/${slug}: an image couldn't be copied (${response.ok ? type || "unknown type" : response.status}); left out`);

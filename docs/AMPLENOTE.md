@@ -109,9 +109,12 @@ An article is public only while **all** of these hold:
 
 Anything uncertain keeps the last known state:
 
-- A failed request, an expired connection or an unreadable answer changes nothing.
+- A failed request, an expired connection or an unreadable answer changes nothing. While the API is
+  connected its last answers keep applying even if the connection lapses; only Disconnect removes them.
+  A listed note without a `public` flag or tag list keeps its last state.
 - Absence must be seen in two complete reports (or two full API listings) in a row.
-- A plugin report with no tagged notes at all, while two or more articles are live, is ignored.
+- A plugin report with no tagged notes at all, while any article is live, is ignored. So untagging
+  the last article is noticed only through the API connection; without it, unpublish it in Amplenote.
 - A link answering 404/410 twice withdraws the article; any other answer is treated as an outage.
 - An explicit "not published" (from the plugin) or `public: false` (from the API) withdraws it at once.
 

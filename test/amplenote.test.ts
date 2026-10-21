@@ -235,6 +235,11 @@ describe("reading Amplenote's note list", () => {
         expect(note.tags).toEqual(["website/blog", "other"]);
     });
 
+    it("leaves a missing public flag or tag list unknown rather than false", async () => {
+        const [note] = await read({ notes: [{ uuid, name: "Garden", public: "yes" }] });
+        expect(note).toMatchObject({ public: null, tags: null });
+    });
+
     it("throws rather than report an empty list for anything else", async () => {
         for (const body of [{}, { notes: "none" }, null, "notes"]) await expect(read(body)).rejects.toThrow(/isn't a note list/);
     });
@@ -417,6 +422,15 @@ describe("publishing with the plugin", () => {
         await runPlugin();
         await runPlugin();
         expect(await amplenotePosts()).toHaveLength(2);
+    });
+
+    it("ignores an empty report even when only one article is live", async () => {
+        await runPlugin();
+        expect(await amplenotePosts()).toHaveLength(1);
+        for (const uuid of [NOTE_IDS.garden, NOTE_IDS.draft]) mock.control.edit(uuid, { tags: [] });
+        await runPlugin();
+        await runPlugin();
+        expect(await amplenotePosts()).toHaveLength(1);
     });
 
     it("links between published notes, and never to private ones", async () => {
@@ -615,6 +629,38 @@ describe("the Amplenote API connection", () => {
         // The API can't be asked, and the plugin hasn't said anything new: the article stays up until one of them does.
         expect(await db().prepare("SELECT last_error FROM amplenote_connection").first()).toEqual({ last_error: expect.stringMatching(/Reconnect/) });
         expect(await amplenotePosts()).toHaveLength(1);
+    });
+
+    it("keeps the API's veto when the connection lapses: nothing new is published without it", async () => {
+        await connectApi();
+        await runPlugin();
+        expect(await amplenotePosts()).toHaveLength(1);
+        mock.control.expireAccess();
+        mock.control.revokeRefresh();
+        await db().prepare("UPDATE amplenote_connection SET expires_at = '2000-01-01T00:00:00.000Z'").run();
+        // A note the API has never confirmed (here, one the plugin reports while the API can't be asked).
+        mock.control.add(secondNote);
+        await runPlugin();
+        expect((await amplenotePosts()).map((p) => p.slug)).toEqual([GARDEN]);
+        expect(await article(secondNote.uuid)).toMatchObject({ state: "pending", reason: expect.stringMatching(/Waiting for the Amplenote API/) });
+    });
+
+    it("keeps a note's last state when the API lists it without a public flag", async () => {
+        await connectApi();
+        await runPlugin();
+        const handle = mock.handle;
+        vi.spyOn(mock, "handle").mockImplementation(async (request: Request) => {
+            const response = await handle(request);
+            if (!new URL(request.url).pathname.endsWith("/v4/notes")) return response;
+            const body = (await response.json()) as { notes: Record<string, unknown>[] };
+            return Response.json({ notes: body.notes.map(({ public: _, ...rest }) => rest) });
+        });
+        // A full listing, so the unchanged note is in it.
+        await db().prepare("UPDATE amplenote_connection SET full_listed_at = NULL").run();
+        await reconcile(env, { trigger: "manual" });
+        await reconcile(env, { trigger: "manual" });
+        expect(await amplenotePosts()).toHaveLength(1);
+        expect(await article(NOTE_IDS.garden)).toMatchObject({ state: "published", rest_public: 1 });
     });
 
     it("disconnects, and says what's configured without revealing any secret", async () => {

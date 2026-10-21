@@ -153,7 +153,9 @@ const keys = new Set(notes.flatMap((n) => Object.keys(n)));
 line(`  ${full.notes ? notes.length : "?"} notes; fields seen: ${[...keys].sort().join(", ")}`);
 line(`  timestamps fields: ${[...new Set(notes.flatMap((n) => Object.keys(n.timestamps ?? {})))].sort().join(", ")}`);
 line(`  tag value types: ${[...new Set(notes.flatMap((n) => (n.tags ?? []).map((t) => typeof t)))].sort().join(", ") || "(no tags)"}`);
-line(`  public: true on ${notes.filter((n) => n.public === true).length} note(s)`);
+line(
+    `  public: true on ${notes.filter((n) => n.public === true).length} note(s); a true/false flag on ${notes.filter((n) => typeof n.public === "boolean").length} of ${notes.length}`,
+);
 const tagText = (t) => String(typeof t === "object" && t !== null ? t.text : t).toLowerCase();
 const tagged = notes.filter((n) => (n.tags ?? []).some((t) => tagText(t) === TAG));
 line(`  Tagged ${TAG}: ${tagged.length}`);

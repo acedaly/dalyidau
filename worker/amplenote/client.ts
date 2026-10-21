@@ -277,8 +277,10 @@ export async function accessToken(env: Env, connection: ConnectionRow, fetchImpl
 export interface ApiNote {
     uuid: string;
     name: string | null;
-    tags: string[];
-    public: boolean;
+    /** Null when the listing didn't carry a readable tag list, so nothing can be concluded. */
+    tags: string[] | null;
+    /** Null when the listing didn't carry a boolean "public", so nothing can be concluded. */
+    public: boolean | null;
     deleted: boolean;
     created: number | null;
     updated: number | null;
@@ -321,8 +323,8 @@ export async function listNotes(env: Env, token: string, since: number | null, f
                 // Strings in the spec; { text } objects (the shape notes are created with) are read too.
                 tags: Array.isArray(note.tags)
                     ? note.tags.flatMap((t) => (typeof t === "string" ? [t] : typeof t?.text === "string" ? [t.text as string] : []))
-                    : [],
-                public: note.public === true,
+                    : null,
+                public: typeof note.public === "boolean" ? note.public : null,
                 deleted: note.deleted === true || note.unrestorable === true,
                 created: num(timestamps.created),
                 updated: num(timestamps.updated) ?? num(timestamps.changed),
