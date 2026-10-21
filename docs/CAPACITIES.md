@@ -1,5 +1,11 @@
 # Capacities setup and publishing
 
+> **Retired as a publisher.** New articles are written in Amplenote ([AMPLENOTE.md](AMPLENOTE.md)).
+> Capacities sync is off by default (Portal settings → Features → Capacities sync), and its articles stay
+> online from Cloudflare. See [CAPACITIES_RETIREMENT.md](CAPACITIES_RETIREMENT.md) for the archive,
+> when to cancel, and moving an article to Amplenote. This page is kept for reference while archived
+> articles exist.
+
 ## What the API supports (verified October 2026)
 
 Checked against the live OpenAPI spec at `https://api.capacities.io/openapi.json` (version 1.0.0).

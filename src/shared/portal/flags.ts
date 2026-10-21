@@ -37,6 +37,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Communications",
     },
+    "website.capacities.sync": {
+        label: "Capacities sync",
+        description:
+            "Check Capacities every 15 minutes and publish, update or unpublish its Blog Posts. Off means archived: articles already published from Capacities stay on the site exactly as stored in Cloudflare, nothing is requested from Capacities and nothing can unpublish them. Amplenote is the publishing source either way. Switch off before cancelling Capacities (docs/CAPACITIES_RETIREMENT.md).",
+        default: false,
+        group: "Blog",
+    },
     "tasks.reminders.email": {
         label: "Task reminder emails",
         description:

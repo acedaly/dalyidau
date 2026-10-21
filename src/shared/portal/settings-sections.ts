@@ -36,7 +36,8 @@ export const PORTAL_SETTINGS_SECTIONS: Record<PortalSettingsTab, PortalSettingsS
     },
     website: {
         label: "Website & Blog",
-        description: "Publishing blog articles from Amplenote: the plugin, the Amplenote API connection and what each tagged note is doing.",
+        description:
+            "Publishing blog articles from Amplenote (the plugin, the Amplenote API connection and what each tagged note is doing) and the archived Capacities articles.",
         permission: "portal.settings.manage",
     },
     security: { label: "Integrations & Security", description: "Sign-in, email and SMS providers, AI assistant access and the audit log." },
@@ -69,10 +70,13 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["wedding", "calendar", "tasks", "centre", "assets"] as const;
+export const FEATURE_AREAS = ["wedding", "calendar", "tasks", "centre", "assets", "website"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
-export const FEATURE_AREA_DETAILS: Record<FeatureArea, { label: string; description: string; application: ApplicationId }> = {
+/** An area belongs to an application, or (for the public website, which isn't one) needs a permission. */
+export type FeatureAreaDetails = { label: string; description: string } & ({ application: ApplicationId } | { permission: Permission });
+
+export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
     wedding: {
         label: "Wedding Planner",
         description: "The public website and Save the Date page, native RSVP, guest email and SMS, and which Wedding Planner modules are on.",
@@ -100,6 +104,20 @@ export const FEATURE_AREA_DETAILS: Record<FeatureArea, { label: string; descript
             "AI suggestions for receipts, photos and policies, and reminder emails. Each person still chooses their own reminders in Home & Assets → Settings.",
         application: "assets",
     },
+    website: {
+        label: "Website & Blog",
+        description:
+            "Where blog articles come from. Amplenote is the publishing source; Capacities can only be kept in sync or archived. Details in Portal settings → Website & Blog.",
+        permission: "portal.settings.manage",
+    },
+};
+
+/** Whether someone sees an area's switches: they can open its application, or hold its permission. */
+export const canSeeFeatureArea = (user: { permissions: readonly Permission[] }, area: FeatureArea): boolean => {
+    const details = FEATURE_AREA_DETAILS[area];
+    if ("permission" in details) return user.permissions.includes(details.permission);
+    const application = applicationById(details.application);
+    return !!application && canAccessApplication(user, application);
 };
 
 /** Every switch belongs to exactly one area; adding a switch without placing it here won't compile. */
@@ -124,6 +142,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "intelligence_centre.assistant": "centre",
     "assets.ai": "assets",
     "assets.reminders.email": "assets",
+    "website.capacities.sync": "website",
 };
 
 export const flagsInArea = (area: FeatureArea): FlagKey[] => FLAG_KEYS.filter((key) => FLAG_AREAS[key] === area);

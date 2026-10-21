@@ -11,11 +11,12 @@
 //                                          browser cookie set when the owner pressed Connect in the portal.
 import { z } from "zod";
 import type { AmplenoteStatus } from "../../src/shared/website";
+import { capacitiesStatus } from "../capacities/archive";
 import type { Env } from "../env";
 import { bearerMatches } from "../lib/bearer";
 import { HttpError, readText } from "../portal/http";
 import { AmplenoteError, browserNonce, clearBrowserCookie, finishConnect, loadConnection, redirectUri, restConfigured } from "./client";
-import { conventions } from "./metadata";
+import { conventions, extractMetadata } from "./metadata";
 import { type PluginReport, ingest } from "./publisher";
 
 export const INGEST_PATH = "/api/amplenote/ingest";
@@ -72,15 +73,38 @@ export async function handleIngest(request: Request, env: Env, fetchImpl?: typeo
 }
 
 export async function amplenoteStatus(env: Env): Promise<AmplenoteStatus> {
-    const [connection, articles, runs] = await Promise.all([
+    const [connection, articles, runs, capacities, moves] = await Promise.all([
         loadConnection(env),
         env.DB.prepare(
-            "SELECT uuid, title, slug, state, reason, link_status, plugin_seen_at, rest_seen_at, updated_at FROM amplenote_articles ORDER BY state = 'published' DESC, updated_at DESC LIMIT 200",
+            "SELECT uuid, title, slug, state, reason, link_status, plugin_seen_at, rest_seen_at, updated_at, markdown, replace_slug, replace_approved_at FROM amplenote_articles ORDER BY state = 'published' DESC, updated_at DESC LIMIT 200",
         ).all<Record<string, string | null>>(),
         env.DB.prepare(
             "SELECT id, trigger, finished_at, status, published, updated, unpublished, errors, log FROM sync_runs WHERE trigger LIKE 'amplenote:%' ORDER BY id DESC LIMIT 10",
         ).all<Record<string, string | number | null>>(),
+        capacitiesStatus(env),
+        env.DB.prepare(
+            `SELECT 'live' AS kind, id, slug, title, NULL AS replaced_by FROM posts WHERE source = 'capacities'
+             UNION ALL SELECT 'redirect', post_id, from_slug, NULL, NULL FROM slug_redirects
+             UNION ALL SELECT 'moved', id, slug, title, replaced_by FROM capacities_archive WHERE replaced_by IS NOT NULL`,
+        ).all<{ kind: string; id: string; slug: string; title: string | null; replaced_by: string | null }>(),
     ]);
+    // Which notes move (or wait to move) a Capacities article to Amplenote. The note's content never leaves the server.
+    const live = new Map(moves.results.filter((m) => m.kind === "live").map((m) => [m.slug, m]));
+    const liveById = new Map(moves.results.filter((m) => m.kind === "live").map((m) => [m.id, m]));
+    const redirectTo = new Map(moves.results.filter((m) => m.kind === "redirect").map((m) => [m.slug, m.id]));
+    const moved = new Map(moves.results.filter((m) => m.kind === "moved").map((m) => [m.replaced_by!, m]));
+    const replacement = (r: Record<string, string | null>): AmplenoteStatus["articles"][number]["replacement"] => {
+        const done = moved.get(String(r.uuid));
+        if (done) return { slug: done.slug, title: done.title ?? done.slug, state: "done" };
+        const wanted = r.markdown ? extractMetadata(r.markdown).metadata.replaces : null;
+        const target = wanted ? (live.get(wanted) ?? liveById.get(redirectTo.get(wanted) ?? "")) : undefined;
+        if (!target) return null;
+        return {
+            slug: target.slug,
+            title: target.title ?? target.slug,
+            state: r.replace_slug === target.slug && r.replace_approved_at ? "approved" : "waiting",
+        };
+    };
     const site = env.SITE_URL.replace(/\/+$/, "");
     return {
         tag: conventions(env.AMPLENOTE_TAG).tag,
@@ -106,6 +130,7 @@ export async function amplenoteStatus(env: Env): Promise<AmplenoteStatus> {
             pluginSeenAt: r.plugin_seen_at,
             restSeenAt: r.rest_seen_at,
             updatedAt: String(r.updated_at),
+            replacement: replacement(r),
         })),
         runs: runs.results.map((r) => {
             let log: string[] = [];
@@ -126,6 +151,7 @@ export async function amplenoteStatus(env: Env): Promise<AmplenoteStatus> {
                 log: log.slice(0, 20),
             };
         }),
+        capacities,
     };
 }
 

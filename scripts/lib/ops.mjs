@@ -379,6 +379,9 @@ export const TABLES = [
     "media",
     "entity_cache",
     "sync_runs",
+    // Blog publishing from Amplenote (0028) and the Capacities archive (0029).
+    "amplenote_articles",
+    "capacities_archive",
     "meta",
     "portal_users",
     "audit_log",

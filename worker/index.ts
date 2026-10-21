@@ -35,7 +35,7 @@ import { CREDENTIAL_PERMISSION, hideCredentials } from "./portal/redact";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
-import { type SyncSummary, runSync } from "./sync";
+import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
 import { processTaskReminders } from "./tasks/notify";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
@@ -781,6 +781,7 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
 
         if (url.pathname === "/api/admin/sync") {
             if (request.method !== "POST") return json({ error: "use POST" }, 405);
+            if (!(await capacitiesSyncEnabled(env))) return json({ error: SYNC_OFF_MESSAGE }, 409);
             const result = await guardedSync(env, "manual", url.searchParams.get("force") === "1");
             if (!result) return json({ error: "a sync is already running" }, 409);
             return json(result, result.status === "failed" ? 502 : 200);
@@ -802,6 +803,8 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
 
 /** Runs a sync unless another holds the lock. Returns null when skipped. */
 export async function guardedSync(env: Env, trigger: "cron" | "manual", force: boolean): Promise<SyncSummary | null> {
+    // Switched off (archived): return before taking the lock or touching sync_runs. runSync checks again.
+    if (!(await capacitiesSyncEnabled(env))) return runSync(env, { trigger, force });
     const now = Date.now();
     const token = `${now}:${crypto.randomUUID()}`;
     // Atomic claim: the upsert only takes the lock when it is free or older than the lock window

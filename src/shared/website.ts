@@ -1,5 +1,6 @@
-// What Portal settings → Website shows about Amplenote publishing (worker/amplenote/api.ts).
-// Never holds credentials: only whether each one is configured.
+// What Portal settings → Website & Blog shows: Amplenote publishing (worker/amplenote/api.ts) and
+// the retired Capacities integration (worker/capacities/archive.ts). Never holds credentials: only
+// whether each one is configured.
 
 export interface AmplenoteArticleStatus {
     uuid: string;
@@ -12,6 +13,39 @@ export interface AmplenoteArticleStatus {
     pluginSeenAt: string | null;
     restSeenAt: string | null;
     updatedAt: string;
+    /**
+     * A note that takes over a Capacities article's address ("replaces:" in its Website section).
+     * "waiting": needs the owner's approval; "approved": happens on the next check; "done": moved.
+     */
+    replacement: { slug: string; title: string; state: "waiting" | "approved" | "done" } | null;
+}
+
+export interface CapacitiesArticleStatus {
+    id: string;
+    slug: string;
+    title: string;
+    publishedAt: string;
+    redirects: string[];
+    images: number;
+    /** Null until "Check and archive" has looked for each image in R2. */
+    missingImages: number | null;
+    /** Whether capacities_archive holds a copy matching what's published. */
+    archive: "none" | "current" | "outdated";
+    archivedAt: string | null;
+}
+
+export interface CapacitiesStatus {
+    syncEnabled: boolean;
+    tokenConfigured: boolean;
+    lastSync: { finishedAt: string | null; status: string } | null;
+    articles: CapacitiesArticleStatus[];
+    /** Archived Capacities articles whose address now serves an Amplenote note. */
+    replaced: { id: string; slug: string; title: string; replacedBy: string; replacedAt: string | null }[];
+    totals: { articles: number; images: number; missingImages: number | null; redirects: number };
+    /** What must hold before the Capacities token is removed and the subscription cancelled. */
+    checks: { id: string; label: string; ok: boolean; detail: string }[];
+    safeToRetire: boolean;
+    checkedAt: string | null;
 }
 
 export interface AmplenoteRunStatus {
@@ -41,4 +75,5 @@ export interface AmplenoteStatus {
     connection: { connectedBy: string; connectedAt: string; fullListedAt: string | null; lastError: string | null } | null;
     articles: AmplenoteArticleStatus[];
     runs: AmplenoteRunStatus[];
+    capacities: CapacitiesStatus;
 }

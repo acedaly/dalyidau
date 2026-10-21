@@ -5,7 +5,9 @@ server-rendered at `daly.id.au/blog/<slug>` and appears on the homepage, the blo
 tags, search, related articles, RSS, the sitemap and in Open Graph and structured data. Nothing is
 entered on the website for each article.
 
-Capacities keeps working alongside it, unchanged (`worker/sync.ts` now only touches its own rows).
+Amplenote is the only publishing source. Articles first published from Capacities stay online from
+Cloudflare, archived; see [CAPACITIES_RETIREMENT.md](CAPACITIES_RETIREMENT.md), which also covers moving
+one of them to Amplenote at its existing address (`replaces:`).
 
 ## What you do
 
@@ -23,22 +25,60 @@ nothing it contains (not even its title) is sent or stored.
 
 ### Writing conventions (all optional)
 
-| In Amplenote                          | On the site                                  |
-| ------------------------------------- | -------------------------------------------- |
-| tag `website/category/making-things`  | category "Making things"                     |
-| tag `website/tag/gardening`           | tag "Gardening"                              |
-| tag `website/featured`                | the featured article                         |
-| first image in the note               | featured image (copied into R2)              |
-| a heading `# Website` with lines like | removed from the article and used instead:   |
-| `slug: my-address`                    | the address (the old one redirects)          |
-| `summary: …`                          | excerpt (otherwise the first 200 characters) |
-| `subtitle: …`                         | subtitle                                     |
-| `published: 2026-09-01`               | published date (otherwise first publication) |
-| `image: none` or an image URL         | featured image choice                        |
+| In Amplenote                               | On the site                                                                                                                                         |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tag `website/category/making-things`       | category "Making things"                                                                                                                            |
+| tag `website/tag/gardening`                | tag "Gardening"                                                                                                                                     |
+| tag `website/featured`                     | the featured article                                                                                                                                |
+| first image in the note                    | featured image (copied into R2)                                                                                                                     |
+| a heading `# Website` with lines like      | removed from the article and used instead:                                                                                                          |
+| `slug: my-address`                         | the address (the old one redirects)                                                                                                                 |
+| `summary: …`                               | excerpt (otherwise the first 200 characters)                                                                                                        |
+| `subtitle: …`                              | subtitle                                                                                                                                            |
+| `published: 2026-09-01`                    | published date (otherwise first publication)                                                                                                        |
+| `image: none` or an image URL              | featured image choice                                                                                                                               |
+| `replaces: <slug of a Capacities article>` | takes over that article's address (approved in the portal; see [CAPACITIES_RETIREMENT.md](CAPACITIES_RETIREMENT.md#moving-an-article-to-amplenote)) |
 
-The note's other tags are never sent to the website or stored. Changing the title doesn't change the
+A note whose title or address matches an article published from Capacities waits instead of
+publishing a duplicate; the portal says why. The note's other tags are never sent to the website or stored. Changing the title doesn't change the
 address, so links keep working. Use `slug:` to move an article on purpose. Links to other notes become
 links to their articles when those notes are published here, and plain text otherwise.
+
+### Rich blocks
+
+Articles from both publishers share one design system (`worker/lib/article-html.ts`, styled in
+`src/styles/article.css`), so an Amplenote article can look exactly like the best Capacities ones.
+Markdown has no callouts, pull quotes or captions, so these conventions produce them. They all type
+naturally in Amplenote's editor, and Portal settings → Website & Blog has a copy of this list.
+
+| Write in Amplenote                                                  | On the site                                                                                               |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| a quote whose first line is `[!NOTE]`                               | a blue callout titled "Note"; `[!NOTE] Your title` sets the title                                         |
+| `[!TIP]` · `[!IMPORTANT]` · `[!WARNING]` · `[!CAUTION]`             | green · purple · amber · red callouts (`[!CALLOUT]`: plain grey, no title)                                |
+| a quote starting **Note:**, **Tip:**, **Warning:** … (bold)         | the same callouts, titled with that word                                                                  |
+| a quote starting with 💡 ℹ️ 📝 📌 ⭐ ⚠️ ❗ 🚨 ✅                    | a callout in that emoji's tone (the emoji is replaced by the callout's icon)                              |
+| a quote whose first line is `[!PULLQUOTE]`                          | a large centred pull quote                                                                                |
+| a last quote line `— Name` (or `-- Name`)                           | the quote's attribution                                                                                   |
+| an image, then a line in _italics_ directly below it                | the image's caption (an image title, `![alt](url "Caption")`, works too)                                  |
+| a link on a line of its own: a bare address or `[Title](address)`   | a link card with the title and site; a link to another published note becomes an "Also on this blog" card |
+| `---`                                                               | a quiet divider (· · ·)                                                                                   |
+| tables, code blocks, lists, task lists, `==highlights==`, footnotes | styled as in Capacities articles                                                                          |
+
+Amplenote sometimes writes `[` as `\[`; both forms work. Anything else in a quote stays an ordinary
+quotation. Raw HTML is never passed through, conventions included: every title, caption, attribution
+and link is escaped, and only http(s) links become cards.
+
+**Pasted text.** Pasting an article into Amplenote can turn every paragraph into a heading (`###`). When
+one heading level holds most of a note's lines and they read like sentences, the renderer turns them
+back into paragraphs. It keeps short lines that are entirely **bold** (and don't end with a full stop)
+as section headings, so the article gets a table of contents. Heading levels lost in the paste can't
+be recovered, so subsections become sections. To get them back, select the text in Amplenote, set it to
+normal text, and mark the headings again (`#` for sections, `##` for subsections). A note written
+normally is never changed.
+
+After a renderer change, `RENDER_VERSION` in `worker/amplenote/publisher.ts` is bumped and every
+Amplenote article is re-rendered at the next check (cron or plugin). Capacities articles keep their
+stored HTML.
 
 ## Why it works this way (verified against Amplenote's documentation, 21 October 2026)
 

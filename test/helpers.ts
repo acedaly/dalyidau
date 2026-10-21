@@ -22,8 +22,19 @@ export const sync = (mock: Mock, overrides: Partial<Env> = {}, force = false) =>
         { trigger: "test", force, fetchImpl: ((input: RequestInfo, init?: RequestInit) => mock.handle(new Request(input, init))) as typeof fetch },
     );
 
+/** Capacities sync is off (archived) by default; the Capacities tests run with it switched on. */
+export const setCapacitiesSync = (enabled: boolean) =>
+    testEnv.DB.prepare(
+        "INSERT INTO feature_flags (key, enabled, updated_at, updated_by) VALUES ('website.capacities.sync', ?1, '2026-01-01T00:00:00.000Z', 'test') ON CONFLICT(key) DO UPDATE SET enabled = ?1",
+    )
+        .bind(enabled ? 1 : 0)
+        .run();
+
 export const resetDb = async () => {
-    await testEnv.DB.batch(["posts", "sources", "slug_redirects", "media", "entity_cache", "sync_runs"].map((t) => testEnv.DB.prepare(`DELETE FROM ${t}`)));
+    await testEnv.DB.batch(
+        ["posts", "sources", "slug_redirects", "media", "entity_cache", "sync_runs", "capacities_archive"].map((t) => testEnv.DB.prepare(`DELETE FROM ${t}`)),
+    );
+    await setCapacitiesSync(true);
     const listed = await testEnv.MEDIA.list();
     for (const object of listed.objects) await testEnv.MEDIA.delete(object.key);
 };

@@ -2,6 +2,7 @@
 // capacities/render.ts, every string is escaped and only a fixed set of tags is produced: raw HTML
 // in the note (comments, <object> embeds, anything else) is dropped, never passed through.
 import type { TocEntry } from "../../src/shared/types";
+import { type CalloutTone, callout, codeBlock, imageFigure, linkCard, postCard, pullQuote, quote, table } from "../lib/article-html";
 import { escapeHtml, isExternal, safeUrl, slugify } from "../lib/html";
 
 export interface MarkdownContext {
@@ -71,6 +72,131 @@ export const cleanMarkdown = (markdown: string) => {
     return out.join("\n");
 };
 
+/** Text that would start another block if it began a line, escaped so it stays a paragraph. */
+const asParagraph = (text: string) => text.replace(/^(\s*)([-*+](?=\s)|>|#|\|)/, "$1\\$2").replace(/^(\s*\d+)([.)]\s)/, "$1\\$2");
+
+/**
+ * Text pasted into Amplenote often arrives with every paragraph as a heading (### …), which would
+ * otherwise render as a page of bold sub-headings with no table of contents. When one heading level
+ * holds most of the note's lines and reads like sentences, its lines are turned back into
+ * paragraphs, except short ones that are entirely bold, which were the real headings: those become
+ * section headings (##). Nothing changes for a note written normally. See docs/AMPLENOTE.md.
+ */
+export const normaliseHeadingWall = (lines: string[]): string[] => {
+    const levels = new Map<number, string[]>();
+    let other = 0;
+    let fence: string | null = null;
+    for (const line of lines) {
+        const marker = /^(```|~~~)/.exec(line)?.[1];
+        if (fence) {
+            if (marker === fence) fence = null;
+            continue;
+        }
+        if (marker) fence = marker;
+        const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+        if (heading) levels.set(heading[1].length, [...(levels.get(heading[1].length) ?? []), heading[2]]);
+        else if (line.trim() && line.trim() !== "\\") other++;
+    }
+    const wall = [...levels.entries()].find(([, texts]) => {
+        if (texts.length < 8 || texts.length <= other * 2) return false;
+        const sentences = texts.filter((t) => t.replace(/[*_]/g, "").trim().length > 60 || /[.!?,;:]["'”’)]?$/.test(t.replace(/[*_]+$/, "").trim()));
+        return sentences.length * 2 >= texts.length;
+    })?.[0];
+    if (!wall) return lines;
+
+    const out: string[] = [];
+    fence = null;
+    for (const line of lines) {
+        const marker = /^(```|~~~)/.exec(line)?.[1];
+        if (fence || marker) {
+            if (fence && marker === fence) fence = null;
+            else if (!fence) fence = marker!;
+            out.push(line);
+            continue;
+        }
+        const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+        if (!heading || heading[1].length !== wall) {
+            out.push(line);
+            continue;
+        }
+        const text = heading[2];
+        const bold = /^(\*\*|__)([^*_].*?)\1$/.exec(text.trim());
+        const inner = bold?.[2].trim() ?? "";
+        if (bold && inner.length <= 90 && !/[.,;]$/.test(inner)) out.push(`${"#".repeat(Math.min(wall, 2))} ${text.trim()}`);
+        else out.push(asParagraph(text), "");
+    }
+    return out;
+};
+
+/** Callout markers at the start of a quote: [!NOTE] (as GitHub and Obsidian write them), **Note:** or an emoji. */
+const CALLOUT_KINDS: Record<string, { tone: CalloutTone; label: string }> = {
+    note: { tone: "info", label: "Note" },
+    info: { tone: "info", label: "Note" },
+    tip: { tone: "success", label: "Tip" },
+    success: { tone: "success", label: "Success" },
+    important: { tone: "brand", label: "Important" },
+    key: { tone: "brand", label: "Key point" },
+    warning: { tone: "warning", label: "Warning" },
+    caution: { tone: "danger", label: "Caution" },
+    danger: { tone: "danger", label: "Caution" },
+    callout: { tone: "neutral", label: "" },
+    aside: { tone: "neutral", label: "" },
+};
+const CALLOUT_EMOJI: Record<string, CalloutTone> = {
+    "💡": "success",
+    ℹ️: "info",
+    "📝": "info",
+    "📌": "brand",
+    "⭐": "brand",
+    "⚠️": "warning",
+    "❗": "danger",
+    "🚨": "danger",
+    "✅": "success",
+};
+const PULL_KINDS = new Set(["pullquote", "pull-quote", "pull"]);
+
+type QuoteKind = { kind: "quote" } | { kind: "pull" } | { kind: "callout"; tone: CalloutTone; title: string | null };
+
+/** Reads (and removes) a leading marker from a quote's lines. */
+export const quoteKind = (lines: string[]): { kind: QuoteKind; lines: string[] } => {
+    const first = lines.findIndex((line) => line.trim());
+    if (first < 0) return { kind: { kind: "quote" }, lines };
+    const line = lines[first].trim();
+    const rest = (replacement: string) => {
+        const copy = [...lines];
+        if (replacement.trim()) copy[first] = replacement;
+        else copy.splice(first, 1);
+        return copy;
+    };
+    // Amplenote may escape the brackets: \[!NOTE\].
+    const bracket = /^\\?\[!([a-z-]+)\\?\]\s*(.*)$/i.exec(line);
+    if (bracket) {
+        const name = bracket[1].toLowerCase();
+        if (PULL_KINDS.has(name)) return { kind: { kind: "pull" }, lines: rest(bracket[2]) };
+        const known = CALLOUT_KINDS[name];
+        if (known) {
+            // Text after the marker is the callout's title, as in Obsidian.
+            const title = bracket[2].replace(/[*_]/g, "").trim() || known.label || null;
+            return { kind: { kind: "callout", tone: known.tone, title }, lines: rest("") };
+        }
+    }
+    const label = /^(\*\*|__)([a-z ]+?):?\1:?\s*(.*)$/i.exec(line);
+    const named = label && CALLOUT_KINDS[label[2].trim().toLowerCase()];
+    if (label && named && named.label) return { kind: { kind: "callout", tone: named.tone, title: label[2].trim() }, lines: rest(label[3]) };
+    const emoji = Object.keys(CALLOUT_EMOJI).find((e) => line.startsWith(e));
+    if (emoji) return { kind: { kind: "callout", tone: CALLOUT_EMOJI[emoji], title: null }, lines: rest(line.slice(emoji.length).trim()) };
+    return { kind: { kind: "quote" }, lines };
+};
+
+/** A closing "— Name" line in a quote: its attribution. */
+const attribution = (lines: string[]): { cite: string | null; lines: string[] } => {
+    let last = lines.length - 1;
+    while (last >= 0 && !lines[last].trim()) last--;
+    if (last < 1) return { cite: null, lines };
+    const match = /^(?:—|–|--|~)\s*(\S.*)$/.exec(lines[last].trim());
+    return match ? { cite: match[1], lines: lines.slice(0, last) } : { cite: null, lines };
+};
+
 export const imageUrls = (markdown: string): string[] => {
     const urls: string[] = [];
     for (const match of cleanMarkdown(markdown).matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) urls.push(match[1]);
@@ -82,7 +208,7 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
     const usedIds = new Set<string>();
     const textParts: string[] = [];
     const footnotes: string[] = [];
-    const lines = cleanMarkdown(markdown).split("\n");
+    const lines = normaliseHeadingWall(cleanMarkdown(markdown).split("\n"));
 
     const headingId = (text: string) => {
         const base = slugify(text) || "section";
@@ -103,6 +229,22 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
         if (!href) return label;
         const external = isExternal(href, ctx.siteUrl) && !href.startsWith("mailto:");
         return `<a href="${escapeHtml(href)}"${external ? ' rel="noopener noreferrer" target="_blank"' : ""}>${label}</a>`;
+    };
+
+    /** A paragraph that is only a link (a bare address or [text](address)) becomes a card. */
+    const linkOnly = (source: string): { html: string; text: string } | null => {
+        const match = /^\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)$/.exec(source) ?? /^<?(https?:\/\/[^\s<>]+)>?$/.exec(source);
+        if (!match) return null;
+        const [label, target] = match.length === 3 && match[2] !== undefined ? [plain(match[1]), match[2]] : [null, match[1]];
+        const note = NOTE_LINK.exec(target);
+        if (note) {
+            const slug = ctx.noteSlug(note[1].toLowerCase());
+            return slug && label ? { html: postCard(slug, label), text: label } : null;
+        }
+        const href = safeUrl(target);
+        if (!href || !/^https?:/.test(href) || !isExternal(href, ctx.siteUrl)) return null;
+        const title = label || href.replace(/^https?:\/\/(?:www\.)?/, "").replace(/\/$/, "");
+        return { html: linkCard(href, title), text: title };
     };
 
     const image = (alt: string, url: string) => {
@@ -209,11 +351,9 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
             i++;
             while (i < lines.length && !lines[i].startsWith(fence[1])) code.push(lines[i++]);
             i++;
-            const lang = fence[2].replace(/[^a-z0-9+#-]/gi, "").toLowerCase();
+            const lang = fence[2];
             textParts.push(code.join("\n"));
-            blocks.push(
-                `<pre${lang ? ` data-lang="${lang}"` : ""}><code${lang ? ` class="language-${lang}"` : ""}>${escapeHtml(code.join("\n"))}</code></pre>`,
-            );
+            blocks.push(codeBlock(code.join("\n"), lang));
             continue;
         }
 
@@ -240,9 +380,17 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
         if (line.startsWith(">")) {
             const quoted: string[] = [];
             while (i < lines.length && lines[i].startsWith(">")) quoted.push(lines[i++].replace(/^>\s?/, ""));
-            const inner = renderMarkdown(quoted.join("\n"), ctx);
+            const { kind, lines: content } = quoteKind(quoted);
+            const { cite, lines: body } = kind.kind === "callout" ? { cite: null, lines: content } : attribution(content);
+            const inner = renderMarkdown(body.join("\n"), ctx);
+            if (!inner.html && kind.kind !== "callout") continue;
             textParts.push(inner.text);
-            blocks.push(`<blockquote>${inner.html}</blockquote>`);
+            if (cite) textParts.push(plain(cite));
+            const citeHtml = cite ? inline(cite) : null;
+            if (kind.kind === "callout") {
+                if (kind.title) textParts.push(kind.title);
+                blocks.push(callout(kind.tone, inner.html, kind.title));
+            } else blocks.push(kind.kind === "pull" ? pullQuote(inner.html, citeHtml) : quote(inner.html, citeHtml));
             continue;
         }
 
@@ -253,9 +401,11 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
             const separator = parsed[1]?.every((cell) => /^:?-{1,}:?$/.test(cell));
             const [head, ...body] = separator ? [parsed[0], ...parsed.slice(2)] : parsed;
             for (const row of [head, ...body]) textParts.push(row.map(plain).join(" "));
-            const row = (cellsOf: string[], tag: "th" | "td") => cellsOf.map((cell) => `<${tag}>${inline(cell)}</${tag}>`).join("");
             blocks.push(
-                `<div class="table-wrap"><table><thead><tr>${row(head, "th")}</tr></thead><tbody>${body.map((r) => `<tr>${row(r, "td")}</tr>`).join("")}</tbody></table></div>`,
+                table(
+                    head.map((cell) => inline(cell)),
+                    body.map((r) => r.map((cell) => inline(cell))),
+                ),
             );
             continue;
         }
@@ -284,10 +434,28 @@ export const renderMarkdown = (markdown: string, ctx: MarkdownContext): Markdown
         const paragraph: string[] = [];
         while (i < lines.length && lines[i].trim() && (paragraph.length === 0 || !BLOCK_START.test(lines[i]))) paragraph.push(lines[i++]);
         const source = paragraph.join("\n");
-        const lone = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/.exec(source.trim());
+        const lone = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)$/.exec(source.trim());
         if (lone) {
             const img = image(lone[1].split("|")[0].trim(), lone[2]);
-            if (img) blocks.push(`<figure class="image">${img}</figure>`);
+            // A caption: an image title ("…"), or a line in italics directly below the image.
+            let caption = lone[3]?.trim() || null;
+            let next = i;
+            while (next < lines.length && !lines[next].trim()) next++;
+            const italic = next < lines.length ? /^(\*|_)(?!\1)(\S(?:.*\S)?)\1$/.exec(lines[next].trim()) : null;
+            if (img && italic && (next + 1 >= lines.length || !lines[next + 1].trim())) {
+                caption = italic[2];
+                i = next + 1;
+            }
+            if (img) {
+                if (caption) textParts.push(plain(caption));
+                blocks.push(imageFigure(img, caption ? inline(caption) : null));
+            }
+            continue;
+        }
+        const card = linkOnly(source.trim());
+        if (card) {
+            blocks.push(card.html);
+            textParts.push(card.text);
             continue;
         }
         const text = plain(source);

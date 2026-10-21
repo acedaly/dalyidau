@@ -1,4 +1,5 @@
 import type { TocEntry } from "../../src/shared/types";
+import { type CalloutTone, callout, codeBlock, imageFigure, linkCard, postCard, pullQuote, quote, table } from "../lib/article-html";
 import { escapeHtml, isExternal, safeUrl, slugify } from "../lib/html";
 import type { Block, GroupBlock, ListType, TextBlock, Token } from "./types";
 
@@ -56,7 +57,7 @@ export const collectReferences = (blocks: Block[]) => {
     return { embeds: [...embeds], links: [...links] };
 };
 
-const CALLOUT_TONES: Record<string, string> = {
+const CALLOUT_TONES: Record<string, CalloutTone> = {
     gray: "neutral",
     blue: "info",
     sky: "info",
@@ -158,24 +159,26 @@ export const renderBlocks = (blocks: Block[], ctx: RenderContext): RenderResult 
             case "image": {
                 const dims = embed.width && embed.height ? ` width="${embed.width}" height="${embed.height}"` : "";
                 const srcSet = embed.srcSet ? ` srcset="${escapeHtml(embed.srcSet)}" sizes="(min-width: 768px) 720px, 100vw"` : "";
-                const caption = embed.caption ? `<figcaption>${escapeHtml(embed.caption)}</figcaption>` : "";
                 if (embed.caption) textParts.push(embed.caption);
-                return `<figure class="image"><img src="${escapeHtml(embed.src)}"${srcSet} alt="${escapeHtml(embed.alt)}"${dims} loading="lazy" decoding="async">${caption}</figure>`;
+                return imageFigure(
+                    `<img src="${escapeHtml(embed.src)}"${srcSet} alt="${escapeHtml(embed.alt)}"${dims} loading="lazy" decoding="async">`,
+                    embed.caption ? escapeHtml(embed.caption) : null,
+                );
             }
             case "video":
                 return `<figure class="video"><div class="video-frame"><iframe src="${escapeHtml(embed.embedUrl)}" title="${escapeHtml(embed.title ?? "Embedded video")}" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe></div><figcaption><a href="${escapeHtml(embed.url)}" rel="noopener noreferrer" target="_blank">${escapeHtml(embed.title ?? embed.url)}</a></figcaption></figure>`;
-            case "link": {
-                const host = new URL(embed.url).host.replace(/^www\./, "");
-                return `<p class="link-card"><a href="${escapeHtml(embed.url)}" rel="noopener noreferrer" target="_blank"><span class="link-card-title">${escapeHtml(embed.title ?? embed.url)}</span><span class="link-card-host">${escapeHtml(host)}</span></a></p>`;
-            }
+            case "link":
+                return linkCard(embed.url, embed.title);
             case "post":
-                return `<p class="link-card"><a href="/blog/${escapeHtml(embed.slug)}"><span class="link-card-title">${escapeHtml(embed.title)}</span><span class="link-card-host">Also on this blog</span></a></p>`;
+                return postCard(embed.slug, embed.title);
             case "table": {
                 if (!embed.rows.length) return "";
                 const [head, ...body] = embed.rows;
                 for (const row of embed.rows) textParts.push(row.join(" "));
-                const cells = (row: string[], tag: "th" | "td") => row.map((cell) => `<${tag}>${escapeHtml(cell)}</${tag}>`).join("");
-                return `<div class="table-wrap"><table><thead><tr>${cells(head, "th")}</tr></thead><tbody>${body.map((row) => `<tr>${cells(row, "td")}</tr>`).join("")}</tbody></table></div>`;
+                return table(
+                    head.map(escapeHtml),
+                    body.map((row) => row.map(escapeHtml)),
+                );
             }
         }
     };
@@ -213,7 +216,7 @@ export const renderBlocks = (blocks: Block[], ctx: RenderContext): RenderResult 
         textParts.push(text);
         const paragraph = text.trim() ? `<p>${inline(tokens)}</p>` : "";
         const tone = calloutTone(block.colorTheme);
-        if (tone) return `<aside class="callout" data-tone="${tone}">${paragraph}${children}</aside>`;
+        if (tone) return callout(tone, paragraph + children);
         return paragraph + children;
     };
 
@@ -251,7 +254,7 @@ export const renderBlocks = (blocks: Block[], ctx: RenderContext): RenderResult 
                 i--;
                 const inner = quotes.map(renderTextBlock).join("");
                 if (!inner) continue;
-                html += layout === "standout" ? `<figure class="pullquote"><blockquote>${inner}</blockquote></figure>` : `<blockquote>${inner}</blockquote>`;
+                html += layout === "standout" ? pullQuote(inner) : quote(inner);
                 continue;
             }
 
@@ -262,7 +265,7 @@ export const renderBlocks = (blocks: Block[], ctx: RenderContext): RenderResult 
                 case "GroupBlock": {
                     const inner = renderList(block.blocks ?? []);
                     const tone = calloutTone(block.colorTheme);
-                    html += tone ? `<aside class="callout" data-tone="${tone}">${inner}</aside>` : inner;
+                    html += tone ? callout(tone, inner) : inner;
                     break;
                 }
                 case "GridBlock": {
@@ -271,9 +274,8 @@ export const renderBlocks = (blocks: Block[], ctx: RenderContext): RenderResult 
                     break;
                 }
                 case "CodeBlock": {
-                    const lang = (block.lang || "").replace(/[^a-z0-9+#-]/gi, "").toLowerCase();
                     textParts.push(block.text);
-                    html += `<pre${lang ? ` data-lang="${lang}"` : ""}><code${lang ? ` class="language-${lang}"` : ""}>${escapeHtml(block.text ?? "")}</code></pre>`;
+                    html += codeBlock(block.text ?? "", block.lang);
                     break;
                 }
                 case "MathBlock":

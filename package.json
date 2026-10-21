@@ -29,6 +29,7 @@
         "test:backup": "node scripts/test-backup.mjs",
         "knowledge:check-export": "node scripts/knowledge-export-check.mjs",
         "backup:r2": "node scripts/r2-backup.mjs",
+        "capacities:inventory": "node scripts/capacities-inventory.mjs",
         "centre:basemap": "node scripts/centre-basemap.mjs",
         "intelligence:eval": "node scripts/intelligence-eval.mjs",
         "seed:staging": "node scripts/seed-staging.mjs",

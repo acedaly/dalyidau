@@ -1,15 +1,18 @@
-// Portal settings → Website & Blog: Amplenote publishing. Nothing here is per article: articles are
-// published by tagging and publishing them in Amplenote. This page is for the one-time setup (the
-// plugin, the optional API connection) and for seeing what each tagged note is doing and why.
+// Portal settings → Website & Blog: Amplenote publishing, the only publishing source. Nothing here is
+// per article: articles are published by tagging and publishing them in Amplenote. This page is for
+// the one-time setup (the plugin, the optional API connection), for seeing what each tagged note is
+// doing and why, and for the archived Capacities articles (capacities-card.tsx), including approving
+// a note that takes over a Capacities article's address.
 import { useEffect, useState } from "react";
-import { BookOpen01, Code02, Link03, RefreshCw01, Stars02 } from "@untitledui/icons";
-import { Badge, type BadgeColor } from "@/components/base/badges/badges";
+import { BookOpen01, Code02, Link03, PenTool02, RefreshCw01, Send01, Stars02 } from "@untitledui/icons";
+import { Badge, type BadgeColor, BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { CopyCode } from "@/portal/components/copy-code";
 import { Notice } from "@/portal/components/notice";
 import { Timestamp } from "@/portal/components/timestamp";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
+import { CapacitiesCard } from "@/portal/settings/capacities-card";
 import { SettingsCard, StatusRow } from "@/portal/settings/settings-card";
 import type { AmplenoteStatus } from "@/shared/website";
 import pluginSource from "../../../amplenote/plugin.js?raw";
@@ -46,10 +49,22 @@ const PLUGIN_TABLE = (tag: string) =>
         "| setting | Tag |",
     ].join("\n");
 
+/** The writing conventions for rich blocks (docs/AMPLENOTE.md#rich-blocks), as a cheat sheet. */
+const CONVENTIONS: [string, string][] = [
+    [
+        "> [!NOTE] Optional title\n> The text of the callout",
+        "Callout. Also [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]; or start a quote with **Note:** or an emoji such as 💡 or ⚠️",
+    ],
+    ["> [!PULLQUOTE]\n> A line worth repeating\n> — Who said it", "Pull quote, centred and large. A closing “— Name” line attributes any quote"],
+    ["(an image)\n\n*A caption in italics*", "Image caption: an italic line directly below the image"],
+    ["https://example.com/article", "A link on a line of its own becomes a link card ([title](address) works too)"],
+    ["# Website\nreplaces: old-capacities-slug", "Moves a Capacities article to this note at the same address (after you approve it below)"],
+];
+
 export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
     const toast = useToast();
     const [status, setStatus] = useState(initial);
-    const [busy, setBusy] = useState<"connect" | "check" | "disconnect" | null>(null);
+    const [busy, setBusy] = useState<"connect" | "check" | "disconnect" | `replace:${string}` | null>(null);
     const [result, setResult] = useState<string | null>(null);
 
     useEffect(() => {
@@ -90,6 +105,27 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
         }
     };
 
+    /** Approves a note's move of a Capacities article (POST), or withdraws/undoes it (DELETE). */
+    const replacement = async (uuid: string, method: "POST" | "DELETE", slug: string) => {
+        setBusy(`replace:${uuid}`);
+        try {
+            const result = await api<{ status: AmplenoteStatus }>(
+                method,
+                `/api/portal/website/amplenote/${uuid}/replacement`,
+                method === "POST" ? { slug } : undefined,
+            );
+            setStatus(result.status);
+            toast.success(
+                method === "POST" ? "Approved" : "Undone",
+                method === "POST" ? `/blog/${slug} now comes from Amplenote` : `/blog/${slug} is the Capacities article again`,
+            );
+        } catch (error) {
+            toast.error("That didn't work", errorMessage(error));
+        } finally {
+            setBusy(null);
+        }
+    };
+
     const published = status.articles.filter((a) => a.state === "published").length;
     const message = result ? CONNECT_RESULTS[result] : null;
 
@@ -100,6 +136,38 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
                     {message.body}
                 </Notice>
             )}
+
+            <SettingsCard id="website-source" icon={Send01} title="Publishing source" description="Where blog articles come from.">
+                <dl className="flex flex-col divide-y divide-secondary">
+                    <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
+                        <dt className="min-w-0">
+                            <span className="block text-sm font-medium text-primary">Amplenote</span>
+                            <span className="block text-sm text-tertiary">
+                                {published} published article{published === 1 ? "" : "s"}. New articles and edits come from here.
+                            </span>
+                        </dt>
+                        <dd className="shrink-0">
+                            <BadgeWithDot size="sm" type="pill-color" color="success">
+                                Active
+                            </BadgeWithDot>
+                        </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
+                        <dt className="min-w-0">
+                            <span className="block text-sm font-medium text-primary">Capacities</span>
+                            <span className="block text-sm text-tertiary">
+                                {status.capacities.totals.articles} archived article{status.capacities.totals.articles === 1 ? "" : "s"}, served from
+                                Cloudflare. {status.capacities.syncEnabled ? "Still synced every 15 minutes." : "Not contacted: sync is off."}
+                            </span>
+                        </dt>
+                        <dd className="shrink-0">
+                            <BadgeWithDot size="sm" type="pill-color" color={status.capacities.syncEnabled ? "warning" : "gray"}>
+                                {status.capacities.syncEnabled ? "Syncing" : "Archived"}
+                            </BadgeWithDot>
+                        </dd>
+                    </div>
+                </dl>
+            </SettingsCard>
 
             <SettingsCard
                 id="website-how"
@@ -120,6 +188,24 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
                     <code className="font-mono">website/featured</code>, and a section headed “Website” with lines such as{" "}
                     <code className="font-mono">summary: …</code> or <code className="font-mono">slug: …</code>.
                 </p>
+                <details className="rounded-lg ring-1 ring-secondary ring-inset">
+                    <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-primary">
+                        <PenTool02 className="size-4 text-fg-quaternary" aria-hidden="true" />
+                        Rich blocks: callouts, pull quotes, captions and link cards
+                    </summary>
+                    <dl className="flex flex-col divide-y divide-secondary border-t border-secondary">
+                        {CONVENTIONS.map(([write, result]) => (
+                            <div key={write} className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-2 md:gap-4">
+                                <dt>
+                                    <pre className="overflow-x-auto rounded-md bg-secondary p-2 font-mono text-xs whitespace-pre-wrap text-secondary">
+                                        {write}
+                                    </pre>
+                                </dt>
+                                <dd className="text-sm text-tertiary">{result}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </details>
             </SettingsCard>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -280,6 +366,48 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
                                         )}
                                     </p>
                                     {article.reason && <p className="text-sm text-tertiary">{article.reason}</p>}
+                                    {article.replacement && (
+                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-tertiary">
+                                            {article.replacement.state === "done" ? (
+                                                <span>Moved from Capacities: /blog/{article.replacement.slug}</span>
+                                            ) : (
+                                                <span>
+                                                    Replaces the Capacities article “{article.replacement.title}” at /blog/{article.replacement.slug}
+                                                </span>
+                                            )}
+                                            {article.replacement.state === "waiting" && (
+                                                <Button
+                                                    size="xs"
+                                                    color="primary"
+                                                    isDisabled={status.capacities.syncEnabled}
+                                                    isLoading={busy === `replace:${article.uuid}`}
+                                                    onClick={() => replacement(article.uuid, "POST", article.replacement!.slug)}
+                                                >
+                                                    Approve move
+                                                </Button>
+                                            )}
+                                            {article.replacement.state === "approved" && (
+                                                <Button
+                                                    size="xs"
+                                                    color="secondary"
+                                                    isLoading={busy === `replace:${article.uuid}`}
+                                                    onClick={() => replacement(article.uuid, "DELETE", article.replacement!.slug)}
+                                                >
+                                                    Withdraw approval
+                                                </Button>
+                                            )}
+                                            {article.replacement.state === "done" && (
+                                                <Button
+                                                    size="xs"
+                                                    color="secondary-destructive"
+                                                    isLoading={busy === `replace:${article.uuid}`}
+                                                    onClick={() => replacement(article.uuid, "DELETE", article.replacement!.slug)}
+                                                >
+                                                    Restore Capacities version
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
                                     <p className="text-xs text-quaternary">
                                         Updated <Timestamp iso={article.updatedAt} relative />
                                     </p>
@@ -313,6 +441,8 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
                     </details>
                 )}
             </SettingsCard>
+
+            <CapacitiesCard status={status.capacities} onStatus={setStatus} />
         </div>
     );
 };

@@ -10,9 +10,12 @@
 // with a public URL, that URL answers, and (when the API is connected) the API agrees it's public,
 // tagged and not deleted. Anything uncertain keeps the last known state: a failed request or an
 // empty report never withdraws anything, and absence must be seen twice in a row.
+import type { D1PreparedStatement } from "@cloudflare/workers-types";
+import { type ArchiveRow, type CapacitiesPostRow, archiveStatement } from "../capacities/archive";
 import type { Env } from "../env";
 import { escapeHtml, isValidSlug, slugify } from "../lib/html";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, imageDimensions, mediaUrls } from "../lib/image";
+import { capacitiesSyncEnabled } from "../sync";
 import { type ApiNote, accessToken, hosts, listNotes, loadConnection } from "./client";
 import { renderMarkdown } from "./markdown";
 import { type Conventions, conventions, extractMetadata, hasTag, publicToken, tagMetadata, websiteTags, withoutRepeatedTitle } from "./metadata";
@@ -23,6 +26,8 @@ const FULL_LISTING_HOURS = 6;
 const LINK_CHECKS_PER_RUN = 10;
 const IMAGES_PER_ARTICLE = 15;
 const LOCK_MINUTES = 5;
+/** Bumped when markdown.ts renders differently, so every article is re-rendered once (the hash below includes it). */
+export const RENDER_VERSION = 2;
 
 export interface PluginNote {
     uuid: string;
@@ -65,7 +70,72 @@ export interface ArticleRow {
     state: "pending" | "published" | "withdrawn";
     reason: string | null;
     content_hash: string | null;
+    replace_slug: string | null;
+    replace_approved_by: string | null;
+    replace_approved_at: string | null;
 }
+
+/** A note taking over a Capacities article's address (docs/CAPACITIES_RETIREMENT.md#moving-an-article-to-amplenote). */
+export interface Replacement {
+    slug: string;
+    /** The Capacities article: still the live post (`live`), or its archived copy once moved. */
+    source: CapacitiesPostRow;
+    live: boolean;
+}
+
+export interface ReplacementCheck {
+    replacement: Replacement | null;
+    /** Why the note waits instead of publishing (it never publishes at another address meanwhile). */
+    hold: string | null;
+}
+
+const CAPACITIES_POST_COLUMNS =
+    "id, slug, title, subtitle, summary, category, tags, featured, image_key, image_alt, image_width, image_height, body_html, published_at, content_hash";
+
+/**
+ * Which notes take over a Capacities article's address, and which must wait. Pure, given the rows,
+ * so the rules can be read and tested in one place. A note only ever moves an article that is
+ * still published from Capacities, with Capacities sync off and the owner's approval of that exact
+ * address; a note that looks like an existing Capacities article waits rather than duplicate it.
+ */
+export const replacementChecks = (
+    articles: ArticleRow[],
+    capacities: { live: CapacitiesPostRow[]; replaced: ArchiveRow[]; redirects: { from_slug: string; post_id: string }[]; syncEnabled: boolean },
+): Map<string, ReplacementCheck> => {
+    const out = new Map<string, ReplacementCheck>();
+    const bySlug = new Map(capacities.live.map((p) => [p.slug, p]));
+    const byId = new Map(capacities.live.map((p) => [p.id, p]));
+    const byTitle = new Map(capacities.live.map((p) => [p.title.trim().toLowerCase(), p]));
+    const redirectTo = new Map(capacities.redirects.map((r) => [r.from_slug, r.post_id]));
+    const done = new Map(capacities.replaced.map((a) => [a.replaced_by!, a]));
+    for (const row of articles) {
+        const moved = done.get(row.uuid);
+        if (moved) {
+            out.set(row.uuid, { replacement: { slug: moved.slug, source: moved, live: false }, hold: null });
+            continue;
+        }
+        if (!row.markdown) continue;
+        const { metadata } = extractMetadata(row.markdown);
+        if (metadata.replaces) {
+            const target = bySlug.get(metadata.replaces) ?? byId.get(redirectTo.get(metadata.replaces) ?? "");
+            let hold: string | null = null;
+            if (!target) hold = `"replaces: ${metadata.replaces}" doesn't match an article published from Capacities`;
+            else if (capacities.syncEnabled) hold = `Switch off Capacities sync (Portal settings → Features) before this note replaces /blog/${target.slug}`;
+            else if (row.replace_slug !== target.slug || !row.replace_approved_at)
+                hold = `Waiting for your approval to replace the Capacities article /blog/${target.slug}`;
+            out.set(row.uuid, { replacement: hold ? null : { slug: target!.slug, source: target!, live: true }, hold });
+            continue;
+        }
+        if (row.slug) continue; // Already has an address of its own.
+        const twin = metadata.slug ? bySlug.get(metadata.slug) : (bySlug.get(slugify(row.title ?? "")) ?? byTitle.get((row.title ?? "").trim().toLowerCase()));
+        if (twin)
+            out.set(row.uuid, {
+                replacement: null,
+                hold: `Looks like the Capacities article /blog/${twin.slug}. To move it here at the same address, add "replaces: ${twin.slug}" to the note's Website section; to publish it separately, give it a different title or slug`,
+            });
+    }
+    return out;
+};
 
 export interface RunSummary {
     runId: number | null;
@@ -421,14 +491,37 @@ class Run {
     async reconcilePosts(restConnected: boolean) {
         const db = this.env.DB;
         const articles = [...(await this.articles()).values()];
-        const decisions = articles.map((row) => ({ row, reason: ineligibility(row, restConnected) }));
+        const [capacitiesLive, replaced, redirects, syncEnabled] = await Promise.all([
+            db.prepare(`SELECT ${CAPACITIES_POST_COLUMNS} FROM posts WHERE source = 'capacities'`).all<CapacitiesPostRow>(),
+            db.prepare("SELECT * FROM capacities_archive WHERE replaced_by IS NOT NULL").all<ArchiveRow>(),
+            db.prepare("SELECT from_slug, post_id FROM slug_redirects").all<{ from_slug: string; post_id: string }>(),
+            capacitiesSyncEnabled(this.env),
+        ]);
+        const checks = replacementChecks(articles, { live: capacitiesLive.results, replaced: replaced.results, redirects: redirects.results, syncEnabled });
+        const decisions = articles.map((row) => {
+            const reason = ineligibility(row, restConnected);
+            const check = checks.get(row.uuid);
+            const hold = reason ? null : (check?.hold ?? null);
+            // A published article that now waits (say, for approval to move) keeps its current version.
+            return { row, reason: reason ?? hold, keep: !!hold && row.state === "published", replacement: check?.replacement ?? null };
+        });
         const live = decisions.filter((d) => !d.reason);
         // Slugs of every article that will be public, so links between notes resolve regardless of order.
         const slugs = new Map<string, string>();
-        for (const { row } of live) if (row.slug) slugs.set(row.uuid, row.slug);
+        for (const { row, replacement } of live) {
+            const slug = replacement?.slug ?? row.slug;
+            if (slug) slugs.set(row.uuid, slug);
+        }
 
-        for (const { row, reason } of decisions) {
+        for (const { row, reason, keep } of decisions) {
             if (!reason) continue;
+            if (keep) {
+                if (reason !== row.reason) {
+                    await db.prepare("UPDATE amplenote_articles SET reason = ?, updated_at = ? WHERE uuid = ?").bind(reason, this.timestamp(), row.uuid).run();
+                    this.log(`/blog/${row.slug}: kept as it is. ${reason}`);
+                }
+                continue;
+            }
             const deleted = await db
                 .prepare("DELETE FROM posts WHERE id = ? AND source = 'amplenote' RETURNING slug")
                 .bind(postId(row.uuid))
@@ -447,15 +540,15 @@ class Run {
             }
         }
 
-        for (const { row } of live) {
+        for (const { row, replacement } of live) {
             try {
-                if (!row.slug) {
+                if (!row.slug && !replacement) {
                     const slug = await this.assignSlug(row);
                     if (!slug) continue;
                     row.slug = slug;
                     slugs.set(row.uuid, slug);
                 }
-                const result = await this.publish(row, slugs);
+                const result = await this.publish(row, slugs, replacement);
                 this.summary[result]++;
             } catch (error) {
                 this.fail(`Note ${shortId(row.uuid)}: ${(error as Error).message}. The published version (if any) was kept.`);
@@ -491,14 +584,18 @@ class Run {
         return slug;
     }
 
-    private async publish(row: ArticleRow, slugs: Map<string, string>): Promise<"published" | "updated" | "unchanged"> {
+    private async publish(row: ArticleRow, slugs: Map<string, string>, replacement: Replacement | null): Promise<"published" | "updated" | "unchanged"> {
         const db = this.env.DB;
         const title = row.title!.trim();
         const { metadata, body } = extractMetadata(row.markdown!);
-        let slug = row.slug!;
+        let slug = replacement?.slug ?? row.slug!;
         const redirects: string[] = [];
+        // Taking over a Capacities article's address fixes the address (any slug: line is ignored); the note's own old address redirects.
+        if (replacement) {
+            if (row.slug && row.slug !== replacement.slug) redirects.push(row.slug);
+        }
         // A slug set in the note's Website section moves the article; the old address redirects.
-        if (metadata.slug && metadata.slug !== slug) {
+        else if (metadata.slug && metadata.slug !== slug) {
             if (await this.slugTaken(metadata.slug, row.uuid)) this.fail(`/blog/${slug}: the slug "${metadata.slug}" is already used; kept /blog/${slug}`);
             else {
                 redirects.push(slug);
@@ -512,7 +609,19 @@ class Run {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([uuid, s]) => `${uuid}:${s}`)
             .join(",");
-        const inputHash = await sha256(JSON.stringify([slug, title, row.website_tags, row.markdown, row.note_created_at, row.note_updated_at, linkContext]));
+        const inputHash = await sha256(
+            JSON.stringify([
+                RENDER_VERSION,
+                slug,
+                title,
+                row.website_tags,
+                row.markdown,
+                row.note_created_at,
+                row.note_updated_at,
+                linkContext,
+                replacement ? [replacement.source.id, replacement.live] : null,
+            ]),
+        );
         if (existing && row.state === "published" && row.content_hash === inputHash && !redirects.length) return "unchanged";
 
         const markdown = withoutRepeatedTitle(body, title);
@@ -535,22 +644,29 @@ class Run {
         });
         // "image: none" in the Website section means no featured image; otherwise the named image, else the first one.
         const noImage = metadata.image?.toLowerCase() === "none";
-        const featuredImage = noImage ? null : ((metadata.image ? images.get(metadata.image) : undefined) ?? images.get(rendered.images[0] ?? "") ?? null);
+        const noteImage = noImage ? null : ((metadata.image ? images.get(metadata.image) : undefined) ?? images.get(rendered.images[0] ?? "") ?? null);
+        // A moved Capacities article keeps what the note doesn't say: its date, category, tags, subtitle, summary and featured image.
+        const original = replacement?.source ?? null;
+        const featuredImage = noteImage
+            ? { key: noteImage.key, alt: title, width: noteImage.width, height: noteImage.height }
+            : !noImage && original?.image_key
+              ? { key: original.image_key, alt: original.image_alt ?? title, width: original.image_width, height: original.image_height }
+              : null;
         const meta = tagMetadata(JSON.parse(row.website_tags) as string[], this.c);
         const ts = this.timestamp();
         const firstPublished = row.first_published_at ?? ts;
-        const publishedAt = metadata.published ?? firstPublished;
+        const publishedAt = metadata.published ?? original?.published_at ?? firstPublished;
         const flat = rendered.text.replace(/\s+/g, " ").trim();
-        const summary = metadata.summary ?? (flat.length <= 200 ? flat || null : `${flat.slice(0, 200).replace(/\s+\S*$/, "")}…`);
+        const summary = metadata.summary ?? original?.summary ?? (flat.length <= 200 ? flat || null : `${flat.slice(0, 200).replace(/\s+\S*$/, "")}…`);
         const record = {
             title,
-            subtitle: metadata.subtitle,
+            subtitle: metadata.subtitle ?? original?.subtitle ?? null,
             summary,
-            category: meta.category,
-            tags: meta.tags,
+            category: meta.category ?? original?.category ?? null,
+            tags: meta.tags.length || !original ? meta.tags : (JSON.parse(original.tags) as string[]),
             featured: meta.featured,
             image_key: featuredImage?.key ?? null,
-            image_alt: featuredImage ? title : null,
+            image_alt: featuredImage?.alt ?? null,
             image_width: featuredImage?.width ?? null,
             image_height: featuredImage?.height ?? null,
             body_html: rendered.html || `<p>${escapeHtml(summary ?? title)}</p>`,
@@ -562,7 +678,25 @@ class Run {
             updated_at: row.note_updated_at && Date.parse(row.note_updated_at) > Date.parse(publishedAt) ? row.note_updated_at : null,
         };
         const contentHash = await sha256(JSON.stringify({ slug, ...record }));
+        // Moving a Capacities article: archive it, take it out of posts and point its old addresses
+        // here, all in the same batch as the new post, so the address is never empty or doubled.
+        const takeover: D1PreparedStatement[] = [];
+        if (replacement?.live) {
+            const own = await db.prepare("SELECT from_slug FROM slug_redirects WHERE post_id = ?").bind(replacement.source.id).all<{ from_slug: string }>();
+            takeover.push(
+                archiveStatement(
+                    this.env,
+                    replacement.source,
+                    own.results.map((r) => r.from_slug),
+                    row.replace_approved_by ?? "amplenote",
+                    row.uuid,
+                ),
+                db.prepare("DELETE FROM posts WHERE id = ? AND source = 'capacities'").bind(replacement.source.id),
+                db.prepare("UPDATE slug_redirects SET post_id = ? WHERE post_id = ?").bind(postId(row.uuid), replacement.source.id),
+            );
+        }
         const statements = [
+            ...takeover,
             db
                 .prepare(
                     `INSERT INTO posts (id, slug, title, subtitle, summary, category, tags, featured, image_key, image_alt, image_width, image_height,
@@ -616,6 +750,7 @@ class Run {
             ),
         ];
         await db.batch(statements);
+        if (takeover.length) this.log(`Moved /blog/${slug} from Capacities to this Amplenote note; the Capacities copy is archived`);
         if (redirects.length) this.log(`Slug changed: /blog/${redirects[0]} now redirects to /blog/${slug}`);
         if (existing?.content_hash === contentHash) {
             if (row.state !== "published") this.changed = true;
