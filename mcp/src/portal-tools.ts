@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { PortalMcpRequest, PortalMcpResponse } from "../../worker/mcp/entrypoint";
 
 /**
- * The Daly MCP tools (Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and Home & Assets in Daly Portal) and how each one is advertised.
+ * The Daly MCP tools (Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and Home & Assets in Daly Portal, and the owner's Amplenote through the portal) and how each one is advertised.
  *
  * This Worker holds the MCP descriptions and a first round of input validation only. Every call
  * goes over the private `PORTAL` service binding to the portal Worker's `PortalMcpEntrypoint`
@@ -89,6 +89,10 @@ export const PORTAL_TOOL_NAMES = [
     "assets_update",
     "assets_create_maintenance",
     "assets_complete_maintenance",
+    "amplenote_list_notes",
+    "amplenote_create_note",
+    "amplenote_append",
+    "amplenote_create_task",
 ] as const;
 
 export type PortalToolName = (typeof PORTAL_TOOL_NAMES)[number];
@@ -172,6 +176,9 @@ export const PORTAL_WRITE_TOOLS: ReadonlySet<PortalToolName> = new Set([
     "assets_update",
     "assets_create_maintenance",
     "assets_complete_maintenance",
+    "amplenote_create_note",
+    "amplenote_append",
+    "amplenote_create_task",
 ]);
 
 /* ------------------------------------------------------------------------ */
@@ -322,6 +329,13 @@ const centreRuleDefinition = z
     .describe(
         "The condition, with its units stated. Areas are the person's own watch areas (by id, from centre_list_watch_areas): never coordinates. Thresholds the person chooses are theirs, not official thresholds.",
     );
+const AMPLENOTE =
+    "The person's own Amplenote (amplenote.com), through Daly Portal: only the portal owner who connected it, while Amplenote for AI assistants is on. Amplenote is where these notes and tasks live; nothing is copied into the portal.";
+const amplenoteNoteId = z
+    .string()
+    .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, "Not a valid Amplenote note id")
+    .describe("The note's id (noteUuid) from amplenote_list_notes.");
+const amplenoteTag = z.string().trim().max(60).describe("An Amplenote tag, lowercase, like work/rfs.");
 const ASSETS =
     'Home & Assets (daly.id.au/portal/assets): what the household owns, maintains, insures or will replace. Only assets the person owns or that are shared with them; values, costs, insurance and documents only where those are shared. Report records as given: never estimate a value, a service interval or a date, and never say something is insured ("linked to a verified policy" is the most a record says).';
 const assetId = portalId("ast", "asset");
@@ -372,11 +386,14 @@ const WRITE = {
     openWorldHint: false,
 } as const;
 const IDEMPOTENT_WRITE = { ...WRITE, idempotentHint: true } as const;
+/** Amplenote is a service outside Daly Portal. */
+const EXTERNAL_READ = { ...READ, openWorldHint: true } as const;
+const EXTERNAL_WRITE = { ...WRITE, openWorldHint: true } as const;
 
 type ToolSpec = {
     readonly description: string;
     readonly input: z.ZodObject;
-    readonly annotations: typeof READ | typeof WRITE | typeof IDEMPOTENT_WRITE;
+    readonly annotations: typeof READ | typeof WRITE | typeof IDEMPOTENT_WRITE | typeof EXTERNAL_READ | typeof EXTERNAL_WRITE;
 };
 
 const SOURCE = "Daly Portal (daly.id.au/portal). Shows only what the signed-in person can see there.";
@@ -965,6 +982,46 @@ export const PORTAL_TOOLS: Record<PortalToolName, ToolSpec> = {
         description: `${SOURCE} The person's weekly review for the seven days ending weekEnding (default today): the week's events, overlapping commitments, important dates, leave and school holidays. Facts with links; recommendations only if already prepared, labelled as suggestions.`,
         input: z.object({ weekEnding: date.optional() }).strict(),
         annotations: READ,
+    },
+
+    /* ------------------------------- Amplenote ------------------------------- */
+    amplenote_list_notes: {
+        description: `${AMPLENOTE} List the person's Amplenote notes by title and tags, newest change first: each note's id, name, tags, created and updated times and link. Amplenote's API never returns what's in a note, so you can't read, summarise or search note content: say so if asked. query matches words in titles and tags; tag matches a tag and the tags under it. Read-only.`,
+        input: z
+            .object({
+                query: z.string().trim().max(200).optional(),
+                tag: amplenoteTag.optional(),
+                changedSince: date.optional().describe("Only notes changed on or after this date (the person's time zone)."),
+                limit: limit(100),
+            })
+            .strict(),
+        annotations: EXTERNAL_READ,
+    },
+    amplenote_create_note: {
+        description: `${AMPLENOTE} WRITE: create a new, empty Amplenote note with a name and optional tags. Add its text with amplenote_append. Check amplenote_list_notes first so you don't create a second note with the same name.`,
+        input: z.object({ name: z.string().trim().min(1).max(300), tags: z.array(amplenoteTag).max(10).optional(), requestId }).strict(),
+        annotations: EXTERNAL_WRITE,
+    },
+    amplenote_append: {
+        description: `${AMPLENOTE} WRITE: add plain text to an existing Amplenote note, one paragraph per line. Nothing in the note is changed or removed; Amplenote decides where in the note the text goes. Find the note's id with amplenote_list_notes, and ask if more than one note could be meant.`,
+        input: z.object({ noteUuid: amplenoteNoteId, text: z.string().max(10_000), requestId }).strict(),
+        annotations: EXTERNAL_WRITE,
+    },
+    amplenote_create_task: {
+        description: `${AMPLENOTE} WRITE: add one task to an existing Amplenote note (find it with amplenote_list_notes; ask which note if unsure). Amplenote's API can only add tasks: it can't list, change, reschedule or complete them. dueDate, dueTime, important, urgent and reminderAt are refused with error.details.unsupported when Amplenote isn't confirmed to store them, and then no task is created: tell the person and don't retry without them unless they agree. Never leave a property off silently.`,
+        input: z
+            .object({
+                noteUuid: amplenoteNoteId,
+                text: z.string().trim().min(1).max(500),
+                dueDate: date.nullable().optional(),
+                dueTime: clock.nullable().optional(),
+                important: z.boolean().optional(),
+                urgent: z.boolean().optional(),
+                reminderAt: instant.nullable().optional(),
+                requestId,
+            })
+            .strict(),
+        annotations: EXTERNAL_WRITE,
     },
 };
 

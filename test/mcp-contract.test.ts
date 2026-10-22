@@ -14,7 +14,7 @@ describe("MCP tool contract", () => {
 
     it("advertises exactly the tools the portal serves", () => {
         expect([...PORTAL_TOOL_NAMES].sort()).toEqual([...portal.keys()].sort());
-        expect(PORTAL_TOOL_NAMES).toHaveLength(66);
+        expect(PORTAL_TOOL_NAMES).toHaveLength(70);
     });
 
     it("retires the same tools on both sides, and serves none of them", () => {

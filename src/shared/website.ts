@@ -72,7 +72,14 @@ export interface AmplenoteStatus {
         /** AMPLENOTE_CLIENT_ID and AMPLENOTE_TOKEN_KEY. */
         api: boolean;
     };
-    connection: { connectedBy: string; connectedAt: string; fullListedAt: string | null; lastError: string | null } | null;
+    connection: {
+        connectedBy: string;
+        connectedAt: string;
+        fullListedAt: string | null;
+        lastError: string | null;
+        /** The connection can also add notes and content (the AI assistant scopes). */
+        canAdd: boolean;
+    } | null;
     articles: AmplenoteArticleStatus[];
     runs: AmplenoteRunStatus[];
     capacities: CapacitiesStatus;

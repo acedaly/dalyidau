@@ -139,6 +139,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "assets.ai": "assets",
     "assets.reminders.email": "assets",
     "website.capacities.sync": "website",
+    "website.amplenote.assistant": "website",
 };
 
 export const flagsInArea = (area: FeatureArea): FlagKey[] => FLAG_KEYS.filter((key) => FLAG_AREAS[key] === area);

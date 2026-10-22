@@ -112,7 +112,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 66 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 70 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
                 "chief_of_staff_daily_context",
@@ -181,6 +181,10 @@ describe("who may call the portal through the MCP gateway", () => {
                 "assets_update",
                 "assets_create_maintenance",
                 "assets_complete_maintenance",
+                "amplenote_list_notes",
+                "amplenote_create_note",
+                "amplenote_append",
+                "amplenote_create_task",
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);

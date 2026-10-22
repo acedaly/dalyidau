@@ -3,7 +3,9 @@
 //
 //   OAuth2 authorization code flow (PKCE), login.amplenote.com/login → api.amplenote.com/oauth/token.
 //   Access tokens last two hours (expires_in 7200) and come with a refresh token, which Amplenote
-//   didn't rotate in the owner's live check (rotation is still handled). Only notes:list is asked for.
+//   didn't rotate in the owner's live check (rotation is still handled). The blog asks only for
+//   notes:list. With "Amplenote for AI assistants" switched on, a new sign-in also asks for notes:create
+//   and notes:create-content-action (worker/amplenote/assistant.ts).
 //   GET /v4/notes[?since=<unix>]: { notes: [...] } with metadata for every note (uuid, name, tags,
 //   timestamps, deleted and "public": whether the note has been shared publicly). No content, and no
 //   public URL or token (confirmed live).
@@ -15,7 +17,13 @@ import type { Env } from "../env";
 import { auditStatement, nowIso } from "../portal/db";
 import { PUBLIC_HOST } from "./metadata";
 
+/** The blog's scope: list notes, nothing else. */
 export const SCOPE = "notes:list";
+/** What AI assistants need on top: create notes, and add content (text and tasks) to a note. */
+export const WRITE_SCOPES = ["notes:create", "notes:create-content-action"] as const;
+export const ASSISTANT_SCOPE = [SCOPE, ...WRITE_SCOPES].join(" ");
+/** The scopes a stored connection holds, from its space-separated scope string. */
+export const grantedScopes = (scope: string | null | undefined) => new Set((scope ?? "").split(/[\s,]+/).filter(Boolean));
 export const CALLBACK_PATH = "/api/integrations/amplenote/callback";
 /** Ties a sign-in to the browser that started it: the callback is outside Cloudflare Access, so it can't ask Access who's there. */
 export const BROWSER_COOKIE = "__Secure-amplenote-oauth";
@@ -51,8 +59,9 @@ export class AmplenoteError extends Error {
 }
 
 // --- Tokens at rest ------------------------------------------------------------------------------
-// Access and refresh tokens are credentials for the owner's whole Amplenote account (read-only with
-// notes:list, but still). They're sealed with AES-GCM under AMPLENOTE_TOKEN_KEY; without that secret
+// Access and refresh tokens are credentials for the owner's whole Amplenote account (list-only with
+// notes:list; able to add notes and content with the assistant scopes). They're sealed with AES-GCM
+// under AMPLENOTE_TOKEN_KEY; without that secret
 // the connection can't be made at all, rather than storing them in the clear.
 
 const enc = new TextEncoder();
@@ -96,7 +105,7 @@ const digest = async (value: string) => b64url(new Uint8Array(await crypto.subtl
  * state, a PKCE verifier and a browser nonce, all kept server-side (the nonce only as a hash). Returns
  * the Amplenote URL to send the owner to and the cookie that must come back with the callback.
  */
-export async function startConnect(env: Env, actor: string): Promise<{ url: string; cookie: string }> {
+export async function startConnect(env: Env, actor: string, scope: string = SCOPE): Promise<{ url: string; cookie: string }> {
     if (!env.AMPLENOTE_CLIENT_ID) throw new AmplenoteError("AMPLENOTE_CLIENT_ID is not set");
     const state = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
@@ -105,12 +114,13 @@ export async function startConnect(env: Env, actor: string): Promise<{ url: stri
     const now = new Date();
     await env.DB.batch([
         env.DB.prepare("DELETE FROM amplenote_oauth_states WHERE created_at < ?").bind(new Date(now.getTime() - STATE_MINUTES * 60_000).toISOString()),
-        env.DB.prepare("INSERT INTO amplenote_oauth_states (state, verifier, browser, actor, created_at) VALUES (?, ?, ?, ?, ?)").bind(
+        env.DB.prepare("INSERT INTO amplenote_oauth_states (state, verifier, browser, actor, created_at, scope) VALUES (?, ?, ?, ?, ?, ?)").bind(
             state,
             await seal(env, verifier),
             await digest(nonce),
             actor,
             now.toISOString(),
+            scope,
         ),
     ]);
     const url = new URL(hosts(env).login);
@@ -118,7 +128,7 @@ export async function startConnect(env: Env, actor: string): Promise<{ url: stri
         response_type: "code",
         client_id: env.AMPLENOTE_CLIENT_ID,
         redirect_uri: redirectUri(env),
-        scope: SCOPE,
+        scope,
         state,
         code_challenge: challenge,
         code_challenge_method: "S256",
@@ -166,7 +176,7 @@ async function tokenRequest(env: Env, params: Record<string, string>, fetchImpl:
     return data;
 }
 
-async function storeTokens(env: Env, tokens: TokenResponse, actor: string | null, now = new Date()) {
+async function storeTokens(env: Env, tokens: TokenResponse, actor: string | null, now = new Date(), requested: string = SCOPE) {
     const expires = new Date(now.getTime() + Math.max(60, Math.min(tokens.expires_in ?? 7200, 86_400)) * 1000).toISOString();
     const access = await seal(env, tokens.access_token);
     const refresh = tokens.refresh_token ? await seal(env, tokens.refresh_token) : null;
@@ -178,7 +188,7 @@ async function storeTokens(env: Env, tokens: TokenResponse, actor: string | null
                 scope = excluded.scope, connected_by = excluded.connected_by, connected_at = excluded.connected_at, list_cursor = NULL, full_listed_at = NULL,
                 last_error = NULL, updated_at = excluded.updated_at`,
         )
-            .bind(access, refresh, expires, tokens.scope ?? SCOPE, actor, now.toISOString())
+            .bind(access, refresh, expires, tokens.scope ?? requested, actor, now.toISOString())
             .run();
     } else {
         // A refresh: keep the old refresh token unless Amplenote rotated it.
@@ -196,9 +206,9 @@ async function storeTokens(env: Env, tokens: TokenResponse, actor: string | null
  * started. The code is exchanged with the PKCE verifier; the tokens never reach the browser.
  */
 export async function finishConnect(env: Env, code: string, state: string, nonce: string | null, fetchImpl: typeof fetch = fetch) {
-    const row = await env.DB.prepare("DELETE FROM amplenote_oauth_states WHERE state = ? RETURNING verifier, browser, actor, created_at")
+    const row = await env.DB.prepare("DELETE FROM amplenote_oauth_states WHERE state = ? RETURNING verifier, browser, actor, created_at, scope")
         .bind(state)
-        .first<{ verifier: string; browser: string; actor: string; created_at: string }>();
+        .first<{ verifier: string; browser: string; actor: string; created_at: string; scope: string | null }>();
     if (!row || !nonce || (await digest(nonce)) !== row.browser || Date.now() - Date.parse(row.created_at) > STATE_MINUTES * 60_000) {
         throw new AmplenoteError("This sign-in has expired or wasn't started in this browser. Start again from Portal settings.");
     }
@@ -206,13 +216,17 @@ export async function finishConnect(env: Env, code: string, state: string, nonce
     const verifier = await unseal(env, row.verifier);
     if (!verifier) throw new AmplenoteError("This sign-in can't be completed. Start again from Portal settings.");
     const tokens = await tokenRequest(env, { grant_type: "authorization_code", code, redirect_uri: redirectUri(env), code_verifier: verifier }, fetchImpl);
-    await storeTokens(env, tokens, actor);
+    const requested = row.scope ?? SCOPE;
+    await storeTokens(env, tokens, actor, new Date(), requested);
+    const writes = WRITE_SCOPES.every((s) => grantedScopes(tokens.scope ?? requested).has(s));
     await auditStatement(env.DB, {
         actor,
         action: "website.amplenote.connect",
         entityType: "website",
         entityId: "amplenote",
-        summary: "Connected the Amplenote API (read-only note list) for blog publishing",
+        summary: writes
+            ? "Connected the Amplenote API (list notes; add notes and content for AI assistants)"
+            : "Connected the Amplenote API (read-only note list) for blog publishing",
     }).run();
 }
 
@@ -331,4 +345,77 @@ export async function listNotes(env: Env, token: string, since: number | null, f
             },
         ];
     });
+}
+
+// --- Adding notes and content (AI assistants, worker/amplenote/assistant.ts) -----------------------
+// Both are write-only on Amplenote's side: nothing comes back but the new note's uuid (POST /notes) or
+// a status (POST /notes/{uuid}/actions). A request that got no answer at all may still have been
+// carried out, so it is reported as `unknownOutcome`, never as "nothing happened".
+
+/** A ProseMirror-style node as Amplenote's INSERT_NODES action takes it. */
+export interface AmplenoteNode {
+    type: string;
+    attrs?: Record<string, unknown>;
+    content?: AmplenoteNode[];
+    text?: string;
+}
+
+export class AmplenoteWriteError extends AmplenoteError {
+    constructor(
+        message: string,
+        status = 0,
+        /** The request may have reached Amplenote and been carried out (timeout, dropped connection). */
+        readonly unknownOutcome = false,
+    ) {
+        super(message, status);
+    }
+}
+
+async function post(env: Env, token: string, path: string, body: unknown, what: string, fetchImpl: typeof fetch): Promise<unknown> {
+    let response: Response;
+    try {
+        response = await fetchImpl(`${hosts(env).api}${path}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(body),
+            redirect: "manual",
+            signal: AbortSignal.timeout(20_000),
+        });
+    } catch (error) {
+        throw new AmplenoteWriteError(`${what}: Amplenote didn't answer (${(error as Error).name})`, 0, true);
+    }
+    if (!response.ok) {
+        await response.body?.cancel();
+        // 5xx: the service failed part-way, so the change may or may not have been made.
+        throw new AmplenoteWriteError(`${what}: Amplenote refused it (${response.status})`, response.status, response.status >= 500);
+    }
+    const text = await response.text().catch(() => "");
+    try {
+        return text ? (JSON.parse(text) as unknown) : null;
+    } catch {
+        return null;
+    }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * POST /v4/notes with a name and tags. Amplenote answers with the new note; its uuid is read from
+ * `uuid` (or `note.uuid`). A success without a recognisable uuid throws with unknownOutcome, because
+ * the note exists but can't be named.
+ */
+export async function createNote(env: Env, token: string, note: { name: string; tags: string[] }, fetchImpl: typeof fetch = fetch): Promise<{ uuid: string }> {
+    const data = (await post(env, token, "/v4/notes", { name: note.name, tags: note.tags.map((text) => ({ text })) }, "Creating the note", fetchImpl)) as {
+        uuid?: unknown;
+        note?: { uuid?: unknown };
+    } | null;
+    const uuid = typeof data?.uuid === "string" ? data.uuid : typeof data?.note?.uuid === "string" ? data.note.uuid : null;
+    if (!uuid || !UUID.test(uuid)) throw new AmplenoteWriteError("Amplenote accepted the note but didn't say which note it created", 200, true);
+    return { uuid: uuid.toLowerCase() };
+}
+
+/** POST /v4/notes/{uuid}/actions with INSERT_NODES. Amplenote decides where in the note they go. */
+export async function insertNodes(env: Env, token: string, uuid: string, nodes: AmplenoteNode[], fetchImpl: typeof fetch = fetch): Promise<void> {
+    if (!UUID.test(uuid)) throw new AmplenoteWriteError("Not a valid Amplenote note id", 400);
+    await post(env, token, `/v4/notes/${uuid.toLowerCase()}/actions`, { type: "INSERT_NODES", nodes }, "Adding to the note", fetchImpl);
 }

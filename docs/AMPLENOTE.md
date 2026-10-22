@@ -237,6 +237,60 @@ here; to revoke the grant on Amplenote's side as well, remove it in your Ampleno
 `/blog/amplenote-test` is no longer a special page. To keep that address for the test note, add a
 `# Website` section with `slug: amplenote-test`. Otherwise it appears at the slug of its title.
 
+## AI assistants
+
+Four MCP tools let Claude or ChatGPT work with the owner's Amplenote at `mcp.daly.id.au`:
+`amplenote_list_notes`, `amplenote_create_note`, `amplenote_append` and `amplenote_create_task`
+(`worker/mcp/amplenote.ts`, `worker/amplenote/assistant.ts`, [MCP.md](MCP.md#amplenote)). Amplenote is
+where these notes and tasks live. Every call goes straight to the REST API; the portal keeps no copy of
+a note, its content, the note list or a task, runs no background sync and queues nothing for later.
+
+What the REST API allows, and so what the tools can do:
+
+| Can                                                 | Can't (no endpoint)                               |
+| --------------------------------------------------- | ------------------------------------------------- |
+| list note titles, tags and times (`GET /notes`)     | read or search what's in a note                   |
+| create a note with a name and tags (`POST /notes`)  | find, list, change, reschedule or complete a task |
+| add paragraphs or a task to a note (`INSERT_NODES`) | edit or remove existing content, or delete a note |
+
+### Turning it on
+
+1. Portal settings → Features → **Amplenote for AI assistants**.
+2. Portal settings → Website & Blog → **Reconnect**. With the switch on, the sign-in also asks for
+   `notes:create` and `notes:create-content-action`. The panel's **AI assistants** row then reads
+   "Can add notes". Turning the switch off stops the tools at once; reconnect with it off to drop the
+   write scopes too.
+
+Only the portal owner who made the connection can use the tools.
+
+### Task properties: confirm before use
+
+Amplenote's documentation shows tasks inserted as `check_list_item` nodes, with no attributes. It doesn't
+say whether a due (start) date, Important or Urgent, or a reminder can be set that way. Until a live check
+shows Amplenote storing one, `amplenote_create_task` refuses any request that asks for it, naming each
+property in `details.unsupported`, and creates nothing. It never creates the task with the property
+quietly left off.
+
+The live check is `scripts/amplenote-write-check.mjs`. Run it yourself:
+
+```sh
+export AMPLENOTE_CLIENT_ID=…          # in your own terminal, never in a file
+node scripts/amplenote-write-check.mjs start
+node scripts/amplenote-write-check.mjs finish "<the address you were sent to>"           # read-only
+node scripts/amplenote-write-check.mjs finish "<the address you were sent to>" --write   # writes, see below
+```
+
+Without `--write` it changes nothing: it reports the scopes granted and what the API spec says about
+creating notes, actions and task nodes. With `--write`, after you type `create`, it makes one new note,
+"Daly MCP write check (safe to delete)" (tag `daly/mcp-check`), and adds to that note only: a paragraph,
+a plain task, and tasks carrying `startAt`, `due`, `important`, `urgent`, `hideUntil` and an invented
+attribute, each in its own request. Open the note in Amplenote, record which tasks show which property
+(and where in the note they landed), then delete the note. Each confirmed property gets its attribute in
+`TASK_PROPERTIES` (`worker/amplenote/assistant.ts`) in a follow-up change, with a test.
+
+Also confirmed by that run, and assumed until then: `POST /notes` answers with the new note's `uuid`
+(the tool refuses to guess if it doesn't), and where `INSERT_NODES` puts new content in a note.
+
 ## Limitations
 
 - New articles and content edits need Amplenote to be opened somewhere (no clicks). This is the
