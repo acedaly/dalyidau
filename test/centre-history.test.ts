@@ -213,12 +213,11 @@ describe("Timelines", () => {
         expect(timeline.notes.join(" ")).toContain("No versioned history");
     });
 
-    it("save to Knowledge once per hour, through Knowledge's own function", async () => {
+    it("no longer save to Knowledge (retired): the route says so", async () => {
         const { fireId } = await history();
-        const first = await apiCall<{ objectId: string }>("POST", `${C}/records/${fireId}/timeline/knowledge`, {});
-        expect(first.status, first.text).toBe(200);
-        const again = await apiCall<{ objectId: string }>("POST", `${C}/records/${fireId}/timeline/knowledge`, {});
-        expect(again.json.objectId).toBe(first.json.objectId);
+        const r = await apiCall<{ error: string }>("POST", `${C}/records/${fireId}/timeline/knowledge`, {});
+        expect(r.status).toBe(410);
+        expect(r.json.error).toBe("retired");
     });
 });
 

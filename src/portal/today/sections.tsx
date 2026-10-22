@@ -1,35 +1,19 @@
-// Today's sections: capacity, the timeline, what needs attention, upcoming deadlines, commitments,
-// notifications and the Chief of Staff briefing. Each shows what the Worker worked out from the
+// Today's sections: capacity, the timeline, commitments, notifications and the Chief of Staff
+// briefing. Each shows what the Worker worked out from the
 // person's records; nothing here calculates availability or invents an item. Untitled UI parts
-// throughout (Badge, Button, Dropdown, MetricCard, Notice), in the Calendar's Card frame.
+// throughout (Badge, Button, Notice), in the Calendar's Card frame.
 import { useState } from "react";
-import {
-    AlertTriangle,
-    Bell01,
-    Calendar,
-    CalendarCheck01,
-    CalendarPlus02,
-    CheckCircle,
-    Clock,
-    Flag01,
-    Lock01,
-    Stars02,
-    Sunrise,
-    Users01,
-    X,
-} from "@untitledui/icons";
+import { AlertTriangle, Bell01, Calendar, Clock, Lock01, Stars02, Sunrise, Users01, X } from "@untitledui/icons";
 import { Badge, BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { durationLabel } from "@/portal/calendar/planner-api";
 import { Card } from "@/portal/calendar/shared";
 import { Notice } from "@/portal/components/notice";
 import { intelligenceApi } from "@/portal/intelligence/api";
 import { errorMessage } from "@/portal/lib/api";
 import { dayLabel, timeLabel } from "@/shared/calendar/time";
 import type { BriefingView } from "@/shared/intelligence/types";
-import type { PlannerTask, TimeBlockInfo } from "@/shared/planner/types";
+import { hoursLabel as durationLabel } from "@/shared/today/engine";
 import type {
     BriefingRef,
     CommitmentItem,
@@ -39,7 +23,6 @@ import type {
     TodayCapacity,
     TodayNotification,
     TodayPreferences,
-    TodayTask,
 } from "@/shared/today/types";
 import { cx } from "@/utils/cx";
 
@@ -70,7 +53,7 @@ export const CapacitySection = ({ capacity }: { capacity: TodayCapacity }) => {
         >
             {/* One compact row of figures rather than a card each. */}
             <div className="@container">
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 @xl:grid-cols-4">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 @xl:grid-cols-3">
                     {[
                         {
                             label: "Available",
@@ -80,18 +63,12 @@ export const CapacitySection = ({ capacity }: { capacity: TodayCapacity }) => {
                         },
                         { label: "Appointments", icon: Calendar, value: capacity.appointmentMinutes, detail: "Overlaps counted once" },
                         {
-                            label: "Task time",
-                            icon: CalendarCheck01,
-                            value: capacity.taskMinutes,
-                            detail: `Limit ${durationLabel(capacity.focusLimitMinutes)} a day`,
-                        },
-                        {
                             label: "Free",
                             icon: Stars02,
                             value: capacity.freeMinutes,
-                            detail: capacity.unscheduledMinutes
-                                ? `${durationLabel(capacity.unscheduledMinutes)} of due work unplanned`
-                                : "Nothing due left to plan",
+                            detail: capacity.outsideMinutes
+                                ? `${durationLabel(capacity.outsideMinutes)} booked outside your hours`
+                                : "Inside your planning hours",
                         },
                     ].map((m) => (
                         <div key={m.label} className="flex min-w-0 flex-col gap-0.5">
@@ -108,11 +85,10 @@ export const CapacitySection = ({ capacity }: { capacity: TodayCapacity }) => {
             {capacity.availableMinutes > 0 && (
                 <div
                     role="img"
-                    aria-label={`${durationLabel(capacity.appointmentMinutes)} appointments, ${durationLabel(capacity.taskMinutes)} tasks, ${durationLabel(capacity.freeMinutes)} free`}
+                    aria-label={`${durationLabel(capacity.appointmentMinutes)} appointments, ${durationLabel(capacity.freeMinutes)} free`}
                     className="flex h-2.5 w-full overflow-hidden rounded-full bg-quaternary"
                 >
                     <span className="h-full bg-fg-brand-primary" style={{ width: pct(capacity.appointmentMinutes) }} />
-                    <span className="h-full bg-fg-success-secondary" style={{ width: pct(capacity.taskMinutes) }} />
                 </div>
             )}
             {capacity.availableMinutes > 0 && (
@@ -121,19 +97,13 @@ export const CapacitySection = ({ capacity }: { capacity: TodayCapacity }) => {
                         <span aria-hidden="true" className="size-2 rounded-full bg-fg-brand-primary" /> Appointments
                     </span>
                     <span className="flex items-center gap-1.5">
-                        <span aria-hidden="true" className="size-2 rounded-full bg-fg-success-secondary" /> Task time
-                    </span>
-                    <span className="flex items-center gap-1.5">
                         <span aria-hidden="true" className="size-2 rounded-full bg-quaternary" /> Free
                     </span>
                 </p>
             )}
-            {(capacity.overbooked.length > 0 || capacity.shortfallMinutes > 0) && (
-                <Notice color="warning" title={capacity.overbooked.length ? "Overbooked" : "More due than there's time for"}>
+            {capacity.overbooked.length > 0 && (
+                <Notice color="warning" title="Overbooked">
                     {capacity.overbooked.map((o) => `${clock(o.startTime)}–${clock(o.endTime)}: ${o.with.map((w) => w.title).join(", ")}`).join("; ")}
-                    {capacity.overbooked.length > 0 && capacity.shortfallMinutes > 0 && ". "}
-                    {capacity.shortfallMinutes > 0 &&
-                        `${durationLabel(capacity.shortfallMinutes)} of work due doesn't fit. Postpone something, or plan it on another day.`}
                 </Notice>
             )}
             <details className="group text-sm">
@@ -154,28 +124,12 @@ export const CapacitySection = ({ capacity }: { capacity: TodayCapacity }) => {
 
 const KIND: Record<TimelineItem["kind"], { label: string; bar: string }> = {
     event: { label: "Fixed", bar: "bg-fg-brand-primary" },
-    block: { label: "Task time", bar: "bg-fg-success-secondary" },
     break: { label: "Break", bar: "bg-fg-quaternary" },
     leave: { label: "Unavailable", bar: "bg-fg-warning-secondary" },
-    focus: { label: "Focus period", bar: "bg-fg-brand-secondary" },
     free: { label: "Free", bar: "bg-quaternary" },
 };
 
-export const TimelineList = ({
-    timeline,
-    blocks,
-    unscheduled,
-    onOpenBlock,
-    onPlanAt,
-}: {
-    timeline: DayTimeline;
-    blocks: TimeBlockInfo[];
-    /** Tasks that can go into a free slot. */
-    unscheduled: PlannerTask[];
-    onOpenBlock: (block: TimeBlockInfo) => void;
-    onPlanAt: (task: PlannerTask, time: string) => void;
-}) => {
-    const byBlock = new Map(blocks.map((b) => [b.id, b]));
+export const TimelineList = ({ timeline }: { timeline: DayTimeline }) => {
     if (!timeline.items.length && !timeline.allDay.length)
         return <p className="text-sm text-tertiary">{timeline.hours.length ? "Nothing planned yet." : "No planning hours and nothing on this day."}</p>;
     return (
@@ -199,251 +153,68 @@ export const TimelineList = ({
                 </ul>
             )}
             <ol aria-label="Timeline" className="flex flex-col gap-1.5">
-                {timeline.items.map((item) => {
-                    const block = item.kind === "block" ? byBlock.get(item.id) : undefined;
-                    return (
-                        <li
-                            key={item.id}
-                            data-timeline={item.kind}
-                            data-movable={item.movable || undefined}
-                            className={cx(
-                                "flex items-stretch gap-3 rounded-lg px-3 py-2 ring-1 ring-inset",
-                                item.kind === "free" || item.kind === "focus" ? "bg-secondary_subtle ring-secondary" : "bg-primary ring-secondary",
-                                item.conflict && "ring-error_subtle",
-                            )}
-                        >
-                            <span aria-hidden="true" className={cx("w-1 shrink-0 rounded-full", KIND[item.kind].bar)} />
-                            <div className="w-24 shrink-0 text-xs text-tertiary tabular-nums sm:w-28">
-                                <span className="block font-medium text-secondary">{clock(item.startTime)}</span>
-                                <span>to {clock(item.endTime)}</span>
-                            </div>
-                            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    {item.url && item.kind !== "free" ? (
-                                        <a
-                                            href={item.url}
-                                            className="truncate text-sm font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2"
-                                        >
-                                            {item.title}
-                                        </a>
-                                    ) : (
-                                        <span className={cx("text-sm font-medium", item.kind === "free" ? "text-tertiary" : "text-primary")}>{item.title}</span>
-                                    )}
-                                    <Badge size="sm" color={item.kind === "block" ? "success" : item.kind === "event" ? "brand" : "gray"}>
-                                        {item.kind === "block" ? (item.movable ? "Movable" : "Task time") : KIND[item.kind].label}
+                {timeline.items.map((item) => (
+                    <li
+                        key={item.id}
+                        data-timeline={item.kind}
+                        className={cx(
+                            "flex items-stretch gap-3 rounded-lg px-3 py-2 ring-1 ring-inset",
+                            item.kind === "free" ? "bg-secondary_subtle ring-secondary" : "bg-primary ring-secondary",
+                            item.conflict && "ring-error_subtle",
+                        )}
+                    >
+                        <span aria-hidden="true" className={cx("w-1 shrink-0 rounded-full", KIND[item.kind].bar)} />
+                        <div className="w-24 shrink-0 text-xs text-tertiary tabular-nums sm:w-28">
+                            <span className="block font-medium text-secondary">{clock(item.startTime)}</span>
+                            <span>to {clock(item.endTime)}</span>
+                        </div>
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {item.url && item.kind !== "free" ? (
+                                    <a
+                                        href={item.url}
+                                        className="truncate text-sm font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2"
+                                    >
+                                        {item.title}
+                                    </a>
+                                ) : (
+                                    <span className={cx("text-sm font-medium", item.kind === "free" ? "text-tertiary" : "text-primary")}>{item.title}</span>
+                                )}
+                                <Badge size="sm" color={item.kind === "event" ? "brand" : "gray"}>
+                                    {KIND[item.kind].label}
+                                </Badge>
+                                {item.readOnly && item.kind === "event" && (
+                                    <Badge size="sm" color="gray">
+                                        <Lock01 aria-hidden="true" className="mr-1 size-3" />
+                                        Read-only
                                     </Badge>
-                                    {item.readOnly && item.kind === "event" && (
-                                        <Badge size="sm" color="gray">
-                                            <Lock01 aria-hidden="true" className="mr-1 size-3" />
-                                            Read-only
-                                        </Badge>
-                                    )}
-                                    {item.shared && (
-                                        <Badge size="sm" color="gray">
-                                            <Users01 aria-hidden="true" className="mr-1 size-3" />
-                                            Shared
-                                        </Badge>
-                                    )}
-                                    {item.conflict && (
-                                        <Badge size="sm" color="error">
-                                            <AlertTriangle aria-hidden="true" className="mr-1 size-3" />
-                                            Conflict
-                                        </Badge>
-                                    )}
-                                </div>
-                                <span className="text-xs text-tertiary">
-                                    {durationLabel(item.minutes)}
-                                    {item.detail && ` · ${item.detail}`}
-                                </span>
-                            </div>
-                            <div className="flex shrink-0 items-start gap-1">
-                                {block && (
-                                    <Button size="xs" color="secondary" onClick={() => onOpenBlock(block)} aria-label={`Adjust ${block.title}`}>
-                                        {item.movable ? "Move or resize" : "Open"}
-                                    </Button>
                                 )}
-                                {item.kind === "free" && unscheduled.length > 0 && item.minutes >= 15 && (
-                                    <Dropdown.Root>
-                                        <Button size="xs" color="secondary" iconLeading={CalendarPlus02} aria-label={`Plan a task at ${clock(item.startTime)}`}>
-                                            <span className="max-sm:sr-only">Plan a task</span>
-                                        </Button>
-                                        <Dropdown.Popover className="w-72">
-                                            <Dropdown.Menu
-                                                onAction={(key) => {
-                                                    const task = unscheduled.find((t) => t.id === key);
-                                                    if (task) onPlanAt(task, item.startTime);
-                                                }}
-                                            >
-                                                {unscheduled.slice(0, 10).map((t) => (
-                                                    <Dropdown.Item
-                                                        key={t.id}
-                                                        id={t.id}
-                                                        label={t.title}
-                                                        addon={t.priority <= 2 ? `P${t.priority}` : undefined}
-                                                    />
-                                                ))}
-                                            </Dropdown.Menu>
-                                        </Dropdown.Popover>
-                                    </Dropdown.Root>
+                                {item.shared && (
+                                    <Badge size="sm" color="gray">
+                                        <Users01 aria-hidden="true" className="mr-1 size-3" />
+                                        Shared
+                                    </Badge>
+                                )}
+                                {item.conflict && (
+                                    <Badge size="sm" color="error">
+                                        <AlertTriangle aria-hidden="true" className="mr-1 size-3" />
+                                        Overlaps
+                                    </Badge>
                                 )}
                             </div>
-                        </li>
-                    );
-                })}
+                            <span className="text-xs text-tertiary">
+                                {durationLabel(item.minutes)}
+                                {item.detail && ` · ${item.detail}`}
+                            </span>
+                        </div>
+                    </li>
+                ))}
             </ol>
         </div>
     );
 };
 
-// --- Needs attention ------------------------------------------------------------------------------
-
-const TaskLine = ({
-    task,
-    today,
-    onSchedule,
-    onComplete,
-}: {
-    task: PlannerTask;
-    today: string;
-    onSchedule: (t: PlannerTask) => void;
-    onComplete: (t: PlannerTask) => void;
-}) => {
-    const due = [task.deadline, task.dueDate].filter((d): d is string => !!d).sort()[0];
-    return (
-        <li className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-            <button
-                type="button"
-                onClick={() => onComplete(task)}
-                aria-label={`Complete ${task.title}`}
-                className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg-quaternary ring-1 ring-primary outline-focus-ring ring-inset hover:text-fg-success-primary focus-visible:outline-2"
-            >
-                <CheckCircle aria-hidden="true" className="size-3.5" />
-            </button>
-            <div className="flex min-w-0 flex-1 flex-col">
-                <a
-                    href={`/portal/tasks/t/${task.id}`}
-                    className="truncate text-sm font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2"
-                >
-                    {task.title}
-                </a>
-                <span className="flex flex-wrap gap-x-2 text-xs text-tertiary">
-                    {task.priority <= 2 && <span className="font-semibold text-error-primary">P{task.priority}</span>}
-                    {due && (
-                        <span className={cx(due < today && "text-error-primary")}>
-                            {due < today ? `Overdue · ${dayLabel(due)}` : due === today ? "Today" : dayLabel(due)}
-                        </span>
-                    )}
-                    <span className="truncate">{task.projectName}</span>
-                    <span>
-                        {task.scheduledMinutes
-                            ? `${durationLabel(task.scheduledMinutes)} planned`
-                            : task.estimateMinutes
-                              ? `${durationLabel(task.estimateMinutes)} estimated`
-                              : "No estimate"}
-                    </span>
-                </span>
-            </div>
-            <ButtonUtility size="xs" color="tertiary" icon={CalendarPlus02} tooltip={`Schedule ${task.title}`} onClick={() => onSchedule(task)} />
-        </li>
-    );
-};
-
-export const AttentionSection = ({
-    groups,
-    today,
-    completed,
-    onSchedule,
-    onComplete,
-}: {
-    groups: { key: string; title: string; empty: string; tasks: PlannerTask[] }[];
-    today: string;
-    /** Completed on this day (when the person keeps them visible). */
-    completed: TodayTask[];
-    onSchedule: (t: PlannerTask) => void;
-    onComplete: (t: PlannerTask) => void;
-}) => (
-    <Card title="Needs attention" description="Due today, overdue, and high-priority work with no time planned. Tasks stays the source of truth.">
-        <div className="@container grid grid-cols-1 gap-5 sm:grid-cols-2 2xl:grid-cols-3">
-            {groups.map((g) => (
-                <section key={g.key} aria-labelledby={`attention-${g.key}`} className="flex min-w-0 flex-col gap-2">
-                    <h3 id={`attention-${g.key}`} className="flex items-center gap-2 text-sm font-semibold text-secondary">
-                        {g.title}
-                        <Badge size="sm" color={g.key === "overdue" && g.tasks.length ? "error" : "gray"}>
-                            {g.tasks.length}
-                        </Badge>
-                    </h3>
-                    {g.tasks.length ? (
-                        <ul className="flex flex-col divide-y divide-secondary">
-                            {g.tasks.slice(0, 5).map((t) => (
-                                <TaskLine key={t.id} task={t} today={today} onSchedule={onSchedule} onComplete={onComplete} />
-                            ))}
-                        </ul>
-                    ) : (
-                        <p className="text-sm text-tertiary">{g.empty}</p>
-                    )}
-                    {g.tasks.length > 5 && <p className="text-xs text-tertiary">and {g.tasks.length - 5} more in the Tasks panel</p>}
-                </section>
-            ))}
-        </div>
-        {completed.length > 0 && (
-            <details className="text-sm">
-                <summary className="cursor-pointer rounded-sm font-medium text-secondary outline-focus-ring focus-visible:outline-2">
-                    Done ({completed.length})
-                </summary>
-                <ul className="mt-2 flex flex-col gap-1">
-                    {completed.map((t) => (
-                        <li key={t.id} className="flex items-center gap-2">
-                            <CheckCircle aria-hidden="true" className="size-4 shrink-0 text-fg-success-primary" />
-                            <a
-                                href={`/portal/tasks/t/${t.id}`}
-                                className="truncate text-tertiary line-through outline-focus-ring hover:underline focus-visible:outline-2"
-                            >
-                                {t.title}
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            </details>
-        )}
-    </Card>
-);
-
-// --- Deadlines, commitments and notifications ----------------------------------------------------------------
-
-export const DeadlinesSection = ({ deadlines, today }: { deadlines: TodayTask[]; today: string }) => (
-    <Card title="Upcoming deadlines" description="Deadlines, milestones and P1 work in the next two weeks.">
-        {deadlines.length ? (
-            <ul className="flex flex-col divide-y divide-secondary">
-                {deadlines.map((t) => {
-                    const due = t.deadline ?? t.dueDate;
-                    return (
-                        <li key={t.id} className="flex items-center justify-between gap-3 py-2 text-sm first:pt-0 last:pb-0">
-                            <span className="flex min-w-0 items-center gap-2">
-                                <Flag01
-                                    aria-hidden="true"
-                                    className={cx("size-4 shrink-0", t.isMilestone ? "text-fg-brand-secondary" : "text-fg-quaternary")}
-                                />
-                                <a
-                                    href={`/portal/tasks/t/${t.id}`}
-                                    className="truncate font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2"
-                                >
-                                    {t.title}
-                                </a>
-                                <span className="truncate text-tertiary max-sm:hidden">{t.projectName}</span>
-                            </span>
-                            <span className="shrink-0 text-tertiary">
-                                {t.deadline ? "Deadline " : ""}
-                                {due ? (due === today ? "today" : dayLabel(due)) : ""}
-                            </span>
-                        </li>
-                    );
-                })}
-            </ul>
-        ) : (
-            <p className="text-sm text-tertiary">No deadlines in the next two weeks.</p>
-        )}
-    </Card>
-);
+// --- Commitments and notifications ---------------------------------------------------------------------
 
 const CommitmentList = ({ items, empty, date }: { items: CommitmentItem[]; empty: string; date: string }) =>
     items.length ? (
@@ -492,7 +263,7 @@ export const CommitmentsSection = ({
 );
 
 export const NotificationsSection = ({ notifications, onDismiss }: { notifications: TodayNotification[]; onDismiss: (n: TodayNotification) => void }) => (
-    <Card title="Notifications" description="Calendar notices, task reminders and AI suggestions waiting for you.">
+    <Card title="Notifications" description="Calendar notices and Intelligence Centre alerts for your watch areas.">
         {notifications.length ? (
             <ul className="flex flex-col divide-y divide-secondary">
                 {notifications.map((n) => (
@@ -570,7 +341,7 @@ export const BriefingSection = ({
     return (
         <Card
             title="Chief of Staff briefing"
-            description="From your Tasks, Calendar and planner records. Every item links to where it came from."
+            description="From your Calendar and leave records. Every item links to where it came from."
             actions={
                 canUseIntelligence && preferences.ai ? (
                     <Button size="sm" color="secondary" iconLeading={Stars02} onClick={() => void explain()} isLoading={busy} showTextWhileLoading>
@@ -614,16 +385,11 @@ export const BriefingSection = ({
                 {c.status === "off"
                     ? "No planning hours today."
                     : `${durationLabel(c.availableMinutes)} available, ${durationLabel(c.committedMinutes)} committed, ${durationLabel(c.freeMinutes)} free.`}
-                {c.shortfallMinutes > 0 && ` ${durationLabel(c.shortfallMinutes)} of due work doesn't fit.`}
             </p>
             {full && (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <RefList title="Top priorities" refs={briefing.priorities} empty="Nothing due or high priority." />
                     <RefList title="Today's commitments" refs={briefing.commitments} empty="Nothing in the calendar." />
-                    <RefList title="Overdue" refs={briefing.overdue} />
                     <RefList title="Scheduling conflicts" refs={briefing.conflicts} />
-                    <RefList title="Unfinished from yesterday" refs={briefing.unfinishedYesterday} />
-                    <RefList title="Project deadlines" refs={briefing.projectDeadlines} />
                     <RefList title="Family and shared commitments" refs={briefing.family} />
                 </div>
             )}
@@ -669,7 +435,7 @@ export const BriefingSection = ({
                                     : "Nothing to add."}
                         </p>
                     )}
-                    <p className="text-xs text-tertiary">AI explains these records only. It never adds tasks, meetings, deadlines or availability.</p>
+                    <p className="text-xs text-tertiary">AI explains these records only. It never adds meetings or availability.</p>
                 </section>
             )}
             <p className="text-xs text-tertiary">Not checked: {briefing.notChecked.join(", ")}.</p>

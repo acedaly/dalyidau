@@ -1,17 +1,15 @@
 // JSON API for Today (/api/portal/today/*). By the time a request gets here the portal router has
-// verified the Access identity, the portal role and the same-origin checks (CSRF). Today needs both
-// Calendar and Tasks (as the Daily Planner does); everything it reads goes through their own access
-// rules, and everything it changes goes through their own functions. These routes only add what's
-// Today's own: its preferences, the morning and evening records, and Plan My Day.
+// verified the Access identity, the portal role and the same-origin checks (CSRF). Today needs
+// Calendar; everything it reads goes through Calendar's own access rules, and everything it changes
+// goes through Calendar's own functions. These routes only add what's Today's own: its preferences
+// and the person's planning hours.
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
-import { requirePlanner } from "../planner/blocks";
 import { HttpError, json, readJson } from "../portal/http";
 import { TODAY_PARTS, type TodayPart, todayDashboard } from "./dashboard";
-import { applyPlan, proposePlan } from "./plan";
 import { loadTodayPrefs, saveTodayPrefs } from "./prefs";
-import { loadReviews, saveReview } from "./reviews";
+import { loadPlanningHours, requireToday, savePlanningHours } from "./window";
 
 interface Ctx {
     env: Env;
@@ -45,18 +43,11 @@ add("GET", "", async ({ env, url, user }) => {
 });
 add("GET", "/preferences", async ({ env, user }) => json(await loadTodayPrefs(env.DB, user.email)));
 add("PUT", "/preferences", async ({ env, request, user }) => json(await saveTodayPrefs(env.DB, user, await readJson(request))));
-add("GET", "/reviews/:date", async ({ env, user, params }) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) throw new HttpError(400, "bad_date", "Use a date like 2026-10-19");
-    return json({ reviews: await loadReviews(env.DB, user, params.date) });
-});
-add("PUT", "/reviews/:date/:kind", async ({ env, request, user, params }) =>
-    json({ review: await saveReview(env.DB, user, params.date, params.kind, await readJson(request)) }),
-);
-add("POST", "/plan", async ({ env, request, user }) => json({ proposal: await proposePlan(env.DB, user, await readJson(request)) }));
-add("POST", "/plan/apply", async ({ env, request, user }) => json(await applyPlan(env.DB, user, await readJson(request))));
+add("GET", "/hours", async ({ env, user }) => json(await loadPlanningHours(env.DB, user.email)));
+add("PUT", "/hours", async ({ env, request, user }) => json(await savePlanningHours(env.DB, user, await readJson(request))));
 
 export async function handleTodayApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
-    requirePlanner(user);
+    requireToday(user);
     const url = new URL(request.url);
     const method = request.method === "HEAD" ? "GET" : request.method;
     let pathMatched = false;

@@ -1,7 +1,6 @@
 // Customising Today: which sections show and in what order, the timeline and calendar views, where
-// the day starts, completed tasks, breaks and focus periods, which calendars count towards
-// availability, and how the briefing looks. Saved per person (migration 0024). Working hours and
-// session lengths are the Daily Planner's own settings, opened from here.
+// the day starts, breaks, which calendars count towards availability, and how the briefing looks.
+// Saved per person (migration 0024). Planning hours and buffers are their own document, opened from here.
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Settings01, Trash01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
@@ -84,8 +83,8 @@ const PeriodEditor = ({
                             {
                                 label: "",
                                 days: [1, 2, 3, 4, 5],
-                                start: fallbackLabel === "Lunch" ? "12:30" : "09:00",
-                                end: fallbackLabel === "Lunch" ? "13:00" : "11:00",
+                                start: "12:30",
+                                end: "13:00",
                             },
                         ])
                     }
@@ -123,7 +122,7 @@ export const TodaySettingsDialog = ({
         [next[i], next[j]] = [next[j], next[i]];
         setDraft({ ...draft, sections: next });
     };
-    const invalid = [...draft.breaks, ...draft.focusPeriods].some((p) => p.end <= p.start || !p.days.length);
+    const invalid = draft.breaks.some((p) => p.end <= p.start || !p.days.length);
     const save = async () => {
         setBusy(true);
         try {
@@ -142,7 +141,7 @@ export const TodaySettingsDialog = ({
             isOpen={isOpen}
             onOpenChange={onOpenChange}
             title="Customise Today"
-            description="What Today shows and how it plans. Only you see these."
+            description="What Today shows and how it counts your time. Only you see these."
             icon={Settings01}
             size="xl"
             onSubmit={(e) => {
@@ -256,7 +255,6 @@ export const TodaySettingsDialog = ({
                     {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                 </Select>
             </div>
-            <Toggle label="Show completed tasks" isSelected={draft.showCompleted} onChange={(v) => setDraft({ ...draft, showCompleted: v })} />
             <Toggle
                 label="Offer Daly Intelligence's explanation"
                 hint="Only when Intelligence is switched on. It explains your records and never adds anything."
@@ -266,9 +264,7 @@ export const TodaySettingsDialog = ({
 
             <fieldset className="flex flex-col gap-2">
                 <legend className="mb-1 text-sm font-medium text-secondary">Calendars that count towards availability</legend>
-                <p className="text-sm text-tertiary">
-                    Events in a calendar you untick still show on Today, marked, but don't take time from your capacity or suggestions.
-                </p>
+                <p className="text-sm text-tertiary">Events in a calendar you untick still show on Today, marked, but don't take time from your capacity.</p>
                 {data.calendars.map((c) => (
                     <Checkbox
                         key={c.id}
@@ -287,20 +283,13 @@ export const TodaySettingsDialog = ({
 
             <PeriodEditor
                 legend="Breaks"
-                hint="Taken out of your planning hours, so nothing is planned in them."
+                hint="Taken out of your planning hours."
                 periods={draft.breaks}
                 onChange={(breaks) => setDraft({ ...draft, breaks })}
                 fallbackLabel="Lunch"
             />
-            <PeriodEditor
-                legend="Focus periods"
-                hint="Plan My Day uses free time in these first."
-                periods={draft.focusPeriods}
-                onChange={(focusPeriods) => setDraft({ ...draft, focusPeriods })}
-                fallbackLabel="Focus time"
-            />
             <Button size="sm" color="link-color" className="self-start" onClick={onOpenPlanning}>
-                Working hours, buffers and session lengths
+                Planning hours and buffers
             </Button>
         </PortalDialog>
     );

@@ -6,7 +6,7 @@ import { Download01, LineChartUp01, Printer, ShieldTick } from "@untitledui/icon
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Toggle } from "@/components/base/toggle/toggle";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import { formatMoney } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { REPORTS, REPORT_LABELS } from "@/shared/assets/types";

@@ -221,18 +221,17 @@ describe("Monitoring rules: testing and tasks", () => {
         expect((await db().prepare("SELECT COUNT(*) AS n FROM ic_rules").first<{ n: number }>())!.n).toBe(0);
     });
 
-    it("make a follow-up task from a match once, through Daly Tasks", async () => {
+    it("are acknowledged, and no longer make follow-up tasks (Daly Tasks is retired)", async () => {
         const env = await seed();
         const w = await watch();
         await rule({ name: "Fires", definition: { condition: "fire_within", watchId: w.id, radiusKm: 10 } });
         await evaluate(env);
         const [m] = await matches();
-        const first = await apiCall<{ taskId: string; replayed: boolean }>("POST", `${C}/rules/matches/${m.id}/task`, {});
-        expect(first.status, first.text).toBe(200);
-        const again = await apiCall<{ taskId: string; replayed: boolean }>("POST", `${C}/rules/matches/${m.id}/task`, {});
-        expect(again.json.taskId).toBe(first.json.taskId);
-        expect((await matches())[0].taskId).toBe(first.json.taskId);
-        expect((await apiCall("POST", `${C}/rules/matches/${m.id}/task`, {}, { email: SECOND_OWNER })).status).toBe(404);
+        // Follow-up tasks went with Daly Tasks: the route answers that it's retired, and a match has no task.
+        const task = await apiCall<{ error: string }>("POST", `${C}/rules/matches/${m.id}/task`, {});
+        expect(task.status).toBe(410);
+        expect(task.json.error).toBe("retired");
+        expect(m).not.toHaveProperty("taskId");
         await apiCall("POST", `${C}/rules/matches/acknowledge`, { ids: [m.id] });
         expect((await apiCall<{ matches: RuleMatch[] }>("GET", `${C}/rules/matches?open=1`)).json.matches).toEqual([]);
     });

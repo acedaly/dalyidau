@@ -209,15 +209,4 @@ export function maintenanceSentence(title: string, targetName: string, days: num
     return `${subject} is ${parts.length ? parts.join(", or ") : "due"}.`;
 }
 
-export const TASK_NOUN: Record<AttentionKind, string> = {
-    maintenance: "Task",
-    registration: "renewal Task",
-    insurance: "renewal Task",
-    warranty: "Task",
-    inspection: "Task",
-    lease: "Task",
-    roadside: "renewal Task",
-    repair: "Task",
-};
-
 export const daysFrom = (today: string, date: string) => daysBetween(today, date);

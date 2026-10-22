@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence" | "intelligence-centre" | "assets";
+export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre" | "assets";
 
-export type ApplicationIcon = "wedding" | "knowledge" | "tasks" | "calendar" | "intelligence" | "centre" | "assets";
+export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre" | "assets";
 
 export type NavigationIcon =
     | "dashboard"
@@ -21,39 +21,12 @@ export type NavigationIcon =
     | "budget"
     | "suppliers"
     | "settings"
-    | "home"
-    | "inbox"
     | "knowledge"
-    | "search"
-    | "types"
-    | "archive"
-    | "trash"
-    | "daily"
-    | "favourites"
-    | "collections"
-    | "templates"
-    | "discover"
-    | "today"
-    | "upcoming"
-    | "overdue"
-    | "completed"
-    | "projects"
     | "shared"
-    | "labels"
-    | "filters"
-    | "activity"
-    | "project"
-    | "mine"
-    | "goals"
-    | "routines"
-    | "workload"
     | "reports"
     | "intelligence"
-    | "capture"
-    | "suggestions"
     | "briefing"
     | "review"
-    | "meetings"
     | "calendar"
     | "year"
     | "agenda"
@@ -190,106 +163,11 @@ export const APPLICATIONS = [
         ],
     },
     {
-        id: "knowledge",
-        name: "Daly Knowledge",
-        summary: "Linked notes, people, meetings and decisions.",
-        description: "Notes, people, projects, meetings and decisions, linked together and searchable. Private to you unless you share a space.",
-        icon: "knowledge",
-        baseRoute: "/portal/knowledge",
-        requiredPermission: "knowledge.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "Knowledge",
-                items: [
-                    { label: "Home", href: "/portal/knowledge", icon: "home" },
-                    { label: "Today", href: "/portal/knowledge/daily", icon: "daily", active: "prefix" },
-                    { label: "Inbox", href: "/portal/knowledge/inbox", icon: "inbox" },
-                    { label: "Search", href: "/portal/knowledge/search", icon: "search" },
-                ],
-            },
-            {
-                label: "Library",
-                items: [
-                    { label: "All knowledge", href: "/portal/knowledge/all", icon: "knowledge" },
-                    { label: "Favourites", href: "/portal/knowledge/favourites", icon: "favourites" },
-                    { label: "Collections", href: "/portal/knowledge/collections", icon: "collections" },
-                    { label: "Discover", href: "/portal/knowledge/discover", icon: "discover" },
-                ],
-            },
-            {
-                label: "Organise",
-                items: [
-                    { label: "Object types", href: "/portal/knowledge/types", icon: "types" },
-                    { label: "Templates", href: "/portal/knowledge/templates", icon: "templates", active: "prefix" },
-                    { label: "Archive", href: "/portal/knowledge/archive", icon: "archive" },
-                    { label: "Trash", href: "/portal/knowledge/trash", icon: "trash" },
-                ],
-            },
-            {
-                label: "Application",
-                items: [{ label: "Settings and export", href: "/portal/knowledge/settings", icon: "settings" }],
-            },
-        ],
-    },
-    {
-        id: "tasks",
-        name: "Daly Tasks",
-        summary: "Tasks, projects, goals and household routines.",
-        description:
-            "Tasks, projects, goals and household routines, personal and shared, with a dashboard, reviews, reports and links to Knowledge. Private to you unless you share.",
-        icon: "tasks",
-        baseRoute: "/portal/tasks",
-        requiredPermission: "tasks.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "My tasks",
-                items: [
-                    { label: "Dashboard", href: "/portal/tasks/dashboard", icon: "dashboard" },
-                    { label: "Inbox", href: "/portal/tasks/inbox", icon: "inbox" },
-                    { label: "Today", href: "/portal/tasks/today", icon: "today" },
-                    { label: "Upcoming", href: "/portal/tasks/upcoming", icon: "upcoming" },
-                    { label: "All my tasks", href: "/portal/tasks/mine", icon: "mine" },
-                    { label: "Overdue", href: "/portal/tasks/overdue", icon: "overdue" },
-                    { label: "Completed", href: "/portal/tasks/completed", icon: "completed" },
-                ],
-            },
-            {
-                label: "Organise",
-                items: [
-                    { label: "My projects", href: "/portal/tasks/projects", icon: "projects" },
-                    { label: "Shared projects", href: "/portal/tasks/projects?kind=shared", icon: "shared" },
-                    { label: "Goals", href: "/portal/tasks/goals", icon: "goals" },
-                    { label: "Routines", href: "/portal/tasks/routines", icon: "routines" },
-                    { label: "Labels", href: "/portal/tasks/labels", icon: "labels" },
-                    { label: "Filters", href: "/portal/tasks/filters", icon: "filters" },
-                    { label: "Templates", href: "/portal/tasks/templates", icon: "templates" },
-                ],
-            },
-            {
-                label: "Plan and review",
-                items: [
-                    { label: "Workload", href: "/portal/tasks/workload", icon: "workload" },
-                    { label: "Reports", href: "/portal/tasks/reports", icon: "reports" },
-                ],
-            },
-            {
-                label: "Application",
-                items: [
-                    { label: "Search", href: "/portal/tasks/search", icon: "search" },
-                    { label: "Activity", href: "/portal/tasks/activity", icon: "activity" },
-                    { label: "Settings and export", href: "/portal/tasks/settings", icon: "settings" },
-                ],
-            },
-        ],
-    },
-    {
         id: "calendar",
         name: "Daly Calendar",
-        summary: "Calendars, daily planning, school holidays and leave.",
+        summary: "Calendars, school holidays and leave.",
         description:
-            "Personal and shared calendars, subscribed feeds, a daily planner that blocks time for your tasks, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
+            "Personal and shared calendars, subscribed feeds, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
         icon: "calendar",
         baseRoute: "/portal/calendar",
         requiredPermission: "calendar.use",
@@ -300,8 +178,6 @@ export const APPLICATIONS = [
                 items: [
                     { label: "Calendar", href: "/portal/calendar", icon: "calendar" },
                     { label: "Agenda", href: "/portal/calendar?view=agenda", icon: "agenda" },
-                    // The Daily Planner plans Tasks, so it's only there for people who can open Tasks.
-                    { label: "Daily planner", href: "/portal/calendar/planner", icon: "today", permission: "tasks.use" },
                     { label: "Year planner", href: "/portal/calendar/year", icon: "year" },
                     { label: "Family planner", href: "/portal/calendar/family", icon: "family" },
                 ],
@@ -328,9 +204,9 @@ export const APPLICATIONS = [
     {
         id: "intelligence",
         name: "Daly Intelligence",
-        summary: "Capture, AI suggestions to approve, and briefings.",
+        summary: "AI settings, budgets and briefings.",
         description:
-            "Capture notes, documents and recordings and review what AI suggests: tasks, decisions and Knowledge records. Daily briefings, weekly reviews and meaning-based search. Nothing is saved until you approve it.",
+            "The portal's shared AI layer: daily briefings and weekly reviews from your calendar, the AI budget, and the settings Home & Assets and the Intelligence Centre use. Off until an owner switches it on.",
         icon: "intelligence",
         baseRoute: "/portal/intelligence",
         requiredPermission: "intelligence.use",
@@ -340,16 +216,13 @@ export const APPLICATIONS = [
                 label: "Intelligence",
                 items: [
                     { label: "Overview", href: "/portal/intelligence", icon: "intelligence" },
-                    { label: "Capture", href: "/portal/intelligence/capture", icon: "capture", active: "prefix" },
-                    { label: "Suggestions", href: "/portal/intelligence/inbox", icon: "suggestions" },
                     { label: "Daily briefing", href: "/portal/intelligence/briefing", icon: "briefing" },
                     { label: "Weekly review", href: "/portal/intelligence/briefing/weekly", icon: "review" },
-                    { label: "Meetings", href: "/portal/intelligence/meetings", icon: "meetings" },
                 ],
             },
             {
                 label: "Application",
-                items: [{ label: "AI and storage settings", href: "/portal/intelligence/settings", icon: "settings" }],
+                items: [{ label: "AI settings", href: "/portal/intelligence/settings", icon: "settings" }],
             },
         ],
     },

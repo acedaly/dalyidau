@@ -293,9 +293,6 @@ export const REMINDER_KIND_LABELS: Record<ReminderKind, string> = {
     roadside: "Roadside assistance renewal",
 };
 
-export const TASK_REF_KINDS = ["maintenance", "schedule", "registration", "policy_renewal", "warranty_expiry", "inspection", "lease_end", "roadside"] as const;
-export type TaskRefKind = (typeof TASK_REF_KINDS)[number];
-
 // --- Limits --------------------------------------------------------------------------------------
 
 export const LIMITS = {
@@ -308,7 +305,6 @@ export const LIMITS = {
     listMax: 2000,
     bulkMax: 100,
     sharesPerAsset: 20,
-    knowledgeLinksPerAsset: 50,
     exportMax: 5000,
 } as const;
 
@@ -564,7 +560,6 @@ export const scheduleInput = z
         notes: optionalText(2000),
         templateId: z.string().max(40).nullable().optional(),
         autoNext: z.boolean().optional(),
-        taskLeadDays: z.number().int().min(0).max(365).nullable().optional(),
         active: z.boolean().optional(),
     })
     .strict();
@@ -621,8 +616,6 @@ export const completeMaintenanceInput = z
         costCents: cents.nullable().optional(),
         provider: optionalText(200),
         notes: optionalText(8000),
-        /** Also complete the linked Daly Task, if there is one and you can. Default true. */
-        completeTask: z.boolean().optional(),
         version: z.number().int().min(1).optional(),
     })
     .strict();
@@ -755,21 +748,6 @@ export const categoryInput = z
             .max(30)
             .optional(),
         archived: z.boolean().optional(),
-    })
-    .strict();
-
-export const taskRequestInput = z
-    .object({
-        refKind: z.enum(TASK_REF_KINDS),
-        refId: z.string().regex(/^[a-z]{3}_[a-z0-9]{14}$/),
-        /** As in an attention item's taskRef. Ignored: the date always comes from the record as it is now. */
-        refDate: z.string().max(10).optional(),
-        title: z.string().trim().min(1).max(500).optional(),
-        dueDate: isoDate.nullable().optional(),
-        projectId: z
-            .string()
-            .regex(/^tpj_[a-z0-9]{14}$/)
-            .optional(),
     })
     .strict();
 
@@ -1014,19 +992,9 @@ export interface ScheduleView {
     notes: string | null;
     templateId: string | null;
     autoNext: boolean;
-    taskLeadDays: number | null;
     active: boolean;
     openRecordId: string | null;
     version: number;
-}
-
-export interface LinkedTask {
-    taskId: string;
-    /** False when the person can't see the task (or it was deleted). */
-    available: boolean;
-    title: string | null;
-    status: string | null;
-    dueDate: string | null;
 }
 
 export interface MaintenanceView {
@@ -1058,7 +1026,6 @@ export interface MaintenanceView {
     approval: Approval;
     checklist: { text: string; done: boolean }[];
     state: DueState | null;
-    task: LinkedTask | null;
     calendarEventId: string | null;
     fileCount: number;
     canEdit: boolean;
@@ -1152,13 +1119,6 @@ export interface AssetFileView {
     createdAt: string;
 }
 
-export interface KnowledgeLinkView {
-    objectId: string;
-    available: boolean;
-    title: string | null;
-    spaceName: string | null;
-}
-
 export interface AssetActivityView {
     at: string;
     actor: string;
@@ -1198,8 +1158,6 @@ export interface AssetDetail {
     files: AssetFileView[];
     /** Documents exist but the viewer can't open them. */
     documentsHidden: number;
-    knowledge: KnowledgeLinkView[];
-    tasks: (LinkedTask & { refKind: TaskRefKind; refDate: string })[];
     sharing: { visibility: AssetVisibility; household: Grant | null; people: AssetShareView[] } | null;
     activity: AssetActivityView[];
     totals: { maintenanceCostCents: number | null; maintenanceRecords: number; costsMissing: number } | null;
@@ -1219,15 +1177,11 @@ export interface AttentionItem {
     daysAway: number | null;
     /** e.g. "Cub Camper Frontier registration is due in 21 days." */
     sentence: string;
-    /** e.g. "No renewal Task has been created." Null when there is a task, or none can be made. */
-    taskNote: string | null;
     title: string;
     targetName: string;
     url: string;
     assetId: string | null;
     refId: string;
-    taskRef: { refKind: TaskRefKind; refId: string; refDate: string } | null;
-    taskId: string | null;
 }
 
 export interface CategoryCount {
@@ -1285,7 +1239,6 @@ export interface AssetSearchResults {
     maintenance: MaintenanceView[];
     files: AssetFileView[];
     locations: LocationView[];
-    knowledge: { id: string; title: string; spaceName: string; snippet: string | null }[] | null;
 }
 
 export interface AssetFilters {
@@ -1331,9 +1284,7 @@ export interface AssetsShell {
     locations: { id: string; name: string; kind: LocationKind }[];
     unreadNotifications: number;
     emailOn: boolean;
-    canTasks: boolean;
     canCalendar: boolean;
-    canKnowledge: boolean;
     today: string;
 }
 

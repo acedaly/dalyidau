@@ -346,7 +346,6 @@ const listReportsTool = tool({
                 periodTo: r.periodTo,
                 facts: r.facts,
                 trigger: r.trigger,
-                savedToKnowledge: !!r.knowledgeObjectId,
                 url: portalUrl(ctx, `/portal/intelligence-centre/reports/${r.id}`),
             })),
             schedules: schedules.map((s) => ({
@@ -561,7 +560,6 @@ const scheduleTool = tool({
             timeZone: z.string().max(60).optional(),
             periodHours: z.number().int().min(1).max(744).optional(),
             notify: z.enum(["none", "in_app", "email"]).optional(),
-            saveToKnowledge: z.boolean().optional(),
             requestId,
         })
         .strict(),

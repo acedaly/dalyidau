@@ -2,7 +2,7 @@
 // first, with each event labelled by what it is and the periods when a source wasn't collected.
 import { ClockRewind } from "@untitledui/icons";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { PageData } from "@/portal/lib/page-types";
 import { REGIONS } from "@/shared/centre/regions";
 import { TimelineList, hoursLabel } from "../history-ui";

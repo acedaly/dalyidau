@@ -31,23 +31,7 @@ const switchOn = async (request: APIRequestContext) => {
 test("every Intelligence page loads without errors, fits the screen and passes axe", async ({ page, request }, info) => {
     const errors = watchErrors(page);
     await switchOn(request);
-    const created = await request.post("/api/portal/intelligence/captures", {
-        headers: JSON_HEADERS,
-        data: { source: "text", text: `TODO: Layout check ${info.project.name}\nDecision: Keep it tidy.` },
-    });
-    expect(created.ok(), await created.text()).toBe(true);
-    const { captureId } = (await created.json()) as { captureId: string };
-    for (const path of [
-        "/portal/intelligence",
-        "/portal/intelligence/inbox",
-        "/portal/intelligence/inbox?filter=all",
-        "/portal/intelligence/capture",
-        `/portal/intelligence/captures/${captureId}`,
-        "/portal/intelligence/briefing",
-        "/portal/intelligence/briefing/weekly",
-        "/portal/intelligence/meetings",
-        "/portal/intelligence/settings",
-    ]) {
+    for (const path of ["/portal/intelligence", "/portal/intelligence/briefing", "/portal/intelligence/briefing/weekly", "/portal/intelligence/settings"]) {
         await page.goto(path);
         await expect(page.getByRole("main")).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -61,26 +45,18 @@ test("every Intelligence page loads without errors, fits the screen and passes a
     expect(errors).toEqual([]);
 });
 
-test("captures text, reviews the suggestions and approves a task into Tasks", async ({ page, request }, info) => {
-    const errors = watchErrors(page);
-    await switchOn(request);
-    const title = `Order the timber ${info.project.name}`;
-    await page.goto("/portal/intelligence/capture");
-    await page.getByLabel("What to capture").fill(`TODO: ${title}\nDecision: We will use the north corner.`);
-    await page.getByRole("button", { name: "Capture and analyse" }).click();
-    await expect(page).toHaveURL(/\/portal\/intelligence\/captures\/aic_/);
-    await expect(page.getByText("Ready", { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(title, { exact: true })).toBeVisible();
-    await page.screenshot({ path: `test-results/intelligence-capture-${info.project.name}.png`, fullPage: true });
-
-    // Approve the task: it appears in Tasks, and the suggestion links to it.
-    const card = page.locator("li", { has: page.getByText(title, { exact: true }) });
-    await card.getByRole("button", { name: "Approve" }).click();
-    await expect(card.getByText("Applied")).toBeVisible();
-    await card.getByRole("link", { name: "Open task" }).click();
-    await expect(page).toHaveURL(/\/portal\/tasks\/t\/tsk_/);
-    await expect(page.getByText(title).first()).toBeVisible();
-    expect(errors).toEqual([]);
+test("capture, suggestions and meetings are retired with Daly Knowledge and Daly Tasks", async ({ page, request }) => {
+    for (const path of ["/portal/intelligence/inbox", "/portal/intelligence/capture", "/portal/intelligence/meetings"]) {
+        const response = await page.goto(path);
+        expect(response?.status(), path).toBe(410);
+        await expect(page.getByText(/have been retired/).first()).toBeVisible();
+    }
+    const api = await request.post("/api/portal/intelligence/captures", { headers: JSON_HEADERS, data: { source: "text", text: "TODO: nothing" } });
+    expect(api.status()).toBe(410);
+    expect(await api.json()).toMatchObject({ error: "retired" });
+    await page.goto("/portal/intelligence");
+    for (const name of ["Inbox", "Capture", "Meetings"])
+        await expect(page.getByRole("navigation", { name: "Portal" }).getByRole("link", { name, exact: true })).toHaveCount(0);
 });
 
 test("the briefing separates facts from AI suggestions and says what it didn't check", async ({ page, request }) => {

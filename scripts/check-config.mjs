@@ -61,17 +61,16 @@ report.check(
 const sms = target.vars.SMS_DELIVERY ?? "off";
 report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", which only works outside production`, env === "production" ? "fail" : "warn");
 
-// Daly Intelligence (docs/INTELLIGENCE.md): bindings are optional and their absence keeps every AI feature off.
+// Daly Intelligence (docs/INTELLIGENCE.md): the binding is optional and its absence keeps every AI feature off.
 const block = env === "production" ? config : (config.env?.[env] ?? {});
 const ai = block.ai?.binding === "AI";
-const vectors = (block.vectorize ?? []).find((v) => v.binding === "VECTORS");
-report.info(
-    `Workers AI binding: ${ai ? "present" : "absent (Intelligence can't run)"}; Vectorize: ${vectors ? `index ${vectors.index_name}` : "absent (keyword search only)"}`,
+report.info(`Workers AI binding: ${ai ? "present" : "absent (Intelligence can't run)"}`);
+// Vectorize served Daly Knowledge's semantic search, which was retired: no environment binds it any more.
+report.check(
+    !(block.vectorize ?? []).length,
+    "No Vectorize binding",
+    "A Vectorize binding is configured, but nothing uses it since Daly Knowledge was retired",
 );
-if (env !== "production" && vectors) {
-    const prodVectors = (config.vectorize ?? []).find((v) => v.binding === "VECTORS");
-    report.check(!prodVectors || prodVectors.index_name !== vectors.index_name, "Uses its own Vectorize index", "Shares the production Vectorize index!");
-}
 
 const db = target.d1.find((d) => d.binding === "DB");
 report.check(!!db, `D1 binding DB → ${db?.database_name}`, "No D1 binding called DB");

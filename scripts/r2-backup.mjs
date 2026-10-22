@@ -1,6 +1,7 @@
-// Backs up the files Daly Intelligence keeps permanently (Knowledge attachments) and every stored
-// Home & Assets photo and document from R2 to this computer, so there's a copy outside Cloudflare. D1 backups (db-backup.mjs) hold the attachment
-// rows; this holds the files they point at.
+// Backs up the files Daly Intelligence kept permanently (Knowledge attachments, retired with Daly
+// Knowledge but kept until the approved cleanup: docs/DECOMMISSION_KNOWLEDGE_TASKS.md) and every stored
+// Home & Assets photo and document from R2 to this computer, so there's a copy outside Cloudflare. D1
+// backups (db-backup.mjs) hold the attachment rows; this holds the files they point at.
 //
 //   node scripts/r2-backup.mjs --env production                # download and verify
 //   BACKUP_PASSPHRASE=… node scripts/r2-backup.mjs --env production --encrypt

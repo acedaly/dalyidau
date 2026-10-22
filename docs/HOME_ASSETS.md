@@ -1,6 +1,8 @@
 # Home & Assets (Milestone 10)
 
-`/portal/assets`: what the household owns, maintains, insures or will need to replace. Vehicles and trailers, the home and rentals, servicing and repairs, warranties, insurance, receipts and manuals, values, QR labels and reports, with links into Daly Tasks, Daly Calendar, Daly Knowledge, Today, the Chief of Staff and MCP.
+`/portal/assets`: what the household owns, maintains, insures or will need to replace. Vehicles and trailers, the home and rentals, servicing and repairs, warranties, insurance, receipts and manuals, values, QR labels and reports, with links into Daly Calendar, Today, the Chief of Staff and MCP.
+
+> **Retired:** "Create task", automatic tasks and links to Knowledge notes were removed with Daly Tasks and Daly Knowledge. Their routes answer 410, `assets_create_task` and `assets_link_knowledge` are refused with `"retired"`, and `asset_task_links` and `asset_knowledge_links` are kept untouched until the owner approves the cleanup. See [DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md).
 
 Nothing here is live until it's deployed, and nothing has been deployed. Migration `0026_home_assets.sql` hasn't been applied anywhere shared. Both feature switches it adds are off.
 
@@ -18,7 +20,7 @@ Nothing here is live until it's deployed, and nothing has been deployed. Migrati
 
 ## Who can use it
 
-A new portal permission, `assets.use`, is given to owners and admins (like `tasks.use` and `calendar.use`). Editors and viewers can't open it. Being a portal owner grants nothing inside it: neither owner can see the other's private assets.
+A new portal permission, `assets.use`, is given to owners and admins (like `calendar.use`). Editors and viewers can't open it. Being a portal owner grants nothing inside it: neither owner can see the other's private assets.
 
 ## Sharing and permissions
 
@@ -54,7 +56,7 @@ Server-side everywhere: the API, the page loaders, search, reports, reminders, C
 | `/portal/assets/reports`, `/reports/register` | CSV reports, the printable household register, inventory and insurance claim pack                                                                                                   |
 | `/portal/assets/capture`                      | Quick add, from a photo, from a receipt, scan                                                                                                                                       |
 | `/portal/assets/labels`                       | Printable QR labels                                                                                                                                                                 |
-| `/portal/assets/search`                       | Search across assets, maintenance, documents, places and Knowledge                                                                                                                  |
+| `/portal/assets/search`                       | Search across assets, maintenance, documents and places                                                                                                                             |
 | `/portal/assets/settings`                     | Reminders, Today and briefings, thresholds, retention, categories and custom fields, AI status, recently deleted                                                                    |
 
 The application has a launcher card and its own sidebar sections. Everything is Untitled UI PRO components (`PageHeader`, `DataTable`, `PortalDialog`, `RecordPanel`, `Tabs`, `ButtonGroup`, `FileUpload`, `MetricCard`, badges, inputs). Light and dark themes come from the tokens; the browser tests check every page at desktop and Pixel 7 widths with axe.
@@ -85,7 +87,7 @@ A place: home, rental, garage, shed, storage, room (inside another place), vehic
 
 - **Schedules** recur by date, by distance, or both (whichever comes first). The next due date is the last done date plus the interval, or the first due date the person gave; the next due distance likewise from the last reading. With no starting point, or a distance rule and no odometer reading, the state is **unknown**, with the reason shown ("Record an odometer reading…"). Month arithmetic clamps to the month's end (31 Jan + 1 month = 28 Feb).
 - **States**: overdue, due soon (your "due soon" days and distance, default 30 days and 1,000), upcoming, unknown.
-- **Records**: preventive, corrective, one-off repair, inspection, service, replacement, seasonal, safety; priority; status (to do, requested, booked, in progress, completed, cancelled); due date or distance; booked date and time; completion date, odometer, cost, provider, notes, checklist, files, a linked Task and a Calendar appointment.
+- **Records**: preventive, corrective, one-off repair, inspection, service, replacement, seasonal, safety; priority; status (to do, requested, booked, in progress, completed, cancelled); due date or distance; booked date and time; completion date, odometer, cost, provider, notes, checklist, files and a Calendar appointment.
 - **Completing** moves the schedule on from the actual completion date and reading, and (if the schedule is set to) creates the next record. A unique index allows one open record per schedule, so completing twice, a retry or two people at once can't create two. Completing again returns "already done".
 - **Templates**: the built-in ones (vehicle service, trailer bearings, tyres, registration, smoke alarm, air-conditioner filter, camera batteries, equipment inspection, battery replacement, rental inspection) carry a title, a checklist and where to find the interval: **no intervals**, because those depend on the make, model, use or lease. Household templates keep the intervals the household chose.
 
@@ -135,11 +137,9 @@ The local stand-in (`AI_PROVIDER=mock`, tests) answers these with fixed text pat
 
 ## Integrations
 
-- **Daly Tasks** (`worker/assets/links.ts`): Create task on a maintenance record, a schedule (it makes the record first), a registration, roadside renewal, inspection, policy renewal, warranty end or lease end. Through Tasks' own `createTask` (Inbox, permissions, history, retry key), with a link back in the description. `asset_task_links` claims the item before the task is made (unique per item and date), so double clicks, retries and two people can't make two; someone else's existing task is reported without revealing it. Completing a record completes its task through Tasks' `completeTask`; Tasks never writes back (no loops), and a task finished in Tasks shows on the record. A schedule can make its task automatically N days ahead (the cron, as the person who set it up).
 - **Daly Calendar**: asset dates appear as **reminders** in Calendar's overlay (a chip with a package icon, labelled a Home & Assets reminder, never an event), only for assets the viewer can see; each person can turn them off in Calendar → Settings (`overlays.assets`). A booked service can become a real **appointment** through Calendar's `createEvent`, once per record (retry key `asset-appt-<id>`).
-- **Daly Knowledge**: link existing objects (manuals, notes, troubleshooting) to an asset; nothing is copied, and each link is re-checked against space membership on every read. Search covers Knowledge through its own search and membership.
-- **Today**: a "Home & Assets" section (on by default, per person) with what's overdue or due in 30/60/90 days, each a sentence from a record and whether a task exists, with Create task.
-- **Chief of Staff**: `chief_of_staff_daily_context` adds `homeAssets` (overdue and due in 30 days, facts and links) for people with `assets.use` who haven't left it out. Example: "Cub Camper Frontier registration is due in 21 days." with "No renewal Task has been created." Deterministic; no model.
+- **Today**: a "Home & Assets" section (on by default, per person) with what's overdue or due in 30/60/90 days, each a sentence from a record.
+- **Chief of Staff**: `chief_of_staff_daily_context` adds `homeAssets` (overdue and due in 30 days, facts and links) for people with `assets.use` who haven't left it out. Example: "Cub Camper Frontier registration is due in 21 days." Deterministic; no model.
 
 ## Reminders and the cron
 
@@ -147,7 +147,7 @@ The local stand-in (`AI_PROVIDER=mock`, tests) answers these with fixed text pat
 
 **Email** only when the owner turns on `assets.reminders.email` (off by default), an email provider is configured (`EMAIL_DELIVERY`), and the person ticked email for that kind. The email says "You have a Home & Assets reminder" unless they chose to include details. Retries are bounded (three attempts).
 
-The same step makes automatic tasks (20 a run) and purges deleted assets (50 files a run). Each part is contained; a failure is logged without content and never stops the others.
+The same step purges deleted assets (50 files a run). Each part is contained; a failure is logged without content and never stops the others.
 
 ## Reports and export
 
@@ -155,13 +155,14 @@ The same step makes automatic tasks (20 a run) and purges deleted assets (50 fil
 
 ## MCP
 
-`worker/mcp/assets.ts`, advertised by the gateway in `mcp/src/portal-tools.ts` (`test/mcp-contract.test.ts` compares them field by field). 16 tools, 101 in all, all needing `assets.use`.
+`worker/mcp/assets.ts`, advertised by the gateway in `mcp/src/portal-tools.ts` (`test/mcp-contract.test.ts` compares them field by field). 14 tools (of the gateway's 66 in 3.0.0), all needing `assets.use`.
 
 - **Read**: `assets_search`, `assets_list`, `assets_get`, `assets_maintenance_history`, `assets_upcoming_maintenance`, `assets_insurance_renewals`, `assets_warranty_expiries`, `assets_list_documents` (names and kinds only, never contents or R2), `assets_summary`, `assets_get_attention`.
-- **Write** (through `mcp_writes`, ids only; send a `requestId`): `assets_create`, `assets_update` (version required), `assets_create_maintenance`, `assets_complete_maintenance`, `assets_link_knowledge` (an existing Knowledge object), `assets_create_task` (one per item).
+- **Write** (through `mcp_writes`, ids only; send a `requestId`): `assets_create`, `assets_update` (version required), `assets_create_maintenance`, `assets_complete_maintenance`.
+- **Retired** (refused with `"retired"`): `assets_link_knowledge`, `assets_create_task`.
 - **Absent on purpose**: delete, sharing, uploads, bulk, policy changes.
 
-Outputs omit values, costs and insurance the caller can't see ("not shared with you"); another person's private asset is `not_found`. The gateway is **2.7.0** with an instruction to report records as given and never call something insured.
+Outputs omit values, costs and insurance the caller can't see ("not shared with you"); another person's private asset is `not_found`. The gateway's instructions say to report records as given and never call something insured.
 
 ## Data model (`0026_home_assets.sql`)
 
@@ -178,7 +179,7 @@ Outputs omit values, costs and insurance the caller can't see ("not shared with 
 | `asset_policies`, `asset_policy_premiums`, `asset_policy_links`       | Policies (verification, unverified AI fields), premium history, linked assets                         |
 | `asset_warranties`, `asset_claims`                                    | Warranties (end date basis) and claims                                                                |
 | `asset_files`                                                         | File rows (R2 keys under `private/assets/`, SHA-256, at most one parent)                              |
-| `asset_knowledge_links`, `asset_task_links`                           | Links to Knowledge objects; tasks made per item and date (claim first)                                |
+| `asset_knowledge_links`, `asset_task_links`                           | Retired links to Knowledge objects and tasks. Kept, unread, until the approved cleanup                |
 | `asset_notifications`                                                 | Reminders, one per person, item, date and offset; email state                                         |
 | `asset_activity`                                                      | History: ids and action names, never names, identifiers, amounts or addresses                         |
 
@@ -186,7 +187,7 @@ Money is whole cents; NULL is "not recorded". CHECK constraints refuse impossibl
 
 ## API
 
-`/api/portal/assets/*` (`worker/assets/api.ts`), behind the portal's Access, role and same-origin checks plus `assets.use`: overview, preferences, people, notifications, categories, search; items (list with the same filters as the page, create, get, update, delete, restore, bulk, sharing, location, cover, label, qr.svg, problem, odometer, valuations, warranties, knowledge); warranties, claims; locations; maintenance (create, update, complete, cancel, appointment, files), schedules, templates, tasks; policies (create, update, verify, renew, assets, extract); files (upload as base64 JSON, update, delete, content, thumb); capture (status, receipt, photo); reports/`:name`.csv.
+`/api/portal/assets/*` (`worker/assets/api.ts`), behind the portal's Access, role and same-origin checks plus `assets.use`: overview, preferences, people, notifications, categories, search; items (list with the same filters as the page, create, get, update, delete, restore, bulk, sharing, location, cover, label, qr.svg, problem, odometer, valuations, warranties); warranties, claims; locations; maintenance (create, update, complete, cancel, appointment, files), schedules, templates; policies (create, update, verify, renew, assets, extract); files (upload as base64 JSON, update, delete, content, thumb); capture (status, receipt, photo); reports/`:name`.csv.
 
 ## Security
 
@@ -203,7 +204,7 @@ Owner-approved, in this order:
 
 1. Merge (which deploys the portal Worker and applies `0026` through the usual workflow: restore point, migrate, verify, deploy).
 2. `npm run db:verify -- --env production`: the Home & Assets integrity checks (sharing matches visibility, no owner shares, file keys, schedules have an interval, one open record per schedule, JSON valid) run with the others.
-3. Deploy the MCP gateway **2.7.0** by hand after the portal (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`). Rollback: 2.6.0.
+3. Deploy the MCP gateway by hand after the portal (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`). The current gateway is 3.0.0: see [MCP_CUTOVER.md](MCP_CUTOVER.md).
 4. Optionally, in Portal settings → Features → Home & Assets: **Home & Assets AI suggestions** (also needs Intelligence and its documents feature) and **Home & Assets reminder emails** (also needs `EMAIL_DELIVERY`). Both off until then.
 
 No new binding, secret, route, DNS or Access change. R2 uses the existing `MEDIA` bucket.
@@ -223,9 +224,9 @@ No new binding, secret, route, DNS or Access change. R2 uses the existing `MEDIA
 ## Testing
 
 - `test/assets.test.ts`: register, values, vehicles, trailer specs, odometer rules, the maintenance engine (intervals, month ends, whichever-comes-first, unknown), templates without intervals, completion and next record (once), problem reports, rental requests, insurance verification and lapse, premium history, warranties, private and shared assets, selected rights, private places, uploads (sniffing, refusals, metadata stripping, duplicates, sandboxed downloads, deletion from R2), QR encode/decode and label versions, every page.
-- `test/assets-integrations.test.ts`: Tasks (one task per item, household duplicate, completion sync, deleted task), automatic tasks, Calendar overlays and appointments, Knowledge links and search, Today and the Chief of Staff, MCP (visibility, ledger replay, conflicts, maintenance, tasks), reminders (once only, email off by default, opt-in, household), AI off and on (grounding, ungrounded values, photo confidence, policy statements), reports (visibility, formula neutralising, spend), migration rebuild, database rules, purge.
+- `test/assets-integrations.test.ts`: attention items from records only, the retired task and Knowledge routes refused, completing maintenance without touching earlier links and with no automatic tasks, Calendar overlays and appointments, Today and the Chief of Staff, MCP (visibility, ledger replay, conflicts, maintenance, retired tools refused), reminders (once only, email off by default, opt-in, household), AI off and on (grounding, ungrounded values, photo confidence, policy statements), reports (visibility, formula neutralising, spend), migration rebuild, database rules, purge.
 - `e2e/assets.spec.ts` (desktop and Pixel 7): every page fits and passes axe; launcher and Quick add; completing scheduled maintenance; photo upload; scanned label (and refusing other addresses); Today.
-- Updated: MCP counts (101 tools, 32 writes), contract and gateway tests, Chief of Staff sources, feature switch labels, backup round trip.
+- Updated: MCP contract and gateway tests, Chief of Staff sources, feature switch labels, backup round trip.
 
 ## Known limitations
 

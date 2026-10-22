@@ -19,11 +19,8 @@ import { type CentrePage, loadCentrePage } from "../centre/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
 import { loadIntelligencePage } from "../intelligence/pages";
-import { listSpaces } from "../knowledge/access";
-import { loadKnowledgePage } from "../knowledge/pages";
-import { plannerPrefs } from "../planner/blocks";
-import { type TasksPage, loadTasksPage } from "../tasks/pages";
 import { todayDashboard } from "../today/dashboard";
+import { loadPlanningHours } from "../today/window";
 import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -38,6 +35,7 @@ import { listImports } from "./import";
 import { householdAddressing, listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, householdResponses, listAudit, listSubmissions } from "./queries";
+import { RETIRED_MESSAGE, isRetiredPage } from "./retired";
 import { listQuestions, questionSummaries } from "./rsvp-questions";
 import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
@@ -387,82 +385,6 @@ const PAGES: PageDef[] = [
             return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null, integrations, website };
         },
     },
-    // Daly Knowledge. The application's permission is checked here; space membership in the loaders.
-    {
-        pattern: /^\/portal\/knowledge$/,
-        title: "Knowledge",
-        application: "knowledge",
-        load: ({ env, user, url }) => loadKnowledgePage(env, user, url, "home"),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/(inbox|all|archive|trash)$/,
-        title: "Knowledge",
-        application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "list", match[1]),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/o\/(kob_[a-z0-9]{14})$/,
-        title: "Knowledge",
-        application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "object", match[1]),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/daily(?:\/(\d{4}-\d{2}-\d{2}))?$/,
-        title: "Daily note",
-        application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "daily", match[1]),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/c\/(kcl_[a-z0-9]{14})$/,
-        title: "Collection",
-        application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "collection", match[1]),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/templates\/(ktp_[a-z0-9]{14})$/,
-        title: "Template",
-        application: "knowledge",
-        load: ({ env, user, url, match }) => loadKnowledgePage(env, user, url, "template", match[1]),
-    },
-    {
-        pattern: /^\/portal\/knowledge\/(search|types|settings|collections|favourites|templates|discover)$/,
-        title: "Knowledge",
-        application: "knowledge",
-        load: ({ env, user, url, match }) =>
-            loadKnowledgePage(env, user, url, match[1] as "search" | "types" | "settings" | "collections" | "favourites" | "templates" | "discover"),
-    },
-    // Daly Tasks. The application's permission is checked here; project membership in the loaders.
-    {
-        pattern: /^\/portal\/tasks$/,
-        title: "Today",
-        application: "tasks",
-        load: ({ env, user, url }) => loadTasksPage(env, user, url, "home"),
-    },
-    {
-        pattern:
-            /^\/portal\/tasks\/(inbox|today|upcoming|overdue|mine|completed|projects|labels|filters|search|activity|settings|templates|dashboard|goals|routines|workload|reports)$/,
-        title: "Tasks",
-        application: "tasks",
-        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, match[1] as TasksPage),
-    },
-    {
-        pattern: /^\/portal\/tasks\/p\/(tpj_[a-z0-9]{14})$/,
-        title: "Project",
-        application: "tasks",
-        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "project", match[1]),
-    },
-    {
-        pattern: /^\/portal\/tasks\/goals\/(tgl_[a-z0-9]{14})$/,
-        title: "Goal",
-        application: "tasks",
-        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "goal", match[1]),
-    },
-    {
-        pattern: /^\/portal\/tasks\/t\/(tsk_[a-z0-9]{14})$/,
-        title: "Task",
-        application: "tasks",
-        load: ({ env, user, url, match }) => loadTasksPage(env, user, url, "task", match[1]),
-    },
     // Daly Calendar. The application's permission is checked here; calendar membership in the loaders.
     {
         pattern: /^\/portal\/calendar$/,
@@ -471,7 +393,7 @@ const PAGES: PageDef[] = [
         load: ({ env, user, url, flags }) => loadCalendarPage(env, user, url, "view", flags),
     },
     {
-        pattern: /^\/portal\/calendar\/(planner|year|family|leave|calendars|subscriptions|holidays|settings)$/,
+        pattern: /^\/portal\/calendar\/(year|family|leave|calendars|subscriptions|holidays|settings)$/,
         title: "Calendar",
         application: "calendar",
         load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, match[1] as CalendarPage, flags),
@@ -482,30 +404,24 @@ const PAGES: PageDef[] = [
         application: "calendar",
         load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, `leave-${match[1]}` as CalendarPage, flags),
     },
-    // Daly Intelligence. The application's permission is checked here; ownership and memberships in the loaders.
+    // Daly Intelligence. The application's permission is checked here; everything in it is the caller's own.
     {
         pattern: /^\/portal\/intelligence$/,
         title: "Intelligence",
         application: "intelligence",
-        load: ({ env, user, url }) => loadIntelligencePage(env, user, url, "home"),
+        load: ({ env, user }) => loadIntelligencePage(env, user, "home"),
     },
     {
-        pattern: /^\/portal\/intelligence\/(inbox|capture|meetings|settings)$/,
+        pattern: /^\/portal\/intelligence\/settings$/,
         title: "Intelligence",
         application: "intelligence",
-        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, match[1] as "inbox" | "capture" | "meetings" | "settings"),
+        load: ({ env, user }) => loadIntelligencePage(env, user, "settings"),
     },
     {
         pattern: /^\/portal\/intelligence\/briefing(\/weekly)?$/,
         title: "Briefing",
         application: "intelligence",
-        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, match[1] ? "weekly" : "briefing"),
-    },
-    {
-        pattern: /^\/portal\/intelligence\/captures\/(aic_[a-z0-9]{14})$/,
-        title: "Capture",
-        application: "intelligence",
-        load: ({ env, user, url, match }) => loadIntelligencePage(env, user, url, "capture-detail", match[1]),
+        load: ({ env, user, match }) => loadIntelligencePage(env, user, match[1] ? "weekly" : "briefing"),
     },
     // Intelligence Centre. The application's permission is checked here; ownership of watch areas and wallboards in the loaders.
     {
@@ -576,36 +492,31 @@ const PAGES: PageDef[] = [
         application: "assets",
         load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, "location", match[1]),
     },
-    // Today: needs Calendar and Tasks (as the Daily Planner does); everything is read through theirs.
+    // Today: needs Calendar; everything is read through Calendar's own access.
     {
         pattern: /^\/portal\/today$/,
         title: "Today",
-        permission: "tasks.use",
+        permission: "calendar.use",
         load: async ({ env, user, url }) => {
-            if (!can(user, "calendar.use")) return { route: "forbidden", message: "Today needs access to both Calendar and Tasks." };
-            const block = url.searchParams.get("block");
             const dashboard = (await todayDashboard(env.DB, user, { date: url.searchParams.get("date") }).catch((error: unknown) => {
                 // A malformed or far-off ?date= opens today instead.
                 if (error instanceof HttpError && error.status === 400) return todayDashboard(env.DB, user, {});
                 throw error;
             })) as TodayDashboard;
-            const [plannerPreferences, spaces, calendarPrefs, leave] = await Promise.all([
-                plannerPrefs(env.DB, user.email),
-                can(user, "knowledge.use") ? listSpaces(env.DB, user.email) : Promise.resolve([]),
+            const [planningHours, calendarPrefs, leave] = await Promise.all([
+                loadPlanningHours(env.DB, user.email),
                 calendarPreferences(env.DB, user.email),
                 loadLeave(env.DB, user),
             ]);
             const { date } = dashboard;
             const [{ occurrences }, overlays] = await Promise.all([
                 occurrencesInWindow(env.DB, user, { from: date, to: date, timeZone: dashboard.timeZone }),
-                overlaysFor(env.DB, user, { ...calendarPrefs, overlays: { ...calendarPrefs.overlays, tasks: false } }, leave, date, date, dashboard.today),
+                overlaysFor(env.DB, user, calendarPrefs, leave, date, date),
             ]);
             return {
                 route: "today",
                 dashboard,
-                plannerPreferences,
-                spaces,
-                openBlock: block && /^ttb_[a-z0-9]{14}$/.test(block) ? block : null,
+                planningHours,
                 occurrences,
                 overlays,
                 workingHoursStart: calendarPrefs.workingHours.start,
@@ -625,6 +536,8 @@ const PAGES: PageDef[] = [
 ];
 
 export async function loadPortalPage(path: string, url: URL, env: Env, user: PortalUser, flags: Flags): Promise<PortalPageResult> {
+    // Retired applications: a clear answer, never their records (./retired.ts).
+    if (isRetiredPage(path)) return { data: { route: "forbidden", message: RETIRED_MESSAGE }, status: 410, title: "Retired" };
     for (const page of PAGES) {
         const match = page.pattern.exec(path);
         if (!match) continue;

@@ -1,14 +1,14 @@
 # Daly Calendar, Family Planner and Leave Planner (Milestone 6)
 
-A personal and household calendar at `/portal/calendar`, built on the existing Worker, D1 and Access: day, week, month and agenda views, a 12-month year planner, personal and shared calendars, repeating events, external ICS/webcal subscriptions, private ICS feeds for other calendar apps, NSW public holidays and school terms, a family planner, and an annual leave planner with forecasts and a deterministic optimiser. It's connected to Tasks, Knowledge, Intelligence (Chief of Staff) and the MCP gateway. There's no paid service and no AI in any calculation. Calendar works whether Intelligence is on or off.
+A personal and household calendar at `/portal/calendar`, built on the existing Worker, D1 and Access: day, week, month and agenda views, a 12-month year planner, personal and shared calendars, repeating events, external ICS/webcal subscriptions, private ICS feeds for other calendar apps, NSW public holidays and school terms, a family planner, and an annual leave planner with forecasts and a deterministic optimiser. It's connected to Today, Home & Assets, Intelligence (Chief of Staff) and the MCP gateway. There's no paid service and no AI in any calculation. Calendar works whether Intelligence is on or off.
 
 **Status:** this is a draft PR. Nothing is merged or deployed, and migration `0022_calendar.sql` hasn't been applied anywhere remote. Both new switches start **off**. See [Deploying](#deploying).
 
 The repository is public, so tests and fixtures only use invented people, events and calendars.
 
-**Today (Milestone 6.3)**: [`/portal/today`](DAILY_PLANNER.md#today) combines Calendar's events, leave and holidays with tasks and time blocks in one daily timeline. Its weekly breaks and the calendars a person leaves out of availability also apply to the Daily Planner, because both use the same planning window. External (subscribed or imported) events are only ever read there.
+**Today**: [`/portal/today`](DAILY_PLANNER.md#today) shows Calendar's events, leave and holidays in one daily timeline, with capacity worked out from each person's planning hours. Its **Add appointment** goes through Calendar's own event API. External (subscribed or imported) events are only ever read there.
 
-**Daily Planner (Milestone 6.2)**: time blocking for tasks, the Tasks panel in the day and week views, and `/portal/calendar/planner`, with free time, capacity, conflicts and deterministic suggestions. See [DAILY_PLANNER.md](DAILY_PLANNER.md).
+**Retired:** the Daily Planner (`/portal/calendar/planner`, time blocks and the Tasks panel), links from events to tasks, projects and Knowledge, the task overlay, and the feeds' task option were removed with Daly Tasks and Daly Knowledge. The planner's page and API answer 410; `calendar_event_links` is kept untouched until the owner approves the cleanup. See [DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md).
 
 ---
 
@@ -32,7 +32,7 @@ worker/calendar/
   safe-fetch.ts secret.ts   SSRF-hardened fetching; subscription address encryption
   subscriptions.ts          External subscriptions and the background refresh
   feeds.ts                  Private outbound ICS feeds
-  holidays.ts links.ts      Custom dates and overlays; links to Tasks and Knowledge
+  holidays.ts               Custom dates and overlays
   leave.ts planner.ts       Leave records; planning questions
   notify.ts                 Notifications (cron)
   export.ts xlsx.ts         Import, export, PDF, Excel, backup and restore
@@ -70,8 +70,7 @@ The application is registered in `src/shared/portal/applications.ts` (`calendar`
     - Each person has their own colour and show/hide for each calendar.
 4. **Event visibility**: `default` (the calendar's members see the details), `private` (only the creator sees them; everyone else sees "Busy" and can't open it), and `sensitive` (private, and also never shown with details in feeds, emails, briefings or MCP tools, even to the creator's AI assistant). Use sensitive for children, care and health.
 5. **Leave is always the person's own.** Sharing (`leave_shares`) lets chosen people see your leave dates and status, never balances, notes or titles.
-6. Links to Tasks and Knowledge are checked through those modules' own access every time they're read. Someone who can see an event but not a linked task sees only that a link exists.
-7. History (`calendar_activity`) records who did what to which record: ids only, never titles, text, URLs or hours. Calendar writes don't go to the wedding `audit_log`, just as Tasks and Knowledge writes don't.
+6. History (`calendar_activity`) records who did what to which record: ids only, never titles, text, URLs or hours. Calendar writes don't go to the wedding `audit_log`.
 
 ## Events, recurrence, time zones
 
@@ -80,7 +79,7 @@ The application is registered in `src/shared/portal/applications.ts` (`calendar`
 - **Expansion** (`worker/calendar/expand.ts`) uses ical.js to iterate in floating local time, then converts each occurrence with Intl. A weekly 9 am meeting stays at 9 am on both sides of a daylight-saving change (tested across 4 October 2026). ical.js rolls impossible dates forward (a yearly 29 February became 1 March). RFC 5545 says those occurrences don't exist, so they're skipped, as Google and Apple do.
 - Single-occurrence changes live in `calendar_event_overrides`, keyed by the occurrence's original local start. **This and following** splits the series. Removing one occurrence adds an exclusion, and Restore undoes it. Edits carry the version you read, so a stale edit gets 409 with the current event.
 - Views show events in the viewer's time zone and mark events from another zone. Expansion is bounded (2,000 occurrences per window, 50,000 iteration steps), and the page says when it was cut short.
-- A time inside the hour daylight saving skips comes out an hour later. In the repeated hour in April, the shared `zonedInstant` (from Tasks) currently picks the **second** 2:30, although its comment says the first. Calendar only relies on the round trip, which is correct either way. The comment is left for a Tasks change.
+- A time inside the hour daylight saving skips comes out an hour later. In the repeated hour in April, `zonedInstant` (`src/shared/calendar/time.ts`) currently picks the **second** 2:30, although its comment says the first. Calendar only relies on the round trip, which is correct either way.
 
 ## External subscriptions
 
@@ -106,7 +105,7 @@ They're never returned to the browser after they're added. Pages and MCP show on
 
 ## Private feeds (outbound)
 
-`/calendar/feed/<token>.ics`, outside `/portal`, because calendar apps can't sign in through Access. Each address is chosen per feed: which calendars, your approved and requested leave, task deadlines or all dated tasks, and whether to include details or publish busy times only.
+`/calendar/feed/<token>.ics`, outside `/portal`, because calendar apps can't sign in through Access. Each address is chosen per feed: which calendars, your approved and requested leave, and whether to include details or publish busy times only.
 
 - The token is 256 bits of randomness, and only its SHA-256 is stored. **Rotate** issues a new address and ends the old one. **Revoke** ends it. The same 404 answers "switched off", "unknown" and "revoked".
 - Every request re-checks the owner as they are now: they can still open Calendar, and for each calendar they're still a member (calendars they've lost are silently dropped). Free/busy calendars, private and sensitive events are always "Busy". Subscribed calendars are never republished.
@@ -151,15 +150,12 @@ Answers list exact dates and hours. Years without official holiday data are flag
 - **Add a year**: copy the published dates into `nsw.ts`, set `verifiedOn`, update `COVERED_YEARS`, and run `npm test`. `test/calendar-engine.test.ts` checks weekdays, ordering, overlaps and sources.
 - Regional public holidays, schools near the borders, non-government schools and a school's own pupil-free days are **custom dates**, personal or for the whole household. Custom school dates are shown alongside the official ones, never instead of them.
 
-## Tasks, Knowledge and Chief of Staff
+## Home & Assets and Chief of Staff
 
-- **Overlays**: open tasks due (and deadlines and milestones) in the window, straight from Tasks' own views (`listUpcoming`, `listDeadlines`) on every request. Moving a task's date in Tasks moves it in Calendar with no second update. Only the caller's own tasks appear, as Tasks decides.
 - **Home & Assets** dates (registration, roadside renewal, inspections, policy renewals, warranties ending, leases ending, maintenance due, and booked work without its own appointment) are a reminder overlay worked out from Home & Assets on each request, through its access rules, never copied as events. Each person can turn them off (`overlays.assets`, Settings → Overlays). A booked service can become a real appointment through `createEvent`, once per record. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
-- **Create a task from an event** uses Tasks' own `createTask` (permissions, Inbox, idempotency, history), due on the occurrence's date and time, and links it back.
-- **Links** to tasks, projects and Knowledge objects hold ids only, checked through `requireTask`/`requireProject`/`requireObject` when added and on every read. They're removed when the record is deleted (foreign keys).
 - **Chief of Staff** (`chief_of_staff_daily_context` / `weekly_context`) and **Intelligence briefings** (the new "Calendar and leave" section) include: the next 7 or 14 days of events, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected balances, and failing subscriptions. Calendar is no longer listed under `notChecked` for people with Calendar. Every fact is deterministic and linked. Private events are "Busy" and sensitive ones "Private event". AI can explain them, but never supplies dates, balances or approvals.
 
-## MCP tools (17; 63 in total, 67 with the Daily Planner's)
+## MCP tools
 
 | Tool                                                                                                                                                                                                               | Notes                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
@@ -169,7 +165,7 @@ Answers list exact dates and hours. Years without official holiday data are flag
 | `calendar_create_subscription`, `calendar_refresh_subscription`                                                                                                                                                    | Writes. Same SSRF checks; at most one refresh a minute.                                                            |
 | `leave_create_proposal`, `leave_update_proposal`                                                                                                                                                                   | Writes. **Draft or proposed only**; can cancel, never request, approve or take.                                    |
 
-Identity comes only from the re-verified Access token. Writes go through `mcp_writes` (ids only, request ids replay; the ledger was rebuilt in 0022 for `calendar_event`, `calendar_subscription` and `leave_booking`) and the gateway's write rate limit. There are no delete tools. `PORTAL_MCP_TOOLS` and `mcp/src/portal-tools.ts` are compared field by field in `test/mcp-contract.test.ts`. The gateway's version is now 2.3.0 and its instructions describe Calendar.
+Seventeen of the gateway's 66 tools (3.0.0; [MCP.md](MCP.md)). Identity comes only from the re-verified Access token. Writes go through `mcp_writes` (ids only, request ids replay; the ledger was rebuilt in 0022 for `calendar_event`, `calendar_subscription` and `leave_booking`) and the gateway's write rate limit. There are no delete tools. `PORTAL_MCP_TOOLS` and `mcp/src/portal-tools.ts` are compared field by field in `test/mcp-contract.test.ts`. The gateway's instructions describe Calendar.
 
 ## Notifications
 
@@ -197,7 +193,8 @@ Each has a unique key `(person, kind, record, occurrence)`, so overlapping runs 
 | `calendar_preferences`                                                                                    | Each person's settings (JSON, validated)                                                                                                    |
 | `calendars`, `calendar_members`                                                                           | Calendars (personal/shared, purpose, local/subscription, one default per person); members, roles, per-person colour and show/hide           |
 | `calendar_events`, `calendar_event_overrides`                                                             | Events (wall clock + zone, instants, RRULE/RDATE/EXDATE, category, visibility, people, content hash, client id); single-occurrence changes  |
-| `calendar_event_links`, `calendar_reminders`                                                              | Links to tasks/projects/Knowledge (ids, foreign keys); each person's reminders                                                              |
+| `calendar_reminders`                                                                                      | Each person's reminders                                                                                                                     |
+| `calendar_event_links`                                                                                    | Retired links to tasks, projects and Knowledge (ids, foreign keys). Kept, unread, until the approved cleanup                                |
 | `calendar_notifications`                                                                                  | In-app notifications and email state, one per unique key                                                                                    |
 | `calendar_subscriptions`, `calendar_feeds`                                                                | Subscriptions (sealed address, fingerprint, ETag, schedule, errors); feeds (token hash, scope)                                              |
 | `calendar_custom_dates`                                                                                   | Your school dates, regional holidays, non-working days                                                                                      |
@@ -231,13 +228,13 @@ Ids are prefixed random strings (`cal_`, `cev_`, `csb_`, `cfd_`, `crm_`, `cel_`,
 
 - `test/calendar-engine.test.ts`: daylight saving, view windows, recurrence (DST, exclusions, moved and cancelled occurrences, 29 February, counts, runaway rules), NSW data integrity, the leave engine (costs, part time, rosters, accrual, unpaid, statuses, scenarios, caps, resets, negatives) and the optimiser.
 - `test/calendar-ics.test.ts`: Google, Outlook and UTC feeds, hostile content, writing and round-tripping ICS, VTIMEZONE, URL normalisation, private address detection (including mapped IPv6), DNS-based refusal, redirect checks, conditional requests, size, type and retry classification.
-- `test/calendar.test.ts`: database guarantees, access (owners and admins only, CSRF), privacy (personal, free/busy, private, sensitive, search, removal), per-person show/hide, series/occurrence/following edits, stale edits, time zones, idempotent creates, task overlays following Tasks, task creation and links through permissions, subscriptions end to end (304, UID stability, cancellations, duplicates, SSRF after DNS, backoff, notifications, the empty-feed hold, rate limit, encryption), feeds (switch, privacy, hash-only storage, rotate, revoke, lost access, busy-only, no republishing), leave privacy and sharing, planning answers, exports, MCP (masking, proposals only, replay, no addresses, permissions), idempotent notifications, and backup and restore.
+- `test/calendar.test.ts`: database guarantees, access (owners and admins only, CSRF), privacy (personal, free/busy, private, sensitive, search, removal), per-person show/hide, series/occurrence/following edits, stale edits, time zones, idempotent creates, subscriptions end to end (304, UID stability, cancellations, duplicates, SSRF after DNS, backoff, notifications, the empty-feed hold, rate limit, encryption), feeds (switch, privacy, hash-only storage, rotate, revoke, lost access, busy-only, no republishing), leave privacy and sharing, planning answers, exports, MCP (masking, proposals only, replay, no addresses, permissions), idempotent notifications, and backup and restore.
 - `e2e/calendar.spec.ts`: launcher columns and card height at 375, 768, 1280 and 1680 px; every Calendar and Leave page on desktop and Pixel 7 with axe and no horizontal scroll; creating an event; holidays on the year planner; leave setup, booking preview, forecast and planner; unsafe subscription addresses.
-- MCP contract and gateway tests updated for 63 tools; `test:backup` covers 0022.
+- MCP contract and gateway tests cover the Calendar tools; `test:backup` covers 0022.
 
 ## Deploying
 
-Nothing here has been run against a remote database or deployed.
+The steps below are from Milestone 6's release, kept for reference.
 
 1. **Check remote migration state** (read-only): `npx wrangler d1 migrations list DB --remote --env=""`. `0022_calendar.sql` will be unapplied, and so will `0021` if Milestone 5 hasn't deployed.
 2. **Back up and verify**: `npm run db:backup -- --env production`.
@@ -248,7 +245,7 @@ Nothing here has been run against a remote database or deployed.
     - `npx wrangler secret put CALENDAR_ENCRYPTION_KEY --env=""` (e.g. `openssl rand -base64 48`) to encrypt subscription addresses. Set it before adding subscriptions, or they're encrypted at their next refresh.
     - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar subscription addresses** (`calendar.feeds`) to serve private feeds. Off by default because anyone with an address can read it.
     - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar reminder emails** (`calendar.reminders.email`), plus the existing `EMAIL_DELIVERY` secrets. Off by default; send yourself a test reminder first.
-7. **MCP**: the gateway is deployed by hand only (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`), after the portal Worker is live with 0022. It changes code only (Worker `dalyhub-mcp`). Follow [MCP_CUTOVER.md](MCP_CUTOVER.md).
+7. **MCP**: the gateway is deployed by hand only (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`), after the portal Worker is live with 0022. It changes code only (Worker `dalyhub-mcp`). The current gateway is 3.0.0: follow [MCP_CUTOVER.md](MCP_CUTOVER.md).
 8. No DNS, `routes` or Access changes. `/calendar/feed/*` is a path on the existing domain outside the Access application's `portal` and `api/portal` paths. That's intended: calendar apps can't sign in, and the token is the credential.
 
 **Rollback**: redeploy the previous Worker (`npx wrangler rollback --env=""`). The new tables are ignored by earlier code. The rebuilt `mcp_writes` keeps the same columns, and earlier code writes only entity types it still accepts. D1 has no down migrations, so reverting the schema means restoring a backup (or D1 Time Travel to the bookmark logged before migrating). Switching the two switches off stops feeds and emails immediately. Disabling a subscription stops its fetches.

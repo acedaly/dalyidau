@@ -1,99 +1,36 @@
-// Chief of Staff briefings: a daily briefing and a weekly review, built from what Daly Tasks and
-// Daly Knowledge record for one person, in their time zone, through their own memberships.
+// Chief of Staff briefings: a daily briefing and a weekly review, built from what Daly Calendar
+// records for one person (their events, overlaps, important dates, leave, school holidays and failing
+// subscriptions), in their time zone, through their own memberships.
 //
 // Facts and recommendations are kept apart. Facts are records (each with its id and link), the
-// same numbers the person's own dashboards show. Recommendations are optional model suggestions,
-// only ever about those facts: every reference a model returns must be one of the briefing's own
-// ids, or it's dropped. A briefing says what it read and what it never did (email, calendars,
-// banking: there are no such integrations), so it can't imply it checked them.
+// same ones the person's own Calendar shows. Recommendations are optional model suggestions, only
+// ever about those facts: every reference a model returns must be one of the briefing's own ids, or
+// it's dropped. A briefing says what it read and what it never did (email, banking: there are no
+// such integrations), so it can't imply it checked them.
 //
 // Cost: facts cost a handful of D1 reads and no inference. Recommendations are generated only when
 // asked for (a button, or the person's scheduled preparation) and then reused while the facts'
 // fingerprint is unchanged, so opening the page again, or a cron run with nothing new, costs nothing.
-import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
-import { BRIEFING_SECTION_LABELS, type BriefingSection, type IntelligenceConfig, type IntelligencePreferences } from "../../src/shared/intelligence/config";
+import { localDate } from "../../src/shared/calendar/time";
+import { BRIEFING_SECTION_LABELS, type IntelligenceConfig, type IntelligencePreferences } from "../../src/shared/intelligence/config";
 import type { BriefingFactSection, BriefingItem, BriefingView, Recommendation } from "../../src/shared/intelligence/types";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { addDays, localDate } from "../../src/shared/tasks/dates";
-import { EMPTY_FILTER } from "../../src/shared/tasks/filters";
-import type { TaskSummary } from "../../src/shared/tasks/types";
+import { preferences as calendarPreferences, todayFor } from "../calendar/access";
 import { calendarFacts } from "../calendar/chief";
 import type { Env } from "../env";
-import { spaceToday } from "../knowledge/daily";
-import { plannerFacts } from "../planner/facts";
 import { can } from "../portal/auth";
-import { newId, nowIso, parseJson, placeholders } from "../portal/db";
-import { preferences as taskPreferences, todayFor } from "../tasks/access";
-import { householdDashboard, personalDashboard } from "../tasks/dashboard";
-import { measureProjects } from "../tasks/health";
-import { listProjects } from "../tasks/projects";
-import { completedBetween, filterTasks, listDeadlines, listOverdue, listUpcoming } from "../tasks/views";
+import { newId, nowIso, parseJson } from "../portal/db";
 import { type JobContext, type StepResult, enqueue } from "./jobs";
 import { BRIEFING_SYSTEM, fence } from "./prompts";
 import { AiError, generateJson } from "./provider";
-import { sha256 } from "./semantic";
 import { availability, loadConfig, loadPreferences } from "./settings";
 import { BudgetExceeded } from "./usage";
 
 export const NOT_CHECKED = ["email", "calendar", "bank accounts and finances", "any external service"];
-const SHOWN = 8;
 
-const taskItem = (site: string, t: TaskSummary, detail?: string): BriefingItem => ({
-    id: t.id,
-    title: t.title,
-    url: `${site}/portal/tasks/t/${t.id}`,
-    kind: "task",
-    ...(detail ? { detail } : {}),
-});
-
-const days = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
-
-const dueDetail = (t: TaskSummary, today: string) => {
-    const date = t.dueDate && (!t.deadline || t.dueDate <= t.deadline) ? t.dueDate : t.deadline;
-    if (!date) return undefined;
-    const n = days(today, date);
-    const what = t.deadline === date && t.dueDate !== date ? "Deadline" : "Due";
-    return n === 0 ? `${what} today` : n < 0 ? `${-n} day${n === -1 ? "" : "s"} overdue` : n === 1 ? `${what} tomorrow` : `${what} ${date}`;
-};
-
-const section = (key: BriefingFactSection["key"], title: string, items: BriefingItem[], count = items.length): BriefingFactSection => ({
-    key,
-    title,
-    count,
-    items: items.slice(0, SHOWN),
-});
-
-/** Knowledge the person can read, in the spaces their preferences include, updated in a window. */
-async function knowledgeIn(db: D1Database, user: PortalUser, prefs: IntelligencePreferences, site: string, from: string, to: string | null, typeSlug?: string) {
-    const spaces = await db
-        .prepare(`SELECT s.id, s.kind FROM knowledge_spaces s JOIN knowledge_memberships m ON m.space_id = s.id AND m.email = ?`)
-        .bind(user.email)
-        .all<{ id: string; kind: string }>();
-    const ids = spaces.results.filter((s) => (prefs.scope === "all" || s.kind === "personal") && !prefs.excludedSpaceIds.includes(s.id)).map((s) => s.id);
-    if (!ids.length) return { count: 0, items: [] as BriefingItem[] };
-    const where = [`o.space_id IN (${placeholders(ids.length)})`, "o.status = 'active'", "o.updated_at >= ?"];
-    const binds: unknown[] = [...ids, from];
-    if (to) (where.push("o.updated_at < date(?, '+1 day')"), binds.push(to));
-    if (typeSlug) (where.push("t.slug = ?"), binds.push(typeSlug));
-    const rows = await db
-        .prepare(
-            `SELECT o.id, o.title, o.updated_at, t.name AS type, COUNT(*) OVER () AS total FROM knowledge_objects o JOIN knowledge_object_types t ON t.id = o.type_id
-             WHERE ${where.join(" AND ")} ORDER BY o.updated_at DESC LIMIT ${SHOWN}`,
-        )
-        .bind(...binds)
-        .all<{ id: string; title: string; updated_at: string; type: string; total: number }>();
-    return {
-        count: rows.results[0]?.total ?? 0,
-        items: rows.results.map((r): BriefingItem => ({
-            id: r.id,
-            title: r.title || "Untitled",
-            url: `${site}/portal/knowledge/o/${r.id}`,
-            kind: "knowledge",
-            detail: r.type,
-        })),
-    };
-}
+const sha256 = async (text: string) =>
+    [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 /** The facts for one briefing. No model, no writes. */
 export async function briefingFacts(
@@ -105,222 +42,11 @@ export async function briefingFacts(
     periodOverride?: string,
 ) {
     const db = env.DB;
-    const want = new Set<BriefingSection>(prefs.sections);
     const sections: BriefingFactSection[] = [];
-    const tasks = can(user, "tasks.use");
-    const knowledge = can(user, "knowledge.use");
-    let today = new Date().toISOString().slice(0, 10);
-    if (tasks) today = await todayFor(db, user.email);
-    else if (knowledge) today = spaceToday({ time_zone: "Australia/Sydney" });
+    const calendar = can(user, "calendar.use") && prefs.sections.includes("calendar");
+    const today = can(user, "calendar.use") ? await todayFor(db, user.email) : new Date().toISOString().slice(0, 10);
     const period = periodOverride ?? today;
-
-    let kinds = new Map<string, "personal" | "shared">();
-    const inScope = (t: TaskSummary) => prefs.scope === "all" || kinds.get(t.projectId) !== "shared";
-
-    if (tasks) {
-        const timeZone = (await taskPreferences(db, user.email)).timeZone;
-        kinds = new Map((await listProjects(db, user.email, today)).map((p) => [p.id, p.kind]));
-        const waiting = async () =>
-            (await filterTasks(db, user.email, { ...EMPTY_FILTER, labels: ["waiting"], status: "open" }, today, { limit: 50, offset: 0 })).tasks.filter(
-                inScope,
-            );
-        const followUps = async () =>
-            (
-                await filterTasks(
-                    db,
-                    user.email,
-                    { ...EMPTY_FILTER, labels: ["follow-up", "follow up", "followup"], labelMode: "any", status: "open" },
-                    today,
-                    { limit: 50, offset: 0 },
-                )
-            ).tasks.filter(inScope);
-
-        if (kind === "daily") {
-            const mine = await personalDashboard(db, user);
-            if (want.has("today")) {
-                const list = mine.dueToday.tasks.filter(inScope);
-                sections.push(
-                    section(
-                        "today",
-                        BRIEFING_SECTION_LABELS.today,
-                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
-                        mine.dueToday.count,
-                    ),
-                );
-            }
-            if (want.has("overdue")) {
-                const list = mine.overdue.tasks.filter(inScope);
-                sections.push(
-                    section(
-                        "overdue",
-                        BRIEFING_SECTION_LABELS.overdue,
-                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
-                        mine.overdue.count,
-                    ),
-                );
-            }
-            if (want.has("deadlines")) {
-                const list = (await listDeadlines(db, user.email, addDays(today, 1), addDays(today, 14))).filter(inScope);
-                sections.push(
-                    section(
-                        "deadlines",
-                        BRIEFING_SECTION_LABELS.deadlines,
-                        list.map((t) => taskItem(site, t, dueDetail(t, today))),
-                    ),
-                );
-            }
-            if (want.has("projects")) {
-                const list = mine.projects.filter((p) => p.health.status !== "on_track" && (prefs.scope === "all" || p.kind === "personal"));
-                sections.push(
-                    section(
-                        "projects",
-                        BRIEFING_SECTION_LABELS.projects,
-                        list.map((p) => ({
-                            id: p.id,
-                            title: p.name,
-                            url: `${site}/portal/tasks/p/${p.id}`,
-                            kind: "project",
-                            detail: p.health.reasons[0]?.text ?? p.health.status.replace("_", " "),
-                        })),
-                    ),
-                );
-            }
-            if (want.has("follow_ups"))
-                sections.push(
-                    section(
-                        "follow_ups",
-                        BRIEFING_SECTION_LABELS.follow_ups,
-                        (await followUps()).map((t) => taskItem(site, t, dueDetail(t, today))),
-                    ),
-                );
-            if (want.has("waiting"))
-                sections.push(
-                    section(
-                        "waiting",
-                        BRIEFING_SECTION_LABELS.waiting,
-                        (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today))),
-                    ),
-                );
-            if (want.has("household") && prefs.scope === "all") {
-                const household = await householdDashboard(db, user, "all");
-                if (household.projectCount > 0)
-                    sections.push(
-                        section(
-                            "household",
-                            BRIEFING_SECTION_LABELS.household,
-                            household.attention.tasks.map((t) => taskItem(site, t, dueDetail(t, today))),
-                            household.attention.count,
-                        ),
-                    );
-            }
-        } else {
-            const start = addDays(period, -6);
-            const [completed, overdue, upcoming, measured] = await Promise.all([
-                completedBetween(db, user.email, start, period),
-                listOverdue(db, user.email, today),
-                listUpcoming(db, user.email, addDays(today, 1), addDays(today, 14), today),
-                measureProjects(db, user.email, today, timeZone),
-            ]);
-            const active = measured.filter((p) => p.status === "active" && (prefs.scope === "all" || p.kind === "personal"));
-            sections.push(
-                section(
-                    "completed",
-                    "Completed this week",
-                    completed.filter(inScope).map((t) => taskItem(site, t)),
-                ),
-            );
-            sections.push(
-                section(
-                    "at_risk",
-                    "Projects at risk",
-                    active
-                        .filter((p) => p.health.status === "at_risk")
-                        .map((p) => ({ id: p.id, title: p.name, url: `${site}/portal/tasks/p/${p.id}`, kind: "project", detail: p.health.reasons[0]?.text })),
-                ),
-            );
-            const quiet = addDays(today, -14);
-            sections.push(
-                section(
-                    "stale",
-                    "Projects without recent activity",
-                    active
-                        .filter((p) => !p.metrics.lastActivityAt || p.metrics.lastActivityAt.slice(0, 10) < quiet)
-                        .map((p) => ({
-                            id: p.id,
-                            title: p.name,
-                            url: `${site}/portal/tasks/p/${p.id}`,
-                            kind: "project",
-                            detail: p.metrics.lastActivityAt ? `Last activity ${p.metrics.lastActivityAt.slice(0, 10)}` : "No activity yet",
-                        })),
-                ),
-            );
-            if (want.has("overdue"))
-                sections.push(
-                    section(
-                        "overdue",
-                        BRIEFING_SECTION_LABELS.overdue,
-                        overdue.filter(inScope).map((t) => taskItem(site, t, dueDetail(t, today))),
-                    ),
-                );
-            sections.push(
-                section(
-                    "milestones",
-                    "Upcoming milestones",
-                    upcoming.filter((t) => t.isMilestone && inScope(t)).map((t) => taskItem(site, t, dueDetail(t, today))),
-                ),
-            );
-            if (want.has("waiting"))
-                sections.push(
-                    section(
-                        "waiting",
-                        BRIEFING_SECTION_LABELS.waiting,
-                        (await waiting()).map((t) => taskItem(site, t, dueDetail(t, today))),
-                    ),
-                );
-            const mine = await personalDashboard(db, user);
-            const housekeeping: BriefingItem[] = [
-                ...(mine.inbox.count
-                    ? [
-                          {
-                              id: "housekeeping:inbox",
-                              title: `${mine.inbox.count} unsorted in your Tasks Inbox`,
-                              url: `${site}/portal/tasks/inbox`,
-                              kind: "task" as const,
-                          },
-                      ]
-                    : []),
-                ...mine.reviewsDue.map((r) => ({
-                    id: r.projectId,
-                    title: `Review due: ${r.name}`,
-                    url: `${site}/portal/tasks/p/${r.projectId}`,
-                    kind: "project" as const,
-                    detail: r.due,
-                })),
-            ];
-            sections.push(section("housekeeping", "Housekeeping", housekeeping));
-        }
-    }
-    if (knowledge) {
-        if (kind === "daily") {
-            if (want.has("decisions")) {
-                const found = await knowledgeIn(db, user, prefs, site, addDays(today, -14), null, "decision");
-                sections.push(section("decisions", BRIEFING_SECTION_LABELS.decisions, found.items, found.count));
-            }
-            if (want.has("knowledge")) {
-                const found = await knowledgeIn(db, user, prefs, site, addDays(today, -1), null);
-                sections.push(section("knowledge", BRIEFING_SECTION_LABELS.knowledge, found.items, found.count));
-            }
-        } else {
-            const start = addDays(period, -6);
-            const updated = await knowledgeIn(db, user, prefs, site, start, period);
-            const meetings = await knowledgeIn(db, user, prefs, site, start, period, "meeting");
-            const decisions = await knowledgeIn(db, user, prefs, site, start, period, "decision");
-            sections.push(section("knowledge", "Knowledge updated this week", updated.items, updated.count));
-            sections.push(section("decisions", "Meetings and decisions", [...meetings.items, ...decisions.items], meetings.count + decisions.count));
-        }
-    }
     // Calendar and leave (facts from worker/calendar/chief.ts: private events are "Busy", sensitive ones "Private event").
-    const calendar = can(user, "calendar.use") && want.has("calendar");
     if (calendar) {
         const facts = await calendarFacts(db, user, site, kind === "daily" ? 1 : 7);
         const items: BriefingItem[] = [
@@ -345,26 +71,9 @@ export async function briefingFacts(
                 detail: s.error ?? undefined,
             })),
         ];
-        // The day's plan (Daily Planner): planned sessions, conflicts and what's due but not yet planned.
-        if (kind === "daily" && tasks) {
-            const plan = await plannerFacts(db, user, site);
-            if (plan) {
-                items.push(
-                    ...plan.scheduled.map((b) => ({ id: b.id, title: `Planned: ${b.title}`, url: b.url, kind: "task" as const, detail: b.when })),
-                    ...plan.conflicts.map((c, i) => ({ id: `conflict:${c.blockId ?? i}:${c.kind}`, title: c.message, url: plan.url, kind: "event" as const })),
-                    ...plan.dueNotPlanned.slice(0, 5).map((t) => ({
-                        id: `unplanned:${t.id}`,
-                        title: `Not planned yet: ${t.title}`,
-                        url: t.url,
-                        kind: "task" as const,
-                        detail: t.estimateMinutes ? `About ${t.estimateMinutes} min` : undefined,
-                    })),
-                );
-            }
-        }
-        sections.push(section("calendar", BRIEFING_SECTION_LABELS.calendar, items, items.length));
+        sections.push({ key: "calendar", title: BRIEFING_SECTION_LABELS.calendar, count: items.length, items: items.slice(0, 8) });
     }
-    return { period, today, sections, checked: { tasks, knowledge, calendar } };
+    return { period, today, sections, checked: { calendar } };
 }
 
 // --- Recommendations -------------------------------------------------------------------------------
@@ -513,7 +222,7 @@ export async function scheduleBriefings(env: Env, config: IntelligenceConfig): P
     for (const person of people.results) {
         const { preferences: prefs } = await loadPreferences(env.DB, person.email);
         if (prefs.paused) continue;
-        const timeZone = (await taskPreferences(env.DB, person.email)).timeZone;
+        const timeZone = (await calendarPreferences(env.DB, person.email)).timeZone;
         const today = localDate(new Date(), timeZone);
         const clock = localClock(timeZone);
         const due: ("daily" | "weekly")[] = [];

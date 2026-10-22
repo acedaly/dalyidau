@@ -186,7 +186,6 @@ export const LeavePage = ({ data }: { data: PageData<"calendar-leave"> }) => {
                             overlays={{
                                 holidays: holidayOverlays(`${today.slice(0, 4)}-01-01`, yearEnd, leave.profile.settings, leave.customDates),
                                 school: schoolOverlays(`${today.slice(0, 4)}-01-01`, yearEnd, data.preferences.schoolDivision, leave.customDates),
-                                tasks: [],
                                 leave: leave.bookings
                                     .filter((b) => !b.scenarioId && b.status !== "cancelled" && b.status !== "draft")
                                     .map((b) => ({
@@ -630,7 +629,6 @@ const Scenarios = ({
                             overlays={{
                                 holidays: holidayOverlays(`${year}-01-01`, end, leave.profile.settings, leave.customDates),
                                 school: schoolOverlays(`${year}-01-01`, end, division, leave.customDates),
-                                tasks: [],
                                 leave: leave.bookings
                                     .filter((b) => !b.scenarioId && b.status !== "cancelled" && b.status !== "draft")
                                     .map((b) => ({

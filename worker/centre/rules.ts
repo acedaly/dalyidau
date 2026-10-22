@@ -18,7 +18,6 @@ import type { Env } from "../env";
 import { can, userForEmail } from "../portal/auth";
 import { auditStatement, newId, nowIso, parseJson } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { createTask } from "../tasks/tasks";
 import { type Geometry, type Position, distanceKm, distanceToAreaKm, distanceToLineKm, expandBBox, pointInPolygon, polygonsOf, positions } from "./geo";
 import { type VersionRow, sourceGaps, toReplayRecord } from "./history";
 import { RECORD_COLUMNS, type RecordRow, loadPreferences, sourceRows, toRecord } from "./store";
@@ -206,7 +205,6 @@ interface MatchRow {
     evidence_at: string | null;
     notified: number;
     suppressed: RuleMatch["suppressed"];
-    task_id: string | null;
     acknowledged_at: string | null;
 }
 
@@ -224,7 +222,6 @@ const toMatch = (r: MatchRow): RuleMatch => ({
     evidenceAt: r.evidence_at,
     notified: r.notified === 1,
     suppressed: r.suppressed,
-    taskId: r.task_id,
     acknowledgedAt: r.acknowledged_at,
 });
 
@@ -252,16 +249,6 @@ export async function listMatches(
         .bind(...binds, options.limit ?? 100)
         .all<MatchRow>();
     return rows.results.map(toMatch);
-}
-
-export async function requireMatch(db: D1Database, email: string, id: string): Promise<RuleMatch> {
-    if (!/^icm_[a-z0-9]{14}$/.test(id)) throw new HttpError(404, "not_found", "Not found");
-    const row = await db
-        .prepare("SELECT m.*, r.name AS rule_name FROM ic_rule_matches m LEFT JOIN ic_rules r ON r.id = m.rule_id WHERE m.id = ? AND m.email = ?")
-        .bind(id, email)
-        .first<MatchRow>();
-    if (!row) throw new HttpError(404, "not_found", "Not found");
-    return toMatch(row);
 }
 
 export async function acknowledgeMatches(db: D1Database, user: PortalUser, ids: string[] | "all") {
@@ -901,34 +888,4 @@ function stateCandidate(d: RuleDefinition, anyHazard: WatchArea | null, record: 
         default:
             return null;
     }
-}
-
-// --- Tasks ------------------------------------------------------------------------------------------
-
-/** A follow-up task for a match, through Daly Tasks' own function. Asking again returns the same task. */
-export async function taskFromMatch(env: Env, user: PortalUser, matchId: string, body: unknown) {
-    if (!can(user, "tasks.use")) throw new HttpError(403, "forbidden", "You can't use Daly Tasks");
-    const match = await requireMatch(env.DB, user.email, matchId);
-    const input = (body ?? {}) as { dueDate?: unknown; projectId?: unknown };
-    const dueDate = typeof input.dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.dueDate) ? input.dueDate : undefined;
-    const projectId = typeof input.projectId === "string" && /^tpj_[a-z0-9]{14}$/.test(input.projectId) ? input.projectId : undefined;
-    const site = new URL(env.SITE_URL).origin;
-    const { task, replayed } = await createTask(env.DB, user, {
-        title: `Check: ${match.ruleName}`.slice(0, 200),
-        description: [
-            `Monitoring rule matched ${when(match.at)}.`,
-            match.reason,
-            match.recordId ? `Record: ${site}/portal/intelligence-centre/records/${match.recordId}` : null,
-            "From public information collected by the Intelligence Centre. Always check the official source and follow official warnings.",
-        ]
-            .filter(Boolean)
-            .join("\n\n")
-            .slice(0, 4000),
-        ...(projectId ? { projectId } : {}),
-        ...(dueDate ? { dueDate } : {}),
-        labels: [],
-        clientId: `centre-match-${matchId}`,
-    });
-    await env.DB.prepare("UPDATE ic_rule_matches SET task_id = ? WHERE id = ? AND email = ?").bind(task.id, matchId, user.email).run();
-    return { taskId: task.id, url: `/portal/tasks/t/${task.id}`, replayed };
 }

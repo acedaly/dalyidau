@@ -16,13 +16,9 @@ export const PERMISSIONS = [
     "wedding.budget.edit",
     "wedding.website.edit",
     "wedding.export",
-    /** Opening Daly Knowledge. What each person can see inside it is decided by space membership, not by this. */
-    "knowledge.use",
-    /** Opening Daly Tasks. What each person can see inside it is decided by project membership, not by this. */
-    "tasks.use",
     /** Opening Daly Calendar and the Leave Planner. What each person can see inside is decided by calendar membership; leave is always their own. */
     "calendar.use",
-    /** Opening Daly Intelligence. Every capture, suggestion and briefing is still the person's own, and Knowledge and Tasks keep their membership rules. */
+    /** Opening Daly Intelligence. Every briefing and preference is the person's own. */
     "intelligence.use",
     /** Opening the Intelligence Centre (public hazard information). Watch areas, alerts and wallboards are each person's own. */
     "centre.use",

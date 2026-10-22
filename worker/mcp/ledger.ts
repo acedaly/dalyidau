@@ -10,23 +10,10 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { newId, nowIso } from "../portal/db";
 import { HttpError } from "../portal/http";
 
+// Rows for retired tools (tasks, Knowledge, projects, captures, suggestions, time blocks) stay in the
+// table as history; nothing writes or replays them any more.
 export type EntityType =
-    | "task"
-    | "task_knowledge_link"
-    | "knowledge_object"
-    | "task_project"
-    | "ai_capture"
-    | "ai_suggestion"
-    | "calendar_event"
-    | "calendar_subscription"
-    | "leave_booking"
-    | "task_time_block"
-    | "asset"
-    | "asset_maintenance"
-    | "asset_link"
-    | "centre_rule"
-    | "centre_report"
-    | "centre_report_schedule";
+    "calendar_event" | "calendar_subscription" | "leave_booking" | "asset" | "asset_maintenance" | "centre_rule" | "centre_report" | "centre_report_schedule";
 
 export interface WriteOutcome {
     entityType: EntityType;

@@ -24,10 +24,10 @@ import {
 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Card } from "@/portal/components/card";
 import { Empty } from "@/portal/components/empty";
 import { MetricCard } from "@/portal/components/metric-card";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatNumber, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";

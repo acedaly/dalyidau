@@ -6,10 +6,10 @@ import { ArrowUpRight, InfoCircle, Stars02 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Card } from "@/portal/components/card";
 import { Notice } from "@/portal/components/notice";
 import { PageHeader } from "@/portal/components/page-header";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatDate } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
@@ -67,8 +67,10 @@ export const IntelligenceBriefingPage = ({ data }: { data: PageData<"intelligenc
             </PageHeader>
 
             <Notice title="What this is based on" color="gray">
-                {[briefing.checked.tasks && "Daly Tasks", briefing.checked.knowledge && "Daly Knowledge"].filter(Boolean).join(" and ") || "Nothing"}, as you
-                can see them. Not checked: {briefing.notChecked.join(", ")}.
+                {briefing.checked.calendar
+                    ? "Daly Calendar and your leave, as you can see them."
+                    : "Nothing: the Calendar and leave section is off or Calendar isn't open to you."}{" "}
+                Not checked: {briefing.notChecked.join(", ")}.
                 {briefing.changesSincePrevious &&
                     ` Since ${formatDate(briefing.changesSincePrevious.previousPeriod!)}: ${briefing.changesSincePrevious.added} new, ${briefing.changesSincePrevious.resolved} no longer listed.`}
             </Notice>

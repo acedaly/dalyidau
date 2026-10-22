@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, Globe04 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { When } from "@/portal/centre/shared";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { TodayCentre } from "@/shared/centre/types";
 
 const Group = ({ title, children }: { title: string; children: ReactNode }) => (

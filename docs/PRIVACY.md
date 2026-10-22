@@ -4,24 +4,24 @@ The wedding portal holds personal details about our guests. This page says what 
 
 ## What we collect and why
 
-| Data                                                                         | Where                  | Why                                                                  |
-| ---------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------- |
-| Names, household, side, group, age group (adult/child/infant), plus-one flag | `guests`, `households` | To know who's invited and plan numbers                               |
-| Email, phone                                                                 | `guests`, `households` | To send invitations and updates, and contact people if plans change  |
-| Postal address                                                               | `households`           | For paper invitations                                                |
-| RSVP per event, when and how it was given                                    | `guest_events`         | To plan the day                                                      |
-| Dietary and accessibility needs, notes, custom fields                        | `guests`               | Catering and making the day work for everyone                        |
-| Online RSVP submissions (answers, optional message, optional email)          | `rsvp_submissions`     | A record of exactly what each household told us                      |
-| Configurable RSVP answers and the question wording/version used              | `rsvp_answers`         | Preserve and report answers even when a question is edited later     |
-| Courtesy bus choice, passenger counts and where a household is staying       | `rsvp_travel`          | Estimate bus numbers for the Dubbo RSL and plan possible pick-ups    |
-| Who was sent which message, delivery reports, SMS cost                       | `message_recipients`   | Delivery history and to avoid double-sending                         |
-| Text messages sent to and received from guests                               | `sms_messages`         | Text conversations and replies                                       |
-| Raw delivery reports and inbound texts from providers                        | `comm_webhook_events`  | Applying delivery status once, even when providers retry             |
-| Email and SMS opt-outs                                                       | `guests`               | Never contacting someone on a channel they opted out of              |
-| Portal users' emails, roles, last-seen time                                  | `portal_users`         | Access control                                                       |
-| Change history (who did what, when)                                          | `audit_log`            | Accountability between the two of us and anyone we add               |
-| Hashed client identifiers with counters                                      | `rate_limits`          | Stopping RSVP-code guessing. No IP addresses are stored.             |
-| Private notes, structured properties, tags, links and revision history       | `knowledge_*`          | Personal knowledge management; visible only through space membership |
+| Data                                                                            | Where                   | Why                                                                                                                                        |
+| ------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Names, household, side, group, age group (adult/child/infant), plus-one flag    | `guests`, `households`  | To know who's invited and plan numbers                                                                                                     |
+| Email, phone                                                                    | `guests`, `households`  | To send invitations and updates, and contact people if plans change                                                                        |
+| Postal address                                                                  | `households`            | For paper invitations                                                                                                                      |
+| RSVP per event, when and how it was given                                       | `guest_events`          | To plan the day                                                                                                                            |
+| Dietary and accessibility needs, notes, custom fields                           | `guests`                | Catering and making the day work for everyone                                                                                              |
+| Online RSVP submissions (answers, optional message, optional email)             | `rsvp_submissions`      | A record of exactly what each household told us                                                                                            |
+| Configurable RSVP answers and the question wording/version used                 | `rsvp_answers`          | Preserve and report answers even when a question is edited later                                                                           |
+| Courtesy bus choice, passenger counts and where a household is staying          | `rsvp_travel`           | Estimate bus numbers for the Dubbo RSL and plan possible pick-ups                                                                          |
+| Who was sent which message, delivery reports, SMS cost                          | `message_recipients`    | Delivery history and to avoid double-sending                                                                                               |
+| Text messages sent to and received from guests                                  | `sms_messages`          | Text conversations and replies                                                                                                             |
+| Raw delivery reports and inbound texts from providers                           | `comm_webhook_events`   | Applying delivery status once, even when providers retry                                                                                   |
+| Email and SMS opt-outs                                                          | `guests`                | Never contacting someone on a channel they opted out of                                                                                    |
+| Portal users' emails, roles, last-seen time                                     | `portal_users`          | Access control                                                                                                                             |
+| Change history (who did what, when)                                             | `audit_log`             | Accountability between the two of us and anyone we add                                                                                     |
+| Hashed client identifiers with counters                                         | `rate_limits`           | Stopping RSVP-code guessing. No IP addresses are stored.                                                                                   |
+| Private notes, tasks and their history (Daly Knowledge and Daly Tasks, retired) | `knowledge_*`, `task_*` | Kept untouched and unreachable until the owner approves their cleanup ([DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md)) |
 
 Cloudflare hosts the application data in D1 and photos in R2. If email or SMS delivery is approved and switched on later, the provider (SMTP2Go for email, ClickSend for SMS; see [COMMUNICATIONS.md](COMMUNICATIONS.md)) receives each recipient's name, email address or mobile number and the rendered message. Both are currently disabled and no provider credentials are configured.
 
@@ -71,7 +71,7 @@ Erasing in the portal can't remove copies that already exist elsewhere:
 
 - **Downloaded CSV files** (exports, mail-merge files). Every export is recorded in the audit log with who took it. Delete the files when you're done with them.
 - **Downloaded full JSON exports**. These contain the portal's database records (but not R2 photo binaries) and are audited like CSV exports.
-- **Downloaded Daly Knowledge exports** (Markdown, JSON or ZIP). Object downloads contain that object's content and link metadata; owner-only space downloads can contain every note, revision, shared-space member email, collection, template, visible saved view and the exporter's own favourites. Downloads are audited and never cached, but the portal cannot revoke a file after it leaves the browser.
+- **Downloaded Daly Knowledge exports** (Markdown, JSON or ZIP), made before Daly Knowledge was retired. Object downloads contained that object's content and link metadata; owner-only space downloads could contain every note, revision, shared-space member email, collection, template, visible saved view and the exporter's own favourites. The portal can't revoke a file after it left the browser.
 - **Database backups** made with `npm run db:backup` (in `backups/`, git-ignored). They're readable by your account only. Delete old backup files once they're no longer needed (`node scripts/db-backup.mjs --prune 5` keeps the newest five per environment); don't keep them longer than the retention period.
 - **D1 Time Travel**: Cloudflare can restore the database to any point in the last 30 days. Erased data therefore remains recoverable by the account owner for up to 30 days, then is gone.
 - **Worker logs** (Workers Logs) record request paths and error messages, not guest details.

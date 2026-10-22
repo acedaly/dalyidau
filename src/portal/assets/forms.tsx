@@ -1087,7 +1087,6 @@ export const CompleteForm = ({
     const [cost, setCost] = useState(dollars(record.costCents));
     const [provider, setProvider] = useState(record.provider ?? "");
     const [notes, setNotes] = useState(record.notes ?? "");
-    const [completeTask, setCompleteTask] = useState(true);
     const toast = useToast();
     const { submit, busy, error } = useDialogSubmit(
         async () => {
@@ -1098,10 +1097,8 @@ export const CompleteForm = ({
                 ...(!record.costHidden ? { costCents: moneyValue(cost, "Cost") } : {}),
                 provider: blank(provider),
                 notes: blank(notes),
-                completeTask,
             });
             if (result.next) toast.success("Next one scheduled", result.next.dueOn ? `Due ${result.next.dueOn}` : "Due by distance");
-            if (result.taskCompleted === false) toast.error("The linked task wasn't completed", "Open it in Tasks to finish it.");
         },
         onSaved,
         "Marked as done",
@@ -1125,9 +1122,6 @@ export const CompleteForm = ({
                 <Input label="Who did it" value={provider} onChange={setProvider} maxLength={200} />
             </Grid>
             <TextArea label="Notes" value={notes} onChange={setNotes} rows={2} maxLength={8000} />
-            {record.task?.available && record.task.status !== "completed" && (
-                <Checkbox label="Also complete the linked task" isSelected={completeTask} onChange={setCompleteTask} />
-            )}
         </PortalDialog>
     );
 };
@@ -1162,7 +1156,6 @@ export const ScheduleForm = ({
         provider: initial?.provider ?? "",
         notes: initial?.notes ?? "",
         autoNext: initial?.autoNext ?? true,
-        taskLead: initial?.taskLeadDays?.toString() ?? "",
         active: initial?.active ?? true,
     });
     const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
@@ -1190,7 +1183,6 @@ export const ScheduleForm = ({
                 provider: blank(f.provider),
                 notes: blank(f.notes),
                 autoNext: f.autoNext,
-                taskLeadDays: intValue(f.taskLead, "Create a task"),
                 active: f.active,
                 ...(template && !initial ? { templateId: template.id } : {}),
             };
@@ -1249,13 +1241,6 @@ export const ScheduleForm = ({
                     <Input label="Or first due at (odometer)" value={f.firstDueKm} onChange={(firstDueKm) => set({ firstDueKm })} inputMode="numeric" />
                 )}
                 <Input label="Remind me (days before)" value={f.reminderDays} onChange={(reminderDays) => set({ reminderDays })} hint="e.g. 30, 7, 0" />
-                <Input
-                    label="Create a Daly Task this many days before"
-                    value={f.taskLead}
-                    onChange={(taskLead) => set({ taskLead })}
-                    inputMode="numeric"
-                    hint="Leave empty to create tasks yourself"
-                />
                 {target.locationId && (
                     <NativeSelect
                         label="Responsibility"

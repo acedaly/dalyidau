@@ -7,11 +7,11 @@ import { FileUpload } from "@/components/application/file-upload/file-upload-bas
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Card } from "@/portal/components/card";
 import { DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { type AssetFileView, FILE_KINDS, FILE_KIND_LABELS } from "@/shared/assets/types";

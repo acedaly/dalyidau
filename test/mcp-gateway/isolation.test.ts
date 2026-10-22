@@ -98,15 +98,20 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
 
         const s = await session(OWNER, { env });
         expect(s.init.status).toBe(200);
-        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(117);
-        const task = (await s.ok<{ task: { id: string } }>("tasks_create", { title: "Renew passport", dueDate: "2030-03-01", requestId: "isolation-0001" }))
-            .task;
-        const again = await s.ok<{ task: { id: string } }>("tasks_create", { title: "Renew passport", dueDate: "2030-03-01", requestId: "isolation-0001" });
-        expect(again.task.id).toBe(task.id);
-        await s.ok("tasks_complete", { taskId: task.id, requestId: "isolation-0002" });
-        const note = (await s.ok<{ object: { id: string } }>("knowledge_create_object", { title: "Passport", text: "Form PC7." })).object;
-        await s.ok("knowledge_append_to_object", { objectId: note.id, text: "Photos done." });
-        await s.ok("knowledge_create_daily_note", { text: "Lodged passport." });
+        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(66);
+        const event = (
+            await s.ok<{ event: { id: string } }>("calendar_create_event", { title: "Renew passport", startDate: "2030-03-01", requestId: "isolation-0001" })
+        ).event;
+        const again = await s.ok<{ event: { id: string } }>("calendar_create_event", {
+            title: "Renew passport",
+            startDate: "2030-03-01",
+            requestId: "isolation-0001",
+        });
+        expect(again.event.id).toBe(event.id);
+        const asset = (await s.ok<{ asset: { id: string } }>("assets_create", { name: "Passport wallet", category: "other", requestId: "isolation-0002" }))
+            .asset;
+        await s.ok("assets_create_maintenance", { assetId: asset.id, title: "Check expiry", requestId: "isolation-0003" });
+        await s.ok("today_get_summary");
         await s.ok("chief_of_staff_daily_context");
         await s.ok("chief_of_staff_weekly_context");
 
@@ -117,8 +122,8 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
     it("reports the portal being unreachable as unavailable, never as an empty result", async () => {
         const env = gatewayEnv({ PORTAL: { invoke: () => Promise.reject(new Error("service binding failed")) } });
         const s = await session(OWNER, { env });
-        for (const tool of ["tasks_today", "chief_of_staff_daily_context", "tasks_create"]) {
-            const answer = await s.tool(tool, tool === "tasks_create" ? { title: "x" } : {});
+        for (const tool of ["calendar_list_calendars", "chief_of_staff_daily_context", "calendar_create_event"]) {
+            const answer = await s.tool(tool, tool === "calendar_create_event" ? { title: "x", startDate: "2030-03-01" } : {});
             expect(answer.isError, tool).toBe(true);
             expect(answer.data.error?.code, tool).toBe("unavailable");
             expect(answer.data.error?.message).toContain("Do not treat this as an empty result");
@@ -127,7 +132,7 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
 
     it("treats a missing PORTAL binding (a misconfigured deploy) the same way", async () => {
         const s = await session(OWNER, { env: gatewayEnv({ PORTAL: undefined }) });
-        expect((await s.tool("tasks_today")).data.error?.code).toBe("unavailable");
+        expect((await s.tool("calendar_list_calendars")).data.error?.code).toBe("unavailable");
     });
 });
 
@@ -136,25 +141,25 @@ describe("rate limits, per person", () => {
         const MCP_CALLS = rateLimit(4);
         const env = gatewayEnv({ MCP_CALLS });
         const a = await session(OWNER, { env, sub: "subject-a" }); // initialize + initialized = 2
-        await a.ok("tasks_today"); // 3
-        await a.ok("tasks_today"); // 4
-        expect((await a.tool("tasks_today")).status).toBe(429);
+        await a.ok("calendar_list_calendars"); // 3
+        await a.ok("calendar_list_calendars"); // 4
+        expect((await a.tool("calendar_list_calendars")).status).toBe(429);
         const b = await session(SECOND_OWNER, { env, sub: "subject-b" });
         expect(b.init.status).toBe(200);
-        expect((await b.tool("tasks_today")).status).toBe(200);
+        expect((await b.tool("calendar_list_calendars")).status).toBe(200);
     });
 
     it("limits writes separately, refusing them as a tool error while reads continue", async () => {
         const MCP_WRITES = rateLimit(2);
         const binding = portalBinding();
         const s = await session(OWNER, { env: gatewayEnv({ MCP_WRITES, PORTAL: binding }) });
-        await s.ok("tasks_create", { title: "One" });
-        await s.ok("tasks_create", { title: "Two" });
-        const third = await s.tool("tasks_create", { title: "Three" });
+        await s.ok("calendar_create_event", { title: "One", startDate: "2030-03-01" });
+        await s.ok("calendar_create_event", { title: "Two", startDate: "2030-03-01" });
+        const third = await s.tool("calendar_create_event", { title: "Three", startDate: "2030-03-01" });
         expect(third.isError).toBe(true);
         expect(third.data.error?.code).toBe("rate_limited");
-        expect(binding.calls.filter((t) => t === "tasks_create")).toHaveLength(2);
-        await s.ok("tasks_today");
+        expect(binding.calls.filter((t) => t === "calendar_create_event")).toHaveLength(2);
+        await s.ok("calendar_list_calendars");
     });
 });
 
@@ -164,8 +169,9 @@ describe("logs", () => {
         for (const method of ["log", "info", "warn", "error"] as const)
             vi.spyOn(console, method).mockImplementation((...args) => void lines.push(args.map(String).join(" ")));
         const s = await session(OWNER);
-        await s.ok("tasks_create", { title: "Secret-surprise-party", description: "confidential-details" });
-        await s.ok("tasks_search", { query: "Secret-surprise-party" });
+        await s.ok("calendar_create_event", { title: "Secret-surprise-party", description: "confidential-details", startDate: "2030-03-01" });
+        await s.ok("calendar_search_events", { query: "Secret-surprise-party" });
+        await s.tool("assets_get", { assetId: "ast_aaaaaaaaaaaaaa" });
         await s.tool("tasks_get", { taskId: "tsk_aaaaaaaaaaaaaa" });
         await (await import("./helpers")).post({}, { token: "not-a-jwt" });
         const all = lines.join("\n");

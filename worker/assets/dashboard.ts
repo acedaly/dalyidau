@@ -3,11 +3,11 @@
 // access rules as everywhere else.
 //
 // Every sentence comes from a record's own name and date ("Cub Camper Frontier registration is due
-// in 21 days. No renewal Task has been created."). Nothing is estimated: a schedule with no
+// in 21 days."). Nothing is estimated: a schedule with no
 // interval or no starting point is "unknown", an asset with no recorded value is counted as
 // unvalued (never as zero), and something nobody recorded simply isn't mentioned.
 import type { D1Database } from "@cloudflare/workers-types";
-import { TASK_NOUN, dateSentence, daysFrom, maintenanceSentence } from "../../src/shared/assets/engine";
+import { dateSentence, daysFrom, maintenanceSentence } from "../../src/shared/assets/engine";
 import {
     type AssetSummary,
     type AssetsOverview,
@@ -28,7 +28,6 @@ import { can } from "../portal/auth";
 import { ACCESS_FROM } from "./access";
 import { type ViewContext, listAssets, viewContext } from "./assets";
 import { listPolicies } from "./insurance";
-import { taskKeys } from "./links";
 import { listLocations } from "./locations";
 import { listMaintenance, listSchedules, targetsFor } from "./maintenance";
 import { listNotifications } from "./notify";
@@ -43,13 +42,12 @@ export interface Snapshot {
     warranties: WarrantyView[];
     schedules: ScheduleView[];
     open: MaintenanceView[];
-    tasks: Map<string, string>;
 }
 
 export async function snapshot(db: D1Database, user: PortalUser): Promise<Snapshot> {
     const ctx = await viewContext(db, user);
     const targets = await targetsFor(db, user);
-    const [{ assets }, vehicleRows, locations, policies, warranties, schedules, open, tasks] = await Promise.all([
+    const [{ assets }, vehicleRows, locations, policies, warranties, schedules, open] = await Promise.all([
         listAssets(db, user, ctx),
         db
             .prepare(
@@ -62,7 +60,6 @@ export async function snapshot(db: D1Database, user: PortalUser): Promise<Snapsh
         listWarranties(db, user),
         listSchedules(db, user, {}, targets),
         listMaintenance(db, user, { scope: "open" }, targets),
-        taskKeys(db),
     ]);
     return {
         ctx,
@@ -78,7 +75,6 @@ export async function snapshot(db: D1Database, user: PortalUser): Promise<Snapsh
         warranties,
         schedules,
         open,
-        tasks,
     };
 }
 
@@ -102,11 +98,7 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
     const end = addDays(today, horizonDays);
     const items: AttentionItem[] = [];
     const current = new Map(s.assets.filter(isCurrent).map((a) => [a.id, a]));
-    const taskFor = (refKind: string, refId: string, refDate: string) => s.tasks.get(`${refKind}:${refId}:${refDate}`) ?? null;
-    const push = (item: Omit<AttentionItem, "taskNote" | "taskId">) => {
-        const taskId = item.taskRef ? taskFor(item.taskRef.refKind, item.taskRef.refId, item.taskRef.refDate) : null;
-        items.push({ ...item, taskId, taskNote: item.taskRef && !taskId ? `No ${TASK_NOUN[item.kind]} has been created.` : null });
-    };
+    const push = (item: AttentionItem) => items.push(item);
     const inWindow = (date: string | null) => !!date && date <= end;
     const stateOf = (date: string): AttentionItem["state"] =>
         date < today ? "overdue" : date <= addDays(today, s.ctx.prefs.dueSoonDays) ? "due_soon" : "upcoming";
@@ -136,7 +128,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
             url: m.assetId ? `/portal/assets/item/${m.assetId}?tab=maintenance` : `/portal/assets/property/${m.locationId}`,
             assetId: m.assetId,
             refId: m.id,
-            taskRef: { refKind: "maintenance", refId: m.id, refDate: "" },
         });
     }
     for (const sc of s.schedules) {
@@ -158,7 +149,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
             url: sc.assetId ? `/portal/assets/item/${sc.assetId}?tab=maintenance` : `/portal/assets/property/${sc.locationId}`,
             assetId: sc.assetId,
             refId: sc.id,
-            taskRef: { refKind: "schedule", refId: sc.id, refDate: "" },
         });
     }
 
@@ -166,10 +156,10 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
     for (const [assetId, v] of s.vehicles) {
         const a = current.get(assetId);
         if (!a) continue;
-        for (const [kind, refKind, date] of [
-            ["registration", "registration", v.registrationExpiry],
-            ["roadside", "roadside", v.roadsideExpiry],
-            ["inspection", "inspection", v.inspectionDue],
+        for (const [kind, date] of [
+            ["registration", v.registrationExpiry],
+            ["roadside", v.roadsideExpiry],
+            ["inspection", v.inspectionDue],
         ] as const) {
             if (!date || !inWindow(date) || date < addDays(today, -60)) continue;
             const days = daysFrom(today, date);
@@ -185,7 +175,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
                 url: `/portal/assets/item/${assetId}`,
                 assetId,
                 refId: assetId,
-                taskRef: { refKind, refId: assetId, refDate: date },
             });
         }
     }
@@ -193,9 +182,9 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
     // Places: inspections and leases.
     for (const l of s.locations) {
         if (l.archived) continue;
-        for (const [kind, refKind, date] of [
-            ["inspection", "inspection", l.nextInspectionOn],
-            ["lease", "lease_end", l.leaseEnd],
+        for (const [kind, date] of [
+            ["inspection", l.nextInspectionOn],
+            ["lease", l.leaseEnd],
         ] as const) {
             if (!date || !inWindow(date) || date < addDays(today, -60)) continue;
             const days = daysFrom(today, date);
@@ -211,7 +200,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
                 url: `/portal/assets/property/${l.id}`,
                 assetId: null,
                 refId: l.id,
-                taskRef: { refKind, refId: l.id, refDate: date },
             });
         }
     }
@@ -233,7 +221,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
             url: `/portal/assets/insurance?policy=${p.id}`,
             assetId: null,
             refId: p.id,
-            taskRef: { refKind: "policy_renewal", refId: p.id, refDate: p.renewsOn },
         });
     }
 
@@ -253,7 +240,6 @@ export function attention(s: Snapshot, horizonDays: number): AttentionItem[] {
             url: `/portal/assets/item/${w.assetId}?tab=cover`,
             assetId: w.assetId,
             refId: w.id,
-            taskRef: { refKind: "warranty_expiry", refId: w.id, refDate: w.expiresOn },
         });
     }
 

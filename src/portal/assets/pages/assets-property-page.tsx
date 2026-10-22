@@ -2,14 +2,12 @@
 // with rental details, inspections and maintenance requests. Responsibility at a rental is what the
 // household understands from its lease, recorded per item, and never presented as the law.
 import { useState } from "react";
-import { Calendar, CheckDone01, Edit05, Home02, MarkerPin01, Package, Plus, Tool02 } from "@untitledui/icons";
+import { Calendar, Edit05, Home02, MarkerPin01, Package, Plus, Tool02 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Card } from "@/portal/components/card";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
-import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
-import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { LOCATION_KIND_LABELS, type LocationView, type MaintenanceView, RESPONSIBILITY_LABELS, TENURE_LABELS } from "@/shared/assets/types";
 import { assetsApi, fileUrl } from "../assets-api";
@@ -144,7 +142,6 @@ export const AssetsPropertyPage = ({ data }: { data: PageData<"assets-property">
 };
 
 export const AssetsLocationPage = ({ data }: { data: PageData<"assets-location"> }) => {
-    const toast = useToast();
     const [l, setL] = useState(data.location);
     const [records, setRecords] = useState(data.maintenance);
     const [dialog, setDialog] = useState<null | "edit" | "maintenance" | "schedule" | { complete: MaintenanceView }>(null);
@@ -153,14 +150,6 @@ export const AssetsLocationPage = ({ data }: { data: PageData<"assets-location">
         setL(location.locations.find((x) => x.id === l.id) ?? l);
         setRecords(maintenance.maintenance.filter((m) => m.locationId === l.id));
         setDialog(null);
-    };
-    const task = async (refKind: string) => {
-        try {
-            const result = await assetsApi.task({ refKind, refId: l.id });
-            toast.success(result.existing ? "That task already exists" : "Task created");
-        } catch (e) {
-            toast.error("Couldn't create the task", errorMessage(e));
-        }
     };
     const open = records.filter((m) => !["completed", "cancelled"].includes(m.status));
     const done = records.filter((m) => m.status === "completed");
@@ -293,20 +282,6 @@ export const AssetsLocationPage = ({ data }: { data: PageData<"assets-location">
                                 </div>
                             ))}
                         </dl>
-                        {data.canTasks && (l.nextInspectionOn || l.leaseEnd) && (
-                            <div className="flex flex-wrap gap-2 border-t border-secondary px-4 py-3 sm:px-5">
-                                {l.nextInspectionOn && (
-                                    <Button size="xs" color="secondary" iconLeading={CheckDone01} onClick={() => void task("inspection")}>
-                                        Inspection task
-                                    </Button>
-                                )}
-                                {l.leaseEnd && (
-                                    <Button size="xs" color="secondary" iconLeading={CheckDone01} onClick={() => void task("lease_end")}>
-                                        Lease task
-                                    </Button>
-                                )}
-                            </div>
-                        )}
                     </Card>
                     {data.files.length > 0 && (
                         <Card title="Documents" icon={Package}>

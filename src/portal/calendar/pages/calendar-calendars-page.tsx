@@ -27,7 +27,6 @@ import {
     type CalendarRole,
     type FeedScope,
 } from "@/shared/calendar/types";
-import { FEED_TIME_BLOCKS, FEED_TIME_BLOCK_LABELS, type FeedTimeBlocks } from "@/shared/planner/types";
 import { featuresHref } from "@/shared/portal/settings-sections";
 import { calendarApi } from "../api";
 import { CalendarHeader, Card, ColorDot, ColorPicker, download } from "../shared";
@@ -218,13 +217,11 @@ const Members = ({
 const FeedDialog = ({
     calendars,
     feed,
-    canUseTasks,
     onClose,
     onCreated,
 }: {
     calendars: CalendarInfo[];
     feed: CalendarFeedInfo | null;
-    canUseTasks: boolean;
     onClose: () => void;
     onCreated: (address: string | null) => void;
 }) => {
@@ -232,17 +229,16 @@ const FeedDialog = ({
     const local = calendars.filter((c) => c.source === "local");
     const [name, setName] = useState(feed?.name ?? "My Daly calendar");
     const [scope, setScope] = useState<FeedScope>(
-        feed?.scope ?? { calendarIds: local.filter((c) => c.isDefault).map((c) => c.id), leave: true, tasks: "none", detail: "full" },
+        feed?.scope ?? { calendarIds: local.filter((c) => c.isDefault).map((c) => c.id), leave: true, detail: "full" },
     );
-    const [timeBlocks, setTimeBlocks] = useState<FeedTimeBlocks>(feed?.timeBlocks ?? "none");
     const [busy, setBusy] = useState(false);
     const save = async () => {
         setBusy(true);
         try {
             if (feed) {
-                await calendarApi.updateFeed(feed.id, { name, scope, timeBlocks });
+                await calendarApi.updateFeed(feed.id, { name, scope });
                 onCreated(null);
-            } else onCreated((await calendarApi.createFeed(name, scope, timeBlocks)).address);
+            } else onCreated((await calendarApi.createFeed(name, scope)).address);
             onClose();
         } catch (error) {
             toast.error("Couldn't save the feed", errorMessage(error));
@@ -262,12 +258,7 @@ const FeedDialog = ({
                     <Button color="secondary" size="lg" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button
-                        type="submit"
-                        size="lg"
-                        isLoading={busy}
-                        isDisabled={!name.trim() || (!scope.calendarIds.length && !scope.leave && scope.tasks === "none" && timeBlocks === "none")}
-                    >
+                    <Button type="submit" size="lg" isLoading={busy} isDisabled={!name.trim() || (!scope.calendarIds.length && !scope.leave)}>
                         {feed ? "Save" : "Create address"}
                     </Button>
                 </>
@@ -287,29 +278,6 @@ const FeedDialog = ({
                 ))}
             </fieldset>
             <Checkbox label="My approved and requested leave" isSelected={scope.leave} onChange={(on) => setScope({ ...scope, leave: on })} />
-            <Select
-                label="Task due dates"
-                value={scope.tasks}
-                onChange={(k) => k && setScope({ ...scope, tasks: k as FeedScope["tasks"] })}
-                items={[
-                    { id: "none", label: "None" },
-                    { id: "deadlines", label: "Deadlines only" },
-                    { id: "dated", label: "Every task with a due date" },
-                ]}
-            >
-                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-            </Select>
-            {canUseTasks && (
-                <Select
-                    label="Time planned for tasks"
-                    value={timeBlocks}
-                    onChange={(k) => k && setTimeBlocks(k as FeedTimeBlocks)}
-                    items={FEED_TIME_BLOCKS.map((id) => ({ id, label: FEED_TIME_BLOCK_LABELS[id] }))}
-                    hint="Time blocks from the Daily planner. A task's title is never published."
-                >
-                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                </Select>
-            )}
             <Select
                 label="Details"
                 value={scope.detail}
@@ -410,7 +378,7 @@ export const CalendarCalendarsPage = ({ data }: { data: PageData<"calendar-calen
 
             <Card
                 title="Subscribe from other calendar apps"
-                description="Private addresses that publish chosen calendars, your leave and task due dates to Apple Calendar, Outlook or Google Calendar. One-way: nothing comes back. Revoke an address at any time."
+                description="Private addresses that publish chosen calendars and your leave to Apple Calendar, Outlook or Google Calendar. One-way: nothing comes back. Revoke an address at any time."
                 actions={
                     <Button size="sm" iconLeading={Rss01} onClick={() => setFeedDialog("new")}>
                         New address
@@ -462,8 +430,8 @@ export const CalendarCalendarsPage = ({ data }: { data: PageData<"calendar-calen
                                     <span className="text-xs text-tertiary">
                                         …{f.tokenHint} · {f.scope.calendarIds.length} calendar{f.scope.calendarIds.length === 1 ? "" : "s"}
                                         {f.scope.leave ? " · leave" : ""}
-                                        {f.scope.tasks !== "none" ? " · tasks" : ""}
-                                        {f.timeBlocks !== "none" ? " · planned time" : ""} · {f.scope.detail === "busy" ? "busy times only" : "with details"}
+                                        {" · "}
+                                        {f.scope.detail === "busy" ? "busy times only" : "with details"}
                                         {f.lastAccessedAt ? ` · last read ${formatRelative(f.lastAccessedAt)}` : " · not read yet"}
                                     </span>
                                 </span>
@@ -505,7 +473,6 @@ export const CalendarCalendarsPage = ({ data }: { data: PageData<"calendar-calen
                 <FeedDialog
                     calendars={calendars}
                     feed={feedDialog === "new" ? null : feedDialog}
-                    canUseTasks={data.canUseTasks}
                     onClose={() => setFeedDialog(null)}
                     onCreated={(a) => {
                         if (a) setAddress(a);

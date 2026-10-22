@@ -6,14 +6,7 @@
 // callers and the UI understand. Structured output is parsed and validated with a strict schema:
 // anything that doesn't fit is a `malformed_output` error, never a guess.
 import type { z } from "zod";
-import {
-    type BudgetFeature,
-    type IntelligenceConfig,
-    estimateAudioNeurons,
-    estimateTextNeurons,
-    estimateTokens,
-    modelById,
-} from "../../src/shared/intelligence/config";
+import { type BudgetFeature, type IntelligenceConfig, estimateTextNeurons, estimateTokens, modelById } from "../../src/shared/intelligence/config";
 import type { Env } from "../env";
 import { HttpError } from "../portal/http";
 import type { AiRunOptions } from "./bindings";
@@ -45,21 +38,17 @@ export const MESSAGES: Record<AiErrorCode, string> = {
 export interface AiContext {
     env: Env;
     config: IntelligenceConfig;
-    /** The person the work is for; null for account maintenance (the semantic indexer). */
+    /** The person the work is for. */
     email: string | null;
-    spaceId?: string | null;
     feature: BudgetFeature;
     jobId?: string | null;
 }
 
 type Role = keyof IntelligenceConfig["models"];
 const ROLE_TASK: Record<Role, UsageRow["task"]> = {
-    classify: "classify",
     extract: "extract",
     summarise: "summarise",
     synthesis: "generate",
-    embed: "embed",
-    transcribe: "transcribe",
 };
 
 const options = (env: Env): AiRunOptions | undefined =>
@@ -111,7 +100,6 @@ async function call<T>(
     const started = Date.now();
     const base = {
         email: ctx.email,
-        spaceId: ctx.spaceId ?? null,
         feature: ctx.feature,
         task,
         provider: "workers-ai",
@@ -158,7 +146,7 @@ const textOf = (result: TextResponse): string => {
 };
 
 export interface TextRequest {
-    role: Exclude<Role, "embed" | "transcribe">;
+    role: Role;
     system: string;
     prompt: string;
     maxTokens: number;
@@ -231,85 +219,6 @@ export async function generateJson<S extends z.ZodType>(ctx: AiContext, request:
     if (again.success) return { value: again.data, model: retry.model };
     console.log(JSON.stringify({ event: "ai_malformed_output", model: retry.model, feature: ctx.feature }));
     throw new AiError("malformed_output", MESSAGES.malformed_output, 502);
-}
-
-// --- Embeddings ------------------------------------------------------------------------------------
-
-/** Characters per text sent for embedding (about 512 tokens, the BGE limit). */
-export const EMBED_MAX_CHARACTERS = 1_800;
-const EMBED_BATCH = 50;
-
-export async function embed(ctx: AiContext, texts: string[]): Promise<number[][]> {
-    const model = ctx.config.models.embed;
-    const out: number[][] = [];
-    for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-        const batch = texts.slice(i, i + EMBED_BATCH).map((t) => t.slice(0, EMBED_MAX_CHARACTERS));
-        const tokens = batch.reduce((n, t) => n + estimateTokens(t.length), 0);
-        const estimate = estimateTextNeurons(model, tokens, 0);
-        const result = await call<{ data?: number[][] }>(
-            ctx,
-            { role: "embed", model, inputs: {}, estimate, unit: "tokens" },
-            (ai) => ai.run(model, { text: batch }, options(ctx.env)) as Promise<{ data?: number[][] }>,
-            () => ({ inputUnits: tokens, outputUnits: 0, neurons: estimate, measured: false }),
-        );
-        const vectors = result?.data;
-        const dimensions = ctx.config.vectorDimensions;
-        if (!Array.isArray(vectors) || vectors.length !== batch.length || vectors.some((v) => !Array.isArray(v) || v.length !== dimensions))
-            throw new AiError("malformed_output", "The embedding model answered with vectors of the wrong shape.", 502);
-        out.push(...vectors);
-    }
-    return out;
-}
-
-// --- Speech --------------------------------------------------------------------------------------
-
-export interface TranscriptionResult {
-    text: string;
-    segments: { start: number; end: number; text: string }[];
-    language: string | null;
-    durationSeconds: number | null;
-    model: string;
-}
-
-export async function transcribe(ctx: AiContext, audio: Uint8Array, request: { seconds: number; language?: string | null }): Promise<TranscriptionResult> {
-    const model = ctx.config.models.transcribe;
-    const estimate = estimateAudioNeurons(model, request.seconds);
-    let binary = "";
-    for (let i = 0; i < audio.length; i += 0x8000) binary += String.fromCharCode(...audio.subarray(i, i + 0x8000));
-    type Whisper = {
-        text?: string;
-        segments?: { start?: number; end?: number; text?: string }[];
-        transcription_info?: { language?: string; duration?: number };
-    };
-    const result = await call<Whisper>(
-        ctx,
-        { role: "transcribe", model, inputs: {}, estimate, unit: "audio_seconds" },
-        (ai) =>
-            ai.run(
-                model,
-                { audio: btoa(binary), vad_filter: true, ...(request.language ? { language: request.language } : {}), condition_on_previous_text: false },
-                options(ctx.env),
-            ) as Promise<Whisper>,
-        (r) => {
-            const seconds = typeof r?.transcription_info?.duration === "number" ? r.transcription_info.duration : request.seconds;
-            return {
-                inputUnits: seconds,
-                outputUnits: 0,
-                neurons: estimateAudioNeurons(model, seconds),
-                measured: typeof r?.transcription_info?.duration === "number",
-            };
-        },
-    );
-    if (typeof result?.text !== "string") throw new AiError("malformed_output", "The transcription service answered without any text.", 502);
-    return {
-        text: result.text.trim(),
-        segments: (result.segments ?? [])
-            .filter((s) => typeof s.start === "number" && typeof s.end === "number" && typeof s.text === "string")
-            .map((s) => ({ start: s.start!, end: s.end!, text: s.text!.trim() })),
-        language: typeof result.transcription_info?.language === "string" ? result.transcription_info.language.slice(0, 12) : null,
-        durationSeconds: typeof result.transcription_info?.duration === "number" ? result.transcription_info.duration : null,
-        model,
-    };
 }
 
 // --- Documents -------------------------------------------------------------------------------------

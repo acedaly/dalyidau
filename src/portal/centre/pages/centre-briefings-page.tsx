@@ -1,7 +1,7 @@
 // Briefings: the NSW situation or one watch area, as facts from stored records with an optional,
 // labelled interpretation. Correlations are listed with their evidence and limitations.
 import { NativeSelect } from "@/components/base/select/select-native";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { PageData } from "@/portal/lib/page-types";
 import { BriefingView } from "../briefing-view";
 import { CorrelationItem } from "../history-ui";

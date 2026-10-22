@@ -4,11 +4,83 @@
 // so a weekly 9 am meeting is at 9 am on both sides of a daylight-saving change. Instants (UTC ISO
 // strings) are worked out from those with Intl, never with fixed offsets. All-day events are
 // floating dates: the 24th is the 24th wherever you are.
-import { addDays, isCalendarDate, localDate } from "../knowledge/dates";
-import { isClockTime, isTimeZone, zonedInstant } from "../tasks/dates";
-import { daysBetween, isoWeekday } from "../tasks/recurrence";
 
-export { addDays, daysBetween, isCalendarDate, isClockTime, isTimeZone, isoWeekday, localDate, zonedInstant };
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Whether a "YYYY-MM-DD" string is a real calendar date within a sensible range. */
+export const isCalendarDate = (value: unknown): value is string => {
+    if (typeof value !== "string") return false;
+    const match = DATE.exec(value);
+    if (!match) return false;
+    const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+    if (year < 1900 || year > 2200) return false;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+
+/** The calendar date at `instant` in `timeZone`. */
+export const localDate = (instant: Date, timeZone: string): string => {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(instant);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return `${get("year")}-${get("month")}-${get("day")}`;
+};
+
+/** The date `days` after (or before) a calendar date. Pure date arithmetic: time zones don't apply. */
+export const addDays = (date: string, days: number): string => {
+    const [year, month, day] = date.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
+
+const dayNumber = (value: string) => {
+    const [y, m, d] = value.split("-").map(Number);
+    return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
+};
+/** 1 (Monday) to 7 (Sunday). */
+export const isoWeekday = (value: string) => ((((dayNumber(value) + 3) % 7) + 7) % 7) + 1;
+export const daysBetween = (from: string, to: string) => dayNumber(to) - dayNumber(from);
+
+export const isTimeZone = (value: string) => {
+    try {
+        new Intl.DateTimeFormat("en-AU", { timeZone: value });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+export const isClockTime = (value: unknown): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+/** Minutes `timeZone` is ahead of UTC at `instant`. */
+const offsetMinutes = (instant: number, timeZone: string) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    }).formatToParts(new Date(instant));
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    return Math.round((asUtc - Math.floor(instant / 1000) * 1000) / 60_000);
+};
+
+/**
+ * The instant a local date and time happen in `timeZone`, as ISO in UTC. A time inside the hour
+ * that daylight saving skips (2:30 am on the first Sunday of October in Sydney) comes out an hour
+ * later; in the repeated hour in April, the first of the two.
+ */
+export function zonedInstant(date: string, time: string, timeZone: string): string {
+    const [y, mo, d] = date.split("-").map(Number);
+    const [h, mi] = time.split(":").map(Number);
+    const wall = Date.UTC(y, mo - 1, d, h, mi);
+    // Twice: the first guess can land on the other side of a daylight saving change.
+    let instant = wall - offsetMinutes(wall, timeZone) * 60_000;
+    instant = wall - offsetMinutes(instant, timeZone) * 60_000;
+    return new Date(instant).toISOString();
+}
 
 export const DEFAULT_TIME_ZONE = "Australia/Sydney";
 /** The end of a series that never ends, so window queries can compare strings. */

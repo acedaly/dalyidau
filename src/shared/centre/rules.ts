@@ -211,7 +211,6 @@ export interface RuleMatch {
     evidenceAt: string | null;
     notified: boolean;
     suppressed: "cooldown" | "rate_limit" | "disabled" | null;
-    taskId: string | null;
     acknowledgedAt: string | null;
 }
 

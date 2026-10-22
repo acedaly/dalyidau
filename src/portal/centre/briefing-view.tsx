@@ -1,13 +1,12 @@
 // A briefing: facts (each from stored public records, with its link and time), what couldn't be
 // seen, and an optional interpretation that's labelled as AI and cites the facts it uses.
 import { useState } from "react";
-import { BookOpen01, FileCheck02, Stars02 } from "@untitledui/icons";
+import { FileCheck02, Stars02 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Card } from "@/portal/components/card";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
-import { usePortal } from "@/portal/portal-context";
 import { SOURCE_STATUS_LABELS } from "@/shared/centre/sources";
 import type { CentreBriefing, CentreShell } from "@/shared/centre/types";
 import { centreApi } from "./centre-api";
@@ -23,9 +22,8 @@ const STATUS_TEXT: Record<CentreBriefing["interpretation"]["status"], string> = 
 
 export const BriefingView = ({ briefing: initial, shell, compact = false }: { briefing: CentreBriefing; shell: CentreShell; compact?: boolean }) => {
     const [briefing, setBriefing] = useState(initial);
-    const [busy, setBusy] = useState<"ai" | "save" | null>(null);
+    const [busy, setBusy] = useState<"ai" | null>(null);
     const toast = useToast();
-    const { can } = usePortal();
     const facts = Object.fromEntries(briefing.sections.flatMap((s) => s.facts).map((f) => [f.ref, f]));
     const interpret = async () => {
         setBusy("ai");
@@ -33,18 +31,6 @@ export const BriefingView = ({ briefing: initial, shell, compact = false }: { br
             setBriefing((await centreApi.interpret(briefing.scope, briefing.watchId)).briefing);
         } catch (e) {
             toast.error("Couldn't prepare an interpretation", errorMessage(e));
-        } finally {
-            setBusy(null);
-        }
-    };
-    const save = async () => {
-        setBusy("save");
-        try {
-            const { url } = await centreApi.briefingToKnowledge(briefing.scope, briefing.watchId);
-            toast.success("Saved to Knowledge", "Open it from Knowledge, or follow the link.");
-            window.location.href = url;
-        } catch (e) {
-            toast.error("Couldn't save it", errorMessage(e));
         } finally {
             setBusy(null);
         }
@@ -65,18 +51,6 @@ export const BriefingView = ({ briefing: initial, shell, compact = false }: { br
                             showTextWhileLoading
                         >
                             Interpret
-                        </Button>
-                    )}
-                    {can("knowledge.use") && !compact && (
-                        <Button
-                            size="sm"
-                            color="secondary"
-                            iconLeading={BookOpen01}
-                            onClick={() => void save()}
-                            isLoading={busy === "save"}
-                            showTextWhileLoading
-                        >
-                            Save to Knowledge
                         </Button>
                     )}
                 </div>

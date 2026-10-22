@@ -60,9 +60,7 @@ async function shell(env: Env, user: PortalUser): Promise<AssetsShell> {
         locations: locations.map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
         unreadNotifications: unread?.n ?? 0,
         emailOn,
-        canTasks: can(user, "tasks.use"),
         canCalendar: can(user, "calendar.use"),
-        canKnowledge: can(user, "knowledge.use"),
         today: clock.today,
     };
 }

@@ -4,10 +4,10 @@
 // score: the caveats say so first.
 import { BarChartSquare02 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
+import { Card } from "@/portal/components/card";
 import { TrendChart } from "@/portal/components/charts";
 import { DataTable } from "@/portal/components/data-table";
 import { Notice } from "@/portal/components/notice";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { formatNumber } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { SeriesChart } from "../series-chart";

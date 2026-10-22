@@ -17,6 +17,8 @@ Milestone 9.1 builds on the [Intelligence Centre](INTELLIGENCE_CENTRE.md) (Miles
 
 What was and wasn't validated is in [Validation](#validation).
 
+> **Since 9.1:** Daly Tasks and Daly Knowledge are retired ([DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md)). "Create task" on a record or rule match and "Save to Knowledge" on a record, briefing, timeline or report are gone, and their routes answer 410. Scheduled reports that had "save to Knowledge" on still run; the setting is ignored. The leftover columns (`ic_rule_matches.task_id`, `ic_reports.knowledge_object_id`, `ic_report_schedules.save_to_knowledge`) are kept. The MCP gateway is now 3.0.0, with 66 tools (28 of them the Centre's).
+
 ## Contents
 
 - [What's new](#whats-new)
@@ -31,7 +33,7 @@ What was and wasn't validated is in [Validation](#validation).
 - [Analytics and source health](#analytics-and-source-health)
 - [Wallboard 2.0](#wallboard-20)
 - [Detailed basemap](#detailed-basemap)
-- [Today, Tasks, Calendar and Knowledge](#today-tasks-calendar-and-knowledge)
+- [Today and Calendar](#today-and-calendar)
 - [MCP](#mcp)
 - [API](#api)
 - [Security and privacy](#security-and-privacy)
@@ -55,8 +57,8 @@ What was and wasn't validated is in [Validation](#validation).
 | Situation reports: on demand, historical and scheduled                         | Reports                          | `worker/centre/reports.ts`, `src/shared/centre/reports.ts`                                                                                      |
 | Assistant: questions answered from stored records through fixed tools          | Assistant                        | `worker/centre/assistant.ts`, `src/shared/centre/assistant.ts`                                                                                  |
 | Analytics and source reliability                                               | Analytics, Sources               | `centreAnalytics`, `sourceReliability` in `history.ts`                                                                                          |
-| Today, Tasks, Calendar and Knowledge integrations                              | Today, record pages, Watch areas | `worker/centre/actions.ts`                                                                                                                      |
-| Sixteen MCP tools (117 in all)                                                 | Gateway 2.8.0                    | `worker/mcp/centre-history.ts`, `mcp/src/portal-tools.ts`                                                                                       |
+| Today and Calendar integrations                                                | Today, record pages, Watch areas | `worker/centre/actions.ts`                                                                                                                      |
+| Sixteen MCP tools (28 for the Centre)                                          | Gateway 2.8.0 (now 3.0.0)        | `worker/mcp/centre-history.ts`, `mcp/src/portal-tools.ts`                                                                                       |
 
 The Centre's navigation has three groups:
 
@@ -122,7 +124,7 @@ New indexes: `ic_changes (source_id, at)` and `(kind, at)`, plus indexes on ever
 
 ### Timelines
 
-**Record timelines** (`recordTimeline`) are shown on every record page, can be saved to Knowledge, and are available over MCP. Each event is labelled:
+**Record timelines** (`recordTimeline`) are shown on every record page and are available over MCP. Each event is labelled:
 
 - **Official:** published by the provider. It shows the provider's own update time _and_ when the Centre collected it. A provider time is used only when it falls after the previous collection and no later than this one, so an update is never shown as known before it was collected.
 - **Observed:** measurements and detections. These are the strongest gust, highest temperature and most rain at stations within 30 km, and satellite detections within 5 km grouped by hour. Detections are kept for only three days.
@@ -255,7 +257,7 @@ Geographic conditions name one of the person's **watch areas**, so a rule never 
 
 **Test against history** (`POST /rules/test?days=7`) evaluates the rule over stored versions, readings or collection runs for the last 1–30 days. It shows hypothetical matches without writing or notifying anything.
 
-**Create task** on a match creates a follow-up through Daly Tasks' own `createTask` after a confirmation dialog. It is idempotent per match.
+Matches no longer make follow-up tasks: "Create task" was retired with Daly Tasks.
 
 ## Situation reports
 
@@ -287,9 +289,9 @@ An empty section says why. For example, "Road disruptions aren't available: the 
 
 **Optional narrative:** Daly Intelligence's provider (switches, `briefings` budget, circuit breaker) sees only the fenced fact sentences. Each sentence of its answer must cite facts, and one with a number or level its facts don't contain is dropped. It is labelled "AI interpretation, not facts".
 
-Reports can be generated on demand (preview, then save), printed, downloaded as Markdown or JSON, and saved to Knowledge (once, optionally linked as evidence to an existing note). They are stored in R2 and listed from D1. Only their author can see them.
+Reports can be generated on demand (preview, then save), printed, and downloaded as Markdown or JSON. They are stored in R2 and listed from D1. Only their author can see them.
 
-**Schedules** are daily or weekly at an hour in a time zone (daylight saving handled), up to ten per person. When `intelligence_centre.reports` is on, the cron runs up to three due schedules per run. A schedule whose facts haven't changed since its last report (same fingerprint) doesn't make another one. New reports can notify, by alert or email under the alert rules, and can be saved to Knowledge.
+**Schedules** are daily or weekly at an hour in a time zone (daylight saving handled), up to ten per person. When `intelligence_centre.reports` is on, the cron runs up to three due schedules per run. A schedule whose facts haven't changed since its last report (same fingerprint) doesn't make another one. New reports can notify, by alert or email under the alert rules. (A schedule's old "save to Knowledge" setting is ignored.)
 
 ## Assistant
 
@@ -517,7 +519,7 @@ New in 9.1:
 
 A real 13 MB extract (Blue Mountains to Sydney, zoom 12) was loaded into local R2 and viewed on wallboards at 1080p, 4K, ultrawide (3440 × 1440) and 1280 × 800, and on the portal map. Town labels, roads, waterways and coastline drew correctly.
 
-## Today, Tasks, Calendar and Knowledge
+## Today and Calendar
 
 **Today:** the Intelligence Centre section adds:
 
@@ -529,24 +531,15 @@ A real 13 MB extract (Blue Mountains to Sydney, zoom 12) was loaded into local R
 
 Each part can be switched off in Settings → My preferences → Today. Existing preferences keep working; the new options default on. Nothing shows when nothing is relevant.
 
-**Tasks:** a task from a rule match, as well as from a record. Both go through `createTask`, after a confirmation, and are idempotent.
-
-**Knowledge:** these can be saved as notes through `createObject`, once each:
-
-- a record;
-- a briefing;
-- a **timeline** (once per record per hour);
-- a **report**.
-
-Each can optionally be linked as evidence to an existing note through Knowledge's own `addRelation`. That only works for a note in the same space and needs editor rights.
+Tasks from rule matches and records, and saving records, briefings, timelines and reports to Knowledge, were retired with Daly Tasks and Daly Knowledge.
 
 **Calendar (journeys):** link one of your events (read through Calendar's own `eventDetail`, with its permissions) to one of your watch areas, such as a route corridor or a destination. This needs a confirmation. For 14 days before the event, Today shows what concerns that watch area. Links are ids only, and the event's details are read through Calendar every time. No calendar event is changed.
 
-Nothing creates tasks, events or notes automatically, except a schedule's own "save to Knowledge" when the person chose it.
+Nothing creates events automatically.
 
 ## MCP
 
-Sixteen new tools are served by `worker/mcp/centre-history.ts`. They need `centre.use`, have strict schemas, take no identity fields, and every result carries the disclaimer and attribution. That makes 28 Centre tools and **117** in all; the gateway is **2.8.0**.
+Sixteen new tools are served by `worker/mcp/centre-history.ts`. They need `centre.use`, have strict schemas, take no identity fields, and every result carries the disclaimer and attribution. That makes 28 Centre tools; with 9.1 the gateway was **2.8.0** (117 tools in all). Gateway 3.0.0 has 66 in all, after the Tasks and Knowledge tools were retired ([MCP.md](MCP.md)).
 
 **Read (12):**
 
@@ -576,12 +569,12 @@ Everything is under `/api/portal/centre`, behind Access and `centre.use`, with t
 | Method and path                                                                                                                                         | What                                                                                                                                     |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /feed`                                                                                                                                             | What's changed (`hazard`, `region`, `watch`, `from`, `to`, `minLevel`, `source`, `group`, `significance`)                                |
-| `GET /records/:id/timeline`, `POST /records/:id/timeline/knowledge`                                                                                     | Timeline; save it to Knowledge (`spaceId`, `relateTo`)                                                                                   |
+| `GET /records/:id/timeline`, `POST /records/:id/timeline/knowledge`                                                                                     | Timeline; save it to Knowledge (retired, 410)                                                                                            |
 | `GET /timeline`                                                                                                                                         | Situation timeline (`watch`, `region`, `hours`)                                                                                          |
 | `GET /replay?at=`, `GET /replay/meta`, `GET /replay/compare?a=&b=`                                                                                      | Replay (`watch`, `region`, `layers`, `includeInactive`)                                                                                  |
 | `GET /analytics?days=7\|30\|90`, `GET /reliability?days=`                                                                                               | Analytics; reliability                                                                                                                   |
-| `GET/POST /rules`, `PUT/DELETE /rules/:id`, `POST /rules/test`, `GET /rules/matches`, `POST /rules/matches/acknowledge`, `POST /rules/matches/:id/task` | Monitoring rules                                                                                                                         |
-| `GET/POST /reports`, `POST /reports/preview`, `GET/DELETE /reports/:id`, `POST /reports/:id/knowledge`                                                  | Reports                                                                                                                                  |
+| `GET/POST /rules`, `PUT/DELETE /rules/:id`, `POST /rules/test`, `GET /rules/matches`, `POST /rules/matches/acknowledge`, `POST /rules/matches/:id/task` | Monitoring rules (the `task` route is retired, 410)                                                                                      |
+| `GET/POST /reports`, `POST /reports/preview`, `GET/DELETE /reports/:id`, `POST /reports/:id/knowledge`                                                  | Reports (the `knowledge` route is retired, 410)                                                                                          |
 | `GET/POST /schedules`, `PUT/DELETE /schedules/:id`                                                                                                      | Report schedules                                                                                                                         |
 | `POST /assistant`                                                                                                                                       | Assistant                                                                                                                                |
 | `PUT /wallboards/:id/views`, `POST /wallboards/:id/duplicate`, `GET /wallboards/:id/preview`                                                            | Wallboard 2.0 (the existing wallboard routes accept `views`, `theme`, `scale`, `clock`, `burnIn`, `rotate`; displays accept `renewable`) |
@@ -646,13 +639,13 @@ None of this is done by this pull request. Do it in order, each step with the ow
 6. **Schedule reports** if wanted, then switch **scheduled reports** on.
 7. **Wallboards:** open each board in the editor and save its views (boards from before 9.1 keep working meanwhile, showing their original layouts as the new presets). Consider renewable, expiring addresses for long-running screens.
 8. **Assistant with AI (optional):** only with Daly Intelligence already on and its budgets set.
-9. **MCP:** after the portal is live, run `npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`. Deploying 2.8.0 earlier would advertise 16 tools the portal can't serve yet.
+9. **MCP:** after the portal is live, run `npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`. Never deploy the gateway before the portal; the current gateway is 3.0.0 ([MCP_CUTOVER.md](MCP_CUTOVER.md)).
 
 ## Rollback
 
 - **Instant, no deploy:** switch history, rules, reports or the assistant off; set Basemap to **Outline**; revoke screens.
 - **Code:** `npx wrangler rollback <version> --env=""`. Leave `0027` in place: the previous Worker never reads the new tables or columns, and `mcp_writes` keeps accepting every earlier outcome.
-- **Gateway:** `npx wrangler rollback --config mcp/wrangler.jsonc --env production` back to 2.7.0 (101 tools).
+- **Gateway:** `npx wrangler rollback --config mcp/wrangler.jsonc --env production` back to the previous version.
 - **Data:**
     - versions, rollups and the cache can be rebuilt from future collections;
     - rules, matches, reports metadata, schedules, views and links are in the regular D1 backups;
@@ -670,12 +663,12 @@ None of this is done by this pull request. Do it in order, each step with the ow
 | File                         | Covers                                                                                                                                                                                                                                                                                                                                                     |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `centre-history.test.ts`     | Versions and baselines; replay integrity, before-history and stale-source notes; comparison and steps; timelines with provider and collection times; the change feed and its filters; daily rollups and reliability; analytics and caching; retention                                                                                                      |
-| `centre-rules.test.ts`       | Privacy and audit; units and knots; every condition; dedupe and escalation; cooldown and notify none; the switch; lost access; history tests that write nothing; tasks from matches                                                                                                                                                                        |
-| `centre-reports.test.ts`     | Report sections and natures; empty-section messages; watch privacy; historical reports from versions only; R2 storage and ownership; Knowledge once; a grounded narrative; schedules across daylight saving with unchanged facts skipped; expiry; the assistant's word routing, AI off, AI with aliases and grounding, limits                              |
+| `centre-rules.test.ts`       | Privacy and audit; units and knots; every condition; dedupe and escalation; cooldown and notify none; the switch; lost access; history tests that write nothing; the retired task route                                                                                                                                                                    |
+| `centre-reports.test.ts`     | Report sections and natures; empty-section messages; watch privacy; historical reports from versions only; R2 storage and ownership; the retired Knowledge route; a grounded narrative; schedules across daylight saving with unchanged facts skipped; expiry; the assistant's word routing, AI off, AI with aliases and grounding, limits                 |
 | `centre-wallboard-2.test.ts` | View validation; legacy boards; duplication; payload with every preset's widgets and no watch name or coordinates; unavailable-source messages; pinned Emergency Warnings; 304; the legacy payload; owner-only preview; renewal with overlap and revocation; basemap tiles from a generated PMTiles archive, with credential, Access and cross-site checks |
 | `centre-mcp.test.ts`         | The new reads, ledger replay for rule and report writes, conflicts, other people's records, no coordinates, no display credentials                                                                                                                                                                                                                         |
 
-**Vitest (gateway): 4 files, 37 tests.** The contract and protocol tests cover 117 tools.
+**Vitest (gateway): 4 files, 37 tests.** The contract and protocol tests covered 117 tools at the time (66 since gateway 3.0.0).
 
 **Playwright (Chromium, desktop and Pixel 7):**
 

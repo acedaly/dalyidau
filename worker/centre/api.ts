@@ -15,7 +15,7 @@ import type { Env } from "../env";
 import { can } from "../portal/auth";
 import { HttpError, json, readJson } from "../portal/http";
 import { allow } from "../wedding/rsvp";
-import { knowledgeFromBriefing, knowledgeFromRecord, knowledgeFromTimeline, linkEvent, listEventLinks, taskFromRecord, unlinkEvent } from "./actions";
+import { linkEvent, listEventLinks, unlinkEvent } from "./actions";
 import { acknowledgeAlerts, listAlerts } from "./alerts";
 import { askAssistant } from "./assistant";
 import { basemapInfo, serveTile } from "./basemap";
@@ -26,19 +26,8 @@ import { type BBox, NSW_BBOX } from "./geo";
 import { centreAnalytics, changeFeed, recordTimeline, replayCompare, replayFrame, replayMeta, situationTimeline, sourceReliability } from "./history";
 import { collectSource } from "./ingest";
 import { mapFeatures } from "./map";
-import {
-    buildReport,
-    createSchedule,
-    deleteReport,
-    deleteSchedule,
-    generateReport,
-    getReport,
-    listReports,
-    listSchedules,
-    reportToKnowledge,
-    updateSchedule,
-} from "./reports";
-import { acknowledgeMatches, createRule, deleteRule, listMatches, listRules, taskFromMatch, testRule, updateRule } from "./rules";
+import { buildReport, createSchedule, deleteReport, deleteSchedule, generateReport, getReport, listReports, listSchedules, updateSchedule } from "./reports";
+import { acknowledgeMatches, createRule, deleteRule, listMatches, listRules, testRule, updateRule } from "./rules";
 import {
     getRecord,
     listChanges,
@@ -185,10 +174,6 @@ add("GET", "/records/:id", async ({ env, params }) => {
     ]);
     return json({ ...found, changes, series, related });
 });
-add("POST", "/records/:id/task", async ({ env, user, request, params }) => json(await taskFromRecord(env, user, recordId(params.id), await readJson(request))));
-add("POST", "/records/:id/knowledge", async ({ env, user, request, params }) =>
-    json(await knowledgeFromRecord(env, user, recordId(params.id), await readJson(request))),
-);
 add("GET", "/changes", async ({ env, url }) => {
     const since = url.searchParams.get("since");
     if (since && !z.iso.datetime({ offset: true }).safeParse(since).success) throw new HttpError(400, "bad_since", "since is an ISO time");
@@ -278,14 +263,6 @@ add("POST", "/briefing/interpret", async ({ env, user, request }) => {
         .strict()
         .parse(await readJson(request));
     return json({ briefing: await briefingFor(env, user, body.scope, body.watch ?? null, true) });
-});
-add("POST", "/briefing/knowledge", async ({ env, user, request }) => {
-    const body = z
-        .object({ scope: z.enum(["nsw", "watch", "morning"]), watch: z.string().nullable().optional(), spaceId: z.string().optional() })
-        .strict()
-        .parse(await readJson(request));
-    const briefing = await briefingFor(env, user, body.scope, body.watch ?? null);
-    return json(await knowledgeFromBriefing(env, user, briefing, body.spaceId ? { spaceId: body.spaceId } : {}));
 });
 
 // --- Preferences and settings ----------------------------------------------------------------------
@@ -406,9 +383,6 @@ add("GET", "/records/:id/timeline", async ({ env, params }) => {
     if (!timeline) throw new HttpError(404, "not_found", "Not found");
     return json({ timeline });
 });
-add("POST", "/records/:id/timeline/knowledge", async ({ env, user, request, params }) =>
-    json(await knowledgeFromTimeline(env, user, recordId(params.id), await readJson(request))),
-);
 add("GET", "/timeline", async ({ env, user, url }) => {
     const watchId = url.searchParams.get("watch");
     const regionId = region.parse(url.searchParams.get("region") || null) as RegionId | null;
@@ -505,7 +479,6 @@ add("POST", "/rules/matches/acknowledge", async ({ env, user, request }) => {
     await acknowledgeMatches(env.DB, user, body.ids);
     return json({ ok: true });
 });
-add("POST", "/rules/matches/:id/task", async ({ env, user, request, params }) => json(await taskFromMatch(env, user, params.id, await readJson(request))));
 add("PUT", "/rules/:id", async ({ env, user, request, params }) => json({ rule: await updateRule(env.DB, user, params.id, await readJson(request)) }));
 add("DELETE", "/rules/:id", async ({ env, user, params }) => {
     await deleteRule(env.DB, user, params.id);
@@ -528,7 +501,6 @@ add("DELETE", "/reports/:id", async ({ env, user, params }) => {
     await deleteReport(env, user, params.id);
     return json({ ok: true });
 });
-add("POST", "/reports/:id/knowledge", async ({ env, user, request, params }) => json(await reportToKnowledge(env, user, params.id, await readJson(request))));
 add("GET", "/schedules", async ({ env, user }) => json({ schedules: await listSchedules(env.DB, user.email) }));
 add("POST", "/schedules", async ({ env, user, request }) => json({ schedule: await createSchedule(env.DB, user, await readJson(request)) }, 201));
 add("PUT", "/schedules/:id", async ({ env, user, request, params }) =>

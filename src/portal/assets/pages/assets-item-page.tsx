@@ -6,12 +6,10 @@ import {
     AlertTriangle,
     Calendar,
     CheckCircle,
-    CheckDone01,
     Download01,
     Edit05,
     File04,
     Image01,
-    Link01,
     MarkerPin01,
     Plus,
     Printer,
@@ -29,10 +27,10 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Card } from "@/portal/components/card";
 import { ConfirmDialog, PortalDialog } from "@/portal/components/dialog";
 import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatDateTime } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
@@ -113,7 +111,7 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
     const [tab, setTab] = useState<Tab>(TABS.includes(data.tab as Tab) ? (data.tab as Tab) : "overview");
     const [dialog, setDialog] = useState<
         | null
-        | { kind: "edit" | "vehicle" | "odometer" | "value" | "share" | "problem" | "delete" | "move" | "label" | "warranty" | "claim" | "knowledge" }
+        | { kind: "edit" | "vehicle" | "odometer" | "value" | "share" | "problem" | "delete" | "move" | "label" | "warranty" | "claim" }
         | { kind: "maintenance"; record?: MaintenanceView; preset?: Record<string, string> }
         | { kind: "complete"; record: MaintenanceView }
         | { kind: "schedule"; schedule?: ScheduleView; template?: Parameters<typeof ScheduleForm>[0]["template"] }
@@ -144,11 +142,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
             toast.error("That didn't work", errorMessage(e));
         }
     };
-    const makeTask = (refKind: string, refId: string) =>
-        act("Task ready", async () => {
-            const result = await assetsApi.task({ refKind, refId });
-            if (result.hidden) toast.success("A task already exists", "Someone else in the household made it.");
-        });
     const photos = detail.files.filter((f) => f.kind === "photo");
     const docs = detail.files.filter((f) => f.kind !== "photo");
     const open = detail.maintenance.filter((m) => !["completed", "cancelled"].includes(m.status));
@@ -321,19 +314,7 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                                             </Row>
                                             <Row label="Registration expiry">
                                                 {detail.vehicle.registrationExpiry ? (
-                                                    <span className="flex flex-wrap items-center gap-2">
-                                                        <DateWithDistance date={detail.vehicle.registrationExpiry} today={today} />
-                                                        {data.canTasks && r.maintain && (
-                                                            <Button
-                                                                size="xs"
-                                                                color="link-color"
-                                                                iconLeading={CheckDone01}
-                                                                onClick={() => void makeTask("registration", a.id)}
-                                                            >
-                                                                Renewal task
-                                                            </Button>
-                                                        )}
-                                                    </span>
+                                                    <DateWithDistance date={detail.vehicle.registrationExpiry} today={today} />
                                                 ) : null}
                                             </Row>
                                             <Row label="Odometer">
@@ -468,49 +449,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                                     )}
                                 </div>
                             </Card>
-                            {detail.knowledge.length > 0 || (r.edit && data.canKnowledge) ? (
-                                <Card
-                                    title="Knowledge"
-                                    icon={Link01}
-                                    action={
-                                        r.edit &&
-                                        data.canKnowledge && (
-                                            <Button size="sm" color="link-color" onClick={() => setDialog({ kind: "knowledge" })}>
-                                                Link
-                                            </Button>
-                                        )
-                                    }
-                                >
-                                    {detail.knowledge.length ? (
-                                        <ul className="flex flex-col divide-y divide-secondary">
-                                            {detail.knowledge.map((k) => (
-                                                <li key={k.objectId} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm sm:px-5">
-                                                    {k.available ? (
-                                                        <a href={`/portal/knowledge/o/${k.objectId}`} className="font-medium text-primary hover:underline">
-                                                            {k.title} <span className="font-normal text-tertiary">· {k.spaceName}</span>
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-tertiary">A Knowledge object you can't open</span>
-                                                    )}
-                                                    {r.edit && (
-                                                        <ButtonUtility
-                                                            size="xs"
-                                                            color="tertiary"
-                                                            icon={Trash01}
-                                                            tooltip="Unlink"
-                                                            onClick={() => void act("Unlinked", () => assetsApi.unlinkKnowledge(a.id, k.objectId))}
-                                                        />
-                                                    )}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <p className="px-4 py-3 text-sm text-tertiary sm:px-5">
-                                            Link a manual, notes or a troubleshooting guide from Daly Knowledge. Nothing is copied.
-                                        </p>
-                                    )}
-                                </Card>
-                            ) : null}
                         </div>
                     </div>
                 </Tabs.Panel>
@@ -553,16 +491,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                                         </div>
                                         {r.maintain && (
                                             <div className="flex shrink-0 gap-2">
-                                                {data.canTasks && !s.openRecordId && (
-                                                    <Button
-                                                        size="xs"
-                                                        color="secondary"
-                                                        iconLeading={CheckDone01}
-                                                        onClick={() => void makeTask("schedule", s.id)}
-                                                    >
-                                                        Task
-                                                    </Button>
-                                                )}
                                                 <Button
                                                     size="xs"
                                                     color="secondary"
@@ -585,16 +513,14 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                     <MaintenanceList
                         title="To do"
                         records={open}
-                        canTasks={data.canTasks}
                         canCalendar={data.canCalendar}
                         onAdd={r.maintain ? () => setDialog({ kind: "maintenance" }) : undefined}
                         onEdit={(record) => setDialog({ kind: "maintenance", record })}
                         onComplete={(record) => setDialog({ kind: "complete", record })}
-                        onTask={(record) => void makeTask("maintenance", record.id)}
                         onAppointment={(record) => void act("Added to Calendar", () => assetsApi.appointment(record.id))}
                         onCancel={(record) => void act("Cancelled", () => assetsApi.cancel(record.id))}
                     />
-                    <MaintenanceList title="History" records={history} canTasks={false} canCalendar={false} totals={detail.totals} />
+                    <MaintenanceList title="History" records={history} canCalendar={false} totals={detail.totals} />
                     {isVehicle && detail.odometer.length > 0 && (
                         <Card title="Odometer history" icon={Tool02}>
                             <ul className="flex flex-col divide-y divide-secondary">
@@ -741,16 +667,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                                             </span>
                                         </div>
                                         <div className="flex gap-2">
-                                            {data.canTasks && w.expiresOn && w.state !== "expired" && (
-                                                <Button
-                                                    size="xs"
-                                                    color="secondary"
-                                                    iconLeading={CheckDone01}
-                                                    onClick={() => void makeTask("warranty_expiry", w.id)}
-                                                >
-                                                    Task
-                                                </Button>
-                                            )}
                                             {r.edit && (
                                                 <Button
                                                     size="xs"
@@ -931,25 +847,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
                                 </li>
                             ))}
                         </ul>
-                        {detail.tasks.length > 0 && (
-                            <div className="border-t border-secondary px-4 py-3 sm:px-5">
-                                <p className="mb-2 text-sm font-semibold text-secondary">Linked tasks</p>
-                                <ul className="flex flex-col gap-1">
-                                    {detail.tasks.map((t) => (
-                                        <li key={t.taskId} className="text-sm">
-                                            {t.available ? (
-                                                <a href={`/portal/tasks/t/${t.taskId}`} className="text-brand-secondary hover:underline">
-                                                    {t.title}
-                                                </a>
-                                            ) : (
-                                                <span className="text-tertiary">A task in someone else's project</span>
-                                            )}
-                                            {t.status === "completed" && <span className="text-tertiary"> · done</span>}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
                     </Card>
                 </Tabs.Panel>
             </Tabs>
@@ -1004,7 +901,6 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
             {dialog?.kind === "claim" && <ClaimForm assetId={a.id} onSaved={() => void reload()} onClose={() => setDialog(null)} />}
             {dialog?.kind === "move" && <MoveDialog asset={a} locations={data.locations} onSaved={() => void reload()} onClose={() => setDialog(null)} />}
             {dialog?.kind === "label" && <LabelDialog asset={a} onSaved={() => void reload()} onClose={() => setDialog(null)} />}
-            {dialog?.kind === "knowledge" && <KnowledgeDialog assetId={a.id} onSaved={() => void reload()} onClose={() => setDialog(null)} />}
             {dialog?.kind === "file" && (
                 <FileDialog file={dialog.file} asset={a} maintenance={detail.maintenance} onSaved={() => void reload()} onClose={() => setDialog(null)} />
             )}
@@ -1029,25 +925,21 @@ export const AssetsItemPage = ({ data }: { data: PageData<"assets-item"> }) => {
 const MaintenanceList = ({
     title,
     records,
-    canTasks,
     canCalendar,
     totals,
     onAdd,
     onEdit,
     onComplete,
-    onTask,
     onAppointment,
     onCancel,
 }: {
     title: string;
     records: MaintenanceView[];
-    canTasks: boolean;
     canCalendar: boolean;
     totals?: AssetDetail["totals"];
     onAdd?: () => void;
     onEdit?: (r: MaintenanceView) => void;
     onComplete?: (r: MaintenanceView) => void;
-    onTask?: (r: MaintenanceView) => void;
     onAppointment?: (r: MaintenanceView) => void;
     onCancel?: (r: MaintenanceView) => void;
 }) => (
@@ -1106,29 +998,12 @@ const MaintenanceList = ({
                                     <Money cents={m.costCents} hidden={m.costHidden} />
                                 </span>
                             )}
-                            {m.task && (
-                                <span className="text-xs">
-                                    {m.task.available ? (
-                                        <a href={`/portal/tasks/t/${m.task.taskId}`} className="text-brand-secondary hover:underline">
-                                            Task: {m.task.title}
-                                            {m.task.status === "completed" ? " (done in Tasks)" : ""}
-                                        </a>
-                                    ) : (
-                                        <span className="text-tertiary">Has a task in someone else's project</span>
-                                    )}
-                                </span>
-                            )}
                         </div>
                         {m.canEdit && onComplete && (
                             <div className="flex shrink-0 flex-wrap gap-2">
                                 <Button size="xs" iconLeading={CheckCircle} onClick={() => onComplete(m)}>
                                     Done
                                 </Button>
-                                {canTasks && !m.task && onTask && (
-                                    <Button size="xs" color="secondary" iconLeading={CheckDone01} onClick={() => onTask(m)}>
-                                        Task
-                                    </Button>
-                                )}
                                 {canCalendar && m.scheduledOn && !m.calendarEventId && onAppointment && (
                                     <Button size="xs" color="secondary" iconLeading={Calendar} onClick={() => onAppointment(m)}>
                                         Add to Calendar
@@ -1378,65 +1253,6 @@ const LabelDialog = ({ asset, onSaved, onClose }: { asset: AssetDetail["asset"];
                 <img src={qrUrl(asset.id)} alt={`QR code for ${asset.name}`} className="size-48 rounded-lg bg-white p-2 ring-1 ring-secondary" />
                 <span className="text-sm text-tertiary">Label version {asset.labelVersion}</span>
             </div>
-        </PortalDialog>
-    );
-};
-
-const KnowledgeDialog = ({ assetId, onSaved, onClose }: { assetId: string; onSaved: () => void; onClose: () => void }) => {
-    const toast = useToast();
-    const [q, setQ] = useState("");
-    const [hits, setHits] = useState<{ id: string; title: string; spaceName: string }[]>([]);
-    const search = async () => {
-        try {
-            setHits((await assetsApi.search(q)).results.knowledge ?? []);
-        } catch (e) {
-            toast.error("Search failed", errorMessage(e));
-        }
-    };
-    return (
-        <PortalDialog
-            isOpen
-            onOpenChange={(o) => !o && onClose()}
-            title="Link from Daly Knowledge"
-            description="Find a note, manual or guide you can open. It stays in Knowledge; this only links to it."
-            icon={Link01}
-            onSubmit={() => void search()}
-            footer={
-                <Button size="md" color="secondary" onClick={onClose}>
-                    Close
-                </Button>
-            }
-        >
-            <div className="flex gap-2">
-                <Input aria-label="Search Knowledge" placeholder="Search Knowledge" value={q} onChange={setQ} className="flex-1" />
-                <Button size="md" type="submit">
-                    Search
-                </Button>
-            </div>
-            <ul className="flex flex-col divide-y divide-secondary">
-                {hits.map((h) => (
-                    <li key={h.id} className="flex items-center justify-between gap-2 py-2 text-sm">
-                        <span>
-                            {h.title} <span className="text-tertiary">· {h.spaceName}</span>
-                        </span>
-                        <Button
-                            size="xs"
-                            color="secondary"
-                            onClick={async () => {
-                                try {
-                                    await assetsApi.linkKnowledge(assetId, h.id);
-                                    toast.success("Linked");
-                                    onSaved();
-                                } catch (e) {
-                                    toast.error("Couldn't link", errorMessage(e));
-                                }
-                            }}
-                        >
-                            Link
-                        </Button>
-                    </li>
-                ))}
-            </ul>
         </PortalDialog>
     );
 };

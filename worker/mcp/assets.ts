@@ -4,9 +4,8 @@
 // sees exactly what the person sees: only assets they own or that are shared with them, values and
 // costs only where those are shared, insurance only where that is, documents as metadata only (never
 // file contents, never R2). Writes go through the ledger (audit and retry safety) and the same
-// permission checks: creating and updating assets, adding and completing maintenance, linking an
-// existing Knowledge object, and creating a linked Daly Task. There's no delete, sharing, upload or
-// bulk tool.
+// permission checks: creating and updating assets, and adding and completing maintenance. There's
+// no delete, sharing, upload or bulk tool.
 import { z } from "zod";
 import { CATEGORY_ID } from "../../src/shared/assets/categories";
 import { EMPTY_FILTERS, applyFilters } from "../../src/shared/assets/filters";
@@ -19,17 +18,14 @@ import {
     MAINTENANCE_KINDS,
     type MaintenanceView,
     PRIORITIES,
-    TASK_REF_KINDS,
     VALUE_BASIS_LABELS,
 } from "../../src/shared/assets/types";
 import { assetSummary, createAsset, listAssets, updateAsset, viewContext } from "../assets/assets";
 import { attention, isLowValue, snapshot } from "../assets/dashboard";
 import { assetDetail } from "../assets/detail";
 import { filesForAsset } from "../assets/files";
-import { addKnowledgeLink, createLinkedTask } from "../assets/links";
 import { completeMaintenance, createMaintenance, listMaintenance, maintenanceView } from "../assets/maintenance";
 import { searchAll } from "../assets/search";
-import { HttpError } from "../portal/http";
 import { type ToolContext, bounded, calendarDate, id, limit, portalUrl, requestId, tool } from "./shared";
 
 const PERMISSION = "assets.use" as const;
@@ -94,7 +90,6 @@ const maintenanceOut = (ctx: ToolContext, m: MaintenanceView) => ({
     ...(m.costHidden ? { cost: "not shared with you" } : { costAud: money(m.costCents) }),
     provider: m.provider,
     responsibility: m.responsibility,
-    linkedTask: m.task ? (m.task.available ? { id: m.task.taskId, title: m.task.title, status: m.task.status } : "exists, not shared with you") : null,
     fromSchedule: !!m.scheduleId,
     version: m.version,
     url: portalUrl(ctx, m.assetId ? `/portal/assets/item/${m.assetId}?tab=maintenance` : `/portal/assets/property/${m.locationId}`),
@@ -115,9 +110,6 @@ const attentionOf = async (ctx: ToolContext, horizon: number, kinds?: string[]) 
             date: i.date,
             daysAway: i.daysAway,
             fact: i.sentence,
-            taskNote: i.taskNote,
-            taskId: i.taskId,
-            createTask: i.taskRef && !i.taskId ? { refKind: i.taskRef.refKind, refId: i.taskRef.refId } : null,
             url: portalUrl(ctx, i.url),
         })),
     };
@@ -156,7 +148,6 @@ export const ASSETS_TOOLS = [
                     .slice(0, input.limit)
                     .map((f) => ({ id: f.id, kind: FILE_KIND_LABELS[f.kind], name: f.filename, caption: f.caption, asset: f.assetName })),
                 places: r.locations.slice(0, 10).map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
-                knowledge: r.knowledge,
             });
         },
     }),
@@ -243,7 +234,6 @@ export const ASSETS_TOOLS = [
                     addedOn: f.createdAt.slice(0, 10),
                 })),
                 documentsNotShared: d.documentsHidden,
-                knowledge: d.knowledge.map((k) => (k.available ? { id: k.objectId, title: k.title, space: k.spaceName } : "linked, not shared with you")),
             });
         },
     }),
@@ -431,54 +421,11 @@ export const ASSETS_TOOLS = [
                 data: {
                     record: maintenanceOut(ctx, result.record),
                     nextRecord: result.next ? maintenanceOut(ctx, result.next) : null,
-                    linkedTaskCompleted: result.taskCompleted,
                     alreadyDone: result.alreadyDone,
                 },
                 outcome: { entityType: "asset_maintenance", entityId: target },
             };
         },
         replay: async (ctx, outcome) => ({ data: { record: maintenanceOut(ctx, await maintenanceView(ctx.db, ctx.user, outcome.entityId)), replayed: true } }),
-    }),
-    tool({
-        name: "assets_link_knowledge",
-        write: true,
-        permission: PERMISSION,
-        input: z.object({ assetId, objectId: id("kob", "Knowledge object"), requestId }).strict(),
-        run: async (ctx, input) => {
-            const links = await addKnowledgeLink(ctx.db, ctx.user, input.assetId, input.objectId, "mcp");
-            return {
-                data: { knowledge: links.filter((l) => l.available).map((l) => ({ id: l.objectId, title: l.title, space: l.spaceName })) },
-                outcome: { entityType: "asset_link", entityId: input.assetId },
-            };
-        },
-    }),
-    tool({
-        name: "assets_create_task",
-        write: true,
-        permission: PERMISSION,
-        input: z
-            .object({
-                refKind: z.enum(TASK_REF_KINDS),
-                refId: z.string().regex(/^[a-z]{3}_[a-z0-9]{14}$/, "Use the record id from assets_get_attention (createTask.refId)"),
-                title: z.string().trim().min(1).max(500).optional(),
-                dueDate: calendarDate.nullable().optional(),
-                requestId,
-            })
-            .strict(),
-        run: async (ctx, input) => {
-            const { requestId: _r, ...body } = input;
-            const result = await createLinkedTask(ctx.db, ctx.user, ctx.site, body, "mcp");
-            if (!result.taskId && result.hidden)
-                return {
-                    data: { existing: true, note: "A task for this already exists in someone else's project, so it wasn't created again." },
-                    outcome: undefined,
-                };
-            if (!result.taskId) throw new HttpError(409, "conflict", "The task couldn't be created");
-            return {
-                data: { taskId: result.taskId, existing: result.existing, url: portalUrl(ctx, result.url!) },
-                outcome: { entityType: "task", entityId: result.taskId },
-            };
-        },
-        replay: async (ctx, outcome) => ({ data: { taskId: outcome.entityId, existing: true, url: portalUrl(ctx, `/portal/tasks/t/${outcome.entityId}`) } }),
     }),
 ];

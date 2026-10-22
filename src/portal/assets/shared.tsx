@@ -4,7 +4,7 @@
 // are resized and re-encoded, which drops their location and camera metadata).
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { AlertTriangle, CheckDone01, Home02, Lock01, Package, Plus, QrCode02, SearchLg, ShieldTick, Truck01, Users01 } from "@untitledui/icons";
+import { AlertTriangle, Home02, Lock01, Package, Plus, QrCode02, SearchLg, ShieldTick, Truck01, Users01 } from "@untitledui/icons";
 import { Badge, BadgeWithDot } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -216,69 +216,23 @@ export const AssetThumb = ({ asset, size = "md" }: { asset: Pick<AssetSummary, "
 
 // --- Attention ---------------------------------------------------------------------------------------
 
-/** What needs attention, each from a record, with a one-click Task where none exists yet. */
-export const AttentionList = ({ items, canTasks, empty }: { items: AttentionItem[]; canTasks: boolean; empty?: ReactNode }) => {
-    const toast = useToast();
-    const [made, setMade] = useState<Record<string, string>>({});
-    const [busy, setBusy] = useState<string | null>(null);
+/** What needs attention, each from a record. */
+export const AttentionList = ({ items, empty }: { items: AttentionItem[]; empty?: ReactNode }) => {
     if (!items.length) return <>{empty ?? <p className="px-4 py-3 text-sm text-tertiary sm:px-5">Nothing needs attention.</p>}</>;
-    const makeTask = async (item: AttentionItem) => {
-        if (!item.taskRef) return;
-        setBusy(item.key);
-        try {
-            const result = await assetsApi.task(item.taskRef);
-            if (result.hidden) toast.success("A task already exists", "Someone else in the household made it.");
-            else if (result.taskId) {
-                setMade((m) => ({ ...m, [item.key]: result.taskId! }));
-                toast.success(result.existing ? "That task already exists" : "Task created");
-            }
-        } catch (e) {
-            toast.error("Couldn't create the task", errorMessage(e));
-        } finally {
-            setBusy(null);
-        }
-    };
     return (
         <ul className="flex flex-col divide-y divide-secondary">
-            {items.map((item) => {
-                const taskId = made[item.key] ?? item.taskId;
-                return (
-                    <li key={item.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                        <div className="flex min-w-0 items-start gap-3">
-                            {item.state === "overdue" ? (
-                                <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-fg-error-secondary" />
-                            ) : (
-                                <span aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-fg-warning-secondary" />
-                            )}
-                            <div className="flex min-w-0 flex-col">
-                                <a href={item.url} className="text-sm font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2">
-                                    {item.sentence}
-                                </a>
-                                {item.taskNote && !taskId && <span className="text-xs text-tertiary">{item.taskNote}</span>}
-                            </div>
-                        </div>
-                        {canTasks && item.taskRef && (
-                            <div className="shrink-0 sm:ml-4">
-                                {taskId ? (
-                                    <Button size="xs" color="link-gray" iconLeading={CheckDone01} href={`/portal/tasks/t/${taskId}`}>
-                                        Open task
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        size="xs"
-                                        color="secondary"
-                                        iconLeading={CheckDone01}
-                                        isLoading={busy === item.key}
-                                        onClick={() => void makeTask(item)}
-                                    >
-                                        Create task
-                                    </Button>
-                                )}
-                            </div>
-                        )}
-                    </li>
-                );
-            })}
+            {items.map((item) => (
+                <li key={item.key} className="flex items-start gap-3 px-4 py-3 sm:px-5">
+                    {item.state === "overdue" ? (
+                        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-fg-error-secondary" />
+                    ) : (
+                        <span aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-fg-warning-secondary" />
+                    )}
+                    <a href={item.url} className="min-w-0 text-sm font-medium text-primary outline-focus-ring hover:underline focus-visible:outline-2">
+                        {item.sentence}
+                    </a>
+                </li>
+            ))}
         </ul>
     );
 };

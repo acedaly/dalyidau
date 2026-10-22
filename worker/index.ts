@@ -36,7 +36,6 @@ import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
-import { processTaskReminders } from "./tasks/notify";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
 import { serveMedia } from "./wedding/media";
@@ -48,7 +47,7 @@ const HTML_EDGE_TTL = 300;
 const PAGE_CACHE_TTL = 86_400;
 const SYNC_LOCK_MINUTES = 15;
 
-// The MCP gateway (mcp.daly.id.au) reaches Tasks and Knowledge through this, over a service binding only.
+// The MCP gateway (mcp.daly.id.au) reaches the portal through this, over a service binding only.
 export { PortalMcpEntrypoint } from "./mcp/entrypoint";
 
 export default {
@@ -73,13 +72,6 @@ export default {
             ),
         );
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
-        // Task reminders: a failure here never affects the other jobs (or anyone completing tasks).
-        ctx.waitUntil(
-            processTaskReminders(env).then(
-                () => undefined,
-                (error) => console.error(JSON.stringify({ event: "task_reminders_error", message: (error as Error).message })),
-            ),
-        );
         // Daly Calendar: subscription refreshes, then reminders and notices. Each failure stays contained.
         ctx.waitUntil(
             processDueSubscriptions(env)
@@ -97,14 +89,14 @@ export default {
                 (error) => console.error(JSON.stringify({ event: "centre_cron_error", message: (error as Error).message })),
             ),
         );
-        // Home & Assets: reminders (email only with its switch on), automatic Tasks people asked for, and purging deleted assets.
+        // Home & Assets: reminders (email only with its switch on) and purging deleted assets.
         ctx.waitUntil(
             processAssetReminders(env, { scheduledTime: controller.scheduledTime }).then(
                 () => undefined,
                 (error) => console.error(JSON.stringify({ event: "asset_reminders_error", message: (error as Error).message })),
             ),
         );
-        // Daly Intelligence: retention always; jobs, briefings and the semantic index only when switched on.
+        // Daly Intelligence: retention always; scheduled briefings only when switched on.
         ctx.waitUntil(
             runIntelligenceCron(env).then(
                 () => undefined,

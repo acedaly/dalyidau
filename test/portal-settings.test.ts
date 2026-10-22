@@ -77,7 +77,7 @@ describe("settings sections and switch areas", () => {
         expect(FLAG_AREAS["website.capacities.sync"]).toBe("website");
         expect(FLAG_AREAS["calendar.feeds"]).toBe("calendar");
         expect(FLAG_AREAS["calendar.reminders.email"]).toBe("calendar");
-        expect(FLAG_AREAS["tasks.reminders.email"]).toBe("tasks");
+        expect(FLAG_KEYS).not.toContain("tasks.reminders.email");
     });
 
     it("keeps every switch's default and definition as it was", () => {
@@ -144,7 +144,7 @@ describe("Portal settings routes", () => {
 describe("permissions", () => {
     it("opens General instead of a section the person can't use", async () => {
         await addPeople();
-        for (const tab of ["calendar", "tasks", "knowledge"]) {
+        for (const tab of ["calendar", "intelligence"]) {
             for (const email of [EDITOR, VIEWER]) {
                 const { response, data } = await open(`/portal/settings/${tab}`, email);
                 expect(response.status).toBe(200);
@@ -154,6 +154,9 @@ describe("permissions", () => {
         }
         expect(settingsData((await open("/portal/settings/privacy", VIEWER)).data).tab).toBe("general");
         expect(settingsData((await open("/portal/settings/privacy", EDITOR)).data).tab).toBe("privacy");
+        // The retired Tasks and Knowledge sections send old bookmarks somewhere that exists.
+        expect((await open("/portal/settings/tasks", ADMIN)).response.headers.get("Location")).toBe("https://daly.id.au/portal/settings");
+        expect((await open("/portal/settings/knowledge", ADMIN)).response.headers.get("Location")).toBe("https://daly.id.au/portal/settings/intelligence");
     });
 
     it("gives people management to owners and integration status to owners and admins only", async () => {

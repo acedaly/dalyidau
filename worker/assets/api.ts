@@ -11,6 +11,7 @@ import { can } from "../portal/auth";
 import { csvResponse } from "../portal/csv";
 import { HttpError, json, readJson } from "../portal/http";
 import { assetPeople, assetPreferences, requireAsset, saveAssetPreferences } from "./access";
+import { createAppointment } from "./appointments";
 import {
     addOdometer,
     addValuation,
@@ -34,7 +35,6 @@ import { overview } from "./dashboard";
 import { assetDetail } from "./detail";
 import { deleteFile, fileContent, filesFor, listFiles, retentionDue, setCover, updateFile, uploadFile } from "./files";
 import { createPolicy, deletePolicy, linkAsset, listPolicies, policyView, renewPolicy, unlinkAsset, updatePolicy, verifyPolicy } from "./insurance";
-import { addKnowledgeLink, createAppointment, createLinkedTask, removeKnowledgeLink } from "./links";
 import { createLocation, listLocations, locationView, updateLocation } from "./locations";
 import {
     builtinTemplates,
@@ -187,13 +187,6 @@ add("DELETE", "/items/:id/valuations/:valuation", async ({ env, user, params }) 
 add("POST", "/items/:id/warranties", async ({ env, request, user, params }) =>
     json({ warranties: await createWarranty(env.DB, user, params.id, await readJson(request)) }, 201),
 );
-add("POST", "/items/:id/knowledge", async ({ env, request, user, params }) => {
-    const { objectId } = (await readJson(request)) as { objectId?: unknown };
-    return json({ knowledge: await addKnowledgeLink(env.DB, user, params.id, objectId) }, 201);
-});
-add("DELETE", "/items/:id/knowledge/:object", async ({ env, user, params }) =>
-    json({ knowledge: await removeKnowledgeLink(env.DB, user, params.id, params.object) }),
-);
 
 add("GET", "/warranties", async ({ env, user }) => json({ warranties: await listWarranties(env.DB, user) }));
 add("PATCH", "/warranties/:id", async ({ env, request, user, params }) =>
@@ -264,9 +257,6 @@ add("DELETE", "/schedules/:id", async ({ env, user, params }) => {
 add("GET", "/templates", async ({ env }) => json({ builtin: builtinTemplates(), household: await listTemplates(env.DB) }));
 add("POST", "/templates", async ({ env, request, user }) => json({ household: await createTemplate(env.DB, user, await readJson(request)) }, 201));
 add("DELETE", "/templates/:id", async ({ env, user, params }) => json({ household: await deleteTemplate(env.DB, user, params.id) }));
-
-/** A Daly Task for a record or a date, once (asking again returns the first). */
-add("POST", "/tasks", async ({ env, request, user }) => json(await createLinkedTask(env.DB, user, site(env), await readJson(request))));
 
 // --- Insurance -----------------------------------------------------------------------------------
 
