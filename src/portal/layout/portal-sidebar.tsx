@@ -5,6 +5,7 @@
 import type { FC, HTMLAttributes } from "react";
 import {
     AlertTriangle,
+    Bank,
     BarChartSquare02,
     BellRinging01,
     BookOpen01,
@@ -49,13 +50,16 @@ import {
     Stars02,
     Sun,
     Sunrise,
+    SwitchHorizontal01,
     Target04,
     Tool02,
     Truck01,
+    Upload01,
     Users01,
     Users02,
     Users03,
     Wallet02,
+    Wallet03,
 } from "@untitledui/icons";
 import {
     Button as AriaButton,
@@ -139,6 +143,10 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     warranty: Certificate01,
     documents: File04,
     scan: QrCode02,
+    finance: Wallet03,
+    transactions: SwitchHorizontal01,
+    accounts: Bank,
+    import: Upload01,
 };
 
 const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
@@ -147,6 +155,7 @@ const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElem
     intelligence: Stars02,
     centre: Globe04,
     assets: Package,
+    finance: Wallet03,
 };
 
 /**

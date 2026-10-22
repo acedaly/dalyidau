@@ -49,7 +49,7 @@ const RETAINED = [
 
 describe("nothing of Knowledge or Tasks is offered", () => {
     it("has no Knowledge or Tasks application, permission or switch", () => {
-        expect(APPLICATIONS.map((a) => a.id)).toEqual(["wedding", "calendar", "intelligence", "intelligence-centre", "assets"]);
+        expect(APPLICATIONS.map((a) => a.id)).toEqual(["wedding", "calendar", "intelligence", "intelligence-centre", "assets", "finance"]);
         expect(PERMISSIONS).not.toContain("knowledge.use" as never);
         expect(PERMISSIONS).not.toContain("tasks.use" as never);
         for (const role of Object.values(ROLE_PERMISSIONS)) expect(role.join(" ")).not.toMatch(/knowledge|tasks\.use/);

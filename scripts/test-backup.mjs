@@ -146,6 +146,27 @@ INSERT INTO asset_files (id, owner_email, asset_id, kind, filename, content_type
   ('afl_backuptest0001', 'owner@example.com', 'ast_backuptest0001', 'receipt', 'receipt.pdf', 'application/pdf', 10, '${"0".repeat(64)}', 'private/assets/afl_backuptest0001/abc', '${NOW}', '${NOW}');
 INSERT INTO asset_task_links (id, task_id, asset_id, ref_kind, ref_id, ref_date, created_by, created_at) VALUES ('atl_backuptest0001', 'tsk_backuptest0001', 'ast_backuptest0001', 'registration', 'ast_backuptest0001', '2026-11-10', 'x', '${NOW}');
 `;
+// Household Finance (0031): a shared account with a starting balance, a household category, a
+// committed import with its rows, two transactions (one categorised, one linked to a transfer with
+// a savings account), a reconciliation and a history row. All invented: no real bank data.
+const FINANCE = `
+INSERT INTO finance_accounts (id, owner_email, name, institution, kind, number_hint, opening_balance_cents, opening_balance_on, visibility, created_by, created_at, updated_by, updated_at) VALUES
+  ('fac_backuptest0001', 'owner@example.com', 'Everyday', 'NAB', 'transaction', '4321', 250000, '2026-09-01', 'shared', 'x', '${NOW}', 'x', '${NOW}'),
+  ('fac_backuptest0002', 'partner@example.com', 'Savings', 'NAB', 'savings', NULL, 0, '2026-09-01', 'private', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO finance_categories (id, name, kind, group_id, created_by, created_at, updated_by, updated_at) VALUES ('fcat_backuptest01', 'Camping', 'expense', 'lifestyle', 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO finance_imports (id, account_id, filename, file_sha256, mapping, status, rows_total, rows_new, rows_imported, first_on, last_on, bank_closing_cents, created_by, created_at, committed_by, committed_at) VALUES
+  ('fim_backuptest0001', 'fac_backuptest0001', 'export.csv', '${"a".repeat(64)}', '{"preset":"nab"}', 'committed', 2, 2, 2, '2026-09-02', '2026-09-08', 241565, 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO finance_import_rows (import_id, line, position, status, posted_on, amount_cents, description, fingerprint) VALUES
+  ('fim_backuptest0001', 2, 1, 'new', '2026-09-08', -500, 'TRANSFER TO SAVINGS', '${"b".repeat(64)}'),
+  ('fim_backuptest0001', 3, 0, 'new', '2026-09-02', -8435, 'WOOLWORTHS', '${"c".repeat(64)}');
+INSERT INTO finance_transfers (id, out_transaction_id, in_transaction_id, created_by, created_at) VALUES ('ftr_backuptest0001', 'ftx_backuptest0002', 'ftx_backuptest0003', 'x', '${NOW}');
+INSERT INTO finance_transactions (id, account_id, posted_on, sequence, amount_cents, description, merchant_key, category_id, category_source, is_transfer, transfer_id, source, import_id, import_line, fingerprint, bank_balance_cents, created_by, created_at, updated_by, updated_at) VALUES
+  ('ftx_backuptest0001', 'fac_backuptest0001', '2026-09-02', 0, -8435, 'WOOLWORTHS', 'WOOLWORTHS', 'groceries', 'manual', 0, NULL, 'import', 'fim_backuptest0001', 3, '${"c".repeat(64)}', 241565, 'x', '${NOW}', 'x', '${NOW}'),
+  ('ftx_backuptest0002', 'fac_backuptest0001', '2026-09-08', 1, -500, 'TRANSFER TO SAVINGS', NULL, NULL, NULL, 1, 'ftr_backuptest0001', 'import', 'fim_backuptest0001', 2, '${"b".repeat(64)}', 241065, 'x', '${NOW}', 'x', '${NOW}'),
+  ('ftx_backuptest0003', 'fac_backuptest0002', '2026-09-08', 0, 500, 'From everyday', NULL, NULL, NULL, 1, 'ftr_backuptest0001', 'manual', NULL, NULL, '${"d".repeat(64)}', NULL, 'x', '${NOW}', 'x', '${NOW}');
+INSERT INTO finance_reconciliations (id, account_id, as_of, statement_balance_cents, calculated_balance_cents, difference_cents, created_by, created_at) VALUES ('frc_backuptest0001', 'fac_backuptest0001', '2026-09-30', 241065, 241065, 0, 'x', '${NOW}');
+INSERT INTO finance_activity (at, actor, action, entity_type, entity_id, account_id, detail) VALUES ('${NOW}', 'x', 'import.commit', 'import', 'fim_backuptest0001', 'fac_backuptest0001', '{"toImport":2}');
+`;
 const TASKS_M3 = `
 UPDATE task_projects SET review_frequency = 'fortnightly', health_override = 'on_track', health_note = 'Waiting on the nursery', health_set_by = 'owner@example.com', health_set_at = '${NOW}' WHERE id = 'tpj_backuptest0002';
 INSERT INTO task_items (id, project_id, section_id, parent_id, depth, title, due_date, recurrence_json, assignee_email, position, created_by, updated_by, created_at, updated_at) VALUES
@@ -454,6 +475,7 @@ try {
     run(TASKS);
     run(TASKS_M3);
     run(HOME_ASSETS);
+    run(FINANCE);
     report.check(
         [...TASK_TABLES, ...TASK_M3_TABLES].every((t) => count(t) > 0),
         "Every Tasks table has rows (Milestones 1–3)",
@@ -718,6 +740,26 @@ try {
                 refuses("UPDATE asset_files SET r2_key = 'wedding/x' WHERE id = 'afl_backuptest0001';"),
             "The restored copy still allows one open record per schedule, and keeps sharing and file rules",
             "A Home & Assets rule was lost in the restored copy",
+        );
+        // Household Finance (0031): accounts, imports, the ledger, transfers and reconciliations, and
+        // the rules that stop a transaction being imported twice or a transfer being categorised.
+        report.check(
+            query("SELECT visibility FROM finance_accounts WHERE id = 'fac_backuptest0002'", restored)[0]?.visibility === "private" &&
+                query("SELECT COUNT(*) AS n FROM finance_transactions WHERE transfer_id = 'ftr_backuptest0001'", restored)[0]?.n === 2 &&
+                query("SELECT category_id FROM finance_transactions WHERE id = 'ftx_backuptest0001'", restored)[0]?.category_id === "groceries" &&
+                query("SELECT rows_imported FROM finance_imports WHERE id = 'fim_backuptest0001'", restored)[0]?.rows_imported === 2 &&
+                query("SELECT COUNT(*) AS n FROM finance_import_rows WHERE import_id = 'fim_backuptest0001'", restored)[0]?.n === 2 &&
+                query("SELECT difference_cents FROM finance_reconciliations WHERE id = 'frc_backuptest0001'", restored)[0]?.difference_cents === 0 &&
+                query("SELECT SUM(amount_cents) AS s FROM finance_transactions WHERE account_id = 'fac_backuptest0001' AND deleted_at IS NULL", restored)[0]?.s === -8935,
+            "Household Finance accounts, imports, transactions, transfers and reconciliations restore intact, and balances add up",
+            "Household Finance data was lost",
+        );
+        report.check(
+            refuses(
+                `INSERT INTO finance_transactions (id, account_id, posted_on, amount_cents, description, source, import_id, fingerprint, created_by, created_at, updated_by, updated_at) VALUES ('ftx_backuptest0009', 'fac_backuptest0001', '2026-09-02', -8435, 'WOOLWORTHS', 'import', 'fim_backuptest0001', '${"c".repeat(64)}', 'x', 'x', 'x', 'x');`,
+            ) && refuses("UPDATE finance_transactions SET category_id = 'groceries', category_source = 'manual' WHERE id = 'ftx_backuptest0002';"),
+            "The restored copy still refuses a duplicate transaction and a categorised transfer",
+            "A Household Finance rule was lost in the restored copy",
         );
     }
 } catch (error) {

@@ -44,6 +44,13 @@ import { CentreWallboardEditorPage } from "@/portal/centre/pages/centre-wallboar
 import { CentreWallboardsPage } from "@/portal/centre/pages/centre-wallboards-page";
 import { CentreWatchesPage } from "@/portal/centre/pages/centre-watches-page";
 import { ToastProvider } from "@/portal/components/toast";
+import { FinanceAccountPage } from "@/portal/finance/pages/finance-account-page";
+import { FinanceAccountsPage } from "@/portal/finance/pages/finance-accounts-page";
+import { FinanceImportPage } from "@/portal/finance/pages/finance-import-page";
+import { FinanceImportReviewPage } from "@/portal/finance/pages/finance-import-review-page";
+import { FinanceOverviewPage } from "@/portal/finance/pages/finance-overview-page";
+import { FinanceSettingsPage } from "@/portal/finance/pages/finance-settings-page";
+import { FinanceTransactionsPage } from "@/portal/finance/pages/finance-transactions-page";
 import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
 import { IntelligenceHomePage } from "@/portal/intelligence/pages/intelligence-home-page";
 import { IntelligenceSettingsPage } from "@/portal/intelligence/pages/intelligence-settings-page";
@@ -220,6 +227,20 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <AssetsLabelsPage data={data} />;
         case "assets-search":
             return <AssetsSearchPage data={data} />;
+        case "finance-overview":
+            return <FinanceOverviewPage data={data} />;
+        case "finance-transactions":
+            return <FinanceTransactionsPage data={data} />;
+        case "finance-accounts":
+            return <FinanceAccountsPage data={data} />;
+        case "finance-account":
+            return <FinanceAccountPage key={data.account.id} data={data} />;
+        case "finance-import":
+            return <FinanceImportPage data={data} />;
+        case "finance-import-review":
+            return <FinanceImportReviewPage key={data.detail.summary.id} data={data} />;
+        case "finance-settings":
+            return <FinanceSettingsPage data={data} />;
         case "today":
             return <TodayPage data={data} />;
         case "forbidden":
