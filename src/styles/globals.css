@@ -1,48 +1,41 @@
 /*
- * Stylesheet for the personal site and blog. Tailwind only generates classes it finds in the
- * sources it scans, so the portal, the wedding site and the Untitled UI components only they use
- * are excluded here to keep the blog's CSS small. If the blog starts using one of the excluded
- * component folders, remove it from this list. The portal and wedding site use apps.css.
+ * Stylesheet for the personal site and blog. Tailwind generates only the classes it finds in the
+ * files it scans, and on its own it would scan the whole repository (worker, docs, tests, the portal
+ * and wedding site, every Untitled UI component). So scanning is off (`source(none)`) and the files
+ * the blog imports are listed below. `npm run check:bundle` follows the blog's imports from
+ * src/entry-client.tsx and fails if one is missing here or if something it doesn't import is
+ * scanned. Article HTML from the worker uses only the semantic classes in article.css, so the
+ * worker isn't scanned. The portal and wedding site use apps.css.
  */
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @import "@fontsource-variable/cormorant-garamond";
-@source not "../portal";
-@source not "../wedding";
-@source not "../entry-portal.tsx";
-@source not "../entry-wedding.tsx";
-@source not "../display";
-@source not "../entry-display.tsx";
-@source not "../components/application/alerts";
-@source not "../components/application/app-navigation";
-@source not "../components/application/breadcrumbs";
-@source not "../components/application/charts";
-@source not "../components/application/date-picker";
-@source not "../components/application/file-upload";
-@source not "../components/application/filter-bar";
-@source not "../components/application/loading-indicator";
-@source not "../components/application/metrics";
-@source not "../components/application/modals";
-@source not "../components/application/notifications";
-@source not "../components/application/pagination";
-@source not "../components/application/progress-steps";
-@source not "../components/application/section-headers";
-@source not "../components/application/slideout-menus";
-@source not "../components/application/table";
-@source not "../components/application/tabs";
-@source not "../components/base/avatar";
-@source not "../components/base/button-group";
-@source not "../components/base/checkbox";
-@source not "../components/base/dropdown";
-@source not "../components/base/file-upload-trigger";
-@source not "../components/base/form";
-@source not "../components/base/progress-indicators";
-@source not "../components/base/radio-buttons";
-@source not "../components/base/radio-groups";
-@source not "../components/base/select";
-@source not "../components/base/textarea";
-@source not "../components/base/toggle";
-@source not "../components/foundations/logo";
-@source not "../components/shared-assets/illustrations";
+@source "../../shell.html";
+@source "../app.tsx";
+@source "../entry-client.tsx";
+@source "../content";
+@source "../pages";
+@source "../providers";
+@source "../utils";
+@source "../components/site";
+@source not "../components/site/section-header.tsx";
+@source "../components/application/empty-state";
+@source "../components/base/badges";
+@source not "../components/base/badges/badge-groups.tsx";
+@source "../components/base/buttons/button.tsx";
+@source "../components/base/buttons/button-utility.tsx";
+@source "../components/base/input/hint-text.tsx";
+@source "../components/base/input/input.tsx";
+@source "../components/base/input/label.tsx";
+@source "../components/base/tooltip";
+@source "../components/foundations/dot-icon.tsx";
+@source "../components/foundations/featured-icon";
+@source "../components/foundations/social-icons";
+@source "../components/marketing/blog";
+@source "../components/marketing/content";
+@source "../components/marketing/footers";
+@source "../components/shared-assets/background-patterns/circle.tsx";
+@source "../components/shared-assets/background-patterns/grid.tsx";
+@source "../components/shared-assets/background-patterns/square.tsx";
 @import "./base.css";
 @import "./article.css";
 
