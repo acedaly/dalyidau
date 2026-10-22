@@ -1,11 +1,45 @@
-/* Styles for article HTML rendered from Capacities. Builds on the Untitled UI prose styles. */
+/*
+ * The article design system: one set of styles for every blog post, whichever publisher wrote it
+ * (Capacities' stored HTML and Amplenote's markdown both render to the blocks in
+ * worker/lib/article-html.ts). Builds on the Untitled UI prose styles and semantic tokens only, so
+ * light and dark mode follow the theme. Class names here are part of stored HTML: keep the existing
+ * ones working, because archived Capacities posts are never re-rendered.
+ *
+ * Overrides of prose typography use `.prose.article-body` to outrank `.prose.md:prose-lg`.
+ */
 
 .article-body {
+    --article-accent: var(--color-fg-brand-primary);
     overflow-wrap: break-word;
+}
+
+.prose.article-body {
+    /* Body copy one step darker than prose's default, for long-form reading. */
+    --tw-prose-body: var(--color-text-secondary);
+    --tw-prose-bullets: var(--color-fg-quaternary);
+    --tw-prose-counters: var(--color-text-tertiary);
 }
 
 .article-body :where(h2, h3, h4) {
     scroll-margin-top: calc(var(--spacing) * 24);
+    text-wrap: balance;
+}
+.prose.article-body :where(h2, h3) {
+    letter-spacing: -0.01em;
+}
+.prose.article-body :where(h4) {
+    color: var(--color-text-primary);
+}
+/* A paragraph after a heading sits close to it; a heading after text gets room to breathe. */
+.prose.article-body :where(p, ul, ol) + :where(h2) {
+    margin-top: calc(var(--spacing) * 14);
+}
+.prose.article-body :where(p, ul, ol) + :where(h3) {
+    margin-top: calc(var(--spacing) * 10);
+}
+
+.article-body :where(p) {
+    text-wrap: pretty;
 }
 
 .article-body :where(h2, h3) a,
@@ -27,6 +61,39 @@
     color: inherit;
     border-radius: 2px;
     padding: 0 2px;
+}
+
+.prose.article-body :where(code:not(pre code)) {
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+/* Lists */
+.article-body :where(ol) > li::marker {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.article-body :where(li) > :where(p) {
+    margin: 0;
+}
+.prose.article-body :where(li) > :where(ul, ol) {
+    margin-top: calc(var(--spacing) * 1.5);
+    margin-bottom: calc(var(--spacing) * 1.5);
+}
+
+/* Divider: a quiet ornament rather than a rule across the column. */
+.article-body hr {
+    height: auto;
+    border: 0;
+    margin: calc(var(--spacing) * 12) 0;
+    text-align: center;
+    line-height: 1;
+}
+.article-body hr::before {
+    content: "· · ·";
+    color: var(--color-fg-quaternary);
+    font-size: var(--text-xl);
+    letter-spacing: 0.5em;
 }
 
 /* Code */
@@ -70,14 +137,25 @@
 }
 
 /* Figures */
+.article-body figure.image {
+    margin: calc(var(--spacing) * 10) 0;
+}
 .article-body figure.image img {
     width: 100%;
     height: auto;
+    margin: 0;
     border-radius: var(--radius-xl);
+    /* A hairline keeps white-background screenshots from bleeding into the page. */
+    outline: 1px solid var(--color-border-secondary);
+    outline-offset: -1px;
 }
 .article-body figure.image figcaption,
 .article-body figure.video figcaption {
+    display: block;
+    max-width: 60ch;
+    margin-inline: auto;
     text-align: center;
+    text-wrap: balance;
 }
 .article-body .video-frame {
     position: relative;
@@ -94,28 +172,115 @@
     border: 0;
 }
 
-/* Pull quote */
-.article-body figure.pullquote blockquote {
+/* Quotes: a plain blockquote is set in the text's own size, with a brand rule. */
+.prose.article-body blockquote {
+    border-left: 2px solid var(--article-accent);
+    padding-inline-start: calc(var(--spacing) * 5);
+    margin: calc(var(--spacing) * 8) 0;
+    color: var(--color-text-primary);
+}
+.prose.article-body blockquote p {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 400;
+}
+.prose.article-body blockquote p + p {
+    margin-top: calc(var(--spacing) * 3);
+}
+.prose.article-body figure.quote {
+    margin: calc(var(--spacing) * 8) 0;
+    padding: 0;
+    border: 0;
+}
+.prose.article-body figure.quote blockquote {
+    margin: 0;
+}
+.article-body :where(figure.quote, figure.pullquote) figcaption {
+    margin-top: calc(var(--spacing) * 3);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+    font-style: normal;
+}
+.article-body figure.quote figcaption {
+    padding-inline-start: calc(var(--spacing) * 5);
+}
+.article-body :where(figure.quote, figure.pullquote) figcaption::before {
+    content: "— ";
+}
+
+/* Pull quote: centred between hairlines, with a large brand quotation mark. */
+.prose.article-body figure.pullquote {
+    margin: calc(var(--spacing) * 14) 0;
+    padding: calc(var(--spacing) * 10) 0 calc(var(--spacing) * 8);
+    border: 0;
+    border-block: 1px solid var(--color-border-secondary);
+    text-align: center;
+    position: relative;
+}
+.prose.article-body figure.pullquote::before {
+    content: "\201C";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    padding: 0 calc(var(--spacing) * 3);
+    background: var(--color-bg-primary);
+    color: var(--article-accent);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 4.5rem;
+    line-height: 1;
+    font-weight: 400;
+}
+.prose.article-body figure.pullquote blockquote {
     border: 0;
     padding: 0;
+    margin: 0;
     text-align: center;
+}
+.prose.article-body figure.pullquote blockquote p {
     font-size: var(--text-display-xs);
     line-height: var(--text-display-xs--line-height);
     font-weight: 500;
     font-style: italic;
+    letter-spacing: -0.01em;
     color: var(--color-text-primary);
+    text-wrap: balance;
+}
+.prose.article-body figure.pullquote blockquote p::before,
+.prose.article-body figure.pullquote blockquote p::after {
+    content: none;
+}
+@media (width >= 48rem) {
+    .prose.article-body figure.pullquote blockquote p {
+        font-size: var(--text-display-sm);
+        line-height: var(--text-display-sm--line-height);
+    }
 }
 
-/* Callouts */
+/* Callouts: a tinted box with the tone's icon (drawn in CSS, so stored HTML needs no markup for it). */
 .article-body .callout {
     --callout-bg: var(--color-bg-secondary);
     --callout-border: var(--color-border-secondary);
-    margin: calc(var(--spacing) * 6) 0;
-    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5);
+    --callout-icon-color: var(--color-fg-quaternary);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
+    position: relative;
+    margin: calc(var(--spacing) * 8) 0;
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5) calc(var(--spacing) * 4) calc(var(--spacing) * 12);
     border-radius: var(--radius-xl);
     background: var(--callout-bg);
     box-shadow: inset 0 0 0 1px var(--callout-border);
     color: var(--color-text-secondary);
+    font-size: 0.94em;
+}
+.article-body .callout::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--spacing) * 4 + 0.15em);
+    left: calc(var(--spacing) * 4.5);
+    width: 1.25rem;
+    height: 1.25rem;
+    background: var(--callout-icon-color);
+    mask: var(--callout-icon) center / contain no-repeat;
 }
 .article-body .callout > :first-child {
     margin-top: 0;
@@ -123,47 +288,102 @@
 .article-body .callout > :last-child {
     margin-bottom: 0;
 }
+.article-body .callout > :where(p) {
+    margin: calc(var(--spacing) * 2) 0;
+}
+.article-body .callout-title {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
 .article-body .callout[data-tone="info"] {
     --callout-bg: var(--color-utility-blue-50);
     --callout-border: var(--color-utility-blue-200);
+    --callout-icon-color: var(--color-utility-blue-600);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
 }
 .article-body .callout[data-tone="brand"] {
     --callout-bg: var(--color-utility-brand-50);
     --callout-border: var(--color-utility-brand-200);
+    --callout-icon-color: var(--color-utility-brand-600);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z'/%3E%3C/svg%3E");
 }
 .article-body .callout[data-tone="success"] {
     --callout-bg: var(--color-utility-green-50);
     --callout-border: var(--color-utility-green-200);
+    --callout-icon-color: var(--color-utility-green-600);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.74V16h8v-1.26A7 7 0 0 0 12 2z'/%3E%3C/svg%3E");
 }
 .article-body .callout[data-tone="warning"] {
     --callout-bg: var(--color-utility-yellow-50);
     --callout-border: var(--color-utility-yellow-200);
+    --callout-icon-color: var(--color-utility-yellow-600);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3C/svg%3E");
 }
 .article-body .callout[data-tone="danger"] {
     --callout-bg: var(--color-utility-red-50);
     --callout-border: var(--color-utility-red-200);
+    --callout-icon-color: var(--color-utility-red-600);
+    --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86z'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
+}
+/* Dark mode: a quiet wash of the tone's colour rather than a solid block of it. */
+.dark-mode .article-body .callout[data-tone] {
+    --callout-bg: color-mix(in srgb, var(--callout-icon-color) 9%, var(--color-bg-primary));
+    --callout-border: color-mix(in srgb, var(--callout-icon-color) 32%, var(--color-bg-primary));
+}
+.dark-mode .article-body .callout[data-tone="neutral"] {
+    --callout-bg: var(--color-bg-secondary);
+    --callout-border: var(--color-border-secondary);
 }
 
-/* Link cards for embedded web links */
+/* Link cards for links that stand on their own line, and for other articles on the blog */
+.article-body .link-card {
+    margin: calc(var(--spacing) * 6) 0;
+}
 .article-body .link-card a {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5);
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 12) calc(var(--spacing) * 4) calc(var(--spacing) * 5);
     border-radius: var(--radius-xl);
-    box-shadow: inset 0 0 0 1px var(--color-border-secondary);
+    background: var(--color-bg-primary);
+    box-shadow:
+        inset 0 0 0 1px var(--color-border-secondary),
+        var(--shadow-xs);
     text-decoration: none;
     transition:
         box-shadow 100ms linear,
         background-color 100ms linear;
 }
+.article-body .link-card a::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: calc(var(--spacing) * 5);
+    width: 1.25rem;
+    height: 1.25rem;
+    transform: translateY(-50%);
+    background: var(--color-fg-quaternary);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M7 7h10v10'/%3E%3C/svg%3E")
+        center / contain no-repeat;
+    transition: background-color 100ms linear;
+}
+.article-body .link-card a[href^="/"]::after {
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M12 5l7 7-7 7'/%3E%3C/svg%3E");
+}
 .article-body .link-card a:hover {
     background: var(--color-bg-primary_hover);
-    box-shadow: inset 0 0 0 1px var(--color-border-primary);
+    box-shadow:
+        inset 0 0 0 1px var(--color-border-primary),
+        var(--shadow-xs);
+}
+.article-body .link-card a:hover::after {
+    background: var(--color-fg-brand-secondary);
 }
 .article-body .link-card-title {
     color: var(--color-text-primary);
     font-weight: 600;
+    line-height: 1.4;
 }
 .article-body .link-card-host {
     color: var(--color-text-tertiary);
@@ -173,7 +393,7 @@
 /* Tables */
 .article-body .table-wrap {
     overflow-x: auto;
-    margin: calc(var(--spacing) * 6) 0;
+    margin: calc(var(--spacing) * 8) 0;
     border-radius: var(--radius-xl);
     box-shadow: inset 0 0 0 1px var(--color-border-secondary);
 }
@@ -182,6 +402,7 @@
     margin: 0;
     border-collapse: collapse;
     font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
 }
 .article-body th {
     background: var(--color-bg-secondary);
@@ -197,6 +418,15 @@
 }
 .article-body tr:last-child td {
     border-bottom: 0;
+}
+
+/* Footnotes */
+.article-body .footnotes {
+    margin-top: calc(var(--spacing) * 12);
+    padding-top: calc(var(--spacing) * 6);
+    border-top: 1px solid var(--color-border-secondary);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
 }
 
 /* Columns, toggles, task lists, nested content */
@@ -233,4 +463,26 @@
 }
 .article-body .indent {
     padding-inline-start: calc(var(--spacing) * 6);
+}
+
+/* Narrow screens: tighter boxes, smaller display type. */
+@media (width < 48rem) {
+    .article-body .callout {
+        padding: calc(var(--spacing) * 3.5) calc(var(--spacing) * 4) calc(var(--spacing) * 3.5) calc(var(--spacing) * 11);
+    }
+    .article-body .callout::before {
+        top: calc(var(--spacing) * 3.5 + 0.15em);
+        left: calc(var(--spacing) * 3.5);
+    }
+    .prose.article-body figure.pullquote {
+        margin: calc(var(--spacing) * 12) 0;
+        padding: calc(var(--spacing) * 8) 0 calc(var(--spacing) * 6);
+    }
+    .prose.article-body blockquote p {
+        font-size: var(--text-lg);
+        line-height: var(--text-lg--line-height);
+    }
+    .article-body figure.image {
+        margin: calc(var(--spacing) * 8) 0;
+    }
 }

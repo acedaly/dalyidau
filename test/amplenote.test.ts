@@ -9,7 +9,7 @@ import { renderMarkdown } from "../worker/amplenote/markdown";
 import { conventions, extractMetadata, publicToken, tagMetadata, websiteTags, withoutRepeatedTitle } from "../worker/amplenote/metadata";
 import { type ArticleRow, ineligibility, reconcile } from "../worker/amplenote/publisher";
 import type { Env } from "../worker/env";
-import { createMock, resetDb, sync } from "./helpers";
+import { createMock, resetDb, setCapacitiesSync, sync } from "./helpers";
 import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv } from "./portal-helpers";
 
 const PUBLISH_TOKEN = "test-amplenote-publish-token-0123456789abcdef";
@@ -155,7 +155,17 @@ describe("metadata conventions", () => {
         const { metadata, body } = extractMetadata(
             "Intro\n## Website\n- slug: My Better Slug\n- summary: Short\n- published: 2026-09-01\n- nonsense: ignored\n## Next\nMore",
         );
-        expect(metadata).toEqual({ slug: "my-better-slug", subtitle: null, summary: "Short", published: "2026-09-01T00:00:00.000Z", image: null });
+        expect(metadata).toEqual({
+            slug: "my-better-slug",
+            subtitle: null,
+            summary: "Short",
+            published: "2026-09-01T00:00:00.000Z",
+            image: null,
+            replaces: null,
+        });
+        for (const value of ["publishing-from-my-notebook", "/blog/publishing-from-my-notebook", "https://daly.id.au/blog/publishing-from-my-notebook/"])
+            expect(extractMetadata(`# Website\nreplaces: ${value}`).metadata.replaces).toBe("publishing-from-my-notebook");
+        expect(extractMetadata("# Website\nreplaces: not a slug!").metadata.replaces).toBeNull();
         expect(body).toBe("Intro\n## Next\nMore");
         expect(withoutRepeatedTitle("# My title\nBody", "My Title")).toBe("Body");
         expect(withoutRepeatedTitle("# Another\nBody", "My Title")).toBe("# Another\nBody");
@@ -188,6 +198,9 @@ describe("eligibility", () => {
         state: "pending",
         reason: null,
         content_hash: null,
+        replace_slug: null,
+        replace_approved_by: null,
+        replace_approved_at: null,
     };
 
     it("needs the tag, a publication, content and a working link", () => {
@@ -441,12 +454,18 @@ describe("publishing with the plugin", () => {
         expect(html).not.toContain(NOTE_IDS.private);
     });
 
-    it("never takes an existing Capacities article's address", async () => {
+    it("never takes an existing Capacities article's address, nor publishes a duplicate of it", async () => {
         // The Capacities article lives at /blog/publishing-from-my-notebook.
         mock.control.add({ ...secondNote, name: "Publishing from my notebook" });
         await runPlugin();
-        const slugs = (await amplenotePosts()).map((p) => p.slug);
-        expect(slugs).toContain("publishing-from-my-notebook-2");
+        expect((await amplenotePosts()).map((p) => p.slug)).toEqual([GARDEN]);
+        expect((await article(NOTE_IDS.second))!.reason).toMatch(
+            /^Looks like the Capacities article \/blog\/publishing-from-my-notebook\. .*replaces: publishing-from-my-notebook/,
+        );
+        // Given an address of its own, it's published separately.
+        mock.control.edit(NOTE_IDS.second, { markdown: "Short and sweet.\n# Website\nslug: notebook-two" });
+        await runPlugin();
+        expect((await amplenotePosts()).map((p) => p.slug)).toEqual(["notebook-two", GARDEN]);
         // And a Capacities sync afterwards leaves Amplenote's articles alone.
         await sync(createMock(), {}, true);
         expect(await amplenotePosts()).toHaveLength(2);
@@ -686,5 +705,140 @@ describe("the old proof of concept and the portal", () => {
         const csp = portal.headers.get("Content-Security-Policy") ?? "";
         expect(csp).not.toContain("amplenote");
         expect(csp).toContain("frame-ancestors 'none'");
+    });
+});
+
+// --- Moving a Capacities article to Amplenote (docs/CAPACITIES_RETIREMENT.md) ------------------------
+
+describe("moving a Capacities article to Amplenote at the same address", () => {
+    const NOTEBOOK = "publishing-from-my-notebook";
+    const moving = {
+        ...secondNote,
+        name: "Publishing from my notebook, rewritten in Amplenote",
+        tags: ["website/blog"],
+        markdown: "Rewritten in Amplenote.\n\n> [!NOTE]\n> Now with a callout.\n# Website\nreplaces: https://daly.id.au/blog/publishing-from-my-notebook",
+    };
+    const postAt = (slug: string) => db().prepare("SELECT * FROM posts WHERE slug = ?").bind(slug).first<Record<string, unknown>>();
+    const approve = (slug = NOTEBOOK) =>
+        apiCall<{ status: { articles: { uuid: string; replacement: unknown }[] } }>(
+            "POST",
+            `/api/portal/website/amplenote/${NOTE_IDS.second}/replacement`,
+            { slug },
+            { env },
+        );
+
+    it("needs Capacities sync off and the owner's approval, never publishing elsewhere meanwhile", async () => {
+        const original = await postAt(NOTEBOOK);
+        mock.control.add(moving);
+        await runPlugin();
+        expect((await article(NOTE_IDS.second))!.reason).toMatch(/^Switch off Capacities sync/);
+        expect((await approve()).status).toBe(409);
+
+        await setCapacitiesSync(false);
+        await runPlugin();
+        expect((await article(NOTE_IDS.second))!.reason).toBe("Waiting for your approval to replace the Capacities article /blog/publishing-from-my-notebook");
+        expect(await amplenotePosts()).toEqual([{ slug: GARDEN, title: "Notes from a small vegetable garden" }]);
+        expect(await postAt(NOTEBOOK)).toEqual(original);
+        const status = await apiCall<{ status: { articles: { uuid: string; replacement: unknown }[] } }>("GET", "/api/portal/website/amplenote", undefined, {
+            env,
+        });
+        expect(status.json.status.articles.find((a) => a.uuid === NOTE_IDS.second)!.replacement).toEqual({
+            slug: NOTEBOOK,
+            title: "Publishing straight from my notebook",
+            state: "waiting",
+        });
+        // Only the address the note names, and only by an owner or admin.
+        expect((await approve("running-a-good-training-session")).status).toBe(409);
+        expect((await apiCall("POST", "/api/portal/users", { email: "editor@example.com", role: "editor" }, { env })).status).toBe(200);
+        expect(
+            (await apiCall("POST", `/api/portal/website/amplenote/${NOTE_IDS.second}/replacement`, { slug: NOTEBOOK }, { email: "editor@example.com", env }))
+                .status,
+        ).toBe(403);
+    });
+
+    it("moves it atomically, keeping its date, category, tags, image and old addresses, and archiving the Capacities copy", async () => {
+        const original = (await postAt(NOTEBOOK))!;
+        await db().prepare("INSERT INTO slug_redirects (from_slug, post_id, created_at) VALUES ('my-notebook', ?, '2026-01-01')").bind(original.id).run();
+        await setCapacitiesSync(false);
+        mock.control.add(moving);
+        await runPlugin();
+        const approved = await approve();
+        expect(approved.status).toBe(200);
+
+        const moved = (await postAt(NOTEBOOK))!;
+        expect(moved).toMatchObject({
+            id: `amplenote:${NOTE_IDS.second}`,
+            source: "amplenote",
+            title: "Publishing from my notebook, rewritten in Amplenote",
+            published_at: original.published_at,
+            category: original.category,
+            tags: original.tags,
+            image_key: original.image_key,
+            subtitle: original.subtitle,
+            summary: original.summary,
+        });
+        expect(String(moved.body_html)).toContain('<aside class="callout" data-tone="info">');
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM posts WHERE id = ?").bind(original.id).first<{ n: number }>())!.n).toBe(0);
+        const archived = (await db().prepare("SELECT * FROM capacities_archive WHERE id = ?").bind(original.id).first<Record<string, unknown>>())!;
+        expect(archived).toMatchObject({ body_html: original.body_html, slug: NOTEBOOK, replaced_by: NOTE_IDS.second, redirects: '["my-notebook"]' });
+
+        const { response, html } = await page(`/blog/${NOTEBOOK}`);
+        expect(response.status).toBe(200);
+        expect(html).toContain("Rewritten in Amplenote.");
+        const old = await call("/blog/my-notebook", { env });
+        expect(old.status).toBe(301);
+        expect(old.headers.get("Location")).toBe(`https://daly.id.au/blog/${NOTEBOOK}`);
+        const rss = await (await page("/feed.xml")).html;
+        expect(rss.split("<item>").filter((item) => item.includes("/blog/publishing-from-my-notebook<"))).toHaveLength(1);
+        expect(rss).not.toContain("Publishing straight from my notebook");
+
+        // Running again, and switching Capacities sync back on, never brings back a second copy.
+        await runPlugin();
+        await setCapacitiesSync(true);
+        await sync(createMock(), {}, true);
+        await setCapacitiesSync(false);
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM posts WHERE title LIKE 'Publishing%notebook%'").first<{ n: number }>())!.n).toBe(1);
+        expect(await auditActions()).toContain("website.capacities.replace");
+    });
+
+    it("can be undone: the archived Capacities article comes back exactly as it was", async () => {
+        const original = (await postAt(NOTEBOOK))!;
+        await setCapacitiesSync(false);
+        mock.control.add(moving);
+        await runPlugin();
+        await approve();
+        const undo = await apiCall("DELETE", `/api/portal/website/amplenote/${NOTE_IDS.second}/replacement`, undefined, { env });
+        expect(undo.status).toBe(200);
+        expect(await postAt(NOTEBOOK)).toEqual(original);
+        expect(await article(NOTE_IDS.second)).toMatchObject({ state: "withdrawn", slug: null, replace_slug: null });
+        expect(await db().prepare("SELECT replaced_by FROM capacities_archive WHERE id = ?").bind(original.id).first()).toEqual({ replaced_by: null });
+        // The note still names the article, so it waits for approval again instead of publishing elsewhere.
+        await runPlugin();
+        expect((await article(NOTE_IDS.second))!.reason).toMatch(/^Waiting for your approval/);
+        expect(await postAt(NOTEBOOK)).toEqual(original);
+        expect(await auditActions()).toContain("website.capacities.restore");
+    });
+
+    it("keeps an already-published article as it is while it waits, then moves it with a redirect from its old address", async () => {
+        await setCapacitiesSync(false);
+        mock.control.add({ ...moving, markdown: "First version." });
+        await runPlugin();
+        const first = (await amplenotePosts()).find((p) => p.title.startsWith("Publishing from"))!;
+        expect(first.slug).not.toBe(NOTEBOOK);
+        mock.control.edit(NOTE_IDS.second, { markdown: moving.markdown });
+        await runPlugin();
+        expect((await page(`/blog/${first.slug}`)).html).toContain("First version.");
+        await approve();
+        const old = await call(`/blog/${first.slug}`, { env });
+        expect(old.status).toBe(301);
+        expect(old.headers.get("Location")).toBe(`https://daly.id.au/blog/${NOTEBOOK}`);
+    });
+
+    it("never publishes a note whose replaces: line names no Capacities article", async () => {
+        await setCapacitiesSync(false);
+        mock.control.add({ ...moving, markdown: "Body\n# Website\nreplaces: no-such-article" });
+        await runPlugin();
+        expect((await article(NOTE_IDS.second))!.reason).toBe(`"replaces: no-such-article" doesn't match an article published from Capacities`);
+        expect(await amplenotePosts()).toHaveLength(1);
     });
 });

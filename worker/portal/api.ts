@@ -9,9 +9,11 @@ import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { amplenoteStatus } from "../amplenote/api";
 import { disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
-import { reconcile as reconcileAmplenote } from "../amplenote/publisher";
+import { extractMetadata } from "../amplenote/metadata";
+import { postId as amplenotePostId, reconcile as reconcileAmplenote } from "../amplenote/publisher";
 import { handleAssetsApi } from "../assets/api";
 import { handleCalendarApi } from "../calendar/api";
+import { archiveCapacities, undoReplacement } from "../capacities/archive";
 import { handleCentreApi } from "../centre/api";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
@@ -51,7 +53,7 @@ import { getLayout, resetLayout, saveLayout } from "./dashboard";
 import { audit, auditStatement, newRsvpCode, nowIso } from "./db";
 import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity, getEntity, householdDef, listEntities, updateEntity } from "./entities";
 import { EXPORTS, fullJsonExport } from "./exports";
-import { loadFlags, setFlag } from "./flags";
+import { isEnabled, loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
 import { bulkUpdateHouseholds, generateInvitations, listHouseholdRows } from "./households";
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
@@ -153,6 +155,81 @@ add("POST", "/api/portal/website/amplenote/check", "portal.settings.manage", asy
 
 add("POST", "/api/portal/website/amplenote/disconnect", "portal.settings.manage", async ({ env, user }) => {
     await disconnectAmplenote(env, user.email);
+    return json({ status: await amplenoteStatus(env) });
+});
+
+// --- Website: retiring Capacities (worker/capacities/archive.ts, docs/CAPACITIES_RETIREMENT.md) -----
+
+add("POST", "/api/portal/website/capacities/archive", "portal.settings.manage", async ({ env, user }) => {
+    const capacities = await archiveCapacities(env, user.email);
+    return json({ capacities, status: await amplenoteStatus(env) });
+});
+
+const noteUuid = (value: string) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new HttpError(404, "not_found", "No such note");
+    return value.toLowerCase();
+};
+
+/**
+ * Approves moving a Capacities article's address to the Amplenote note that names it ("replaces:"),
+ * then runs a check so it happens straight away. Only an address the note names, only an article
+ * still published from Capacities, and only with Capacities sync off.
+ */
+add("POST", "/api/portal/website/amplenote/:uuid/replacement", "portal.settings.manage", async ({ env, user, params, request }) => {
+    const uuid = noteUuid(params.uuid);
+    const { slug } = z.object({ slug: z.string().min(1).max(96) }).parse(await readJson(request));
+    const note = await env.DB.prepare("SELECT markdown FROM amplenote_articles WHERE uuid = ?").bind(uuid).first<{ markdown: string | null }>();
+    if (!note?.markdown) throw new HttpError(404, "not_found", "That note hasn't been published from Amplenote");
+    const wanted = extractMetadata(note.markdown).metadata.replaces;
+    const target = wanted
+        ? await env.DB.prepare(
+              `SELECT slug FROM posts WHERE source = 'capacities' AND (slug = ?1 OR id = (SELECT post_id FROM slug_redirects WHERE from_slug = ?1))`,
+          )
+              .bind(wanted)
+              .first<{ slug: string }>()
+        : null;
+    if (!target || target.slug !== slug)
+        throw new HttpError(409, "conflict", "The note doesn't name that Capacities article any more. Check the note's Website section.");
+    if (await isEnabled(env.DB, "website.capacities.sync"))
+        throw new HttpError(409, "conflict", "Switch off Capacities sync in Portal settings → Features first");
+    await env.DB.batch([
+        env.DB.prepare("UPDATE amplenote_articles SET replace_slug = ?, replace_approved_by = ?, replace_approved_at = ?, updated_at = ? WHERE uuid = ?").bind(
+            slug,
+            user.email,
+            nowIso(),
+            nowIso(),
+            uuid,
+        ),
+        auditStatement(env.DB, {
+            actor: user.email,
+            action: "website.capacities.replace",
+            entityType: "website",
+            entityId: uuid,
+            summary: `Approved moving /blog/${slug} from Capacities to an Amplenote note`,
+        }),
+    ]);
+    const summary = await reconcileAmplenote(env, { trigger: "manual" });
+    return json({ summary, status: await amplenoteStatus(env) });
+});
+
+/** Withdraws an approval, or (once moved) puts the archived Capacities article back at its address. */
+add("DELETE", "/api/portal/website/amplenote/:uuid/replacement", "portal.settings.manage", async ({ env, user, params }) => {
+    const uuid = noteUuid(params.uuid);
+    if (!(await undoReplacement(env, uuid, user.email, amplenotePostId(uuid)))) {
+        const cleared = await env.DB.prepare(
+            "UPDATE amplenote_articles SET replace_slug = NULL, replace_approved_by = NULL, replace_approved_at = NULL WHERE uuid = ? AND replace_slug IS NOT NULL RETURNING replace_slug",
+        )
+            .bind(uuid)
+            .first();
+        if (!cleared) throw new HttpError(404, "not_found", "Nothing to undo for that note");
+        await audit(env.DB, {
+            actor: user.email,
+            action: "website.capacities.replace_cancel",
+            entityType: "website",
+            entityId: uuid,
+            summary: "Withdrew approval to move a Capacities article to an Amplenote note",
+        });
+    }
     return json({ status: await amplenoteStatus(env) });
 });
 

@@ -1,5 +1,6 @@
 // Portal settings → Features: the one place feature switches are changed. Grouped by the part of
-// the portal they belong to; an area is listed only to people who can open its application.
+// the portal they belong to; an area is listed only to people who can open its application (or, for
+// the website, who manage portal settings).
 // Each change goes through PUT /api/portal/flags/:key, which checks portal.settings.manage and
 // audits it.
 import { useEffect, useState } from "react";
@@ -9,19 +10,15 @@ import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import { usePortal } from "@/portal/portal-context";
-import { applicationById, canAccessApplication } from "@/shared/portal/applications";
 import { FLAG_DEFINITIONS, type FlagKey, type Flags } from "@/shared/portal/flags";
-import { FEATURE_AREAS, FEATURE_AREA_DETAILS, flagGroupsInArea, flagsInArea } from "@/shared/portal/settings-sections";
+import { FEATURE_AREAS, FEATURE_AREA_DETAILS, canSeeFeatureArea, flagGroupsInArea, flagsInArea } from "@/shared/portal/settings-sections";
 
 export const FeaturesPanel = () => {
     const { user, flags, setFlags, can } = usePortal();
     const toast = useToast();
     const [busy, setBusy] = useState<FlagKey | null>(null);
     const canEdit = can("portal.settings.manage");
-    const areas = FEATURE_AREAS.filter((area) => {
-        const application = applicationById(FEATURE_AREA_DETAILS[area].application);
-        return !!application && canAccessApplication(user, application);
-    });
+    const areas = FEATURE_AREAS.filter((area) => canSeeFeatureArea(user, area));
 
     // Links such as /portal/settings/features#features-calendar arrive before the page renders.
     useEffect(() => {

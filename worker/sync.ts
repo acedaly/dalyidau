@@ -7,6 +7,7 @@ import type { CapacitiesObject } from "./capacities/types";
 import type { Env } from "./env";
 import { isValidSlug, safeUrl, slugify } from "./lib/html";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, imageDimensions, mediaUrls } from "./lib/image";
+import { isEnabled } from "./portal/flags";
 
 /** A post must be absent from this many consecutive complete listings before it is treated as deleted. */
 export const MISSING_THRESHOLD = 2;
@@ -23,7 +24,8 @@ export interface SyncOptions {
 
 export interface SyncSummary {
     runId: number | null;
-    status: "ok" | "partial" | "failed";
+    /** "off": Capacities sync is switched off (archived), so nothing was requested or changed. */
+    status: "ok" | "partial" | "failed" | "off";
     listed: number;
     checked: number;
     published: number;
@@ -79,9 +81,37 @@ interface EntityRow {
     checked_at: string;
 }
 
+/** The switch is "website.capacities.sync" (Portal settings → Features). Off, or unreadable, means archived. */
+export const capacitiesSyncEnabled = async (env: Env) => {
+    try {
+        return await isEnabled(env.DB, "website.capacities.sync");
+    } catch {
+        return false;
+    }
+};
+
+export const SYNC_OFF_MESSAGE =
+    "Capacities sync is switched off (Portal settings → Features). Archived Capacities articles stay published from Cloudflare; nothing was requested from Capacities.";
+
 export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSummary> => {
     const now = options.now ?? (() => new Date());
     const db = env.DB;
+    // Archived: no request to Capacities, no change to any post, and no run recorded every 15 minutes.
+    if (!(await capacitiesSyncEnabled(env))) {
+        console.log(JSON.stringify({ event: "sync_off", trigger: options.trigger }));
+        return {
+            runId: null,
+            status: "off",
+            listed: 0,
+            checked: 0,
+            published: 0,
+            updated: 0,
+            unpublished: 0,
+            unchanged: 0,
+            errors: 0,
+            log: [SYNC_OFF_MESSAGE],
+        };
+    }
     const summary: SyncSummary = {
         runId: null,
         status: "ok",
@@ -201,6 +231,14 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     );
     const timestamp = now().toISOString();
 
+    // A listing with no Blog Posts at all while posts are published is far likelier to be a lapsed
+    // subscription, a moved space or an outage than the deletion of every article: it isn't used to
+    // infer deletions. Each known post is still checked individually (a 404 only counts, see classify).
+    if (listedIds && listedIds.length === 0 && posts.size > 0) {
+        fail(`Capacities listed no Blog Posts while ${posts.size} are published; treated as an outage and nothing was unpublished`);
+        listedIds = null;
+    }
+
     if (listedIds) {
         const listedSet = new Set(listedIds);
         const statements = [];
@@ -235,7 +273,9 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     }
 
     // 3. Decide what to check this run: never-seen objects first, then least recently checked.
-    const candidates = listedIds ?? [...new Set([...posts.keys(), ...sources.keys()])];
+    // Articles whose address now belongs to an Amplenote note (capacities/archive.ts) are never published again from here.
+    const moved = new Set((await db.prepare("SELECT id FROM capacities_archive WHERE replaced_by IS NOT NULL").all<{ id: string }>()).results.map((r) => r.id));
+    const candidates = (listedIds ?? [...new Set([...posts.keys(), ...sources.keys()])]).filter((id) => !moved.has(id));
     const order = [...candidates].sort((a, b) => {
         const ca = sources.get(a)?.last_checked_at ?? "";
         const cb = sources.get(b)?.last_checked_at ?? "";

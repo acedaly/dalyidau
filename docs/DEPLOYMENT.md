@@ -91,8 +91,8 @@ Merging applies `0027` (take `npm run db:backup -- --env production` first). The
 | Problem | Fix |
 | --- | --- |
 | Bad code deploy | `npx wrangler deployments list --env=""`, then `npx wrangler rollback <version-id> --env=""`. Or Dashboard → Workers & Pages → dalyidau → Deployments → Rollback. Or revert the commit on `main`. |
-| Bad content | Fix it in Capacities and run a manual sync, or set the post to Draft. |
+| Bad content | Fix it in Amplenote (the plugin republishes it), or unpublish the note. Archived Capacities articles: move them to Amplenote ([CAPACITIES_RETIREMENT.md](CAPACITIES_RETIREMENT.md)). |
 | Damaged database | D1 Time Travel keeps 30 days: `npx wrangler d1 time-travel info dalyidau-production`, then `npx wrangler d1 time-travel restore dalyidau-production --timestamp=<ISO time>` |
-| Rebuild from scratch | Blog content lives in Capacities, so the blog refills itself after a forced manual sync. **Wedding portal data exists only in D1**: restore it from Time Travel or a backup ([DATABASE.md](DATABASE.md#restoring)). |
+| Rebuild from scratch | Archived Capacities articles exist **only in D1 and R2** once Capacities is retired: restore them from a backup (`npm run db:backup`, `npm run capacities:inventory -- --download`). Amplenote articles come back as the plugin next runs. **Wedding portal data exists only in D1**: restore it from Time Travel or a backup ([DATABASE.md](DATABASE.md#restoring)). |
 
 Migrations are forward-only. Add new files to `migrations/` and they apply before each deploy, after a restore point is logged and before the code goes out; see [DATABASE.md](DATABASE.md). Staging setup is in [STAGING.md](STAGING.md).

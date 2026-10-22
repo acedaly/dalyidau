@@ -79,6 +79,8 @@ export interface NoteMetadata {
     summary: string | null;
     published: string | null;
     image: string | null;
+    /** The slug of a Capacities article this note takes over (with the owner's approval in the portal). */
+    replaces: string | null;
 }
 
 const KEYS: Record<string, keyof NoteMetadata> = {
@@ -92,13 +94,15 @@ const KEYS: Record<string, keyof NoteMetadata> = {
     date: "published",
     image: "image",
     "featured image": "image",
+    replaces: "replaces",
+    "replaces capacities": "replaces",
 };
 
 const SECTION = /^(#{1,6})\s+\**website(?:\s+metadata)?\**\s*:?\s*$/i;
 
 /** Splits the optional "Website" section out of the note: its values, and the markdown without it. */
 export const extractMetadata = (markdown: string): { metadata: NoteMetadata; body: string } => {
-    const metadata: NoteMetadata = { slug: null, subtitle: null, summary: null, published: null, image: null };
+    const metadata: NoteMetadata = { slug: null, subtitle: null, summary: null, published: null, image: null, replaces: null };
     const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
     const start = lines.findIndex((line) => SECTION.test(line.trim()));
     if (start < 0) return { metadata, body: markdown };
@@ -123,6 +127,11 @@ export const extractMetadata = (markdown: string): { metadata: NoteMetadata; bod
         const linked = /^!?\[[^\]]*\]\(([^)\s]+)[^)]*\)$/.exec(value);
         if (linked) value = linked[1];
         metadata[key] = value.slice(0, key === "summary" ? 400 : 200);
+    }
+    if (metadata.replaces) {
+        // Accepts the slug, /blog/<slug> or the article's full address.
+        const slug = /(?:^|\/blog\/)([a-z0-9-]+)\/?(?:[?#].*)?$/i.exec(metadata.replaces.trim())?.[1]?.toLowerCase() ?? "";
+        metadata.replaces = isValidSlug(slug) ? slug : null;
     }
     if (metadata.slug) {
         const slug = slugify(metadata.slug);

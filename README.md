@@ -1,13 +1,14 @@
 # daly.id.au
 
-Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker. No CMS, no paid hosting, no manual deploys for new posts.
+Personal website and blog for Aidan Daly. The blog is written in [Amplenote](https://www.amplenote.com) and published automatically to a Cloudflare Worker ([docs/AMPLENOTE.md](docs/AMPLENOTE.md)); older articles from [Capacities](https://capacities.io) are archived in Cloudflare ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)). No CMS, no paid hosting, no manual deploys for new posts.
 
 The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard across the applications, and six applications, the Wedding Planner, [Daly Knowledge](docs/KNOWLEDGE_ENGINE.md), [Daly Tasks](docs/TASKS_PROJECTS.md), [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, a [daily planner with time blocking](docs/DAILY_PLANNER.md), family planning, NSW holidays and a leave planner) [Daly Intelligence](docs/INTELLIGENCE.md) (AI capture, suggestions, briefings and semantic search, off by default) and the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default) and [Home & Assets](docs/HOME_ASSETS.md) (what the household owns, maintains, insures or will replace), and the public wedding website at `/wedding`. See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
-Capacities "Blog Post" ──(API, every 15 min)──▶ Worker cron ──▶ D1 (articles) + R2 (images)
-                                                                   │
-Browser ◀── server-rendered React (Untitled UI) ◀── Worker fetch ──┘
+Amplenote note tagged website/blog ──(plugin, when published)──▶ Worker ──▶ D1 (articles) + R2 (images)
+Capacities (retired: its articles are archived in D1/R2; sync off)                           │
+                                                                                             │
+Browser ◀── server-rendered React (Untitled UI) ◀── Worker fetch ────────────────────────────┘
 ```
 
 ## Quick start

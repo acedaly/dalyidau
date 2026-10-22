@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import plugin from "../amplenote/plugin.js";
 import { NOTE_IDS, createAmplenoteMock } from "../fixtures/amplenote/mock-api.mjs";
+import { setCapacitiesSync } from "./helpers";
 
 // Amplenote publishing end to end: the real plugin (as Amplenote would run it) against the invented
 // stand-in (scripts/mock-amplenote.mjs on :8792), the real Worker, and a browser. The plugin's `app`
@@ -111,4 +112,38 @@ test("Portal settings → Website shows the articles and connects the Amplenote 
 
     await page.getByRole("button", { name: "Disconnect" }).click();
     await expect(page.getByRole("button", { name: "Connect Amplenote" })).toBeVisible();
+});
+
+test("Portal settings → Website & Blog shows Amplenote as the source and archives Capacities", async ({ page }) => {
+    try {
+        await page.goto("/portal/settings/website");
+        const source = page.getByRole("region", { name: "Publishing source" });
+        await expect(source.getByText("Active", { exact: true })).toBeVisible();
+        // The Capacities fixtures run with sync on (e2e/helpers.ts).
+        await expect(source.getByText("Syncing", { exact: true })).toBeVisible();
+
+        const checks = page.getByLabel("Retirement checks");
+        await page.getByRole("button", { name: "Check and archive" }).click();
+        await expect(checks.locator("div").filter({ hasText: "Every image is stored in R2" }).locator("dd")).toHaveText("Done");
+        await expect(checks.locator("div").filter({ hasText: "Capacities sync is switched off" }).locator("dd")).toHaveText("Not yet");
+        await expect(page.getByText("Safe to retire Capacities")).toHaveCount(0);
+
+        await setCapacitiesSync(false);
+        await page.reload();
+        await expect(source.getByText("Archived", { exact: true })).toBeVisible();
+        // Loading the page never checks R2, so it can't call Capacities safe to retire until checked again.
+        await expect(page.getByText("Safe to retire Capacities")).toHaveCount(0);
+        await page.getByRole("button", { name: "Check and archive" }).click();
+        await expect(page.getByText("Safe to retire Capacities")).toBeVisible();
+        // The switch is shown here read-only; it's changed in Features.
+        await expect(page.locator('[data-flag="website.capacities.sync"]').getByText("Off")).toBeVisible();
+
+        const results = await new AxeBuilder({ page }).include("main").exclude("main p.bg-warning-primary").analyze();
+        expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+        // Capacities articles are untouched by all of this.
+        expect((await page.request.get("/blog/publishing-from-my-notebook")).status()).toBe(200);
+    } finally {
+        await setCapacitiesSync(true);
+    }
 });

@@ -65,13 +65,16 @@ const flagRows = async () =>
     (await db().prepare("SELECT key, enabled, updated_at, updated_by FROM feature_flags ORDER BY key").all<Record<string, unknown>>()).results;
 
 describe("settings sections and switch areas", () => {
-    it("places every feature switch in exactly one area belonging to a real application", () => {
+    it("places every feature switch in exactly one area belonging to a real application (or, for the website, a permission)", () => {
         expect(Object.keys(FLAG_AREAS).sort()).toEqual([...FLAG_KEYS].sort());
         const placed = FEATURE_AREAS.flatMap(flagsInArea);
         expect(placed.sort()).toEqual([...FLAG_KEYS].sort());
         for (const area of FEATURE_AREAS) {
-            expect(APPLICATIONS.some((application) => application.id === FEATURE_AREA_DETAILS[area].application)).toBe(true);
+            const details = FEATURE_AREA_DETAILS[area];
+            if ("permission" in details) expect(area).toBe("website");
+            else expect(APPLICATIONS.some((application) => application.id === details.application)).toBe(true);
         }
+        expect(FLAG_AREAS["website.capacities.sync"]).toBe("website");
         expect(FLAG_AREAS["calendar.feeds"]).toBe("calendar");
         expect(FLAG_AREAS["calendar.reminders.email"]).toBe("calendar");
         expect(FLAG_AREAS["tasks.reminders.email"]).toBe("tasks");
