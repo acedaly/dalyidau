@@ -62,7 +62,7 @@ The gateway has no database, storage, queue or Durable Object binding (`test/mcp
 
 ## Tools
 
-**Sixty-six tools (14 writes)** in gateway 3.0.0: chief of staff (2), Daly Intelligence briefings (2), Calendar and leave (17), Today (3), the Intelligence Centre (28) and Home & Assets (14). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
+**Seventy tools (17 writes)** in gateway 3.1.0: chief of staff (2), Daly Intelligence briefings (2), Calendar and leave (17), Today (3), the Intelligence Centre (28), Home & Assets (14) and Amplenote (4). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
 
 ### Chief of Staff
 
@@ -100,6 +100,24 @@ Public records come with the providers' own times, links and attribution, and ev
 
 Fourteen tools, described in [HOME_ASSETS.md](HOME_ASSETS.md#mcp). Ten read: `assets_search`, `assets_list`, `assets_get`, `assets_maintenance_history`, `assets_upcoming_maintenance`, `assets_insurance_renewals`, `assets_warranty_expiries`, `assets_list_documents` (names and kinds, never file contents), `assets_summary` and `assets_get_attention`. Four write through the ledger: `assets_create`, `assets_update`, `assets_create_maintenance` and `assets_complete_maintenance`. They need `assets.use` and the asset's own rights (another person's private asset is `not_found`; unshared values and insurance are "not shared with you"). No delete, sharing, upload or bulk tool.
 
+### Amplenote
+
+Four tools, added in gateway 3.1.0 and described in [AMPLENOTE.md](AMPLENOTE.md#ai-assistants), that reach the owner's own Amplenote through Amplenote's REST API. Amplenote is the source of truth: the portal stores no note list, content or task, runs no sync and queues nothing. Unlike the other tools they return Amplenote links, not portal links.
+
+| Tool                    | Mode  | What it does                                                                                                   |
+| ----------------------- | ----- | -------------------------------------------------------------------------------------------------------------- |
+| `amplenote_list_notes`  | read  | Note titles, tags, times and links (newest change first), filtered by words, tag or change date. Never content |
+| `amplenote_create_note` | write | A new note with a name and tags                                                                                |
+| `amplenote_append`      | write | Plain text added to a note, one paragraph per line. Nothing in the note is changed or removed                  |
+| `amplenote_create_task` | write | One task added to a note. Due date, Important/Urgent and reminder are refused unless confirmed (below)         |
+
+- **Who:** only a portal owner who is also the person who connected Amplenote (Portal settings → Website & Blog), and only while **Amplenote for AI assistants** (`website.amplenote.assistant`, default off) is on. The tools carry `portal.settings.manage`; the owner and connection checks are in `worker/amplenote/assistant.ts`. The other owner gets one fixed refusal that says nothing about the connection.
+- **Scopes:** writes need `notes:create` and `notes:create-content-action`. Connecting asks for them only while the switch is on, so the blog-only connection stays list-only until the owner reconnects.
+- **Task properties are never dropped.** Amplenote's documentation doesn't say which attributes a task node accepts, so each property starts unconfirmed, and a request that asks for one is refused with `validation` and `details.unsupported`, creating nothing. `scripts/amplenote-write-check.mjs` is the live check that confirms them; `TASK_PROPERTIES` is updated only from its results.
+- **Unknown outcomes.** If Amplenote doesn't answer, or fails with a 5xx, the write may have happened. The tool answers `unavailable` with `details.outcome: "unknown"`, and the ledger keeps that request id (`error_code` `outcome_unknown`), so a retry with the same id is refused (`conflict`) instead of adding the note or task twice.
+- `mcp_writes` is rebuilt in `0030` for the `amplenote_note` outcome (the note's uuid). All four are annotated `openWorldHint: true`.
+- **Not possible through Amplenote's API, so absent:** reading or searching note content; finding, changing, rescheduling or completing tasks; editing or deleting anything.
+
 ### Deliberately absent
 
 Deleting, trashing or erasing anything. Bulk changes. Members and sharing. Imports, exports and templates. SQL, files and arbitrary HTTP. These stay in the portal, where a person does them directly. The enforcement is that these operations don't exist in `PORTAL_MCP_TOOLS`, and the portal refuses any tool name not in it.
@@ -124,7 +142,8 @@ A write that carries `requestId` is claimed first, under a unique `(email, reque
 - **same id, same tool, already done:** the current record is returned with `replayed: true` (access is re-checked first);
 - **same id, other tool:** `request_id_reused`;
 - **same id, still running:** `in_progress` (a claim older than two minutes is treated as abandoned);
-- **failed write:** the row stays `failed` and the id is released for a corrected retry.
+- **failed write:** the row stays `failed` and the id is released for a corrected retry;
+- **outcome unknown** (an outside service, Amplenote, didn't confirm the write): the row stays `failed` with `outcome_unknown` and keeps the id, so a retry with it is refused (`conflict`) instead of writing twice.
 
 Request ids are per person: the same id from two people creates two records and replays neither across them (`identities.test.ts`).
 
@@ -148,6 +167,8 @@ The portal first, then the gateway. Each step needs the owner's approval. The ga
 
 1. **Portal.** Merging to `main` deploys `dalyidau` and applies any migrations. The live gateway keeps working throughout: it advertises its existing tools, and the portal serves them (retired ones are refused with `"retired"`).
 2. **Gateway.** Record the current version id (`npx wrangler deployments list --name dalyhub-mcp`), then `npm run mcp:deploy:dry-run` and `npx wrangler deploy --config mcp/wrangler.jsonc --env production`. Clients may need to reconnect, or refresh their tool list, to see the change.
+
+For 3.1.0 (Amplenote): merge (migration `0030` rebuilds `mcp_writes`; back up first with `npm run db:backup`), then deploy the gateway. Rollback to 3.0.0 only stops advertising the four tools. Nothing reaches Amplenote until the owner switches on Amplenote for AI assistants and reconnects.
 
 For 3.0.0 the full order (backup first) is in [DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md#deployment-order) and [MCP_CUTOVER.md](MCP_CUTOVER.md#gateway-300-knowledge-and-tasks-retired).
 
@@ -175,10 +196,11 @@ No new paid service. The gateway replaces an existing Worker. Service binding ca
 
 - `npm test` runs both Vitest projects.
 - `test/mcp-gateway/` (`vitest.mcp.config.ts`, workerd with `nodejs_compat`, as the gateway runs) drives real MCP JSON-RPC through `mcp/src` into the portal's real `handleMcpCall` and a local D1. The PORTAL hop structured-clones like Worker RPC. Every outbound fetch except the Access key set is refused and recorded.
-    - `protocol.test.ts`: initialize (with the working instructions), `tools/list` (exactly 66, with annotations), a retired tool answered with `"retired"` without reaching the portal, none of the 34 legacy tools, calls, schema validation, `/mcp` only, 401/503 failures, development token limits and Host validation.
+    - `protocol.test.ts`: initialize (with the working instructions), `tools/list` (exactly 70, with annotations), a retired tool answered with `"retired"` without reaching the portal, none of the 34 legacy tools, calls, schema validation, `/mcp` only, 401/503 failures, development token limits and Host validation.
     - `isolation.test.ts`: the deployable config binds only `PORTAL` (no D1/KV/R2/DO/queues, nothing named DalyHub, no routes). The source imports nothing from DalyHub. A whole session (reads, writes, retries, briefings) runs with nothing but the binding. Also an unreachable or missing portal, per-person and write rate limits, and logs that hold no person, token or content.
     - `identities.test.ts`: two independent identities, both portal owners. Private events and assets stay invisible by id, list, search and briefing, and can't be changed by the other person. Arguments can't name someone else, and request ids don't cross people. A shared calendar shows its events to a member, with the other's private events as "Busy", and removal cuts access on the next call. A person without a portal role and a service token get nothing.
-- `test/mcp.test.ts` covers the portal entrypoint directly (tokens, roles, the 66 tools, retired tools refused for every role, Chief of Staff, the write ledger).
+- `test/amplenote-assistant.test.ts` covers the Amplenote tools against the stand-in in `fixtures/amplenote`: the switch, owner-only access, scopes, the ledger, unknown outcomes and refused task properties.
+- `test/mcp.test.ts` covers the portal entrypoint directly (tokens, roles, the 70 tools, retired tools refused for every role, Chief of Staff, the write ledger).
 - `test/mcp-contract.test.ts` compares the gateway's tools with the portal's: names, retired names, write set, every argument name, annotations, no identity fields.
 - `npm run mcp:deploy:dry-run` builds the production gateway bundle and lists its bindings.
 

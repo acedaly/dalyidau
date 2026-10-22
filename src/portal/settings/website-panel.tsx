@@ -292,10 +292,26 @@ export const WebsitePanel = ({ initial }: { initial: AmplenoteStatus }) => {
                         />
                         <StatusRow
                             label="Connection"
-                            detail={status.connection ? `By ${status.connection.connectedBy}` : "Asks Amplenote only to list notes (notes:list)."}
+                            detail={
+                                status.connection
+                                    ? `By ${status.connection.connectedBy}`
+                                    : "Asks Amplenote to list notes (notes:list), and to add notes and content when Amplenote for AI assistants is on."
+                            }
                             value={status.connection ? "Connected" : "Not connected"}
                             ok={!!status.connection && !status.connection.lastError}
                         />
+                        {status.connection && (
+                            <StatusRow
+                                label="AI assistants"
+                                detail={
+                                    status.connection.canAdd
+                                        ? "Claude and ChatGPT can add notes, text and tasks, while Amplenote for AI assistants is on in Features."
+                                        : "To let assistants add to Amplenote, switch on Amplenote for AI assistants in Features, then reconnect."
+                                }
+                                value={status.connection.canAdd ? "Can add notes" : "List only"}
+                                ok
+                            />
+                        )}
                     </dl>
                     {status.connection && (
                         <dl className="flex flex-col gap-1 text-sm">

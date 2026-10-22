@@ -44,6 +44,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Blog",
     },
+    "website.amplenote.assistant": {
+        label: "Amplenote for AI assistants",
+        description:
+            "Let the person who connected Amplenote list their note titles and add notes, text and tasks to Amplenote from Claude or ChatGPT (the amplenote_ tools at mcp.daly.id.au). Amplenote's API can't read note content, so assistants never see what's in a note. Reconnect Amplenote in Website & Blog after switching this on, so the connection also asks to add notes and content. While off, the tools refuse and the connection asks only to list notes.",
+        default: false,
+        group: "AI assistants",
+    },
     "calendar.feeds": {
         label: "Calendar subscription addresses",
         description:

@@ -8,7 +8,8 @@ import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
 import { amplenoteStatus } from "../amplenote/api";
-import { disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
+import { ASSISTANT_FLAG } from "../amplenote/assistant";
+import { SCOPE as AMPLENOTE_LIST_SCOPE, ASSISTANT_SCOPE, disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
 import { extractMetadata } from "../amplenote/metadata";
 import { postId as amplenotePostId, reconcile as reconcileAmplenote } from "../amplenote/publisher";
 import { handleAssetsApi } from "../assets/api";
@@ -135,7 +136,9 @@ add("GET", "/api/portal/website/amplenote", "portal.settings.manage", async ({ e
 
 add("POST", "/api/portal/website/amplenote/connect", "portal.settings.manage", async ({ env, user }) => {
     if (!restConfigured(env)) throw new HttpError(409, "not_configured", "Set AMPLENOTE_CLIENT_ID and AMPLENOTE_TOKEN_KEY on the Worker first");
-    const { url, cookie } = await startConnect(env, user.email);
+    // The blog needs only notes:list. Adding notes and content is asked for only while assistants may use it.
+    const scope = (await isEnabled(env.DB, ASSISTANT_FLAG)) ? ASSISTANT_SCOPE : AMPLENOTE_LIST_SCOPE;
+    const { url, cookie } = await startConnect(env, user.email, scope);
     return json({ url }, 200, { "Set-Cookie": cookie });
 });
 

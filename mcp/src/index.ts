@@ -23,7 +23,7 @@ export interface GatewayEnv extends McpAuthEnv {
     readonly MCP_WRITES?: RateLimit;
 }
 
-export const SERVER_INFO = { name: "daly-portal", version: "3.0.0" } as const;
+export const SERVER_INFO = { name: "daly-portal", version: "3.1.0" } as const;
 
 /**
  * How to work with these tools, sent to every client at initialize. The portal enforces the rules
@@ -31,7 +31,7 @@ export const SERVER_INFO = { name: "daly-portal", version: "3.0.0" } as const;
  * Chief of Staff included, how to use them without surprising the person.
  */
 export const SERVER_INSTRUCTIONS = [
-    "Daly Portal: the signed-in person's Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and Home & Assets. Results only ever include what that person can see in the portal.",
+    "Daly Portal: the signed-in person's Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and Home & Assets, and (for the owner who connected it) their Amplenote. Results only ever include what that person can see in the portal.",
     "Daly Tasks and Daly Knowledge have been retired: there are no task, project, note or Knowledge tools, and any tool that was listed for them answers that it's retired.",
     "Ids and links come only from tool results. Never invent an id, and never say something was created or changed until the tool's result confirms it.",
     "Send a fresh requestId with every write and reuse it only when retrying that same write. Nothing can be deleted through these tools: permanent deletion is done by the person in the portal.",
@@ -39,6 +39,7 @@ export const SERVER_INSTRUCTIONS = [
     'Daly Calendar: dates, balances, leave opportunities and school holidays come from the portal\'s deterministic calculations (calendar_get_agenda, leave_get_balances, leave_forecast, leave_find_opportunities). Report them as given; never estimate a balance or invent an event. Leave you record is a draft or proposal, never requested or approved. Private and sensitive events stay "Busy" or "Private event": don\'t ask for or guess their details.',
     "Today: today_get_summary, today_get_capacity and today_get_briefing only read. The briefing's facts come from the person's records; explain them, never add to them. Add an appointment with calendar_create_event only when the person asks.",
     "Intelligence Centre: the centre_* tools read public emergency, weather and environmental records; the only writes are creating or changing the person's own monitoring rules, scheduling a report and saving a report. They aren't an official warning service: report records and levels exactly as given, keep official, observed, derived and collection information apart, never say something is over because it left a feed, treat correlations as 'may be related' unless the provider links them, and point the person to official warnings (and Triple Zero, 000, in an emergency). Watch areas never include locations, and a rule's threshold is the person's own, not an official one.",
+    "Amplenote: the amplenote_* tools reach the person's own Amplenote, where those notes and tasks live. Amplenote's API returns note titles and tags but never what's in a note, and can only add tasks, not find, change or complete them: say so plainly rather than guessing. If a task's due date, priority or reminder is refused as unsupported, nothing was created; tell the person and ask before creating it without them. If a write's outcome is unknown, ask the person to check Amplenote before trying again.",
     "Home & Assets: the assets_* tools see only assets the person owns or that are shared with them, and values, insurance and documents only where shared. Report dates, intervals and values exactly as recorded; never estimate them, never invent serial numbers, registrations or prices, and never call something insured.",
 ].join("\n");
 

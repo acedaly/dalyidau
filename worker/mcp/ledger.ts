@@ -1,4 +1,4 @@
-// The MCP write ledger (mcp_writes, migrations 0018, 0020, 0021, 0022, 0023, 0026 and 0027).
+// The MCP write ledger (mcp_writes, migrations 0018, 0020, 0021, 0022, 0023, 0026, 0027 and 0030).
 //
 // Every write an AI client makes through the gateway is claimed here before anything changes and
 // settled afterwards, so there is always an audit row naming the person, the tool and the record,
@@ -13,7 +13,16 @@ import { HttpError } from "../portal/http";
 // Rows for retired tools (tasks, Knowledge, projects, captures, suggestions, time blocks) stay in the
 // table as history; nothing writes or replays them any more.
 export type EntityType =
-    "calendar_event" | "calendar_subscription" | "leave_booking" | "asset" | "asset_maintenance" | "centre_rule" | "centre_report" | "centre_report_schedule";
+    | "calendar_event"
+    | "calendar_subscription"
+    | "leave_booking"
+    | "asset"
+    | "asset_maintenance"
+    | "centre_rule"
+    | "centre_report"
+    | "centre_report_schedule"
+    /** An Amplenote note uuid: the note a write created or added to (migration 0030). */
+    | "amplenote_note";
 
 export interface WriteOutcome {
     entityType: EntityType;
@@ -29,6 +38,7 @@ interface LedgerRow {
     id: string;
     tool: string;
     status: "pending" | "done" | "failed";
+    error_code: string | null;
     entity_type: EntityType | null;
     entity_id: string | null;
     created_at: string;
@@ -44,12 +54,20 @@ export async function claimWrite(db: D1Database, email: string, tool: string, re
     if (inserted.meta.changes) return { kind: "new", id };
 
     const existing = await db
-        .prepare("SELECT id, tool, status, entity_type, entity_id, created_at FROM mcp_writes WHERE email = ? AND request_key = ?")
+        .prepare("SELECT id, tool, status, error_code, entity_type, entity_id, created_at FROM mcp_writes WHERE email = ? AND request_key = ?")
         .bind(email, requestKey)
         .first<LedgerRow>();
     // Cleared by a failure between our insert and this read: the caller can simply try again.
     if (!existing) throw new HttpError(409, "in_progress", "That request is being processed. Try again in a moment.");
     if (existing.tool !== tool) throw new HttpError(409, "request_id_reused", "That request id was already used for a different action. Use a new one.");
+    // An external service (Amplenote) may have carried the first attempt out: never run it again blind.
+    if (existing.status === "failed" && existing.error_code === OUTCOME_UNKNOWN) {
+        throw new HttpError(
+            409,
+            "conflict",
+            "An earlier attempt with this request id may already have been carried out. Check first, then use a new request id.",
+        );
+    }
     if (existing.status === "done" && existing.entity_type && existing.entity_id) {
         return { kind: "replay", outcome: { entityType: existing.entity_type, entityId: existing.entity_id } };
     }
@@ -69,6 +87,15 @@ export const settleWrite = (db: D1Database, id: string, outcome: WriteOutcome) =
         .prepare("UPDATE mcp_writes SET status = 'done', entity_type = ?, entity_id = ?, completed_at = ? WHERE id = ?")
         .bind(outcome.entityType, outcome.entityId, nowIso(), id)
         .run();
+
+export const OUTCOME_UNKNOWN = "outcome_unknown";
+
+/**
+ * Records a write whose outcome isn't known (an external service didn't confirm it) and keeps its
+ * request id, so a retry with the same id is refused instead of writing a second time.
+ */
+export const holdWrite = (db: D1Database, id: string) =>
+    db.prepare("UPDATE mcp_writes SET status = 'failed', error_code = ?, completed_at = ? WHERE id = ?").bind(OUTCOME_UNKNOWN, nowIso(), id).run();
 
 /** Records the failure and frees the request id, so a corrected retry with the same id can run. */
 export const failWrite = (db: D1Database, id: string, code: string) =>

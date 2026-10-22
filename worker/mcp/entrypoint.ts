@@ -17,6 +17,7 @@
 // list.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZodError } from "zod";
+import { AmplenoteUncertain, AmplenoteUnsupported } from "../amplenote/assistant";
 import { AssetConflict } from "../assets/assets";
 import { MaintenanceConflict } from "../assets/maintenance";
 import { EventConflict } from "../calendar/events";
@@ -24,13 +25,14 @@ import type { Env } from "../env";
 import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
+import { AMPLENOTE_TOOLS } from "./amplenote";
 import { ASSETS_TOOLS } from "./assets";
 import { CALENDAR_TOOLS } from "./calendar";
 import { CENTRE_TOOLS } from "./centre";
 import { CENTRE_HISTORY_TOOLS } from "./centre-history";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
-import { claimWrite, failWrite, settleWrite } from "./ledger";
+import { claimWrite, failWrite, holdWrite, settleWrite } from "./ledger";
 import { RETIRED_MCP_MESSAGE, RETIRED_MCP_TOOLS } from "./retired";
 import type { ToolContext, ToolDef } from "./shared";
 import { TODAY_TOOLS } from "./today";
@@ -66,6 +68,7 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...CENTRE_TOOLS,
     ...CENTRE_HISTORY_TOOLS,
     ...ASSETS_TOOLS,
+    ...AMPLENOTE_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
@@ -81,6 +84,9 @@ export function toFailure(error: unknown): PortalMcpResponse {
     if (error instanceof EventConflict)
         return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
     if (error instanceof AssetConflict || error instanceof MaintenanceConflict) return fail("conflict", error.message, { current: error.current });
+    if (error instanceof AmplenoteUnsupported) return fail("validation", error.message, { unsupported: error.unsupported });
+    // Amplenote may have carried the write out: say so, rather than the generic "nothing was assumed".
+    if (error instanceof AmplenoteUncertain) return fail("unavailable", error.message, { outcome: "unknown" });
     if (error instanceof ZodError) {
         const issues = error.issues.slice(0, 5).map((i) => ({ path: i.path.join("."), message: i.message }));
         return fail("validation", issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; "), { issues });
@@ -201,7 +207,8 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
         if (!(error instanceof HttpError || error instanceof ZodError || failure.ok)) {
             console.error(JSON.stringify({ event: "mcp_tool_error", tool: toolName, error: (error as Error)?.name }));
         }
-        await failWrite(env.DB, claimId, failure.ok ? "unknown" : failure.error.code).catch(() => undefined);
+        if (error instanceof AmplenoteUncertain) await holdWrite(env.DB, claimId).catch(() => undefined);
+        else await failWrite(env.DB, claimId, failure.ok ? "unknown" : failure.error.code).catch(() => undefined);
         return respond(failure);
     }
 }

@@ -41,5 +41,7 @@ export declare function createAmplenoteMock(options?: { apiBase?: string; loginB
         rotateRefresh(on?: boolean): void;
         refreshesUsed(): string[];
         calls(): string[];
+        actions(): { uuid: string; body: { type: string; nodes: unknown[] } }[];
+        failWrites(mode: "timeout" | number | null): void;
     };
 };

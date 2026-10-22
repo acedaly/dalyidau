@@ -15,7 +15,17 @@ import { capacitiesStatus } from "../capacities/archive";
 import type { Env } from "../env";
 import { bearerMatches } from "../lib/bearer";
 import { HttpError, readText } from "../portal/http";
-import { AmplenoteError, browserNonce, clearBrowserCookie, finishConnect, loadConnection, redirectUri, restConfigured } from "./client";
+import {
+    AmplenoteError,
+    WRITE_SCOPES,
+    browserNonce,
+    clearBrowserCookie,
+    finishConnect,
+    grantedScopes,
+    loadConnection,
+    redirectUri,
+    restConfigured,
+} from "./client";
 import { conventions, extractMetadata } from "./metadata";
 import { type PluginReport, ingest } from "./publisher";
 
@@ -117,6 +127,7 @@ export async function amplenoteStatus(env: Env): Promise<AmplenoteStatus> {
                   connectedAt: connection.connected_at,
                   fullListedAt: connection.full_listed_at,
                   lastError: connection.last_error,
+                  canAdd: WRITE_SCOPES.every((scope) => grantedScopes(connection.scope).has(scope)),
               }
             : null,
         articles: articles.results.map((r) => ({

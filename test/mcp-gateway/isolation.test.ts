@@ -98,7 +98,7 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
 
         const s = await session(OWNER, { env });
         expect(s.init.status).toBe(200);
-        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(66);
+        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(70);
         const event = (
             await s.ok<{ event: { id: string } }>("calendar_create_event", { title: "Renew passport", startDate: "2030-03-01", requestId: "isolation-0001" })
         ).event;
