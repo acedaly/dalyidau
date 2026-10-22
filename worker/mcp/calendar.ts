@@ -166,7 +166,7 @@ const agendaTool = tool({
         const leave = await loadLeave(ctx.db, ctx.user);
         const [{ occurrences, truncated }, overlays] = await Promise.all([
             occurrencesInWindow(ctx.db, ctx.user, { from, to, timeZone: prefs.timeZone }),
-            overlaysFor(ctx.db, ctx.user, prefs, leave, from, to, today),
+            overlaysFor(ctx.db, ctx.user, prefs, leave, from, to),
         ]);
         const days = [];
         for (let d = from; d <= to; d = addDays(d, 1)) {
@@ -178,9 +178,7 @@ const agendaTool = tool({
                 leave: overlays.leave
                     .filter((l) => l.start <= d && l.end >= d)
                     .map((l) => ({ type: l.typeName, status: l.status, person: l.owner?.name ?? l.owner?.email ?? "you" })),
-                tasksDue: overlays.tasks
-                    .filter((t) => t.date === d)
-                    .map((t) => ({ id: t.id, title: t.title, kind: t.kind, project: t.projectName, url: portalUrl(ctx, `/portal/tasks/t/${t.id}`) })),
+                assetReminders: (overlays.assets ?? []).filter((a) => a.date === d).map((a) => ({ title: a.title, kind: a.kind, url: portalUrl(ctx, a.url) })),
             });
         }
         return {

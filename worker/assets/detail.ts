@@ -1,7 +1,7 @@
 // One asset in full, as the caller may see it: everything from the summary, plus vehicle details,
 // odometer history, values (with the financial right), warranties, insurance (with the insurance
 // right), claims, schedules and maintenance, photos and documents (documents with the right),
-// Knowledge links, linked tasks, sharing (owner only) and its history.
+// sharing (owner only) and its history.
 import type { D1Database } from "@cloudflare/workers-types";
 import { formulaValue } from "../../src/shared/assets/engine";
 import { type AssetActivityView, type AssetDetail, depreciationSchema } from "../../src/shared/assets/types";
@@ -11,7 +11,6 @@ import { requireAsset } from "./access";
 import { odometerFor, sharingFor, summarise, valuationsFor, vehicleFor, viewContext } from "./assets";
 import { filesForAsset } from "./files";
 import { policiesForAsset } from "./insurance";
-import { knowledgeLinks, tasksForAsset } from "./links";
 import { listMaintenance, listSchedules, targetsFor } from "./maintenance";
 import { listClaims, listWarranties } from "./warranties";
 
@@ -19,7 +18,7 @@ export async function assetDetail(db: D1Database, user: PortalUser, id: string):
     const { row, rights } = await requireAsset(db, user, id);
     const ctx = await viewContext(db, user);
     const targets = await targetsFor(db, user);
-    const [[summary], vehicle, odometer, valuations, warranties, policies, claims, schedules, maintenance, files, knowledge, tasks, sharing, activity, totals] =
+    const [[summary], vehicle, odometer, valuations, warranties, policies, claims, schedules, maintenance, files, sharing, activity, totals] =
         await Promise.all([
             summarise(db, ctx, [row]),
             vehicleFor(db, id),
@@ -31,8 +30,6 @@ export async function assetDetail(db: D1Database, user: PortalUser, id: string):
             listSchedules(db, user, { assetId: id }, targets),
             listMaintenance(db, user, { assetId: id, scope: "all", limit: 300 }, targets),
             filesForAsset(db, user, id),
-            knowledgeLinks(db, user, id),
-            tasksForAsset(db, user, id),
             rights.manage ? sharingFor(db, id, row.visibility) : Promise.resolve(null),
             db
                 .prepare("SELECT at, actor, action, entity_type, via FROM asset_activity WHERE asset_id = ? ORDER BY id DESC LIMIT 40")
@@ -79,8 +76,6 @@ export async function assetDetail(db: D1Database, user: PortalUser, id: string):
         maintenance,
         files: files.files,
         documentsHidden: files.hidden,
-        knowledge,
-        tasks,
         sharing,
         activity: activity.results.map((a) => ({ at: a.at, actor: a.actor, action: a.action, entityType: a.entity_type, via: a.via })),
         totals: totals ? { maintenanceCostCents: totals.known ? totals.total : null, maintenanceRecords: totals.n, costsMissing: totals.missing ?? 0 } : null,

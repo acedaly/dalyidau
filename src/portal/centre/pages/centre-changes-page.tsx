@@ -7,7 +7,7 @@ import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import { formatNumber } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
 import { FEED_CHANGE_GROUPS, type FeedChange } from "@/shared/centre/history";

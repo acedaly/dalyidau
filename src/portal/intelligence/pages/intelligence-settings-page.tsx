@@ -1,9 +1,8 @@
-// AI and storage settings: usage against budgets, each person's briefing preferences and AI
-// exclusions, and (owners and admins) the feature switches, models, budgets, limits and retention.
+// AI settings: usage against budgets, each person's briefing preferences, and (owners and admins)
+// the feature switches, models, budgets and retention.
 // Budgets are the portal's own safeguard: the page says plainly that they aren't a billing cap.
 import { useState } from "react";
-import { BarChart10, Database01, Settings01, ShieldTick, Stars02, Sunrise } from "@untitledui/icons";
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
+import { BarChart10, Settings01, Stars02, Sunrise } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -29,15 +28,12 @@ import {
     MODELS,
     type ModelTask,
 } from "@/shared/intelligence/config";
-import { downloadUrl, intelligenceApi } from "../api";
+import { intelligenceApi } from "../api";
 
 const ROLES: { key: keyof IntelligenceConfig["models"]; label: string; task: ModelTask; hint: string }[] = [
-    { key: "classify", label: "Tags and classification", task: "text", hint: "A small model is enough." },
-    { key: "extract", label: "Extraction (tasks, decisions, dates)", task: "text", hint: "Needs reliable JSON." },
+    { key: "extract", label: "Extraction (Home & Assets documents)", task: "text", hint: "Needs reliable JSON." },
     { key: "summarise", label: "Summaries and briefing suggestions", task: "text", hint: "" },
-    { key: "synthesis", label: "Detailed meeting summaries", task: "text", hint: "The most capable model; used sparingly." },
-    { key: "embed", label: "Embeddings (semantic search)", task: "embed", hint: "Changing it re-embeds everything; dimensions must match the index." },
-    { key: "transcribe", label: "Speech to text", task: "transcribe", hint: "" },
+    { key: "synthesis", label: "Detailed briefings", task: "text", hint: "The most capable model; used sparingly." },
 ];
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -59,9 +55,8 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
     const [configVersion, setConfigVersion] = useState(data.configVersion);
     const [prefs, setPrefs] = useState(data.preferences);
     const [prefsVersion, setPrefsVersion] = useState(data.preferencesVersion);
-    const [spaces, setSpaces] = useState(data.spaces);
     const [busy, setBusy] = useState<string | null>(null);
-    const { usage, storage } = data;
+    const { usage } = data;
 
     const run = async (key: string, work: () => Promise<void>, success: string) => {
         setBusy(key);
@@ -102,8 +97,8 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
     return (
         <>
             <PageHeader
-                title="AI and storage settings"
-                description="Usage, budgets, models, briefings, privacy and file retention for Daly Intelligence."
+                title="AI settings"
+                description="Usage, budgets, models and briefings for Daly Intelligence."
                 breadcrumbs={[{ label: "Intelligence", href: "/portal/intelligence" }, { label: "Settings" }]}
             />
             <Tabs defaultSelectedKey="usage">
@@ -113,12 +108,6 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                     </Tabs.Item>
                     <Tabs.Item id="briefings" icon={Sunrise}>
                         My briefings
-                    </Tabs.Item>
-                    <Tabs.Item id="privacy" icon={ShieldTick}>
-                        Privacy
-                    </Tabs.Item>
-                    <Tabs.Item id="storage" icon={Database01}>
-                        Storage
                     </Tabs.Item>
                     {manage && (
                         <Tabs.Item id="features" icon={Stars02}>
@@ -232,7 +221,7 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                                 type="time"
                                 value={prefs.dailyTime}
                                 onChange={(v) => setPref("dailyTime", v)}
-                                hint="In your Tasks time zone"
+                                hint="In your Calendar time zone"
                             />
                             <Select
                                 label="Weekly review day"
@@ -250,17 +239,6 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                                 items={[
                                     { id: "concise", label: "Concise" },
                                     { id: "detailed", label: "Detailed" },
-                                ]}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <Select
-                                label="Scope"
-                                value={prefs.scope}
-                                onChange={(k) => setPref("scope", k as "personal" | "all")}
-                                items={[
-                                    { id: "all", label: "Personal and shared" },
-                                    { id: "personal", label: "Personal only" },
                                 ]}
                             >
                                 {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
@@ -294,139 +272,11 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                     </div>
                 </Tabs.Panel>
 
-                <Tabs.Panel id="privacy" className="flex flex-col gap-6 pt-8">
-                    <Notice title="What AI can see" color="gray">
-                        AI only ever works with what you can see yourself. A space left out of AI is never embedded or analysed, for anyone in it, and its
-                        search vectors are removed. Space editors decide for shared spaces. Leaving a space out of your briefings affects only you.
-                    </Notice>
-                    <ul className="divide-y divide-secondary rounded-xl ring-1 ring-secondary">
-                        {spaces.map((s) => (
-                            <li key={s.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="text-sm font-medium text-secondary">
-                                    {s.name}{" "}
-                                    <span className="font-normal text-tertiary">
-                                        ({s.kind}, {s.role})
-                                    </span>
-                                </span>
-                                <div className="flex flex-wrap gap-4">
-                                    <Toggle
-                                        label="Exclude from AI"
-                                        isSelected={s.excluded}
-                                        isDisabled={s.role === "viewer"}
-                                        onChange={(v) =>
-                                            run(
-                                                `x-${s.id}`,
-                                                async () => {
-                                                    await intelligenceApi.exclude(s.id, v);
-                                                    setSpaces((list) => list.map((x) => (x.id === s.id ? { ...x, excluded: v } : x)));
-                                                },
-                                                v ? "Left out of AI" : "Included in AI",
-                                            )
-                                        }
-                                    />
-                                    <Checkbox
-                                        label="Leave out of my briefings"
-                                        isSelected={prefs.excludedSpaceIds.includes(s.id)}
-                                        onChange={(on) =>
-                                            setPref(
-                                                "excludedSpaceIds",
-                                                on ? [...prefs.excludedSpaceIds, s.id] : prefs.excludedSpaceIds.filter((x) => x !== s.id),
-                                            )
-                                        }
-                                    />
-                                    {s.role === "owner" && data.status.available.semantic && (
-                                        <Button
-                                            size="sm"
-                                            color="link-gray"
-                                            onClick={() =>
-                                                run(
-                                                    `r-${s.id}`,
-                                                    () => intelligenceApi.reindex(s.id).then(() => undefined),
-                                                    "The space will be re-indexed shortly",
-                                                )
-                                            }
-                                        >
-                                            Rebuild index
-                                        </Button>
-                                    )}
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                    <div>
-                        <Button color="secondary" isLoading={busy === "prefs"} onClick={savePrefs}>
-                            Save briefing exclusions
-                        </Button>
-                    </div>
-                </Tabs.Panel>
-
-                <Tabs.Panel id="storage" className="flex flex-col gap-6 pt-8">
-                    <Notice title="How long files are kept" color="gray">
-                        Files kept in Knowledge are permanent until someone deletes them. Task files stay while their task exists, then{" "}
-                        {config.retention.unreferencedGraceDays} days. Recordings and documents uploaded for processing are deleted{" "}
-                        {config.retention.temporaryDays} days after processing ({config.retention.failedDays} days if processing failed). Nothing marked to keep
-                        is ever deleted automatically.
-                    </Notice>
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-                        {storage.totals.map((t) => (
-                            <MetricCard
-                                key={`${t.purpose}-${t.retention}`}
-                                label={`${t.purpose} (${t.retention})`}
-                                value={getReadableFileSize(t.bytes)}
-                                detail={`${formatNumber(t.files)} files, whole portal`}
-                            />
-                        ))}
-                    </div>
-                    <FormSection
-                        title="Your files"
-                        description={storage.purgeDue ? `${storage.purgeDue} temporary file(s) are due for deletion within a day.` : undefined}
-                    >
-                        <ul className="divide-y divide-secondary rounded-xl ring-1 ring-secondary">
-                            {storage.attachments.length ? (
-                                storage.attachments.map((a) => (
-                                    <li key={a.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <span className="min-w-0">
-                                            <span className="block truncate text-sm font-medium text-secondary">{a.filename}</span>
-                                            <span className="block text-xs text-tertiary">
-                                                {getReadableFileSize(a.bytes)} ·{" "}
-                                                {a.keep
-                                                    ? "kept permanently"
-                                                    : a.purgeAfter
-                                                      ? `deleted after ${formatDate(a.purgeAfter.slice(0, 10))}`
-                                                      : a.retention}
-                                            </span>
-                                        </span>
-                                        <span className="flex gap-2">
-                                            <Button size="sm" color="link-gray" href={downloadUrl(a.id)}>
-                                                Download
-                                            </Button>
-                                            {!a.keep && a.retention === "temporary" && (
-                                                <Button
-                                                    size="sm"
-                                                    color="link-destructive"
-                                                    onClick={() =>
-                                                        run(`d-${a.id}`, () => intelligenceApi.deleteFile(a.id).then(() => undefined), "File deleted")
-                                                    }
-                                                >
-                                                    Delete now
-                                                </Button>
-                                            )}
-                                        </span>
-                                    </li>
-                                ))
-                            ) : (
-                                <li className="px-4 py-3 text-sm text-tertiary">You have no files.</li>
-                            )}
-                        </ul>
-                    </FormSection>
-                </Tabs.Panel>
-
                 {manage && (
                     <Tabs.Panel id="features" className="flex flex-col gap-6 pt-8">
                         <Notice title="Cloudflare bindings" color={data.status.bindings.ai ? "success" : "warning"}>
-                            Workers AI: {data.status.bindings.ai ? "connected" : "not connected"} · Vectorize:{" "}
-                            {data.status.bindings.vectors ? "connected" : "not connected"} · AI Gateway: {data.status.bindings.gateway ? "on" : "off"}. Bindings
-                            are added in wrangler.jsonc by the owner (docs/INTELLIGENCE.md); a switch below does nothing without its binding.
+                            Workers AI: {data.status.bindings.ai ? "connected" : "not connected"} · AI Gateway: {data.status.bindings.gateway ? "on" : "off"}.
+                            The binding is added in wrangler.jsonc by the owner (docs/INTELLIGENCE.md); a switch below does nothing without it.
                         </Notice>
                         <FormSection title="Features" description="Everything is off by default. Switching Intelligence off stops all AI work at once.">
                             <div className="flex flex-col gap-4">
@@ -462,26 +312,6 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                                 ))}
                             </FormGrid>
                         </FormSection>
-                        {data.status.available.semantic && (
-                            <div>
-                                <Button
-                                    color="secondary"
-                                    isLoading={busy === "sync"}
-                                    onClick={() =>
-                                        run(
-                                            "sync",
-                                            async () => {
-                                                const { report } = await intelligenceApi.syncIndex();
-                                                toast.success(`Indexed ${report.embedded}, removed ${report.removed}`);
-                                            },
-                                            "Index updated",
-                                        )
-                                    }
-                                >
-                                    Update the semantic index now
-                                </Button>
-                            </div>
-                        )}
                         <div>
                             <Button isLoading={busy === "config"} onClick={saveConfig}>
                                 Save settings
@@ -505,11 +335,6 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                                     value={config.budgets.perUserDailyNeurons}
                                     onChange={(n) => setBudget("perUserDailyNeurons", n)}
                                 />
-                                <NumberField
-                                    label="Ask before work estimated above"
-                                    value={config.budgets.confirmAboveNeurons}
-                                    onChange={(n) => setBudget("confirmAboveNeurons", n)}
-                                />
                                 {BUDGET_FEATURES.map((f) => (
                                     <NumberField
                                         key={f}
@@ -518,73 +343,14 @@ export const IntelligenceSettingsPage = ({ data }: { data: PageData<"intelligenc
                                         onChange={(n) => setBudget("features", { ...config.budgets.features, [f]: n })}
                                     />
                                 ))}
-                                <NumberField
-                                    label="Items per background pass"
-                                    value={config.budgets.maxBatch}
-                                    onChange={(n) => setBudget("maxBatch", Math.max(1, n))}
-                                />
-                            </FormGrid>
-                        </FormSection>
-                        <FormSection title="Processing limits">
-                            <FormGrid>
-                                <NumberField
-                                    label="Capture length (characters)"
-                                    value={config.limits.maxCaptureCharacters}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxCaptureCharacters: n } }))}
-                                />
-                                <NumberField
-                                    label="Context per model call (characters)"
-                                    value={config.limits.maxContextCharacters}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxContextCharacters: n } }))}
-                                />
-                                <NumberField
-                                    label="Document size (bytes)"
-                                    value={config.limits.maxDocumentBytes}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxDocumentBytes: n } }))}
-                                />
-                                <NumberField
-                                    label="PDF pages"
-                                    value={config.limits.maxDocumentPages}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxDocumentPages: n } }))}
-                                />
-                                <NumberField
-                                    label="Recording size (bytes)"
-                                    value={config.limits.maxAudioBytes}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxAudioBytes: n } }))}
-                                />
-                                <NumberField
-                                    label="Recording length (minutes)"
-                                    value={config.limits.maxAudioMinutes}
-                                    onChange={(n) => setConfig((c) => ({ ...c, limits: { ...c.limits, maxAudioMinutes: n } }))}
-                                />
                             </FormGrid>
                         </FormSection>
                         <FormSection title="Retention (days)">
                             <FormGrid>
                                 <NumberField
-                                    label="Processed recordings and documents"
-                                    value={config.retention.temporaryDays}
-                                    onChange={(n) => setConfig((c) => ({ ...c, retention: { ...c.retention, temporaryDays: n } }))}
-                                />
-                                <NumberField
-                                    label="Failed processing files (1–30)"
-                                    value={config.retention.failedDays}
-                                    onChange={(n) => setConfig((c) => ({ ...c, retention: { ...c.retention, failedDays: n } }))}
-                                />
-                                <NumberField
-                                    label="Task files after the task is deleted"
-                                    value={config.retention.unreferencedGraceDays}
-                                    onChange={(n) => setConfig((c) => ({ ...c, retention: { ...c.retention, unreferencedGraceDays: n } }))}
-                                />
-                                <NumberField
                                     label="Stored briefings"
                                     value={config.retention.briefingDays}
                                     onChange={(n) => setConfig((c) => ({ ...c, retention: { ...c.retention, briefingDays: n } }))}
-                                />
-                                <NumberField
-                                    label="Reviewed captures"
-                                    value={config.retention.captureDays}
-                                    onChange={(n) => setConfig((c) => ({ ...c, retention: { ...c.retention, captureDays: n } }))}
                                 />
                             </FormGrid>
                         </FormSection>

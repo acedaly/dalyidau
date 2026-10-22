@@ -1,21 +1,11 @@
 // Pieces the 9.1 pages share: timeline events labelled by their nature (official, observed, derived
-// or about the Centre's own collecting), correlations with their basis and the factors weighed,
-// saving to Knowledge with an optional link to an existing note, and client-side downloads.
-import { useEffect, useState } from "react";
-import { BookOpen01, LinkExternal01, Stars02 } from "@untitledui/icons";
+// or about the Centre's own collecting), correlations with their basis and the factors weighed, and
+// client-side downloads.
+import { LinkExternal01, Stars02 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { NativeSelect } from "@/components/base/select/select-native";
-import { PortalDialog } from "@/portal/components/dialog";
-import { FormError } from "@/portal/components/form";
-import { useToast } from "@/portal/components/toast";
-import { api, errorMessage } from "@/portal/lib/api";
 import type { TimelineEvent, TimelineNature } from "@/shared/centre/history";
 import type { Correlation } from "@/shared/centre/types";
-import type { KnowledgeSpace } from "@/shared/knowledge/types";
 import { cx } from "@/utils/cx";
-import type { KnowledgeSaved, KnowledgeTarget } from "./centre-api";
 import { NatureBadge, When, recordHref } from "./shared";
 
 /** Official, observed, derived, or about collection (first seen, gaps): always labelled. */
@@ -138,130 +128,6 @@ export const CorrelationItem = ({ correlation: c, excludeId }: { correlation: Co
         </p>
     </li>
 );
-
-/**
- * Save something to Knowledge: choose a space you can add to, and optionally an existing note in it
- * to link the new note to as evidence. Nothing is written until "Save".
- */
-export const KnowledgeSaveDialog = ({
-    isOpen,
-    onOpenChange,
-    title,
-    description,
-    save,
-}: {
-    isOpen: boolean;
-    onOpenChange: (open: boolean) => void;
-    title: string;
-    description: string;
-    save: (target: KnowledgeTarget) => Promise<KnowledgeSaved>;
-}) => {
-    const toast = useToast();
-    const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
-    const [spaceId, setSpaceId] = useState("");
-    const [q, setQ] = useState("");
-    const [results, setResults] = useState<{ id: string; title: string }[]>([]);
-    const [relateTo, setRelateTo] = useState<{ id: string; title: string } | null>(null);
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        api<{ spaces: KnowledgeSpace[] }>("GET", "/api/portal/knowledge/spaces")
-            .then(({ spaces: list }) => {
-                const writable = list.filter((s) => s.role !== "viewer");
-                setSpaces(writable);
-                setSpaceId((current) => current || (writable.find((s) => s.kind === "personal") ?? writable[0])?.id || "");
-            })
-            .catch(() => setSpaces([]));
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (!spaceId || q.trim().length < 2) {
-            setResults([]);
-            return;
-        }
-        const timer = window.setTimeout(() => {
-            api<{ results: { id: string; title: string }[] }>("GET", `/api/portal/knowledge/spaces/${spaceId}/lookup?q=${encodeURIComponent(q.trim())}`)
-                .then((r) => setResults(r.results))
-                .catch(() => setResults([]));
-        }, 200);
-        return () => window.clearTimeout(timer);
-    }, [spaceId, q]);
-
-    const submit = async () => {
-        setBusy(true);
-        setError(null);
-        try {
-            const saved = await save({ ...(spaceId ? { spaceId } : {}), ...(relateTo ? { relateTo: relateTo.id } : {}) });
-            toast.success(saved.linked ? "Saved to Knowledge and linked" : "Saved to Knowledge");
-            onOpenChange(false);
-            window.location.href = saved.url;
-        } catch (e) {
-            setError(errorMessage(e));
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    return (
-        <PortalDialog
-            isOpen={isOpen}
-            onOpenChange={onOpenChange}
-            title={title}
-            description={description}
-            icon={BookOpen01}
-            onSubmit={() => void submit()}
-            footer={
-                <>
-                    <Button size="md" color="secondary" onClick={() => onOpenChange(false)}>
-                        Cancel
-                    </Button>
-                    <Button size="md" type="submit" isLoading={busy} showTextWhileLoading>
-                        Save to Knowledge
-                    </Button>
-                </>
-            }
-        >
-            <FormError message={error} />
-            {spaces.length > 1 && (
-                <NativeSelect
-                    label="Space"
-                    value={spaceId}
-                    onChange={(e) => (setSpaceId(e.target.value), setRelateTo(null))}
-                    options={spaces.map((s) => ({ label: s.name, value: s.id }))}
-                />
-            )}
-            <div className="flex flex-col gap-2">
-                <Input label="Link it to an existing note (optional)" value={q} onChange={setQ} placeholder="Search note titles" />
-                {relateTo ? (
-                    <p className="flex flex-wrap items-center gap-2 text-sm text-secondary">
-                        Will be linked, as evidence, to <span className="font-semibold">{relateTo.title || "Untitled"}</span>
-                        <Button size="sm" color="link-gray" onClick={() => setRelateTo(null)}>
-                            Remove
-                        </Button>
-                    </p>
-                ) : (
-                    results.length > 0 && (
-                        <ul className="flex flex-col divide-y divide-secondary rounded-lg ring-1 ring-secondary" aria-label="Matching notes">
-                            {results.map((r) => (
-                                <li key={r.id}>
-                                    <button
-                                        type="button"
-                                        className="w-full cursor-pointer px-3 py-2 text-left text-sm text-secondary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
-                                        onClick={() => (setRelateTo(r), setResults([]), setQ(""))}
-                                    >
-                                        {r.title || "Untitled"}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )
-                )}
-            </div>
-        </PortalDialog>
-    );
-};
 
 /** Saves text the browser already has as a file (nothing is sent anywhere). */
 export function downloadText(filename: string, text: string, type: string) {

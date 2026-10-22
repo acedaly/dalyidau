@@ -11,9 +11,7 @@
 // configured on the Worker, and the person turned email on for that kind of reminder. Emails say
 // "You have a Home & Assets reminder" unless the person chose to include details.
 //
-// The same step creates Daly Tasks for schedules set to make one N days ahead (as the person who
-// set up the schedule, through Tasks' own create, once per due date), and purges assets deleted
-// more than 30 days ago. Every part is bounded per run and contained: one failure never stops the rest.
+// The same step purges assets deleted more than 30 days ago. Every part is bounded per run and contained: one failure never stops the rest.
 import type { D1Database } from "@cloudflare/workers-types";
 import { type AssetNotificationView, type AttentionItem, REMINDER_KINDS, type ReminderKind } from "../../src/shared/assets/types";
 import { addDays } from "../../src/shared/calendar/time";
@@ -27,7 +25,6 @@ import { HttpError } from "../portal/http";
 import { assetPeople } from "./access";
 import { type Snapshot, attention, snapshot } from "./dashboard";
 import { purgeDeletedAssets } from "./files";
-import { createLinkedTask } from "./links";
 
 const REMINDER_OF: Record<AttentionItem["kind"], ReminderKind> = {
     maintenance: "maintenance",
@@ -133,7 +130,7 @@ export async function listNotifications(_env: Env, db: D1Database, user: PortalU
             reminder: r.reminder,
             dueOn: r.due_on,
             fireOn: r.fire_on,
-            sentence: [item.sentence, item.taskNote].filter(Boolean).join(" "),
+            sentence: item.sentence,
             url: item.url,
         });
     }
@@ -210,34 +207,6 @@ async function deliverFor(env: Env, provider: EmailProvider, s: Snapshot, limit:
     return sent;
 }
 
-// --- Automatic tasks -----------------------------------------------------------------------------
-
-/** Tasks for schedules set to make one N days before they're due, as the person who set it up. */
-export async function autoTasks(env: Env, today: string, limit = 20): Promise<number> {
-    const rows = await env.DB.prepare(
-        `SELECT sc.id, sc.created_by FROM asset_schedules sc
-         WHERE sc.active = 1 AND sc.task_lead_days IS NOT NULL AND sc.next_due_on IS NOT NULL AND date(sc.next_due_on, '-' || sc.task_lead_days || ' days') <= ?
-           AND NOT EXISTS (SELECT 1 FROM asset_maintenance m JOIN asset_task_links l ON l.ref_kind = 'maintenance' AND l.ref_id = m.id
-                           WHERE m.schedule_id = sc.id AND m.status IN ('open', 'requested', 'scheduled', 'in_progress'))
-         LIMIT ?`,
-    )
-        .bind(today, limit)
-        .all<{ id: string; created_by: string }>();
-    let made = 0;
-    for (const r of rows.results) {
-        const auth = await userForEmail(env, r.created_by);
-        if (!auth.ok || !auth.user.permissions.includes("tasks.use") || !auth.user.permissions.includes("assets.use")) continue;
-        try {
-            const result = await createLinkedTask(env.DB, auth.user, new URL(env.SITE_URL).origin, { refKind: "schedule", refId: r.id }, "portal");
-            if (!result.existing) made++;
-        } catch (error) {
-            // No access any more, or Tasks refused: leave it for the person to do by hand.
-            console.log(JSON.stringify({ event: "asset_auto_task_skipped", code: error instanceof HttpError ? error.code : "error" }));
-        }
-    }
-    return made;
-}
-
 // --- The cron step -------------------------------------------------------------------------------
 
 export async function processAssetReminders(env: Env, options: { provider?: EmailProvider | null; scheduledTime?: number } = {}) {
@@ -261,18 +230,14 @@ export async function processAssetReminders(env: Env, options: { provider?: Emai
             console.error(JSON.stringify({ event: "asset_reminders_error", message: (error as Error).message }));
         }
     }
-    const tasks = await autoTasks(env, today).catch((error) => {
-        console.error(JSON.stringify({ event: "asset_auto_tasks_error", message: (error as Error).message }));
-        return 0;
-    });
     const purged = await purgeDeletedAssets(db, env.MEDIA).catch((error) => {
         console.error(JSON.stringify({ event: "asset_purge_error", message: (error as Error).message }));
         return { files: 0, assets: 0 };
     });
     await db.prepare("DELETE FROM asset_notifications WHERE fire_on < ?").bind(addDays(today, -180)).run();
-    if (created || emailed || tasks || purged.files || purged.assets)
-        console.log(JSON.stringify({ event: "asset_reminders", created, emailed, tasks, purgedFiles: purged.files, purgedAssets: purged.assets }));
-    return { created, emailed, tasks, purged };
+    if (created || emailed || purged.files || purged.assets)
+        console.log(JSON.stringify({ event: "asset_reminders", created, emailed, purgedFiles: purged.files, purgedAssets: purged.assets }));
+    return { created, emailed, purged };
 }
 
 export const REMINDER_KEYS = REMINDER_KINDS;

@@ -3,7 +3,7 @@
 // (a gust speed, a river level) are labelled as yours, never as official. Rules can be tested
 // against stored history before they're saved, and every match says why it matched.
 import { useState } from "react";
-import { BellRinging01, CheckDone01, Edit05, Plus, SearchRefraction, Trash01 } from "@untitledui/icons";
+import { BellRinging01, Edit05, Plus, SearchRefraction, Trash01 } from "@untitledui/icons";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -11,12 +11,12 @@ import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { Toggle } from "@/components/base/toggle/toggle";
+import { Card } from "@/portal/components/card";
 import { ConfirmDialog, PortalDialog } from "@/portal/components/dialog";
 import { Empty } from "@/portal/components/empty";
 import { FormError } from "@/portal/components/form";
 import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import type { MonitoringRule, RuleCondition, RuleDefinition, RuleInput, RuleMatch, RuleTestResult } from "@/shared/centre/rules";
@@ -514,7 +514,7 @@ const RuleForm = ({
     );
 };
 
-const MatchRow = ({ match: m, onAcknowledge, onTask }: { match: RuleMatch; onAcknowledge: () => void; onTask: () => void }) => (
+const MatchRow = ({ match: m, onAcknowledge }: { match: RuleMatch; onAcknowledge: () => void }) => (
     <li id={m.id} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-5">
         <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -550,19 +550,9 @@ const MatchRow = ({ match: m, onAcknowledge, onTask }: { match: RuleMatch; onAck
                         Record
                     </a>
                 )}
-                {m.taskId && (
-                    <a href={`/portal/tasks/t/${m.taskId}`} className="text-secondary hover:underline">
-                        Task
-                    </a>
-                )}
             </p>
         </div>
         <div className="flex shrink-0 gap-2">
-            {!m.taskId && (
-                <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={onTask}>
-                    Create task
-                </Button>
-            )}
             {!m.acknowledgedAt && (
                 <Button size="sm" color="link-gray" onClick={onAcknowledge}>
                     Acknowledge
@@ -578,7 +568,6 @@ export const CentreRulesPage = ({ data }: { data: Data }) => {
     const [matches, setMatches] = useState<RuleMatch[]>(data.matches);
     const [editing, setEditing] = useState<MonitoringRule | "new" | null>(null);
     const [deleting, setDeleting] = useState<MonitoringRule | null>(null);
-    const [tasking, setTasking] = useState<RuleMatch | null>(null);
     const reload = async () => {
         const r = await centreApi.rules();
         setRules(r.rules);
@@ -683,7 +672,7 @@ export const CentreRulesPage = ({ data }: { data: Data }) => {
                 {matches.length ? (
                     <ul className="divide-y divide-secondary">
                         {matches.map((m) => (
-                            <MatchRow key={m.id} match={m} onAcknowledge={() => acknowledge([m.id])} onTask={() => setTasking(m)} />
+                            <MatchRow key={m.id} match={m} onAcknowledge={() => acknowledge([m.id])} />
                         ))}
                     </ul>
                 ) : (
@@ -716,23 +705,6 @@ export const CentreRulesPage = ({ data }: { data: Data }) => {
                         setMatches((list) => list.filter((m) => m.ruleId !== deleting.id));
                     } catch (e) {
                         toast.error("Couldn't delete it", errorMessage(e));
-                    }
-                }}
-            />
-            <ConfirmDialog
-                isOpen={!!tasking}
-                onOpenChange={(o) => !o && setTasking(null)}
-                title="Create a follow-up task?"
-                description={`A task "Check: ${tasking?.ruleName ?? ""}" is added to your Daly Tasks inbox with this match's reason and a link to the record. Asking again returns the same task.`}
-                confirmLabel="Create task"
-                onConfirm={async () => {
-                    if (!tasking) return;
-                    try {
-                        const r = await centreApi.taskFromMatch(tasking.id);
-                        toast.success(r.replayed ? "That task already exists" : "Task created");
-                        await reload();
-                    } catch (e) {
-                        toast.error("Couldn't create the task", errorMessage(e));
                     }
                 }}
             />

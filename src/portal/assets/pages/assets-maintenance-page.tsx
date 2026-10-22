@@ -2,16 +2,16 @@
 // and requests, history, every recurring schedule, and templates. Built-in templates bring a title
 // and a checklist only; the household's own templates keep the intervals it chose.
 import { useState } from "react";
-import { CheckCircle, CheckDone01, Download01, Plus, Tool02, Trash01 } from "@untitledui/icons";
+import { CheckCircle, Download01, Plus, Tool02, Trash01 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Card } from "@/portal/components/card";
 import { DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import {
@@ -49,15 +49,6 @@ export const AssetsMaintenancePage = ({ data }: { data: PageData<"assets-mainten
         }
     };
     const reload = async () => setRecords((await assetsApi.maintenance(scope)).maintenance);
-    const task = async (m: MaintenanceView) => {
-        try {
-            const result = await assetsApi.task({ refKind: "maintenance", refId: m.id });
-            toast.success(result.existing ? "That task already exists" : "Task created");
-            await reload();
-        } catch (e) {
-            toast.error("Couldn't create the task", errorMessage(e));
-        }
-    };
     const upcoming = [
         ...records.filter((m) => m.state === "overdue" || m.state === "due_soon"),
         ...data.schedules
@@ -117,20 +108,6 @@ export const AssetsMaintenancePage = ({ data }: { data: PageData<"assets-mainten
                                                         : ""}
                                                 </span>
                                             </div>
-                                            {data.canTasks && (
-                                                <Button
-                                                    size="xs"
-                                                    color="secondary"
-                                                    iconLeading={CheckDone01}
-                                                    onClick={() =>
-                                                        void assetsApi
-                                                            .task({ refKind: "schedule", refId: x.schedule.id })
-                                                            .then(() => toast.success("Task created"))
-                                                    }
-                                                >
-                                                    Task
-                                                </Button>
-                                            )}
                                         </li>
                                     ) : (
                                         <li key={x.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -152,11 +129,6 @@ export const AssetsMaintenancePage = ({ data }: { data: PageData<"assets-mainten
                                             </div>
                                             {x.canEdit && (
                                                 <div className="flex gap-2">
-                                                    {data.canTasks && !x.task && (
-                                                        <Button size="xs" color="secondary" iconLeading={CheckDone01} onClick={() => void task(x)}>
-                                                            Task
-                                                        </Button>
-                                                    )}
                                                     <Button size="xs" iconLeading={CheckCircle} onClick={() => setCompleting(x)}>
                                                         Done
                                                     </Button>

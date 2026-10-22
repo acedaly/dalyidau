@@ -394,35 +394,17 @@ describe("Briefings", () => {
     });
 });
 
-describe("Tasks, Knowledge and Today", () => {
-    it("creates a follow-up task in the Inbox (once, even if retried) and a Knowledge note (once)", async () => {
+describe("Tasks, Knowledge (retired) and Today", () => {
+    it("no longer makes follow-up tasks or Knowledge notes: those routes answer that they're retired", async () => {
         await seed();
         const record = (await records("rfs-incidents"))[0];
-        const t1 = await apiCall<{ taskId: string; replayed: boolean }>("POST", `${C}/records/${record.id}/task`, { dueDate: "2026-10-25" });
-        expect(t1.status, t1.text).toBe(200);
-        const t2 = await apiCall<{ taskId: string; replayed: boolean }>("POST", `${C}/records/${record.id}/task`, { dueDate: "2026-10-25" });
-        expect(t2.json).toMatchObject({ taskId: t1.json.taskId, replayed: true });
-        const task = await db()
-            .prepare("SELECT title, description, due_date FROM task_items WHERE id = ?")
-            .bind(t1.json.taskId)
-            .first<{ title: string; description: string; due_date: string }>();
-        expect(task!.title).toBe(`Follow up: ${record.title}`);
-        expect(task!.description).toContain("Official source:");
-        expect(task!.description).toContain("State of New South Wales (NSW Rural Fire Service)");
-        expect(task!.due_date).toBe("2026-10-25");
-        const k1 = await apiCall<{ objectId: string }>("POST", `${C}/records/${record.id}/knowledge`, {});
-        const k2 = await apiCall<{ objectId: string }>("POST", `${C}/records/${record.id}/knowledge`, {});
-        expect(k1.status, k1.text).toBe(200);
-        expect(k2.json.objectId).toBe(k1.json.objectId);
-        expect((await apiCall("POST", `${C}/records/icr_00000000000000/task`, {})).status).toBe(404);
-    });
-
-    it("saves a briefing to Knowledge", async () => {
-        await seed();
-        const r = await apiCall<{ objectId: string }>("POST", `${C}/briefing/knowledge`, { scope: "nsw" });
-        expect(r.status, r.text).toBe(200);
-        const title = await db().prepare("SELECT title FROM knowledge_objects WHERE id = ?").bind(r.json.objectId).first<{ title: string }>();
-        expect(title!.title).toContain("NSW situation");
+        for (const path of [`${C}/records/${record.id}/task`, `${C}/records/${record.id}/knowledge`, `${C}/briefing/knowledge`]) {
+            const r = await apiCall<{ error: string }>("POST", path, { scope: "nsw" });
+            expect(r.status, path).toBe(410);
+            expect(r.json.error).toBe("retired");
+        }
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items").first<{ n: number }>())!.n).toBe(0);
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM knowledge_objects").first<{ n: number }>())!.n).toBe(0);
     });
 
     it("Today's section shows only what meets the person's rules", async () => {

@@ -6,10 +6,10 @@ import { AlertTriangle, Bell01, CurrencyDollar, File04, Home02, Package, Plus, S
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Card } from "@/portal/components/card";
 import { Empty } from "@/portal/components/empty";
 import { MetricCard } from "@/portal/components/metric-card";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatMoney, pluralise } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
@@ -112,7 +112,6 @@ export const AssetsOverviewPage = ({ data }: { data: PageData<"assets-overview">
                                 </div>
                                 <AttentionList
                                     items={showAll ? attention : attention.slice(0, 8)}
-                                    canTasks={data.canTasks}
                                     empty={<p className="px-4 py-3 text-sm text-tertiary sm:px-5">Nothing due in the next {horizon} days.</p>}
                                 />
                                 {attention.length > 8 && !showAll && (

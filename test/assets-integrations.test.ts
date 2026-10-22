@@ -1,5 +1,6 @@
-// Home & Assets with the rest of the portal: Daly Tasks, Daly Calendar, Daly Knowledge, Today, the
-// Chief of Staff, MCP, reminders and email, optional AI, reports, the migration and clean-up.
+// Home & Assets with the rest of the portal: Daly Calendar, Today, the Chief of Staff, MCP, reminders
+// and email, optional AI, reports, the migration and clean-up, and what's left of the retired Daly
+// Tasks and Daly Knowledge links.
 // Models are never called: the AI tests use the deterministic stand-in (worker/intelligence/bindings.ts).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AttentionItem, MaintenanceView, PhotoProposal, PolicyProposal, ReceiptProposal } from "../src/shared/assets/types";
@@ -21,7 +22,6 @@ import {
     jpeg,
     pdf,
     plusDays,
-    policy,
     record,
     schedule,
     share,
@@ -29,7 +29,6 @@ import {
     upload,
 } from "./assets-helpers";
 import { aiEnv, configure } from "./intelligence-helpers";
-import { create as createObject, personal } from "./knowledge-helpers";
 import { accessToken, apiCall, db, portalEnv, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
@@ -45,75 +44,71 @@ const attention = async (email = A, days = 30) =>
         (i) => i.daysAway === null || i.daysAway <= days,
     );
 
-describe("Daly Tasks", () => {
-    it("creates one linked task for a registration date, says so in the attention list, and never makes a second", async () => {
+describe("Daly Tasks and Daly Knowledge (retired)", () => {
+    it("states attention items from records only, and refuses the task and Knowledge routes", async () => {
         const camper = await createAsset({
             name: "Cub Camper Frontier",
             category: "trailers",
             vehicle: { kind: "trailer", registrationExpiry: plusDays(sydneyToday(), 21) },
         });
-        const before = (await attention()).find((i) => i.kind === "registration")!;
-        expect(before.sentence).toBe("Cub Camper Frontier registration is due in 21 days.");
-        expect(before.taskNote).toBe("No renewal Task has been created.");
-
-        const made = await call<{ taskId: string; existing: boolean }>("POST", "/tasks", before.taskRef);
-        expect(made.status, made.text).toBe(200);
-        expect(made.json.existing).toBe(false);
-        const task = await apiCall<{ task: { title: string; dueDate: string; description: string } }>("GET", `/api/portal/tasks/tasks/${made.json.taskId}`);
-        expect(task.json.task).toMatchObject({ title: "Renew registration: Cub Camper Frontier", dueDate: plusDays(sydneyToday(), 21) });
-
-        const again = await call<{ taskId: string; existing: boolean }>("POST", "/tasks", before.taskRef);
-        expect(again.json).toMatchObject({ taskId: made.json.taskId, existing: true });
-        const after = (await attention()).find((i) => i.kind === "registration")!;
-        expect(after).toMatchObject({ taskNote: null, taskId: made.json.taskId });
-        expect((await db().prepare("SELECT COUNT(*) AS n FROM asset_task_links").first<{ n: number }>())?.n).toBe(1);
-        // Someone else in the household asking again gets told it exists, without seeing A's Inbox task.
-        await share(camper.id, { visibility: "household", household: { ...NONE, maintain: true } });
-        const theirs = await call<{ taskId: string | null; existing: boolean; hidden: boolean }>("POST", "/tasks", before.taskRef, B);
-        expect(theirs.json).toEqual({ taskId: null, existing: true, hidden: true, url: null });
+        const item = (await attention()).find((i) => i.kind === "registration")!;
+        expect(item.sentence).toBe("Cub Camper Frontier registration is due in 21 days.");
+        expect(Object.keys(item)).not.toEqual(expect.arrayContaining(["taskNote", "taskRef", "taskId"]));
+        for (const [method, path] of [
+            ["POST", "/tasks"],
+            ["POST", `/items/${camper.id}/knowledge`],
+            ["DELETE", `/items/${camper.id}/knowledge/kob_aaaaaaaaaaaaaa`],
+        ] as const) {
+            const r = await call<{ error: string }>(method, path, method === "DELETE" ? undefined : { refKind: "registration", refId: camper.id });
+            expect(r.status, `${method} ${path}`).toBe(410);
+            expect(r.json.error).toBe("retired");
+        }
+        const d = await detail(camper.id);
+        expect(d).not.toHaveProperty("knowledge");
+        expect(d).not.toHaveProperty("tasks");
+        const search = await call<{ results: Record<string, unknown> }>("GET", "/search?q=camper");
+        expect(Object.keys(search.json.results).sort()).toEqual(["assets", "files", "locations", "maintenance"]);
     });
 
-    it("completing maintenance completes its linked task, and Tasks never writes back", async () => {
+    it("completes maintenance without touching links made before the retirement, and makes no automatic tasks", async () => {
         const fridge = await createAsset({ name: "Fridge", category: "appliances" });
         const r = await record({ assetId: fridge.id, title: "Clean the coils", dueOn: sydneyToday() });
-        const made = await call<{ taskId: string }>("POST", "/tasks", { refKind: "maintenance", refId: r.id });
-        const done = await call<{ taskCompleted: boolean }>("POST", `/maintenance/${r.id}/complete`, { completedOn: sydneyToday() });
-        expect(done.json.taskCompleted).toBe(true);
-        const task = await apiCall<{ task: { status: string } }>("GET", `/api/portal/tasks/tasks/${made.json.taskId}`);
-        expect(task.json.task.status).toBe("completed");
-        // A task completed in Tasks shows on the record but doesn't complete it.
-        const r2 = await record({ assetId: fridge.id, title: "Replace the seal" });
-        const t2 = await call<{ taskId: string }>("POST", "/tasks", { refKind: "maintenance", refId: r2.id });
-        expect((await apiCall("POST", `/api/portal/tasks/tasks/${t2.json.taskId}/complete`, {})).status).toBe(200);
-        const view = (await call<{ record: MaintenanceView }>("GET", `/maintenance/${r2.id}`)).json.record;
-        expect(view).toMatchObject({ status: "open", task: { status: "completed", available: true } });
-    });
+        const now = new Date().toISOString();
+        await db().batch([
+            db()
+                .prepare(
+                    "INSERT INTO asset_task_links (id, task_id, asset_id, ref_kind, ref_id, ref_date, created_by, created_at) VALUES ('atl_aaaaaaaaaaaaaa', 'tsk_aaaaaaaaaaaaaa', ?, 'maintenance', ?, '', ?, ?)",
+                )
+                .bind(fridge.id, r.id, A, now),
+            db()
+                .prepare("INSERT INTO asset_knowledge_links (asset_id, object_id, added_by, added_at) VALUES (?, 'kob_aaaaaaaaaaaaaa', ?, ?)")
+                .bind(fridge.id, A, now),
+        ]);
+        const done = await call<Record<string, unknown>>("POST", `/maintenance/${r.id}/complete`, { completedOn: sydneyToday() });
+        expect(done.status, done.text).toBe(200);
+        expect(done.json).not.toHaveProperty("taskCompleted");
+        expect((await call<{ record: MaintenanceView }>("GET", `/maintenance/${r.id}`)).json.record).not.toHaveProperty("task");
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM asset_task_links").first<{ n: number }>())?.n).toBe(1);
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM asset_knowledge_links").first<{ n: number }>())?.n).toBe(1);
 
-    it("lets a new task be made once the old one is deleted in Tasks", async () => {
-        const p = await policy({ provider: "Example Insurance", policyType: "home", renewsOn: plusDays(sydneyToday(), 10) });
-        const first = await call<{ taskId: string }>("POST", "/tasks", { refKind: "policy_renewal", refId: p.id });
-        expect((await apiCall("DELETE", `/api/portal/tasks/tasks/${first.json.taskId}`)).status).toBeLessThan(300);
-        const second = await call<{ taskId: string; existing: boolean }>("POST", "/tasks", { refKind: "policy_renewal", refId: p.id });
-        expect(second.json.existing).toBe(false);
-        expect(second.json.taskId).not.toBe(first.json.taskId);
-    });
-
-    it("creates the task for a schedule automatically, ahead of time, when asked, once", async () => {
+        // A schedule saved with "create a task N days ahead" before the retirement: reminders still run, no task is made.
         const aircon = await createAsset({ name: "Air conditioner", category: "appliances" });
-        await schedule({
+        const sc = await schedule({
             assetId: aircon.id,
             title: "Filter clean",
             category: "cleaning",
             intervalCount: 3,
             intervalUnit: "months",
             firstDueOn: plusDays(sydneyToday(), 5),
-            taskLeadDays: 7,
         });
-        const env = await portalEnv();
-        await processAssetReminders(env, { provider: null });
-        await processAssetReminders(env, { provider: null });
+        await db().prepare("UPDATE asset_schedules SET task_lead_days = 7 WHERE id = ?").bind(sc.id).run();
+        const result = await processAssetReminders(await portalEnv(), { provider: null });
+        expect(result).not.toHaveProperty("tasks");
         expect((await db().prepare("SELECT COUNT(*) AS n FROM asset_task_links").first<{ n: number }>())?.n).toBe(1);
-        expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items WHERE title LIKE 'Filter clean%'").first<{ n: number }>())?.n).toBe(1);
+        expect((await db().prepare("SELECT COUNT(*) AS n FROM task_items").first<{ n: number }>())?.n).toBe(0);
+        expect(
+            (await call("POST", "/schedules", { assetId: aircon.id, title: "Coil clean", intervalCount: 1, intervalUnit: "years", taskLeadDays: 7 })).status,
+        ).toBe(422);
     });
 });
 
@@ -151,30 +146,6 @@ describe("Daly Calendar", () => {
     });
 });
 
-describe("Daly Knowledge", () => {
-    it("links a manual without copying it, re-checks access on every read, and searches both", async () => {
-        const space = await personal(A);
-        const manual = await createObject(space.id, {
-            title: "Hilux owner's manual notes",
-            content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Towing capacity notes" }] }] },
-        });
-        const hilux = await createAsset({ name: "Hilux", category: "vehicles" });
-        const linked = await call<{ knowledge: { available: boolean; title: string }[] }>("POST", `/items/${hilux.id}/knowledge`, {
-            objectId: manual.object.id,
-        });
-        expect(linked.status, linked.text).toBe(201);
-        expect(linked.json.knowledge).toEqual([expect.objectContaining({ available: true, title: "Hilux owner's manual notes" })]);
-        await share(hilux.id, { visibility: "household", household: NONE });
-        expect((await detail(hilux.id, B)).knowledge).toEqual([{ objectId: manual.object.id, available: false, title: null, spaceName: null }]);
-        const search = await call<{ results: { assets: { id: string }[]; knowledge: { id: string }[] } }>("GET", "/search?q=hilux");
-        expect(search.json.results.assets.map((a) => a.id)).toEqual([hilux.id]);
-        expect(search.json.results.knowledge.map((k) => k.id)).toEqual([manual.object.id]);
-        // B can't link A's personal Knowledge object to anything.
-        const bAsset = await createAsset({ name: "Bike", category: "outdoor" }, B);
-        expect((await call("POST", `/items/${bAsset.id}/knowledge`, { objectId: manual.object.id }, B)).status).toBe(404);
-    });
-});
-
 describe("Today and the Chief of Staff", () => {
     it("adds a Home & Assets section to Today, and facts to the Chief of Staff's daily context", async () => {
         await createAsset({ name: "Cub Camper Frontier", category: "trailers", vehicle: { registrationExpiry: plusDays(sydneyToday(), 21) } });
@@ -184,8 +155,9 @@ describe("Today and the Chief of Staff", () => {
 
         const daily = await mcp("chief_of_staff_daily_context");
         expect(daily.ok).toBe(true);
-        const home = (daily as unknown as { data: { homeAssets: { dueSoon: { fact: string; taskNote: string }[] } } }).data.homeAssets;
-        expect(home.dueSoon[0]).toMatchObject({ fact: "Cub Camper Frontier registration is due in 21 days.", taskNote: "No renewal Task has been created." });
+        const home = (daily as unknown as { data: { homeAssets: { dueSoon: { fact: string }[] } } }).data.homeAssets;
+        expect(home.dueSoon[0]).toEqual(expect.objectContaining({ fact: "Cub Camper Frontier registration is due in 21 days." }));
+        expect(home.dueSoon[0]).not.toHaveProperty("taskNote");
 
         // The person can leave it out of Today.
         const prefs = await call<{ preferences: Record<string, unknown>; version: number }>("GET", "/preferences");
@@ -229,7 +201,7 @@ describe("MCP", () => {
         expect((await db().prepare("SELECT via FROM asset_activity WHERE action = 'asset.create'").first<{ via: string }>())?.via).toBe("mcp");
     });
 
-    it("adds and completes maintenance, and creates a linked task once", async () => {
+    it("adds and completes maintenance, and refuses the retired task and Knowledge tools", async () => {
         const hilux = await createAsset({ name: "Hilux", category: "vehicles", vehicle: { registrationExpiry: plusDays(sydneyToday(), 10) } });
         const added = await mcp("assets_create_maintenance", {
             assetId: hilux.id,
@@ -240,14 +212,19 @@ describe("MCP", () => {
         expect(added.ok).toBe(true);
         const recordId = (added as unknown as { data: { record: { id: string } } }).data.record.id;
         const attention = await mcp("assets_get_attention", { days: 30 });
-        const items = (attention as unknown as { data: { items: { kind: string; createTask: { refKind: string; refId: string } }[] } }).data.items;
-        const rego = items.find((i) => i.kind === "registration")!;
-        const task = await mcp("assets_create_task", { ...rego.createTask, requestId: "task-rego-00001" });
-        expect(task.ok).toBe(true);
-        const again = await mcp("assets_create_task", { ...rego.createTask, requestId: "task-rego-00002" });
-        expect(again).toMatchObject({ ok: true, data: { existing: true } });
+        const items = (attention as unknown as { data: { items: Record<string, unknown>[] } }).data.items;
+        expect(items.find((i) => i.kind === "registration")).not.toHaveProperty("createTask");
+        expect(await mcp("assets_create_task", { refKind: "registration", refId: hilux.id, requestId: "task-rego-00001" })).toMatchObject({
+            ok: false,
+            error: { code: "retired" },
+        });
+        expect(await mcp("assets_link_knowledge", { assetId: hilux.id, objectId: "kob_aaaaaaaaaaaaaa" })).toMatchObject({
+            ok: false,
+            error: { code: "retired" },
+        });
         const done = await mcp("assets_complete_maintenance", { maintenanceId: recordId, completedOn: sydneyToday(), requestId: "complete-0001" });
         expect(done).toMatchObject({ ok: true, data: { record: { status: "completed" } } });
+        expect((done as unknown as { data: Record<string, unknown> }).data).not.toHaveProperty("linkedTaskCompleted");
     });
 });
 
@@ -277,9 +254,7 @@ describe("reminders and email", () => {
         // Email is off by default: nothing was sent.
         expect(sent).toEqual([]);
         const list = await call<{ notifications: { sentence: string }[] }>("GET", "/notifications");
-        expect(list.json.notifications.map((n) => n.sentence)).toEqual([
-            "Cub Camper Frontier registration is due in 7 days. No renewal Task has been created.",
-        ]);
+        expect(list.json.notifications.map((n) => n.sentence)).toEqual(["Cub Camper Frontier registration is due in 7 days."]);
         // Notification rows hold ids and dates only.
         const raw = JSON.stringify((await db().prepare("SELECT * FROM asset_notifications").all()).results);
         expect(raw).not.toContain("Cub Camper");

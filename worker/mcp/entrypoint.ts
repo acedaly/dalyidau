@@ -8,7 +8,7 @@
 // The gateway's word is not taken for who is calling. It hands over the caller's Cloudflare Access
 // token as it received it, and this side verifies that token again (signature, issuer, the MCP
 // application's audience, expiry, email) and then applies the portal's own rules: the person's
-// portal role and permissions, then project or space membership on every record. A service binding
+// portal role and permissions, then calendar, asset or watch-area access on every record. A service binding
 // can't be reached from the internet, but any Worker on the account could bind to it, so nothing
 // here trusts the caller beyond what the token proves.
 //
@@ -21,23 +21,18 @@ import { AssetConflict } from "../assets/assets";
 import { MaintenanceConflict } from "../assets/maintenance";
 import { EventConflict } from "../calendar/events";
 import type { Env } from "../env";
-import { KnowledgeConflict } from "../knowledge/objects";
 import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
-import { OpenSubtasks, TaskConflict } from "../tasks/tasks";
 import { ASSETS_TOOLS } from "./assets";
 import { CALENDAR_TOOLS } from "./calendar";
 import { CENTRE_TOOLS } from "./centre";
 import { CENTRE_HISTORY_TOOLS } from "./centre-history";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
-import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { claimWrite, failWrite, settleWrite } from "./ledger";
-import { PLANNER_TOOLS } from "./planner";
-import { DuplicateProject, PROJECT_TOOLS, StaleProject } from "./projects";
+import { RETIRED_MCP_MESSAGE, RETIRED_MCP_TOOLS } from "./retired";
 import type { ToolContext, ToolDef } from "./shared";
-import { TASK_TOOLS } from "./tasks";
 import { TODAY_TOOLS } from "./today";
 
 export interface PortalMcpRequest {
@@ -53,11 +48,10 @@ export type PortalMcpErrorCode =
     | "not_found"
     | "validation"
     | "conflict"
-    | "duplicate"
-    | "open_subtasks"
     | "in_progress"
     | "request_id_reused"
     | "unknown_tool"
+    | "retired"
     | "too_large"
     | "unavailable";
 
@@ -65,13 +59,9 @@ export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
 export const PORTAL_MCP_TOOLS: ToolDef[] = [
-    ...KNOWLEDGE_TOOLS,
-    ...TASK_TOOLS,
-    ...PROJECT_TOOLS,
     ...CHIEF_TOOLS,
     ...INTELLIGENCE_TOOLS,
     ...CALENDAR_TOOLS,
-    ...PLANNER_TOOLS,
     ...TODAY_TOOLS,
     ...CENTRE_TOOLS,
     ...CENTRE_HISTORY_TOOLS,
@@ -88,22 +78,15 @@ const fail = (code: PortalMcpErrorCode, message: string, details?: Record<string
 
 /** Turns whatever a tool threw into an answer the AI client can act on, without leaking internals. */
 export function toFailure(error: unknown): PortalMcpResponse {
-    if (error instanceof KnowledgeConflict) return fail("conflict", error.message, { current: error.current });
-    if (error instanceof TaskConflict)
-        return fail("conflict", error.message, { current: error.current ? { version: error.current.version, updatedAt: error.current.updatedAt } : null });
     if (error instanceof EventConflict)
         return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
-    if (error instanceof StaleProject) return fail("conflict", error.message, { current: error.current });
     if (error instanceof AssetConflict || error instanceof MaintenanceConflict) return fail("conflict", error.message, { current: error.current });
-    if (error instanceof DuplicateProject) return fail("duplicate", error.message, { matches: error.matches });
-    if (error instanceof OpenSubtasks)
-        return fail("open_subtasks", `${error.message} Ask whether to complete them too, then retry with includeSubtasks.`, { count: error.count });
     if (error instanceof ZodError) {
         const issues = error.issues.slice(0, 5).map((i) => ({ path: i.path.join("."), message: i.message }));
         return fail("validation", issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; "), { issues });
     }
     if (error instanceof HttpError) {
-        // 404 is the only answer for anything outside the caller's projects and spaces, so a private
+        // 404 is the only answer for anything outside what the caller can reach, so a private
         // record's existence can't be probed from here either.
         if (error.status === 404) return fail("not_found", "Not found, or you don't have access to it.");
         if (error.status === 403) return fail("forbidden", error.message);
@@ -135,7 +118,7 @@ const devEmail = (env: Env, assertion: string): string | null => {
     }
 };
 
-export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: ToolContext["exec"]): Promise<PortalMcpResponse> {
+export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promise<PortalMcpResponse> {
     const started = Date.now();
     const toolName = typeof request?.tool === "string" ? request.tool.slice(0, 64) : "";
     const respond = (response: PortalMcpResponse) => {
@@ -161,11 +144,12 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: 
     if (!auth.ok) return respond(fail("forbidden", "This account doesn't have access to Daly Portal."));
     const user = auth.user;
 
-    // 2. Which tool, and may this person use that application at all.
+    // 2. Which tool, and may this person use that application at all. Retired tools are refused
+    //    first, whatever the person's role: nothing of theirs is read.
+    if (RETIRED_MCP_TOOLS.has(toolName)) return respond(fail("retired", RETIRED_MCP_MESSAGE));
     const def = TOOLS.get(toolName);
     if (!def) return respond(fail("unknown_tool", "That tool isn't available from Daly Portal."));
-    const allowed =
-        def.permission === "any_productivity" ? can(user, "tasks.use") || can(user, "knowledge.use") || can(user, "calendar.use") : can(user, def.permission);
+    const allowed = def.permission === "any_productivity" ? can(user, "calendar.use") || can(user, "assets.use") : can(user, def.permission);
     if (!allowed) return respond(fail("forbidden", "You don't have access to that part of Daly Portal."));
 
     let size = 0;
@@ -176,7 +160,7 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: 
     }
     if (size > MAX_INPUT_BYTES) return respond(fail("too_large", "Those arguments are too large."));
 
-    const ctx: ToolContext = { env, db: env.DB, user, site: new URL(env.SITE_URL).origin, exec };
+    const ctx: ToolContext = { env, db: env.DB, user, site: new URL(env.SITE_URL).origin };
     let input: unknown;
     try {
         input = def.input.parse(request.input ?? {});
@@ -225,6 +209,6 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest, exec?: 
 /** Reached only through a service binding (the gateway's PORTAL binding, mcp/wrangler.jsonc); it has no route. */
 export class PortalMcpEntrypoint extends WorkerEntrypoint<Env> {
     async invoke(request: PortalMcpRequest): Promise<PortalMcpResponse> {
-        return handleMcpCall(this.env, request, this.ctx);
+        return handleMcpCall(this.env, request);
     }
 }

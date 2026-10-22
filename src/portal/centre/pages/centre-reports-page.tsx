@@ -9,11 +9,11 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { Toggle } from "@/components/base/toggle/toggle";
+import { Card } from "@/portal/components/card";
 import { ConfirmDialog, PortalDialog } from "@/portal/components/dialog";
 import { FormError } from "@/portal/components/form";
 import { Notice } from "@/portal/components/notice";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { REGIONS, type RegionId } from "@/shared/centre/regions";
@@ -160,7 +160,6 @@ const ScheduleForm = ({
                   timeZone: data.preferences.timeZone,
                   periodHours: 24,
                   notify: "in_app",
-                  saveToKnowledge: false,
                   narrative: false,
                   enabled: true,
               },
@@ -180,7 +179,6 @@ const ScheduleForm = ({
                 timeZone: f.timeZone,
                 periodHours: f.periodHours,
                 notify: f.notify,
-                saveToKnowledge: f.saveToKnowledge,
                 narrative: f.narrative,
                 enabled: f.enabled,
             };
@@ -272,11 +270,6 @@ const ScheduleForm = ({
                     ]}
                 />
             </div>
-            <Toggle
-                label="Save each report to Knowledge"
-                isSelected={f.saveToKnowledge}
-                onChange={(saveToKnowledge) => setF((x) => ({ ...x, saveToKnowledge }))}
-            />
             <Toggle
                 label="Add an AI narrative"
                 hint="Only if Daly Intelligence is switched on; written from the report's facts and labelled as interpretation."
@@ -454,7 +447,6 @@ export const CentreReportsPage = ({ data }: { data: Data }) => {
                                     <p className="text-xs text-tertiary">
                                         {describeScope(s.scope, data.watches)} · {s.frequency === "weekly" ? `Weekly on ${WEEKDAYS[s.weekday ?? 1]}` : "Daily"}{" "}
                                         at {String(s.hour).padStart(2, "0")}:00 ({s.timeZone}) · last {s.periodHours} hours
-                                        {s.saveToKnowledge ? " · saved to Knowledge" : ""}
                                     </p>
                                     <p className="flex flex-wrap gap-x-3 text-xs text-quaternary">
                                         {s.nextRunAt && <When iso={s.nextRunAt} label="Next" />}

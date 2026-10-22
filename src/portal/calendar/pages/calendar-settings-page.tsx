@@ -134,12 +134,6 @@ export const CalendarSettingsPage = ({ data }: { data: PageData<"calendar-settin
                         onChange={(v) => void save({ ...prefs, overlays: { ...prefs.overlays, school: v } })}
                     />
                     <Toggle
-                        label="Task due dates and deadlines"
-                        hint="From Daly Tasks, always up to date"
-                        isSelected={prefs.overlays.tasks}
-                        onChange={(v) => void save({ ...prefs, overlays: { ...prefs.overlays, tasks: v } })}
-                    />
-                    <Toggle
                         label="My leave"
                         isSelected={prefs.overlays.leave}
                         onChange={(v) => void save({ ...prefs, overlays: { ...prefs.overlays, leave: v } })}

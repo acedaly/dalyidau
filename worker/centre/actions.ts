@@ -1,205 +1,26 @@
-// Acting on public information through the portal's own applications: a task (optionally in a
-// project, with a due date as a reminder), a Knowledge note, and the Today and Calendar views. Each
-// goes through that application's own function and permission checks; nothing here writes to
-// another application's tables.
+// Acting on public information through the portal's own applications: calendar events linked to
+// watch areas, and the Today and Calendar views. Each goes through that application's own function
+// and permission checks; nothing here writes to another application's tables.
 import { z } from "zod";
 import { addDays, localDate } from "../../src/shared/calendar/time";
 import { feedLabel, isSignificant } from "../../src/shared/centre/history";
 import type { SituationReport } from "../../src/shared/centre/reports";
 import { sourceById } from "../../src/shared/centre/sources";
-import type { CentreBriefing, CentreRecord, TodayCentre, TodayCentreItem } from "../../src/shared/centre/types";
-import { RECORD_KIND_LABELS } from "../../src/shared/centre/types";
-import { paragraphsFromText } from "../../src/shared/knowledge/content";
+import type { TodayCentre, TodayCentreItem } from "../../src/shared/centre/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { occurrencesInWindow } from "../calendar/events";
 import { eventDetail } from "../calendar/events";
 import type { Env } from "../env";
-import { ensurePersonalSpace, listSpaces } from "../knowledge/access";
-import { addRelation, createObject } from "../knowledge/objects";
 import { can } from "../portal/auth";
 import { auditStatement, newId, nowIso } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { createTask } from "../tasks/tasks";
 import { listAlerts } from "./alerts";
-import { recordTimeline } from "./history";
 import { listMatches } from "./rules";
-import { getRecord, listChanges, listRecords, loadPreferences, sourceRows } from "./store";
+import { listChanges, listRecords, loadPreferences, sourceRows } from "./store";
 import { listWatches, recordsForWatch, requireWatch } from "./watch";
 
 const when = (iso: string | null) =>
     iso ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "not given";
-
-/** The record as plain text: what it says, where from, and when, with the attribution. */
-export function recordText(record: CentreRecord, site: string): string {
-    const source = sourceById(record.sourceId);
-    return [
-        `${RECORD_KIND_LABELS[record.kind]} from ${record.provider}${source ? ` (${source.dataset})` : ""}.`,
-        record.warningLevel ? `Level as published: ${record.warningLevel}.` : null,
-        record.status ? `Status as published: ${record.status}.` : null,
-        record.areaName ? `Location as published: ${record.areaName}.` : null,
-        record.description,
-        `Published: ${when(record.publishedAt)}. Last official update: ${when(record.updatedAt)}.${record.observedAt ? ` Observed: ${when(record.observedAt)}.` : ""} Collected: ${when(record.lastSeenAt)}.`,
-        record.sourceUrl ? `Official source: ${record.sourceUrl}` : null,
-        `In the Intelligence Centre: ${site}/portal/intelligence-centre/records/${record.id}`,
-        source?.attribution ?? null,
-        "Saved from public information. Always check the official source and follow official warnings.",
-    ]
-        .filter(Boolean)
-        .join("\n\n");
-}
-
-const taskInput = z
-    .object({
-        projectId: z
-            .string()
-            .regex(/^tpj_[a-z0-9]{14}$/)
-            .optional(),
-        dueDate: z
-            .string()
-            .regex(/^\d{4}-\d{2}-\d{2}$/)
-            .nullable()
-            .optional(),
-        title: z.string().trim().min(1).max(200).optional(),
-        clientId: z
-            .string()
-            .regex(/^[A-Za-z0-9_-]{8,64}$/)
-            .optional(),
-    })
-    .strict();
-
-export async function taskFromRecord(env: Env, user: PortalUser, recordId: string, body: unknown) {
-    if (!can(user, "tasks.use")) throw new HttpError(403, "forbidden", "You can't use Daly Tasks");
-    const found = await getRecord(env.DB, recordId);
-    if (!found) throw new HttpError(404, "not_found", "Not found");
-    const input = taskInput.parse(body ?? {});
-    const site = new URL(env.SITE_URL).origin;
-    // Tasks checks the project's membership itself; a project the person can't write to is a 404 there.
-    const { task, replayed } = await createTask(env.DB, user, {
-        title: input.title ?? `Follow up: ${found.record.title}`.slice(0, 200),
-        description: recordText(found.record, site).slice(0, 4000),
-        ...(input.projectId ? { projectId: input.projectId } : {}),
-        ...(input.dueDate ? { dueDate: input.dueDate } : {}),
-        labels: [],
-        clientId: input.clientId ?? `centre-${recordId}`,
-    });
-    return { taskId: task.id, url: `/portal/tasks/t/${task.id}`, replayed };
-}
-
-const knowledgeInput = z
-    .object({
-        spaceId: z
-            .string()
-            .regex(/^ksp_[a-z0-9]{14}$/)
-            .optional(),
-        /** Also link the new note, as evidence, to an existing note in the same space. */
-        relateTo: z
-            .string()
-            .regex(/^kob_[a-z0-9]{14}$/)
-            .optional(),
-    })
-    .strict();
-
-/** Links a saved note to an existing one through Knowledge's own relation function (already linked is fine). */
-async function relate(env: Env, user: PortalUser, objectId: string, relateTo?: string) {
-    if (!relateTo) return false;
-    await addRelation(env.DB, user, objectId, { targetId: relateTo, relationType: "evidence" }).catch((error: unknown) => {
-        if (!(error instanceof HttpError && error.status === 409)) throw error;
-    });
-    return true;
-}
-
-export async function writableSpace(env: Env, user: PortalUser, spaceId?: string) {
-    if (!can(user, "knowledge.use")) throw new HttpError(403, "forbidden", "You can't use Daly Knowledge");
-    // As Knowledge does on first open: someone who hasn't used Knowledge yet still has a personal space.
-    await ensurePersonalSpace(env.DB, user);
-    const spaces = await listSpaces(env.DB, user.email);
-    const space = spaceId ? spaces.find((s) => s.id === spaceId) : (spaces.find((s) => s.kind === "personal") ?? spaces[0]);
-    if (!space || space.role === "viewer") throw new HttpError(404, "not_found", "Choose a space you can add to");
-    return space;
-}
-
-export async function knowledgeFromRecord(env: Env, user: PortalUser, recordId: string, body: unknown) {
-    const found = await getRecord(env.DB, recordId);
-    if (!found) throw new HttpError(404, "not_found", "Not found");
-    const input = knowledgeInput.parse(body ?? {});
-    const space = await writableSpace(env, user, input.spaceId);
-    const site = new URL(env.SITE_URL).origin;
-    // The record's id is the source: saving again returns the note already made.
-    const detail = await createObject(
-        env.DB,
-        user,
-        space.id,
-        {
-            title: found.record.title.slice(0, 300),
-            content: { type: "doc", content: paragraphsFromText(recordText(found.record, site)) },
-            tags: ["intelligence-centre", found.record.category.replace(/_/g, "-")],
-        },
-        { source: { system: "intelligence-centre", id: recordId } },
-    );
-    const linked = await relate(env, user, detail.object.id, input.relateTo);
-    return { objectId: detail.object.id, url: `/portal/knowledge/o/${detail.object.id}`, linked };
-}
-
-/** A record's timeline as a Knowledge note: each event with its nature, its own time and when it was collected. */
-export async function knowledgeFromTimeline(env: Env, user: PortalUser, recordId: string, body: unknown) {
-    const input = knowledgeInput.parse(body ?? {});
-    const timeline = await recordTimeline(env, recordId);
-    if (!timeline) throw new HttpError(404, "not_found", "Not found");
-    const space = await writableSpace(env, user, input.spaceId);
-    const site = new URL(env.SITE_URL).origin;
-    const nature = { official: "Official", observed: "Observed", derived: "Derived, not official", collection: "Collection" } as const;
-    const lines = [
-        `Timeline of ${timeline.title}, from what the Intelligence Centre collected. Saved ${when(nowIso())}.`,
-        ...timeline.events.map(
-            (e) =>
-                `${when(e.at)} · ${nature[e.nature]} · ${e.label}: ${e.detail}${e.collectedAt && e.collectedAt !== e.at ? ` (collected ${when(e.collectedAt)})` : ""}`,
-        ),
-        ...timeline.notes,
-        `In the Intelligence Centre: ${site}/portal/intelligence-centre/records/${recordId}`,
-        "This is not an official warning. Follow official warnings and directions.",
-    ];
-    const detail = await createObject(
-        env.DB,
-        user,
-        space.id,
-        {
-            title: `Timeline: ${timeline.title}`.slice(0, 300),
-            content: { type: "doc", content: paragraphsFromText(lines.join("\n\n").slice(0, 60_000)) },
-            tags: ["intelligence-centre", "timeline"],
-        },
-        // Once per record per hour: saving again soon after returns the same note.
-        { source: { system: "intelligence-centre-timeline", id: `${recordId}:${nowIso().slice(0, 13)}` } },
-    );
-    const linked = await relate(env, user, detail.object.id, input.relateTo);
-    return { objectId: detail.object.id, url: `/portal/knowledge/o/${detail.object.id}`, linked };
-}
-
-export async function knowledgeFromBriefing(env: Env, user: PortalUser, briefing: CentreBriefing, body: unknown) {
-    const input = knowledgeInput.parse(body ?? {});
-    const space = await writableSpace(env, user, input.spaceId);
-    const site = new URL(env.SITE_URL).origin;
-    const lines = [
-        `${briefing.title}, ${when(briefing.generatedAt)}. Facts from public sources collected by the Intelligence Centre.`,
-        ...briefing.sections.flatMap((s) => [s.title, ...s.facts.map((f) => `${f.text}${f.url ? ` (${site}${f.url})` : ""}`)]),
-        briefing.gaps.length ? `Not included (source not active): ${briefing.gaps.map((g) => g.dataset).join("; ")}.` : null,
-        briefing.interpretation.items.length ? "Interpretation (AI, not facts):" : null,
-        ...briefing.interpretation.items.map((i) => `${i.text} [${i.refs.join(", ")}]`),
-        "This is not an official warning. Follow official warnings and directions.",
-    ].filter((l): l is string => !!l);
-    const detail = await createObject(
-        env.DB,
-        user,
-        space.id,
-        {
-            title: `${briefing.title} (${briefing.generatedAt.slice(0, 10)})`,
-            content: { type: "doc", content: paragraphsFromText(lines.join("\n\n")) },
-            tags: ["intelligence-centre", "briefing"],
-        },
-        { source: { system: "intelligence-centre-briefing", id: `${briefing.scope}:${briefing.watchId ?? "nsw"}:${briefing.generatedAt.slice(0, 13)}` } },
-    );
-    const linked = await relate(env, user, detail.object.id, input.relateTo);
-    return { objectId: detail.object.id, url: `/portal/knowledge/o/${detail.object.id}`, linked };
-}
 
 // --- Journeys: calendar events linked to watch areas ---------------------------------------------------
 

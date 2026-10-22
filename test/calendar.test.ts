@@ -1,5 +1,5 @@
 // Daly Calendar and the Leave Planner through the Worker: privacy between people and household
-// sharing, repeating events, links to Tasks and Knowledge, external subscriptions, outbound feeds,
+// sharing, repeating events, the retired links to Tasks and Knowledge, external subscriptions, outbound feeds,
 // leave, MCP tools, notifications, backup and the database's own guarantees. Every identity, event
 // and calendar is invented; no real network is touched (fetch and DNS are stand-ins).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +9,7 @@ import { processCalendarNotifications } from "../worker/calendar/notify";
 import { processDueSubscriptions } from "../worker/calendar/subscriptions";
 import type { Env } from "../worker/env";
 import { type PortalMcpResponse, handleMcpCall } from "../worker/mcp/entrypoint";
-import { create as createKnowledge, personal as knowledgeSpace } from "./knowledge-helpers";
 import { OWNER, SECOND_OWNER, accessToken, apiCall, db, portalEnv, call as rawCall, resetPortal } from "./portal-helpers";
-import { createTask } from "./tasks-helpers";
 
 const A = OWNER;
 const B = SECOND_OWNER;
@@ -289,19 +287,8 @@ describe("repeating events", () => {
     });
 });
 
-describe("Tasks and Knowledge", () => {
-    it("shows task due dates from Tasks itself, so moving a task moves it in the calendar", async () => {
-        const task = await createTask({ title: "Book the plumber", dueDate: "2026-10-21" });
-        const overlays = async () =>
-            (await ok<{ overlays: { tasks: { id: string; date: string }[] } }>("GET", "/overlays?from=2026-10-19&to=2026-10-31")).overlays.tasks;
-        expect(await overlays()).toEqual([expect.objectContaining({ id: task.id, date: "2026-10-21" })]);
-        await apiCall("PATCH", `/api/portal/tasks/tasks/${task.id}`, { version: task.version, dueDate: "2026-10-28" });
-        expect(await overlays()).toEqual([expect.objectContaining({ id: task.id, date: "2026-10-28" })]);
-        // B never sees A's tasks.
-        expect((await ok<{ overlays: { tasks: unknown[] } }>("GET", "/overlays?from=2026-10-19&to=2026-10-31", undefined, B)).overlays.tasks).toEqual([]);
-    });
-
-    it("creates a task from an event and links Tasks and Knowledge records through their own permissions", async () => {
+describe("Tasks and Knowledge (retired)", () => {
+    it("shows no task overlays or event links, and refuses the retired task and link routes", async () => {
         const e = await event({
             title: "Parent-teacher night",
             allDay: false,
@@ -310,29 +297,23 @@ describe("Tasks and Knowledge", () => {
             endDate: "2026-10-22",
             endTime: "19:00",
         });
-        const made = await ok<{ task: { id: string; dueDate: string; dueTime: string } }>("POST", `/events/${e.id}/task`, {
-            dueDate: "2026-10-22",
-            dueTime: "18:00",
-            clientId: "task-12345678",
-        });
-        expect(made.task).toMatchObject({ dueDate: "2026-10-22", dueTime: "18:00" });
-        const space = await knowledgeSpace(A);
-        const note = await createKnowledge(space.id, { title: "Questions for the teacher" });
-        await ok("POST", `/events/${e.id}/links`, { kind: "knowledge", targetId: note.object.id });
-        const detail = (await ok<{ event: EventDetail }>("GET", `/events/${e.id}`)).event;
-        expect(detail.links.map((l) => (l.available ? [l.kind, l.title] : [l.kind, null]))).toEqual([
-            ["task", "Prepare for Parent-teacher night"],
-            ["knowledge", "Questions for the teacher"],
-        ]);
-        // Someone else's task or note can't be linked: it doesn't exist as far as they're concerned.
-        const theirs = await createTask({ title: "B's own task" }, B);
-        expect((await cal("POST", `/events/${e.id}/links`, { kind: "task", targetId: theirs.id })).status).toBe(404);
-        // B, given the event on a shared calendar, sees that the links exist, but not what they are.
-        const home = await shared();
-        await ok("POST", `/calendars/${home.id}/members`, { email: B, role: "viewer" });
-        await ok("PATCH", `/events/${e.id}`, { version: detail.version, calendarId: home.id });
-        const asB = (await ok<{ event: EventDetail }>("GET", `/events/${e.id}`, undefined, B)).event;
-        expect(asB.links.every((l) => !l.available)).toBe(true);
+        const overlays = (await ok<{ overlays: Record<string, unknown> }>("GET", "/overlays?from=2026-10-19&to=2026-10-31")).overlays;
+        expect(overlays).not.toHaveProperty("tasks");
+        expect((await ok<{ event: EventDetail }>("GET", `/events/${e.id}`)).event).not.toHaveProperty("links");
+        for (const [method, path] of [
+            ["POST", `/events/${e.id}/task`],
+            ["POST", `/events/${e.id}/links`],
+            ["DELETE", `/events/${e.id}/links/cel_aaaaaaaaaaaaaa`],
+        ] as const) {
+            const r = await cal<{ error: string }>(method, path, method === "DELETE" ? undefined : { kind: "task", targetId: "tsk_aaaaaaaaaaaaaa" });
+            expect(r.status, `${method} ${path}`).toBe(410);
+            expect(r.json.error).toBe("retired");
+        }
+        // Preferences saved with the retired task overlay still load, and save without it.
+        const prefs = (await ok<{ preferences: Record<string, unknown> & { overlays: Record<string, boolean> } }>("GET", "/preferences")).preferences;
+        expect(prefs.overlays).not.toHaveProperty("tasks");
+        expect((await cal("PUT", "/preferences", { preferences: { ...prefs, overlays: { ...prefs.overlays, tasks: true } } })).status).toBeLessThan(300);
+        expect((await ok<{ preferences: { overlays: Record<string, boolean> } }>("GET", "/preferences")).preferences.overlays).not.toHaveProperty("tasks");
     });
 });
 
@@ -493,7 +474,7 @@ describe("private ICS feeds", () => {
         });
         const created = await ok<{ address: string; feed: { id: string } }>("POST", "/feeds", {
             name: "Work calendar",
-            scope: { calendarIds: [mine.id], leave: false, tasks: "none", detail: "full" },
+            scope: { calendarIds: [mine.id], leave: false, detail: "full" },
         });
         expect(created.address).toMatch(/^https:\/\/daly\.id\.au\/calendar\/feed\/[A-Za-z0-9_-]{43}\.ics$/);
         const t = token(created.address);
@@ -527,7 +508,7 @@ describe("private ICS feeds", () => {
         const { address } = await ok<{ address: string }>(
             "POST",
             "/feeds",
-            { name: "Shared", scope: { calendarIds: [theirs.id], leave: false, tasks: "none", detail: "busy" } },
+            { name: "Shared", scope: { calendarIds: [theirs.id], leave: false, detail: "busy" } },
             B,
         );
         const text = await (await getFeed(token(address))).text();
@@ -538,9 +519,7 @@ describe("private ICS feeds", () => {
         // Subscribed calendars can't be republished.
         stubNetwork(() => new Response(feed(vevent("a", "2026-11-02", "Assembly"))));
         const { subscription } = await ok<{ subscription: SubscriptionInfo }>("POST", "/subscriptions", { url: FEED });
-        expect(
-            (await cal("POST", "/feeds", { name: "x", scope: { calendarIds: [subscription.calendarId], leave: false, tasks: "none", detail: "full" } })).status,
-        ).toBe(422);
+        expect((await cal("POST", "/feeds", { name: "x", scope: { calendarIds: [subscription.calendarId], leave: false, detail: "full" } })).status).toBe(422);
     });
 });
 

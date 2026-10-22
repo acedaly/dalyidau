@@ -13,6 +13,9 @@
 // 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
 //    spaces and the wedding and blog rows are there.
 //
+// Daly Knowledge, Daly Tasks and the DalyHub import are retired, but their records are kept until the
+// approved cleanup (docs/DECOMMISSION_KNOWLEDGE_TASKS.md), so backups must still carry them intact.
+//
 // Nothing remote is touched. The scratch databases and the backup it makes are deleted afterwards.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";

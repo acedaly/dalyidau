@@ -10,7 +10,6 @@ import { dueState, nextDue } from "../../src/shared/assets/engine";
 import { BUILTIN_TEMPLATES } from "../../src/shared/assets/templates";
 import {
     type HouseholdTemplate,
-    type LinkedTask,
     type MaintenanceView,
     OPEN_MAINTENANCE,
     type Rights,
@@ -23,10 +22,8 @@ import {
     updateScheduleInput,
 } from "../../src/shared/assets/types";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { can } from "../portal/auth";
 import { newId, nowIso, parseJson } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { completeTask } from "../tasks/tasks";
 import {
     type AssetAccessRow,
     type LocationRow,
@@ -151,7 +148,6 @@ interface ScheduleRow {
     notes: string | null;
     template_id: string | null;
     auto_next: number;
-    task_lead_days: number | null;
     active: number;
     version: number;
     created_by: string;
@@ -195,7 +191,6 @@ export function scheduleOut(r: ScheduleRow, target: Target, today: string, soonD
         notes: r.notes,
         templateId: r.template_id,
         autoNext: !!r.auto_next,
-        taskLeadDays: r.task_lead_days,
         active: !!r.active,
         openRecordId: r.open_id ?? null,
         version: r.version,
@@ -271,7 +266,6 @@ export async function createSchedule(db: D1Database, user: PortalUser, input: un
         notes: body.notes ?? null,
         template_id: body.templateId ?? null,
         auto_next: body.autoNext === false ? 0 : 1,
-        task_lead_days: body.taskLeadDays ?? null,
         active: body.active === false ? 0 : 1,
         version: 1,
         created_by: user.email,
@@ -281,9 +275,9 @@ export async function createSchedule(db: D1Database, user: PortalUser, input: un
         db
             .prepare(
                 `INSERT INTO asset_schedules (id, asset_id, location_id, title, category, interval_count, interval_unit, interval_km, first_due_on, first_due_km,
-                    last_done_on, last_done_km, next_due_on, next_due_km, reminder_days, responsibility, provider, notes, template_id, auto_next, task_lead_days, active,
+                    last_done_on, last_done_km, next_due_on, next_due_km, reminder_days, responsibility, provider, notes, template_id, auto_next, active,
                     created_by, created_at, updated_by, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
                 id,
@@ -306,7 +300,6 @@ export async function createSchedule(db: D1Database, user: PortalUser, input: un
                 row.notes,
                 row.template_id,
                 row.auto_next,
-                row.task_lead_days,
                 row.active,
                 user.email,
                 now,
@@ -332,7 +325,6 @@ const SCHEDULE_COLUMNS: Record<string, string> = {
     provider: "provider",
     notes: "notes",
     templateId: "template_id",
-    taskLeadDays: "task_lead_days",
 };
 
 export async function updateSchedule(db: D1Database, user: PortalUser, id: string, input: unknown): Promise<ScheduleView> {
@@ -423,26 +415,12 @@ interface MaintenanceRow {
     client_id: string | null;
     version: number;
     updated_at: string;
-    task_id: string | null;
-    task_title: string | null;
-    task_status: string | null;
-    task_due: string | null;
     files: number;
 }
 
-/** Records with their linked task as the caller may see it (?1 is the caller). */
-const RECORD_SELECT = `SELECT m.*, tl.task_id,
-        CASE WHEN tm.email IS NOT NULL THEN t.title END AS task_title,
-        CASE WHEN tm.email IS NOT NULL THEN t.status END AS task_status,
-        CASE WHEN tm.email IS NOT NULL THEN t.due_date END AS task_due,
-        (SELECT COUNT(*) FROM asset_files f WHERE f.maintenance_id = m.id AND f.status = 'stored') AS files
-    FROM asset_maintenance m
-    LEFT JOIN asset_task_links tl ON tl.ref_kind = 'maintenance' AND tl.ref_id = m.id
-    LEFT JOIN task_items t ON t.id = tl.task_id
-    LEFT JOIN task_project_members tm ON tm.project_id = t.project_id AND tm.email = ?1`;
-
-const linkedTask = (r: Pick<MaintenanceRow, "task_id" | "task_title" | "task_status" | "task_due">): LinkedTask | null =>
-    r.task_id ? { taskId: r.task_id, available: r.task_title !== null, title: r.task_title, status: r.task_status, dueDate: r.task_due } : null;
+/** Records with their file counts. */
+const RECORD_SELECT = `SELECT m.*, (SELECT COUNT(*) FROM asset_files f WHERE f.maintenance_id = m.id AND f.status = 'stored') AS files
+    FROM asset_maintenance m`;
 
 export function recordOut(r: MaintenanceRow, target: Target, today: string, soonDays: number, soonKm: number): MaintenanceView {
     const open = OPEN_MAINTENANCE.includes(r.status);
@@ -474,7 +452,6 @@ export function recordOut(r: MaintenanceRow, target: Target, today: string, soon
         approval: r.approval,
         checklist: parseJson<{ text: string; done: boolean }[]>(r.checklist, []),
         state: open ? dueState({ dueOn: r.due_on, dueKm: r.due_km, currentKm: target.currentKm, today, soonDays, soonKm }).state : null,
-        task: linkedTask(r),
         calendarEventId: r.calendar_event_id,
         fileCount: r.files,
         canEdit: target.maintain,
@@ -493,7 +470,7 @@ export interface RecordFilter {
 export async function listMaintenance(db: D1Database, user: PortalUser, filter: RecordFilter = {}, targets?: Map<string, Target>): Promise<MaintenanceView[]> {
     const all = targets ?? (await targetsFor(db, user));
     const where: string[] = [];
-    const binds: unknown[] = [user.email];
+    const binds: unknown[] = [];
     if (filter.assetId) {
         where.push(`m.asset_id = ?${binds.push(filter.assetId)}`);
     } else if (filter.locationId) {
@@ -513,7 +490,7 @@ export async function listMaintenance(db: D1Database, user: PortalUser, filter: 
 }
 
 export async function requireRecord(db: D1Database, user: PortalUser, id: string, maintain: boolean): Promise<{ row: MaintenanceRow; target: Target }> {
-    const row = await db.prepare(`${RECORD_SELECT} WHERE m.id = ?2`).bind(user.email, id).first<MaintenanceRow>();
+    const row = await db.prepare(`${RECORD_SELECT} WHERE m.id = ?`).bind(id).first<MaintenanceRow>();
     if (!row) throw notFound();
     const target = await requireTarget(db, user, { assetId: row.asset_id, locationId: row.location_id }, false).catch(() => {
         throw notFound();
@@ -681,8 +658,6 @@ export interface CompletionResult {
     record: MaintenanceView;
     /** The next record created from the schedule, if any. */
     next: MaintenanceView | null;
-    /** null: no linked task; true: completed now (or already); false: couldn't (no access, or Tasks refused). */
-    taskCompleted: boolean | null;
     alreadyDone: boolean;
 }
 
@@ -695,7 +670,7 @@ export async function completeMaintenance(
 ): Promise<CompletionResult> {
     const body = completeMaintenanceInput.parse(input);
     const { row, target } = await requireRecord(db, user, id, true);
-    if (row.status === "completed") return { record: await maintenanceView(db, user, id), next: null, taskCompleted: null, alreadyDone: true };
+    if (row.status === "completed") return { record: await maintenanceView(db, user, id), next: null, alreadyDone: true };
     if (row.status === "cancelled") throw new HttpError(422, "validation", "This record was cancelled");
     if (body.version !== undefined && body.version !== row.version) throw new MaintenanceConflict({ version: row.version, updatedAt: row.updated_at });
     const { today } = await clockFor(db, user.email);
@@ -763,23 +738,12 @@ export async function completeMaintenance(
         }
     }
     const results = await db.batch(statements);
-    if (!results[0].meta.changes) return { record: await maintenanceView(db, user, id), next: null, taskCompleted: null, alreadyDone: true };
+    if (!results[0].meta.changes) return { record: await maintenanceView(db, user, id), next: null, alreadyDone: true };
     const nextCreated = nextId && results[results.length - 1].meta.changes ? nextId : null;
     if (body.odometer && target.kind === "asset") await recordOdometer(db, user, target.id, body.odometer, body.completedOn, id);
-    // The linked task, through Tasks' own completion (its permissions and history). Tasks never
-    // writes back here, so there's no loop: a task finished in Tasks is shown as done on the record.
-    let taskCompleted: boolean | null = null;
-    if (row.task_id && body.completeTask !== false) {
-        if (!can(user, "tasks.use")) taskCompleted = false;
-        else
-            taskCompleted = await completeTask(db, user, row.task_id, {})
-                .then(() => true)
-                .catch(() => false);
-    }
     return {
         record: await maintenanceView(db, user, id),
         next: nextCreated ? await maintenanceView(db, user, nextCreated) : null,
-        taskCompleted,
         alreadyDone: false,
     };
 }

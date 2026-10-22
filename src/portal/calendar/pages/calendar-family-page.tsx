@@ -178,8 +178,6 @@ export const CalendarFamilyPage = ({ data }: { data: PageData<"calendar-family">
                 calendars={f.calendars.length ? f.calendars : data.calendars}
                 timeZone={data.preferences.timeZone}
                 defaultReminder={data.preferences.defaultReminderMinutes}
-                canUseTasks={data.canUseTasks}
-                canUseKnowledge={data.canUseKnowledge}
             />
         </>
     );

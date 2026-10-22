@@ -1,22 +1,15 @@
 // Custom dates (a school's own development days, regional holidays, non-working days) and the
-// overlays drawn on every view: public holidays, school terms, task due dates and leave.
-//
-// Task overlays come straight from Daly Tasks' own views every time, so a moved due date shows up
-// here without anyone touching the calendar, and only the caller's own tasks (as Tasks decides) are
-// ever shown.
+// overlays drawn on every view: public holidays, school terms, leave and Home & Assets reminders.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { holidayOverlays, schoolOverlays } from "../../src/shared/calendar/holidays";
-import { addDays, daysBetween } from "../../src/shared/calendar/time";
-import { CUSTOM_DATE_KINDS, type CalendarPreferences, type CustomDate, type LeaveData, type Overlays, type TaskOverlay } from "../../src/shared/calendar/types";
+import { daysBetween } from "../../src/shared/calendar/time";
+import { CUSTOM_DATE_KINDS, type CalendarPreferences, type CustomDate, type LeaveData, type Overlays } from "../../src/shared/calendar/types";
 import type { PortalUser } from "../../src/shared/portal/types";
 import { assetOverlays } from "../assets/dashboard";
-import { projectNames } from "../mcp/shared";
-import { can } from "../portal/auth";
 import { newId, nowIso } from "../portal/db";
 import { ValidationError } from "../portal/entities";
 import { HttpError } from "../portal/http";
-import { listDeadlines, listUpcoming } from "../tasks/views";
 import { activity } from "./access";
 
 interface CustomRow {
@@ -91,37 +84,6 @@ export async function deleteCustomDate(db: D1Database, user: PortalUser, id: str
     return listCustomDates(db, user);
 }
 
-/** Open tasks due (or with a deadline, or milestones) in a window, as Tasks shows them to the caller. */
-export async function taskOverlays(db: D1Database, user: PortalUser, from: string, to: string, today: string): Promise<TaskOverlay[]> {
-    if (!can(user, "tasks.use")) return [];
-    const [due, deadlines] = await Promise.all([listUpcoming(db, user.email, from, to, today), listDeadlines(db, user.email, from, to)]);
-    const names = await projectNames({ db, user } as Parameters<typeof projectNames>[0], [...due, ...deadlines]);
-    const out: TaskOverlay[] = [];
-    for (const t of due)
-        if (t.dueDate)
-            out.push({
-                id: t.id,
-                title: t.title,
-                date: t.dueDate,
-                time: t.dueTime,
-                kind: t.isMilestone ? "milestone" : "due",
-                projectName: names.get(t.projectId) ?? "",
-                priority: t.priority,
-            });
-    for (const t of deadlines)
-        if (t.deadline)
-            out.push({
-                id: t.id,
-                title: t.title,
-                date: t.deadline,
-                time: null,
-                kind: "deadline",
-                projectName: names.get(t.projectId) ?? "",
-                priority: t.priority,
-            });
-    return out.slice(0, 500);
-}
-
 /** Leave (the caller's, and what others share) overlapping a window. Scenario and cancelled leave never show. */
 export function leaveOverlays(leave: LeaveData, from: string, to: string, includeShared: boolean): Overlays["leave"] {
     const types = new Map(leave.types.map((t) => [t.id, t]));
@@ -147,20 +109,11 @@ export function leaveOverlays(leave: LeaveData, from: string, to: string, includ
 }
 
 /** Every overlay for a window, according to the person's overlay choices. */
-export async function overlaysFor(
-    db: D1Database,
-    user: PortalUser,
-    prefs: CalendarPreferences,
-    leave: LeaveData,
-    from: string,
-    to: string,
-    today: string,
-): Promise<Overlays> {
+export async function overlaysFor(db: D1Database, user: PortalUser, prefs: CalendarPreferences, leave: LeaveData, from: string, to: string): Promise<Overlays> {
     const o = prefs.overlays;
     return {
         holidays: o.holidays ? holidayOverlays(from, to, leave.profile.settings, leave.customDates) : [],
         school: o.school ? schoolOverlays(from, to, prefs.schoolDivision, leave.customDates) : [],
-        tasks: o.tasks ? await taskOverlays(db, user, from, addDays(to, 0), today) : [],
         leave: o.leave ? leaveOverlays(leave, from, to, o.sharedLeave) : [],
         nonWorking: leave.customDates
             .filter((d) => d.kind === "non_working" && d.mine && d.end >= from && d.start <= to)

@@ -1,10 +1,10 @@
-// Search across Home & Assets (assets, maintenance, documents, places) and Daly Knowledge, through
-// each one's own access rules: nothing shows up that you couldn't open.
-import { BookOpen01, File04, Home02, Package, SearchLg, Tool02 } from "@untitledui/icons";
+// Search across Home & Assets (assets, maintenance, documents, places), through its own access
+// rules: nothing shows up that you couldn't open.
+import { File04, Home02, Package, SearchLg, Tool02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { Card } from "@/portal/components/card";
 import { Empty } from "@/portal/components/empty";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import type { PageData } from "@/portal/lib/page-types";
 import { FILE_KIND_LABELS } from "@/shared/assets/types";
 import { fileUrl } from "../assets-api";
@@ -12,10 +12,10 @@ import { ASSETS, AssetThumb, AssetsHeader, assetHref, locationHref, shortDate } 
 
 export const AssetsSearchPage = ({ data }: { data: PageData<"assets-search"> }) => {
     const r = data.results;
-    const total = r.assets.length + r.maintenance.length + r.files.length + r.locations.length + (r.knowledge?.length ?? 0);
+    const total = r.assets.length + r.maintenance.length + r.files.length + r.locations.length;
     return (
         <>
-            <AssetsHeader title="Search" description="Assets, maintenance, documents, places and your Knowledge." crumbs={[{ label: "Search" }]} />
+            <AssetsHeader title="Search" description="Assets, maintenance, documents and places." crumbs={[{ label: "Search" }]} />
             <form action={`${ASSETS}/search`} method="get" role="search" className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <Input name="q" label="Search for" defaultValue={data.q} icon={SearchLg} className="sm:w-96" type="search" />
                 <Button size="md" type="submit">
@@ -93,23 +93,6 @@ export const AssetsSearchPage = ({ data }: { data: PageData<"assets-search"> }) 
                                         <a href={locationHref(l.id)} className="text-sm font-medium text-primary hover:underline">
                                             {l.name}
                                         </a>
-                                    </li>
-                                ))}
-                            </ul>
-                        </Card>
-                    )}
-                    {r.knowledge && r.knowledge.length > 0 && (
-                        <Card title={`Knowledge (${r.knowledge.length})`} icon={BookOpen01}>
-                            <ul className="flex flex-col divide-y divide-secondary">
-                                {r.knowledge.map((k) => (
-                                    <li key={k.id} className="flex flex-col px-4 py-2.5 sm:px-5">
-                                        <a href={`/portal/knowledge/o/${k.id}`} className="text-sm font-medium text-primary hover:underline">
-                                            {k.title}
-                                        </a>
-                                        <span className="text-xs text-tertiary">
-                                            {k.spaceName}
-                                            {k.snippet ? ` · ${k.snippet}` : ""}
-                                        </span>
                                     </li>
                                 ))}
                             </ul>

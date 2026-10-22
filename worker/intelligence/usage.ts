@@ -24,14 +24,13 @@ export class BudgetExceeded extends HttpError {
 
 export interface UsageRow {
     email: string | null;
-    spaceId?: string | null;
     feature: string;
-    task: "generate" | "extract" | "summarise" | "classify" | "embed" | "transcribe" | "document";
+    task: "generate" | "extract" | "summarise" | "document";
     provider: string;
     model: string;
     inputUnits: number;
     outputUnits: number;
-    unit: "tokens" | "audio_seconds" | "documents";
+    unit: "tokens" | "documents";
     neurons: number;
     measured: boolean;
     durationMs: number;
@@ -52,7 +51,8 @@ export async function recordUsage(db: D1Database, row: UsageRow) {
             utcDay(now),
             utcMonth(now),
             row.email,
-            row.spaceId ?? null,
+            // space_id: Knowledge spaces, before Knowledge was retired.
+            null,
             row.feature.slice(0, 40),
             row.task,
             row.provider,

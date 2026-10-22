@@ -1,14 +1,12 @@
 // Today's arithmetic: daily capacity, overbooked periods, the combined timeline and the Chief of
-// Staff's recommended next actions. Pure functions of their inputs, like the planner engine they build
-// on (src/shared/planner/engine.ts), so the page, the Worker and MCP always agree, and the same
-// inputs always give the same answer. Nothing here writes or calls a model.
+// Staff's recommended next actions. Pure functions of their inputs, like the availability they build
+// on (./availability.ts), so the page, the Worker and MCP always agree, and the same inputs always
+// give the same answer. Nothing here writes or calls a model.
 //
-// Overlaps are handled with interval unions: two meetings at the same time take that time once, and a
-// task session over a meeting isn't counted again as task time. Every figure comes with a plain
-// explanation of how it was worked out.
+// Overlaps are handled with interval unions: two meetings at the same time take that time once. Every
+// figure comes with a plain explanation of how it was worked out.
 import { addDays, timeLabel, wallClock, zonedInstant } from "../calendar/time";
-import { type Availability, type Commitment, type Interval, type WeeklyPeriod, freeTime, intersect, merge, periodOn, subtract } from "../planner/engine";
-import type { PlannerConflict, PlannerPreferences, TimeBlockInfo } from "../planner/types";
+import { type Availability, type Commitment, type Interval, freeTime, intersect, merge, subtract } from "./availability";
 import type { BriefingRef, DayTimeline, NextAction, Overbooked, TimelineItem, TodayCapacity } from "./types";
 
 const MINUTE = 60_000;
@@ -66,45 +64,32 @@ export function overbooked(commitments: readonly Commitment[], timeZone: string)
         startTime: clockOf(r.start, timeZone),
         endTime: clockOf(r.end, timeZone),
         minutes: minutes(r),
-        with: [...r.ids].sort((a, b) => a - b).map((i) => ({ id: busy[i].id, title: busy[i].title, kind: busy[i].kind })),
+        with: [...r.ids].sort((a, b) => a - b).map((i) => ({ id: busy[i].id, title: busy[i].title })),
     }));
 }
 
 /**
  * A day's capacity. Planning hours come from availability (working hours less leave, public holidays,
- * non-working days and breaks); appointments and task sessions are unions inside them, sessions
- * counted only where they don't overlap an appointment; free time is what's left.
+ * non-working days and breaks); appointments are a union inside them; free time is what's left.
  */
-export function dayCapacity(
-    day: Availability,
-    commitments: readonly Commitment[],
-    prefs: PlannerPreferences,
-    unscheduledMinutes: number,
-    timeZone: string,
-): TodayCapacity {
+export function dayCapacity(day: Availability, commitments: readonly Commitment[], timeZone: string): TodayCapacity {
     const window = day.window;
-    const busy = commitments.filter((c) => c.busy);
-    const events = merge(busy.filter((c) => c.kind === "event").map(span));
-    const blocks = merge(busy.filter((c) => c.kind === "block").map(span));
-    const all = merge([...events, ...blocks]);
+    const events = merge(commitments.filter((c) => c.busy).map(span));
     const available = total(window);
     const appointment = total(intersect(window, events));
-    const task = total(intersect(window, subtract(blocks, events)));
-    const committed = total(intersect(window, all));
-    const free = available - committed;
+    const free = available - appointment;
     const breakMinutes = total(day.breaks ?? []);
-    // Commitments that day (local midnight to midnight) outside the hours.
+    // Appointments that day (local midnight to midnight) outside the hours.
     const whole = [{ start: ms(zonedInstant(day.date, "00:00", timeZone)), end: ms(zonedInstant(addDays(day.date, 1), "00:00", timeZone)) }];
-    const outside = total(subtract(intersect(all, whole), window));
+    const outside = total(subtract(intersect(events, whole), window));
     const over = overbooked(commitments, timeZone);
     const overMinutes = total(merge(over.map(span)));
-    const shortfall = Math.max(0, unscheduledMinutes - Math.max(0, Math.min(free, prefs.dailyFocusMinutes - task)));
 
     let status: TodayCapacity["status"];
     if (!available) status = "off";
-    else if (shortfall > 0 || overMinutes > 0) status = "over";
-    else if (free < available * 0.2 || task >= prefs.dailyFocusMinutes) status = "full";
-    else if (committed < available * 0.5) status = "light";
+    else if (overMinutes > 0) status = "over";
+    else if (free < available * 0.2) status = "full";
+    else if (appointment < available * 0.5) status = "light";
     else status = "balanced";
 
     const explanation: string[] = [];
@@ -117,49 +102,27 @@ export function dayCapacity(
         const cut = total(day.configured) - available - breakMinutes;
         if (cut > 0) explanation.push(`Less ${hoursLabel(cut)} of leave.`);
         explanation.push(`${hoursLabel(available)} available.`);
-        explanation.push(
-            `Appointments take ${hoursLabel(appointment)} of it${events.length > 1 ? " (overlapping appointments counted once)" : ""}; task sessions take ${hoursLabel(task)} more${
-                total(intersect(window, blocks)) > task ? " (the parts over appointments aren't counted twice)" : ""
-            }.`,
-        );
+        explanation.push(`Appointments take ${hoursLabel(appointment)} of it${events.length > 1 ? " (overlapping appointments counted once)" : ""}.`);
         explanation.push(`${hoursLabel(free)} free.`);
     }
-    if (outside) explanation.push(`${hoursLabel(outside)} of commitments fall outside the planning hours and don't reduce them.`);
+    if (outside) explanation.push(`${hoursLabel(outside)} of appointments fall outside the planning hours and don't reduce them.`);
     if (over.length)
         explanation.push(`Overbooked for ${hoursLabel(overMinutes)}: ${over.map((o) => `${timeLabel(o.startTime)}–${timeLabel(o.endTime)}`).join(", ")}.`);
-    if (unscheduledMinutes)
-        explanation.push(
-            `${hoursLabel(unscheduledMinutes)} of estimated work is due and not yet planned${
-                shortfall ? `; ${hoursLabel(shortfall)} of it doesn't fit in the free time and daily focus limit` : ""
-            }.`,
-        );
 
     return {
         date: day.date,
         availableMinutes: available,
         appointmentMinutes: appointment,
-        taskMinutes: task,
-        committedMinutes: committed,
         freeMinutes: free,
         breakMinutes,
         outsideMinutes: outside,
         overbooked: over,
         overbookedMinutes: overMinutes,
-        unscheduledMinutes,
-        shortfallMinutes: shortfall,
-        focusLimitMinutes: prefs.dailyFocusMinutes,
         status,
         offReason: available ? null : day.offReason,
         explanation,
     };
 }
-
-/** Focus periods on one date, as instants. */
-export const focusOn = (date: string, periods: readonly WeeklyPeriod[], timeZone: string): (Interval & { label: string })[] =>
-    periods.flatMap((p) => {
-        const i = periodOn(date, p, timeZone);
-        return i ? [{ ...i, label: p.label || "Focus time" }] : [];
-    });
 
 // --- Timeline ------------------------------------------------------------------------------------
 
@@ -183,30 +146,35 @@ export interface TimelineInputs {
     timeZone: string;
     day: Availability;
     events: readonly TimelineEvent[];
-    blocks: readonly TimeBlockInfo[];
-    conflicts: readonly PlannerConflict[];
     commitments: readonly Commitment[];
     bufferMinutes: number;
-    focus: readonly (Interval & { label: string })[];
     leave: readonly { id: string; title: string; allDay: boolean; url: string | null }[];
     holidays: readonly { id: string; title: string }[];
     /** Free time before this isn't shown (now, on today). */
     after: number;
 }
 
+const fixedItem = (item: Omit<TimelineItem, "readOnly" | "busy" | "shared" | "conflict" | "url"> & Partial<TimelineItem>): TimelineItem => ({
+    readOnly: true,
+    busy: false,
+    shared: false,
+    conflict: false,
+    url: null,
+    ...item,
+});
+
 /**
- * The day as one ordered list: fixed events, movable task sessions, breaks, focus periods and free
- * time, in time order. Events from subscribed or imported calendars, and events the person can't
- * edit, are marked read-only: Today never changes them.
+ * The day as one ordered list: events, breaks, part-day leave and free time, in time order. Events
+ * from subscribed or imported calendars, and events the person can't edit, are marked read-only:
+ * Today never changes them. Events in an overbooked period are marked as conflicts.
  */
 export function dayTimeline(input: TimelineInputs): DayTimeline {
     const { timeZone } = input;
     const local = (value: string) => wallClock(new Date(value), timeZone).time;
-    const conflicted = new Set(input.conflicts.map((c) => c.blockId).filter(Boolean));
+    const conflicted = new Set(overbooked(input.commitments, timeZone).flatMap((o) => o.with.map((w) => w.id)));
     const items: TimelineItem[] = [];
     for (const e of input.events) {
         if (e.allDay) continue;
-        const m = minutes(span(e));
         items.push({
             id: e.id,
             kind: "event",
@@ -215,127 +183,65 @@ export function dayTimeline(input: TimelineInputs): DayTimeline {
             end: e.end,
             startTime: local(e.start),
             endTime: local(e.end),
-            minutes: m,
-            fixed: true,
-            movable: false,
+            minutes: minutes(span(e)),
             readOnly: e.readOnly,
             busy: e.busy && e.counts,
             shared: e.shared,
-            conflict: false,
+            conflict: conflicted.has(e.id),
             detail: [!e.busy ? "Shows as free" : !e.counts ? "Doesn't count towards availability" : null, e.detail].filter(Boolean).join(" · ") || null,
             url: e.url,
-            taskId: null,
-        });
-    }
-    for (const b of input.blocks) {
-        items.push({
-            id: b.id,
-            kind: "block",
-            title: b.title,
-            start: b.start,
-            end: b.end,
-            startTime: b.startTime,
-            endTime: b.endTime,
-            minutes: b.durationMinutes,
-            fixed: false,
-            movable: b.canEdit && b.status === "scheduled" && b.taskStatus === "open" && !b.earlierOccurrence,
-            readOnly: !b.canEdit,
-            busy: b.status === "scheduled",
-            shared: false,
-            conflict: conflicted.has(b.id),
-            detail: [b.projectName, b.taskStatus === "completed" || b.earlierOccurrence ? "Task completed" : null].filter(Boolean).join(" · ") || null,
-            url: `/portal/tasks/t/${b.taskId}`,
-            taskId: b.taskId,
         });
     }
     for (const br of input.day.breaks ?? []) {
-        items.push({
-            id: `break:${br.start}`,
-            kind: "break",
-            title: br.label,
-            start: iso(br.start),
-            end: iso(br.end),
-            startTime: clockOf(br.start, timeZone),
-            endTime: clockOf(br.end, timeZone),
-            minutes: minutes(br),
-            fixed: true,
-            movable: false,
-            readOnly: true,
-            busy: false,
-            shared: false,
-            conflict: false,
-            detail: "Break",
-            url: null,
-            taskId: null,
-        });
+        items.push(
+            fixedItem({
+                id: `break:${br.start}`,
+                kind: "break",
+                title: br.label,
+                start: iso(br.start),
+                end: iso(br.end),
+                startTime: clockOf(br.start, timeZone),
+                endTime: clockOf(br.end, timeZone),
+                minutes: minutes(br),
+                detail: "Break",
+            }),
+        );
     }
     // Part-day leave shows as the hours it removed.
     const leaveCut = subtract(input.day.configured, [...input.day.window, ...(input.day.breaks ?? [])]);
     if (input.day.window.length)
         for (const l of leaveCut)
-            items.push({
-                id: `leave:${l.start}`,
-                kind: "leave",
-                title: "Leave",
-                start: iso(l.start),
-                end: iso(l.end),
-                startTime: clockOf(l.start, timeZone),
-                endTime: clockOf(l.end, timeZone),
-                minutes: minutes(l),
-                fixed: true,
-                movable: false,
-                readOnly: true,
-                busy: false,
-                shared: false,
-                conflict: false,
-                detail: "Unavailable",
-                url: "/portal/calendar/leave",
-                taskId: null,
-            });
-    for (const f of intersect(input.focus, input.day.window).length ? input.focus : []) {
-        items.push({
-            id: `focus:${f.start}`,
-            kind: "focus",
-            title: f.label,
-            start: iso(f.start),
-            end: iso(f.end),
-            startTime: clockOf(f.start, timeZone),
-            endTime: clockOf(f.end, timeZone),
-            minutes: minutes(f),
-            fixed: false,
-            movable: false,
-            readOnly: true,
-            busy: false,
-            shared: false,
-            conflict: false,
-            detail: "Kept for focused work: Plan My Day uses it first",
-            url: null,
-            taskId: null,
-        });
-    }
+            items.push(
+                fixedItem({
+                    id: `leave:${l.start}`,
+                    kind: "leave",
+                    title: "Leave",
+                    start: iso(l.start),
+                    end: iso(l.end),
+                    startTime: clockOf(l.start, timeZone),
+                    endTime: clockOf(l.end, timeZone),
+                    minutes: minutes(l),
+                    detail: "Unavailable",
+                    url: "/portal/calendar/leave",
+                }),
+            );
     for (const f of freeTime(input.day.window, input.commitments, input.bufferMinutes, input.after)) {
         if (minutes(f) < 15) continue;
-        items.push({
-            id: `free:${f.start}`,
-            kind: "free",
-            title: "Free",
-            start: iso(f.start),
-            end: iso(f.end),
-            startTime: clockOf(f.start, timeZone),
-            endTime: clockOf(f.end, timeZone),
-            minutes: minutes(f),
-            fixed: false,
-            movable: false,
-            readOnly: true,
-            busy: false,
-            shared: false,
-            conflict: false,
-            detail: null,
-            url: null,
-            taskId: null,
-        });
+        items.push(
+            fixedItem({
+                id: `free:${f.start}`,
+                kind: "free",
+                title: "Free",
+                start: iso(f.start),
+                end: iso(f.end),
+                startTime: clockOf(f.start, timeZone),
+                endTime: clockOf(f.end, timeZone),
+                minutes: minutes(f),
+                detail: null,
+            }),
+        );
     }
-    const order: Record<TimelineItem["kind"], number> = { leave: 0, break: 1, event: 2, block: 3, focus: 4, free: 5 };
+    const order: Record<TimelineItem["kind"], number> = { leave: 0, break: 1, event: 2, free: 3 };
     items.sort((a, b) => a.start.localeCompare(b.start) || order[a.kind] - order[b.kind] || a.end.localeCompare(b.end) || a.id.localeCompare(b.id));
     const allDay: DayTimeline["allDay"] = [
         ...input.holidays.map((h) => ({ id: h.id, title: h.title, kind: "holiday" as const, url: null })),
@@ -357,16 +263,9 @@ export interface NextActionFacts {
     isToday: boolean;
     now: number;
     conflicts: BriefingRef[];
-    overdueUnplanned: BriefingRef[];
-    priorities: (BriefingRef & { planned: boolean })[];
-    shortfallMinutes: number;
     freeMinutes: number;
+    availableMinutes: number;
     nextCommitment: (BriefingRef & { start: string }) | null;
-    inboxCount: number;
-    unfinishedYesterday: BriefingRef[];
-    morningDone: boolean;
-    eveningDone: boolean;
-    localTime: string;
 }
 
 /**
@@ -386,35 +285,8 @@ export function nextActions(f: NextActionFacts): NextAction[] {
             });
     }
     if (f.conflicts.length) out.push({ id: "conflicts", text: `Resolve ${plural(f.conflicts.length, "scheduling conflict")}.`, refs: f.conflicts.slice(0, 6) });
-    if (f.unfinishedYesterday.length)
-        out.push({
-            id: "yesterday",
-            text: `Decide what to do with ${plural(f.unfinishedYesterday.length, "unfinished task")} from yesterday: reschedule or return to the list.`,
-            refs: f.unfinishedYesterday.slice(0, 6),
-        });
-    if (f.overdueUnplanned.length)
-        out.push({
-            id: "overdue",
-            text: `Plan time for, postpone or complete ${plural(f.overdueUnplanned.length, "overdue task")}.`,
-            refs: f.overdueUnplanned.slice(0, 6),
-        });
-    if (f.shortfallMinutes > 0)
-        out.push({
-            id: "shortfall",
-            text: `${hoursLabel(f.shortfallMinutes)} of work due doesn't fit in ${hoursLabel(f.freeMinutes)} free: postpone something or plan it on another day.`,
-            refs: [],
-        });
-    const unplanned = f.priorities.filter((p) => !p.planned);
-    if (unplanned.length)
-        out.push({
-            id: `schedule:${unplanned[0].id}`,
-            text: `Schedule time for ${unplanned[0].title}${unplanned.length > 1 ? ` and ${plural(unplanned.length - 1, "other priority", "other priorities")}` : ""}.`,
-            refs: unplanned.slice(0, 3),
-        });
-    if (f.isToday && !f.morningDone && f.localTime < "12:00") out.push({ id: "morning", text: "Run Morning planning to choose today's top three.", refs: [] });
-    if (f.isToday && !f.eveningDone && f.localTime >= "16:00") out.push({ id: "evening", text: "Run the Evening review to close out the day.", refs: [] });
-    if (f.inboxCount > 0) out.push({ id: "inbox", text: `Sort ${plural(f.inboxCount, "task")} in your Inbox.`, refs: [] });
+    if (f.availableMinutes > 0 && f.freeMinutes <= 0) out.push({ id: "full", text: "Your planning hours are fully booked: protect a break.", refs: [] });
     // A briefing never has nothing to say, but it never makes something up either.
-    if (!out.length) out.push({ id: "clear", text: "Nothing needs attention. Your day is planned.", refs: [] });
+    if (!out.length) out.push({ id: "clear", text: "Nothing needs attention.", refs: [] });
     return out;
 }

@@ -444,3 +444,16 @@ test("deletes a guest, restores it, then erases it with typed confirmation", asy
     await expect(page.getByText("Permanently erased")).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(name) })).toBeHidden();
 });
+
+test("Daly Knowledge and Daly Tasks are gone from the launcher, and their addresses say they're retired", async ({ page }) => {
+    await page.goto("/portal");
+    await expect(page.locator('[data-application="knowledge"], [data-application="tasks"]')).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Daly Knowledge|Daly Tasks/ })).toHaveCount(0);
+    for (const path of ["/portal/knowledge", "/portal/tasks", "/portal/tasks/today"]) {
+        const response = await page.goto(path);
+        expect(response?.status(), path).toBe(410);
+        await expect(page.getByText(/have been retired/).first()).toBeVisible();
+    }
+    // The Wedding Planner's own tasks are a different feature.
+    expect((await page.goto("/portal/wedding/tasks"))?.status()).toBe(200);
+});

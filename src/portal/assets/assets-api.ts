@@ -1,5 +1,5 @@
-// Calls to /api/portal/assets (docs/HOME_ASSETS.md#api). Tasks, Calendar and Knowledge are reached
-// through Home & Assets' own routes, which call those applications' functions with their checks.
+// Calls to /api/portal/assets (docs/HOME_ASSETS.md#api). Calendar is reached through Home & Assets'
+// own routes, which call Calendar's functions with its checks.
 import { api } from "@/portal/lib/api";
 import type { AssetCategory } from "@/shared/assets/categories";
 import type {
@@ -14,7 +14,6 @@ import type {
     ClaimView,
     Grant,
     HouseholdTemplate,
-    KnowledgeLinkView,
     LocationView,
     MaintenanceView,
     OdometerReading,
@@ -82,8 +81,6 @@ export const assetsApi = {
     addWarranty: (id: string, body: Record<string, unknown>) => api<{ warranties: WarrantyView[] }>("POST", `${A}/items/${id}/warranties`, body),
     updateWarranty: (id: string, body: Record<string, unknown>) => api<{ warranties: WarrantyView[] }>("PATCH", `${A}/warranties/${id}`, body),
     deleteWarranty: (id: string) => api<{ warranties: WarrantyView[] }>("DELETE", `${A}/warranties/${id}`),
-    linkKnowledge: (id: string, objectId: string) => api<{ knowledge: KnowledgeLinkView[] }>("POST", `${A}/items/${id}/knowledge`, { objectId }),
-    unlinkKnowledge: (id: string, objectId: string) => api<{ knowledge: KnowledgeLinkView[] }>("DELETE", `${A}/items/${id}/knowledge/${objectId}`),
 
     claims: () => api<{ claims: ClaimView[] }>("GET", `${A}/claims`),
     createClaim: (body: Record<string, unknown>) => api<{ claim: ClaimView }>("POST", `${A}/claims`, body),
@@ -97,11 +94,7 @@ export const assetsApi = {
     createMaintenance: (body: Record<string, unknown>) => api<{ record: MaintenanceView; replayed: boolean }>("POST", `${A}/maintenance`, body),
     updateMaintenance: (id: string, body: Record<string, unknown>) => api<{ record: MaintenanceView }>("PATCH", `${A}/maintenance/${id}`, body),
     complete: (id: string, body: Record<string, unknown>) =>
-        api<{ record: MaintenanceView; next: MaintenanceView | null; taskCompleted: boolean | null; alreadyDone: boolean }>(
-            "POST",
-            `${A}/maintenance/${id}/complete`,
-            body,
-        ),
+        api<{ record: MaintenanceView; next: MaintenanceView | null; alreadyDone: boolean }>("POST", `${A}/maintenance/${id}/complete`, body),
     cancel: (id: string) => api<{ record: MaintenanceView }>("POST", `${A}/maintenance/${id}/cancel`, {}),
     appointment: (id: string, body: { calendarId?: string; durationMinutes?: number; visibility?: "default" | "private" } = {}) =>
         api<{ eventId: string; existing: boolean }>("POST", `${A}/maintenance/${id}/appointment`, body),
@@ -111,8 +104,6 @@ export const assetsApi = {
     deleteSchedule: (id: string) => api<{ ok: true }>("DELETE", `${A}/schedules/${id}`),
     createTemplate: (body: Record<string, unknown>) => api<{ household: HouseholdTemplate[] }>("POST", `${A}/templates`, body),
     deleteTemplate: (id: string) => api<{ household: HouseholdTemplate[] }>("DELETE", `${A}/templates/${id}`),
-    task: (body: { refKind: string; refId: string; refDate?: string; title?: string; dueDate?: string | null }) =>
-        api<{ taskId: string | null; existing: boolean; hidden: boolean; url: string | null }>("POST", `${A}/tasks`, body),
 
     policies: () => api<{ policies: PolicyView[] }>("GET", `${A}/policies`),
     policy: (id: string) => api<{ policy: PolicyView; files: AssetFileView[] }>("GET", `${A}/policies/${id}`),

@@ -1,15 +1,13 @@
 // The event panel: create, view and edit one event. A slide-over in the layout of Untitled UI PRO's
 // "create-event-menu", built from the portal's RecordPanel and the PRO form components.
 //
-// Read-only events (subscribed calendars, calendars you only view) show their details, your own
-// reminders and links. Someone else's private event never reaches this panel: it's "Busy" in the
+// Read-only events (subscribed calendars, calendars you only view) show their details and your own
+// reminders. Someone else's private event never reaches this panel: it's "Busy" in the
 // views and can't be opened. Changing a repeating event asks whether it's this occurrence, this and
 // the following ones, or the whole series.
 import { useCallback, useEffect, useState } from "react";
-import { CheckDone01, Link01, Plus, SearchLg, Trash01, X } from "@untitledui/icons";
-import { Badge } from "@/components/base/badges/badges";
+import { Trash01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
@@ -30,7 +28,6 @@ import {
     EVENT_CATEGORIES,
     type EventCategory,
     type EventDetail,
-    type EventLink,
     type EventOccurrence,
     VISIBILITIES,
     VISIBILITY_LABELS,
@@ -173,184 +170,6 @@ const fromDetail = (e: EventDetail): Draft => ({
 
 const FAMILY_CATEGORIES: EventCategory[] = ["care", "pickup", "dropoff", "school", "family"];
 
-const LinkSearch = ({ kind, onPick }: { kind: "task" | "knowledge"; onPick: (id: string) => void }) => {
-    const [query, setQuery] = useState("");
-    const [results, setResults] = useState<{ id: string; title: string; detail: string }[]>([]);
-    const [busy, setBusy] = useState(false);
-    const search = async () => {
-        if (!query.trim()) return;
-        setBusy(true);
-        try {
-            if (kind === "task") {
-                const r = await api<{ tasks: { id: string; title: string; dueDate: string | null }[] }>(
-                    "GET",
-                    `/api/portal/tasks/search?q=${encodeURIComponent(query)}`,
-                );
-                setResults(r.tasks.slice(0, 8).map((t) => ({ id: t.id, title: t.title, detail: t.dueDate ? `Due ${dayLabel(t.dueDate)}` : "No date" })));
-            } else {
-                const r = await api<{ hits: { object: { id: string; title: string; typeId: string } }[] }>(
-                    "GET",
-                    `/api/portal/knowledge/search?q=${encodeURIComponent(query)}&limit=8`,
-                );
-                setResults(r.hits.map((h) => ({ id: h.object.id, title: h.object.title || "Untitled", detail: "Knowledge" })));
-            }
-        } catch {
-            setResults([]);
-        } finally {
-            setBusy(false);
-        }
-    };
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex items-end gap-2">
-                <Input
-                    size="sm"
-                    aria-label={kind === "task" ? "Search your tasks" : "Search Knowledge"}
-                    placeholder={kind === "task" ? "Search your tasks" : "Search Knowledge"}
-                    icon={SearchLg}
-                    value={query}
-                    onChange={setQuery}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                            e.preventDefault();
-                            void search();
-                        } else e.continuePropagation();
-                    }}
-                    className="flex-1"
-                />
-                <Button size="sm" color="secondary" onClick={() => void search()} isLoading={busy}>
-                    Search
-                </Button>
-            </div>
-            {results.length > 0 && (
-                <ul className="flex flex-col divide-y divide-secondary rounded-lg ring-1 ring-secondary ring-inset">
-                    {results.map((r) => (
-                        <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                            <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium text-primary">{r.title}</span>
-                                <span className="text-xs text-tertiary">{r.detail}</span>
-                            </span>
-                            <Button size="sm" color="link-color" onClick={() => onPick(r.id)}>
-                                Link
-                            </Button>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
-    );
-};
-
-const LinksSection = ({
-    event,
-    canLink,
-    canUseTasks,
-    canUseKnowledge,
-    occurrenceDate,
-    occurrenceTime,
-    onLinks,
-}: {
-    event: EventDetail;
-    canLink: boolean;
-    canUseTasks: boolean;
-    canUseKnowledge: boolean;
-    occurrenceDate: string;
-    occurrenceTime: string | null;
-    onLinks: (links: EventLink[]) => void;
-}) => {
-    const toast = useToast();
-    const [adding, setAdding] = useState<"task" | "knowledge" | null>(null);
-    const [creating, setCreating] = useState(false);
-    const link = async (kind: "task" | "knowledge", id: string) => {
-        try {
-            onLinks((await calendarApi.addLink(event.id, kind, id)).links);
-            setAdding(null);
-        } catch (error) {
-            toast.error("Couldn't link that", errorMessage(error));
-        }
-    };
-    const unlink = async (linkId: string) => {
-        try {
-            onLinks((await calendarApi.removeLink(event.id, linkId)).links);
-        } catch (error) {
-            toast.error("Couldn't remove the link", errorMessage(error));
-        }
-    };
-    const createTask = async () => {
-        setCreating(true);
-        try {
-            const result = await calendarApi.createTask(event.id, { dueDate: occurrenceDate, dueTime: occurrenceTime, clientId: clientId() });
-            onLinks(result.links);
-            toast.success("Task created", result.task.title);
-        } catch (error) {
-            toast.error("Couldn't create the task", errorMessage(error));
-        } finally {
-            setCreating(false);
-        }
-    };
-    return (
-        <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-secondary">Linked tasks and notes</h3>
-            {event.links.length ? (
-                <ul className="flex flex-col gap-2">
-                    {event.links.map((l) => (
-                        <li key={l.id} className="bg-secondary_subtle flex items-center justify-between gap-2 rounded-lg px-3 py-2">
-                            {l.available ? (
-                                <a
-                                    href={
-                                        l.kind === "task"
-                                            ? `/portal/tasks/t/${l.targetId}`
-                                            : l.kind === "project"
-                                              ? `/portal/tasks/p/${l.targetId}`
-                                              : `/portal/knowledge/o/${l.targetId}`
-                                    }
-                                    className="flex min-w-0 items-center gap-2 text-sm font-medium text-primary hover:underline"
-                                >
-                                    {l.kind === "knowledge" ? (
-                                        <Link01 aria-hidden="true" className="size-4 shrink-0 text-fg-quaternary" />
-                                    ) : (
-                                        <CheckDone01 aria-hidden="true" className="size-4 shrink-0 text-fg-quaternary" />
-                                    )}
-                                    <span className="truncate">{l.title}</span>
-                                    {l.kind === "task" && l.status === "completed" && (
-                                        <Badge size="sm" color="success">
-                                            Done
-                                        </Badge>
-                                    )}
-                                    {l.kind === "task" && l.dueDate && <span className="shrink-0 text-xs text-tertiary">Due {dayLabel(l.dueDate)}</span>}
-                                </a>
-                            ) : (
-                                <span className="text-sm text-tertiary">A {l.kind === "knowledge" ? "note" : l.kind} you can't open</span>
-                            )}
-                            {canLink && <ButtonUtility size="xs" color="tertiary" icon={X} tooltip="Remove link" onClick={() => void unlink(l.id)} />}
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <p className="text-sm text-tertiary">None yet. A task's due date shows in the calendar from Tasks itself, so it never needs updating twice.</p>
-            )}
-            <div className="flex flex-wrap gap-2">
-                {canUseTasks && (
-                    <Button size="sm" color="secondary" iconLeading={Plus} isLoading={creating} showTextWhileLoading onClick={() => void createTask()}>
-                        Create a task for this
-                    </Button>
-                )}
-                {canLink && canUseTasks && (
-                    <Button size="sm" color="tertiary" onClick={() => setAdding(adding === "task" ? null : "task")}>
-                        Link a task
-                    </Button>
-                )}
-                {canLink && canUseKnowledge && (
-                    <Button size="sm" color="tertiary" onClick={() => setAdding(adding === "knowledge" ? null : "knowledge")}>
-                        Link a note
-                    </Button>
-                )}
-            </div>
-            {adding && <LinkSearch kind={adding} onPick={(id) => void link(adding, id)} />}
-        </section>
-    );
-};
-
 interface EventPanelProps {
     target: PanelTarget;
     onClose: () => void;
@@ -358,11 +177,9 @@ interface EventPanelProps {
     calendars: CalendarInfo[];
     timeZone: string;
     defaultReminder: number | null;
-    canUseTasks: boolean;
-    canUseKnowledge: boolean;
 }
 
-export const EventPanel = ({ target, onClose, onChanged, calendars, timeZone, defaultReminder, canUseTasks, canUseKnowledge }: EventPanelProps) => {
+export const EventPanel = ({ target, onClose, onChanged, calendars, timeZone, defaultReminder }: EventPanelProps) => {
     const toast = useToast();
     const writable = calendars.filter((c) => c.source === "local" && (c.role === "owner" || c.role === "editor"));
     const defaultCalendar = writable.find((c) => c.isDefault)?.id ?? writable[0]?.id ?? "";
@@ -810,19 +627,6 @@ export const EventPanel = ({ target, onClose, onChanged, calendars, timeZone, de
                                 Save my reminders
                             </Button>
                         </div>
-                    </div>
-                )}
-                {detail && (
-                    <div className="mt-6 border-t border-secondary pt-5">
-                        <LinksSection
-                            event={detail}
-                            canLink={detail.canEdit || calendar?.source === "subscription"}
-                            canUseTasks={canUseTasks}
-                            canUseKnowledge={canUseKnowledge}
-                            occurrenceDate={occurrence?.startDate ?? detail.startDate}
-                            occurrenceTime={occurrence?.allDay ? null : (occurrence?.startTime ?? detail.startTime)}
-                            onLinks={(links) => setDetail({ ...detail, links })}
-                        />
                     </div>
                 )}
             </RecordPanel>

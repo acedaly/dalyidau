@@ -3,8 +3,9 @@
 // list; now they are compared directly, field by field.
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { PORTAL_TOOLS, PORTAL_TOOL_NAMES, PORTAL_WRITE_TOOLS } from "../mcp/src/portal-tools";
+import { PORTAL_TOOLS, PORTAL_TOOL_NAMES, PORTAL_WRITE_TOOLS, RETIRED_TOOL_NAMES } from "../mcp/src/portal-tools";
 import { PORTAL_MCP_TOOLS } from "../worker/mcp/entrypoint";
+import { RETIRED_MCP_TOOLS } from "../worker/mcp/retired";
 
 const fields = (schema: z.ZodType) => Object.keys((schema as unknown as { shape?: Record<string, unknown> }).shape ?? {}).sort();
 
@@ -13,7 +14,13 @@ describe("MCP tool contract", () => {
 
     it("advertises exactly the tools the portal serves", () => {
         expect([...PORTAL_TOOL_NAMES].sort()).toEqual([...portal.keys()].sort());
-        expect(PORTAL_TOOL_NAMES).toHaveLength(117);
+        expect(PORTAL_TOOL_NAMES).toHaveLength(66);
+    });
+
+    it("retires the same tools on both sides, and serves none of them", () => {
+        expect([...RETIRED_TOOL_NAMES].sort()).toEqual([...RETIRED_MCP_TOOLS].sort());
+        expect(RETIRED_TOOL_NAMES).toHaveLength(51);
+        for (const name of RETIRED_TOOL_NAMES) expect((PORTAL_TOOL_NAMES as readonly string[]).includes(name), name).toBe(false);
     });
 
     it("rate-limits as writes exactly the tools the portal audits as writes", () => {

@@ -2,32 +2,21 @@
 // The Australian Consumer Law note is always shown: a stated warranty ending isn't the end of a
 // consumer's rights.
 import { useState } from "react";
-import { Certificate01, CheckDone01, Download01, Plus } from "@untitledui/icons";
+import { Certificate01, Download01, Plus } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
+import { Card } from "@/portal/components/card";
 import { DataTable } from "@/portal/components/data-table";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
-import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
-import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { CONSUMER_LAW_NOTE } from "@/shared/assets/engine";
 import { CLAIM_KIND_LABELS, CLAIM_STATUS_LABELS, WARRANTY_KIND_LABELS, type WarrantyView } from "@/shared/assets/types";
-import { assetsApi, reportUrl } from "../assets-api";
+import { reportUrl } from "../assets-api";
 import { ClaimForm } from "../forms";
 import { AssetsHeader, DateWithDistance, Money, WarrantyBadge, assetHref, shortDate } from "../shared";
 
 export const AssetsWarrantiesPage = ({ data }: { data: PageData<"assets-warranties"> }) => {
-    const toast = useToast();
     const [claiming, setClaiming] = useState(false);
-    const task = async (w: WarrantyView) => {
-        try {
-            const r = await assetsApi.task({ refKind: "warranty_expiry", refId: w.id });
-            toast.success(r.existing ? "That task already exists" : "Task created");
-        } catch (e) {
-            toast.error("Couldn't create the task", errorMessage(e));
-        }
-    };
     return (
         <>
             <AssetsHeader
@@ -97,16 +86,6 @@ export const AssetsWarrantiesPage = ({ data }: { data: PageData<"assets-warranti
                         ),
                     },
                     { id: "state", label: "Status", render: (w) => <WarrantyBadge state={w.state} /> },
-                    {
-                        id: "task",
-                        label: "",
-                        render: (w) =>
-                            data.canTasks && w.expiresOn && w.state !== "expired" ? (
-                                <Button size="xs" color="secondary" iconLeading={CheckDone01} onClick={() => void task(w)}>
-                                    Task
-                                </Button>
-                            ) : null,
-                    },
                 ]}
             />
             <Card title="Warranty and consumer guarantee claims" icon={Certificate01}>

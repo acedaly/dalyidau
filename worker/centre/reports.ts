@@ -25,18 +25,15 @@ import { MAX_SCHEDULES, REPORT_SECTIONS, reportRequestSchema, reportScopeSchema,
 import { CATEGORY_LABELS } from "../../src/shared/centre/sources";
 import type { CentreRecord, Correlation, WatchArea } from "../../src/shared/centre/types";
 import { FIRE_DANGER_RATINGS, fireDangerRank } from "../../src/shared/centre/types";
-import { paragraphsFromText } from "../../src/shared/knowledge/content";
 import type { PortalUser } from "../../src/shared/portal/types";
 import type { Env } from "../env";
 import { fence } from "../intelligence/prompts";
 import { generateJson } from "../intelligence/provider";
 import { availability, loadConfig } from "../intelligence/settings";
 import { BudgetExceeded } from "../intelligence/usage";
-import { addRelation, createObject } from "../knowledge/objects";
 import { can, userForEmail } from "../portal/auth";
 import { auditStatement, newId, nowIso, parseJson } from "../portal/db";
 import { HttpError } from "../portal/http";
-import { writableSpace } from "./actions";
 import { sha256Hex } from "./adapters/types";
 import { CENTRE_BRIEFING_SYSTEM, groundInterpretation, interpretationSchema } from "./briefing";
 import { correlations } from "./correlate";
@@ -579,7 +576,6 @@ interface ReportRow {
     narrative: string | null;
     narrative_model: string | null;
     schedule_id: string | null;
-    knowledge_object_id: string | null;
     trigger: ReportSummary["trigger"];
 }
 
@@ -593,7 +589,6 @@ const toSummary = (r: ReportRow): ReportSummary => ({
     facts: r.facts,
     trigger: r.trigger,
     scheduleId: r.schedule_id,
-    knowledgeObjectId: r.knowledge_object_id,
     hasNarrative: !!r.narrative,
 });
 
@@ -687,51 +682,6 @@ export async function expireReports(env: Env, before: string) {
     await env.DB.batch(rows.results.map((r) => env.DB.prepare("DELETE FROM ic_reports WHERE id = ?").bind(r.id)));
 }
 
-/** The report as plain text (Knowledge notes and exports): sections, facts with links, limitations. */
-export function reportText(report: SituationReport, site: string): string {
-    return [
-        `${report.title}. Generated ${when(report.generatedAt)}${report.historical ? `, describing ${when(report.at)} as the Centre knew it then` : ""}.`,
-        ...report.sections.flatMap((s) => [
-            s.title,
-            ...(s.facts.length ? s.facts.map((f) => `[${f.ref}] ${f.text}${f.url ? ` (${site}${f.url})` : ""}`) : [s.empty ?? "Nothing to report."]),
-        ]),
-        ...(report.narrative.items.length
-            ? ["Narrative (AI interpretation of the facts above, not facts):", ...report.narrative.items.map((i) => `${i.text} [${i.refs.join(", ")}]`)]
-            : []),
-        "Limitations",
-        ...report.limitations,
-        ...[...new Set(report.sources.map((s) => s.attribution).filter(Boolean))],
-    ].join("\n\n");
-}
-
-/** Saves a report as a Knowledge note (once; saving again returns the same note), optionally linked to an existing note. */
-export async function reportToKnowledge(env: Env, user: PortalUser, id: string, body: unknown) {
-    const input = (body ?? {}) as { spaceId?: unknown; relateTo?: unknown };
-    const { report, summary } = await getReport(env, user.email, id);
-    const space = await writableSpace(env, user, typeof input.spaceId === "string" ? input.spaceId : undefined);
-    const site = new URL(env.SITE_URL).origin;
-    const detail = await createObject(
-        env.DB,
-        user,
-        space.id,
-        {
-            title: report.title.slice(0, 300),
-            content: { type: "doc", content: paragraphsFromText(reportText(report, site).slice(0, 60_000)) },
-            tags: ["intelligence-centre", "situation-report"],
-        },
-        { source: { system: "intelligence-centre-report", id } },
-    );
-    await env.DB.prepare("UPDATE ic_reports SET knowledge_object_id = ? WHERE id = ? AND email = ?").bind(detail.object.id, id, user.email).run();
-    let linked = false;
-    if (typeof input.relateTo === "string" && /^kob_[a-z0-9]{14}$/.test(input.relateTo)) {
-        await addRelation(env.DB, user, detail.object.id, { targetId: input.relateTo, relationType: "evidence" }).catch((error: unknown) => {
-            if (!(error instanceof HttpError && error.status === 409)) throw error;
-        });
-        linked = true;
-    }
-    return { objectId: detail.object.id, url: `/portal/knowledge/o/${detail.object.id}`, linked, reportId: summary.id };
-}
-
 // --- Schedules -----------------------------------------------------------------------------------------
 
 interface ScheduleRow {
@@ -745,7 +695,6 @@ interface ScheduleRow {
     time_zone: string;
     period_hours: number;
     notify: ScheduleInput["notify"];
-    save_to_knowledge: number;
     narrative: number;
     enabled: number;
     version: number;
@@ -767,7 +716,6 @@ const toSchedule = (r: ScheduleRow): ReportSchedule => ({
     timeZone: r.time_zone,
     periodHours: r.period_hours,
     notify: r.notify,
-    saveToKnowledge: r.save_to_knowledge === 1,
     narrative: r.narrative === 1,
     enabled: r.enabled === 1,
     version: r.version,
@@ -824,7 +772,6 @@ const scheduleValues = (s: ScheduleInput) => [
     s.timeZone,
     s.periodHours,
     s.notify,
-    s.saveToKnowledge ? 1 : 0,
     s.narrative ? 1 : 0,
     s.enabled ? 1 : 0,
 ];
@@ -838,8 +785,8 @@ export async function createSchedule(db: D1Database, user: PortalUser, body: unk
     await db.batch([
         db
             .prepare(
-                `INSERT INTO ic_report_schedules (id, email, name, scope, frequency, weekday, hour, time_zone, period_hours, notify, save_to_knowledge, narrative, enabled,
-                    version, next_run_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+                `INSERT INTO ic_report_schedules (id, email, name, scope, frequency, weekday, hour, time_zone, period_hours, notify, narrative, enabled,
+                    version, next_run_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
             )
             .bind(id, user.email, ...scheduleValues(input), nextRun(input, new Date()), now, now),
         auditStatement(db, {
@@ -861,7 +808,7 @@ export async function updateSchedule(db: D1Database, user: PortalUser, id: strin
     const [result] = await db.batch([
         db
             .prepare(
-                `UPDATE ic_report_schedules SET name = ?, scope = ?, frequency = ?, weekday = ?, hour = ?, time_zone = ?, period_hours = ?, notify = ?, save_to_knowledge = ?,
+                `UPDATE ic_report_schedules SET name = ?, scope = ?, frequency = ?, weekday = ?, hour = ?, time_zone = ?, period_hours = ?, notify = ?,
                     narrative = ?, enabled = ?, next_run_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND email = ? AND version = ?`,
             )
             .bind(...scheduleValues(input), nextRun(input, new Date()), nowIso(), id, user.email, version),
@@ -934,7 +881,6 @@ export async function runDueReports(env: Env, options: { now?: Date; max?: numbe
                 .prepare("UPDATE ic_report_schedules SET last_report_id = ?, last_fingerprint = ? WHERE id = ?")
                 .bind(summary.id, report.fingerprint, row.id)
                 .run();
-            if (schedule.saveToKnowledge && can(auth.user, "knowledge.use")) await reportToKnowledge(env, auth.user, summary.id, {}).catch(() => undefined);
             if (schedule.notify !== "none") {
                 const prefs = await loadPreferences(db, row.email);
                 await db

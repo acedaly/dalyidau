@@ -146,6 +146,9 @@ export const INTEGRITY_CHECKS = [
         sql: "SELECT rsvp_code FROM households WHERE length(rsvp_code) < 6 OR rsvp_code GLOB '*[^A-Z0-9]*' LIMIT 20",
         level: "fail",
     },
+    // Daly Knowledge and Daly Tasks are retired, but their records stay until the owner approves the
+    // cleanup (docs/DECOMMISSION_KNOWLEDGE_TASKS.md). Nothing writes to them any more, so these checks
+    // now confirm they're still as they were left.
     {
         name: "Knowledge documents and properties are valid JSON",
         sql: "SELECT id FROM knowledge_objects WHERE json_valid(content_json) = 0 OR json_valid(properties_json) = 0 LIMIT 20",
@@ -157,7 +160,7 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
-        // Rebuild with KNOWLEDGE_FTS_REBUILD (worker/knowledge/search.ts) if this ever fails.
+        // Rebuild with VIRTUAL_TABLE_REBUILDS (scripts/lib/virtual-tables.mjs) if this ever fails.
         name: "The knowledge search index covers every object",
         sql: "SELECT o.id FROM knowledge_objects o LEFT JOIN knowledge_fts f ON f.rowid = o.search_rowid WHERE f.rowid IS NULL LIMIT 20",
         level: "warn",
@@ -196,7 +199,7 @@ export const INTEGRITY_CHECKS = [
         level: "warn",
     },
     {
-        // Only shared projects share templates (worker/tasks/templates.ts checks this on every write).
+        // Only shared projects share templates (Daly Tasks checked this on every write while it ran).
         name: "Shared task templates belong to shared projects",
         sql: "SELECT t.id FROM task_templates t JOIN task_projects p ON p.id = t.shared_project_id WHERE p.kind <> 'shared' LIMIT 20",
         level: "warn",

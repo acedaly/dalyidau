@@ -83,10 +83,9 @@ export async function portalEnv(overrides: Partial<Env> = {}): Promise<Env> {
         PORTAL_OWNER_EMAILS: `${OWNER}, ${SECOND_OWNER}`,
         EMAIL_DELIVERY: "off",
         RSVP_LINK_SECRET: "test-rsvp-link-secret-that-is-at-least-32-bytes",
-        // Never a real Workers AI or Vectorize binding or AI Gateway, whatever wrangler.jsonc declares:
+        // Never a real Workers AI binding or AI Gateway, whatever wrangler.jsonc declares:
         // the Intelligence tests pass their own stand-ins (test/intelligence-helpers.ts).
         AI: undefined,
-        VECTORS: undefined,
         AI_GATEWAY_ID: undefined,
         ...overrides,
     };

@@ -3,19 +3,19 @@
 // covered until a person verifies the policy against its documents, and AI suggestions (when on)
 // are shown beside the original for checking, never saved by themselves.
 import { useEffect, useState } from "react";
-import { CheckCircle, CheckDone01, Download01, Edit05, File04, Link01, Plus, RefreshCw01, ShieldTick, Stars02, Trash01 } from "@untitledui/icons";
+import { CheckCircle, Download01, Edit05, File04, Link01, Plus, RefreshCw01, ShieldTick, Stars02, Trash01 } from "@untitledui/icons";
 import { FileUpload } from "@/components/application/file-upload/file-upload-base";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Card } from "@/portal/components/card";
 import { DataTable } from "@/portal/components/data-table";
 import { ConfirmDialog } from "@/portal/components/dialog";
 import { Empty } from "@/portal/components/empty";
 import { Notice } from "@/portal/components/notice";
 import { RecordPanel } from "@/portal/components/record-panel";
 import { useToast } from "@/portal/components/toast";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
 import { errorMessage } from "@/portal/lib/api";
 import { formatMoney } from "@/portal/lib/format";
 import type { PageData } from "@/portal/lib/page-types";
@@ -367,23 +367,6 @@ const PolicyPanel = ({
                             </p>
                         ))}
                 </section>
-                {data.canTasks && policy.renewsOn && policy.status === "active" && (
-                    <Button
-                        size="sm"
-                        color="secondary"
-                        iconLeading={CheckDone01}
-                        onClick={async () => {
-                            try {
-                                const r = await assetsApi.task({ refKind: "policy_renewal", refId: policy.id });
-                                toast.success(r.existing ? "That task already exists" : "Renewal task created");
-                            } catch (e) {
-                                toast.error("Couldn't create the task", errorMessage(e));
-                            }
-                        }}
-                    >
-                        Create a renewal task
-                    </Button>
-                )}
             </div>
             {(dialog === "edit" || (dialog && typeof dialog === "object")) && (
                 <PolicyForm

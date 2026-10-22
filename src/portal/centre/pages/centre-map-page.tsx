@@ -8,7 +8,7 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { PageData } from "@/portal/lib/page-types";
 import type { CentreRecord, MapLayer } from "@/shared/centre/types";
 import { centreApi } from "../centre-api";

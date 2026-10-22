@@ -1,5 +1,4 @@
-// Calls to /api/portal/centre (docs/INTELLIGENCE_CENTRE.md#api). Tasks and Knowledge are written
-// through the Centre's own routes, which call those applications' functions with their checks.
+// Calls to /api/portal/centre (docs/INTELLIGENCE_CENTRE.md#api).
 import { api } from "@/portal/lib/api";
 import type { AssistantAnswer } from "@/shared/centre/assistant";
 import type {
@@ -66,9 +65,6 @@ export const centreApi = {
         api<{ records: CentreRecord[]; reasons: Record<string, string>; truncated: boolean }>("GET", `${C}/records${query(params)}`),
     map: (params: Record<string, string | number | boolean | null | undefined>) => api<MapFeatureCollection>("GET", `${C}/map${query(params)}`),
     record: (id: string) => api<{ record: CentreRecord; geometry: unknown }>("GET", `${C}/records/${id}`),
-    createTask: (id: string, body: { projectId?: string; dueDate?: string | null; title?: string; clientId?: string }) =>
-        api<{ taskId: string; url: string; replayed: boolean }>("POST", `${C}/records/${id}/task`, body),
-    saveToKnowledge: (id: string, body: KnowledgeTarget = {}) => api<KnowledgeSaved>("POST", `${C}/records/${id}/knowledge`, body),
     correlations: () => api<{ correlations: Correlation[] }>("GET", `${C}/correlations`),
     sources: () => api<{ sources: SourceHealth[]; runs: FetchRun[] }>("GET", `${C}/sources`),
     setSource: (id: string, enabled: boolean) => api<{ sources: SourceHealth[] }>("PUT", `${C}/sources/${id}`, { enabled }),
@@ -84,8 +80,6 @@ export const centreApi = {
         api<{ briefing: CentreBriefing }>("GET", `${C}/briefing${query({ scope, watch })}`),
     interpret: (scope: "nsw" | "watch" | "morning", watch?: string | null) =>
         api<{ briefing: CentreBriefing }>("POST", `${C}/briefing/interpret`, { scope, watch: watch ?? null }),
-    briefingToKnowledge: (scope: "nsw" | "watch" | "morning", watch?: string | null) =>
-        api<{ objectId: string; url: string }>("POST", `${C}/briefing/knowledge`, { scope, watch: watch ?? null }),
     savePreferences: (preferences: CentrePreferences, version: number) =>
         api<{ preferences: CentrePreferences; version: number }>("PUT", `${C}/preferences`, { preferences, version }),
     saveSettings: (settings: CentreSettings, version: number) =>
@@ -102,7 +96,6 @@ export const centreApi = {
     feed: (params: Record<string, string | number | boolean | null | undefined>) =>
         api<{ changes: FeedChange[]; truncated: boolean; counts: { significant: number; routine: number } }>("GET", `${C}/feed${query(params)}`),
     recordTimeline: (id: string) => api<{ timeline: RecordTimeline }>("GET", `${C}/records/${id}/timeline`),
-    timelineToKnowledge: (id: string, body: KnowledgeTarget = {}) => api<KnowledgeSaved>("POST", `${C}/records/${id}/timeline/knowledge`, body),
     situationTimeline: (params: { watch?: string | null; region?: string | null; hours?: number }) =>
         api<{ timeline: SituationTimeline }>("GET", `${C}/timeline${query(params)}`),
     replay: (params: { at: string; watch?: string | null; region?: string | null; layers?: string; includeInactive?: boolean }) =>
@@ -121,8 +114,6 @@ export const centreApi = {
     testRule: (input: RuleInput, days = 7) => api<{ result: RuleTestResult }>("POST", `${C}/rules/test?days=${days}`, input),
     matches: (params: { open?: boolean; rule?: string } = {}) => api<{ matches: RuleMatch[] }>("GET", `${C}/rules/matches${query(params)}`),
     acknowledgeMatches: (ids: string[] | "all") => api<{ ok: true }>("POST", `${C}/rules/matches/acknowledge`, { ids }),
-    taskFromMatch: (id: string, body: { dueDate?: string; projectId?: string } = {}) =>
-        api<{ taskId: string; url: string; replayed: boolean }>("POST", `${C}/rules/matches/${id}/task`, body),
 
     // --- Reports ---------------------------------------------------------------------------------------
     reports: () => api<{ reports: ReportSummary[]; schedules: ReportSchedule[] }>("GET", `${C}/reports`),
@@ -132,7 +123,6 @@ export const centreApi = {
         api<{ report: SituationReport; summary: ReportSummary }>("POST", `${C}/reports`, request),
     report: (id: string) => api<{ report: SituationReport; summary: ReportSummary }>("GET", `${C}/reports/${id}`),
     deleteReport: (id: string) => api<{ ok: true }>("DELETE", `${C}/reports/${id}`),
-    reportToKnowledge: (id: string, body: KnowledgeTarget = {}) => api<KnowledgeSaved>("POST", `${C}/reports/${id}/knowledge`, body),
     schedules: () => api<{ schedules: ReportSchedule[] }>("GET", `${C}/schedules`),
     createSchedule: (input: ScheduleInput) => api<{ schedule: ReportSchedule }>("POST", `${C}/schedules`, input),
     updateSchedule: (id: string, input: ScheduleInput & { version: number }) => api<{ schedule: ReportSchedule }>("PUT", `${C}/schedules/${id}`, input),
@@ -144,18 +134,6 @@ export const centreApi = {
     linkEvent: (eventId: string, watchId: string) => api<{ links: EventLinkView[] }>("POST", `${C}/events/links`, { eventId, watchId }),
     unlinkEvent: (id: string) => api<{ ok: true }>("DELETE", `${C}/events/links/${id}`),
 };
-
-/** Where a saved Knowledge note goes: a space (default: personal), and optionally an existing note to link it to as evidence. */
-export interface KnowledgeTarget {
-    spaceId?: string;
-    relateTo?: string;
-}
-
-export interface KnowledgeSaved {
-    objectId: string;
-    url: string;
-    linked?: boolean;
-}
 
 export interface EventLinkView {
     id: string;

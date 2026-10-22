@@ -1,7 +1,8 @@
 // Virtual tables (FTS5) and how to rebuild them. `wrangler d1 export` refuses a database containing
 // any virtual table, so backups export the ordinary tables one by one, recreate each virtual table
-// from its CREATE statement and then refill it with these statements. They must match
-// KNOWLEDGE_FTS_REBUILD in worker/knowledge/search.ts (test/knowledge.test.ts checks).
+// from its CREATE statement and then refill it with these statements. Daly Knowledge is retired, but
+// knowledge_fts stays until the owner approves the cleanup (docs/DECOMMISSION_KNOWLEDGE_TASKS.md), so
+// backups still rebuild it (test/decommission.test.ts runs these statements).
 export const VIRTUAL_TABLE_REBUILDS = {
     knowledge_fts: [
         "DELETE FROM knowledge_fts",

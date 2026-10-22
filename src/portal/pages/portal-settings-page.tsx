@@ -3,20 +3,7 @@
 // settings each application keeps for itself. Wedding details and guest fields stay in Wedding
 // Planner. Which sections someone sees comes from settings-sections.ts, which the worker also uses.
 import { useState } from "react";
-import {
-    BookOpen01,
-    Calendar,
-    CheckDone01,
-    Key01,
-    LayoutGrid01,
-    Link03,
-    Palette,
-    ShieldTick,
-    Stars02,
-    Toggle01Right,
-    User01,
-    Users01,
-} from "@untitledui/icons";
+import { Calendar, Key01, LayoutGrid01, Link03, Palette, ShieldTick, Stars02, Toggle01Right, User01, Users01 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge } from "@/components/base/badges/badges";
 import { Select } from "@/components/base/select/select";
@@ -151,7 +138,7 @@ const AccessTab = ({ data }: { data: Data }) => {
     );
 };
 
-const ProviderRows = ({ integrations, emailOnly }: { integrations: PortalIntegrations; emailOnly?: boolean }) => (
+const ProviderRows = ({ integrations }: { integrations: PortalIntegrations }) => (
     <dl className="flex flex-col divide-y divide-secondary">
         <StatusRow
             label="Email provider"
@@ -159,17 +146,13 @@ const ProviderRows = ({ integrations, emailOnly }: { integrations: PortalIntegra
             value={integrations.email ?? "Not set up"}
             ok={!!integrations.email}
         />
-        {!emailOnly && (
-            <>
-                <StatusRow label="SMS provider" value={integrations.sms ?? "Not set up"} ok={!!integrations.sms} />
-                <StatusRow
-                    label="Delivery webhooks"
-                    detail="Delivery reports and SMS replies are accepted only with the webhook secret."
-                    value={integrations.webhooks ? "Secret set" : "Not set up"}
-                    ok={integrations.webhooks}
-                />
-            </>
-        )}
+        <StatusRow label="SMS provider" value={integrations.sms ?? "Not set up"} ok={!!integrations.sms} />
+        <StatusRow
+            label="Delivery webhooks"
+            detail="Delivery reports and SMS replies are accepted only with the webhook secret."
+            value={integrations.webhooks ? "Secret set" : "Not set up"}
+            ok={integrations.webhooks}
+        />
     </dl>
 );
 
@@ -214,72 +197,27 @@ const CalendarTab = ({ data }: { data: Data }) => (
     </div>
 );
 
-const TasksTab = ({ data }: { data: Data }) => (
+const IntelligenceTab = () => (
     <div className="grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
         <SettingsCard
-            id="tasks-switches"
-            icon={Toggle01Right}
-            title="Reminder emails"
-            description="Applies to everyone. While it's off, reminders appear in Tasks only."
+            id="intelligence-links"
+            icon={Stars02}
+            title="Daly Intelligence"
+            description="AI features and the monthly budget are set in Intelligence itself. AI only suggests; nothing is saved until someone approves it."
         >
-            <SwitchSummary area="tasks" />
-        </SettingsCard>
-        <SettingsCard id="tasks-links" icon={CheckDone01} title="In Daly Tasks" description="Settings each person keeps for themselves.">
             <SettingsLinks
-                label="Tasks settings"
+                label="Intelligence settings"
                 links={[
                     {
-                        label: "Settings and export",
-                        description: "Whether your reminders are emailed to you, your defaults and exports.",
-                        href: "/portal/tasks/settings",
+                        label: "AI settings",
+                        description: "Which AI features are on, the budget and your briefing preferences.",
+                        href: "/portal/intelligence/settings",
                     },
                 ]}
             />
-            {data.integrations && <ProviderRows integrations={data.integrations} emailOnly />}
         </SettingsCard>
     </div>
 );
-
-const KnowledgeTab = () => {
-    const canOpen = useCanOpen();
-
-    return (
-        <div className="grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
-            {canOpen("knowledge") && (
-                <SettingsCard
-                    id="knowledge-links"
-                    icon={BookOpen01}
-                    title="Daly Knowledge"
-                    description="Spaces are private to their members; portal roles never open someone else's space."
-                >
-                    <SettingsLinks
-                        label="Knowledge settings"
-                        links={[{ label: "Settings and export", description: "Your spaces, members and a full export.", href: "/portal/knowledge/settings" }]}
-                    />
-                </SettingsCard>
-            )}
-            {canOpen("intelligence") && (
-                <SettingsCard
-                    id="intelligence-links"
-                    icon={Stars02}
-                    title="Daly Intelligence"
-                    description="AI features, the monthly budget and storage are set in Intelligence itself. AI only suggests; nothing is saved until someone approves it."
-                >
-                    <SettingsLinks
-                        label="Intelligence settings"
-                        links={[
-                            {
-                                label: "AI and storage settings",
-                                description: "Which AI features are on, the budget, your preferences and Knowledge exclusions.",
-                                href: "/portal/intelligence/settings",
-                            },
-                        ]}
-                    />
-                </SettingsCard>
-            )}
-        </div>
-    );
-};
 
 const SecurityTab = ({ data, tabs }: { data: Data; tabs: PortalSettingsTab[] }) => {
     const { can, isOn } = usePortal();
@@ -377,8 +315,7 @@ export const PortalSettingsPage = ({ data }: { data: Data }) => {
                         {id === "access" && <AccessTab data={data} />}
                         {id === "features" && <FeaturesPanel />}
                         {id === "calendar" && <CalendarTab data={data} />}
-                        {id === "tasks" && <TasksTab data={data} />}
-                        {id === "knowledge" && <KnowledgeTab />}
+                        {id === "intelligence" && <IntelligenceTab />}
                         {id === "website" && data.website && <WebsitePanel initial={data.website} />}
                         {id === "security" && <SecurityTab data={data} tabs={tabs} />}
                         {id === "privacy" && data.privacy && <PrivacyPanel initial={data.privacy} />}

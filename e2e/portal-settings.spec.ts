@@ -39,8 +39,7 @@ test("opens Portal settings from the launcher and moves between sections", async
         ["Household & Access", "/portal/settings/access"],
         ["Features", "/portal/settings/features"],
         ["Calendar & Subscriptions", "/portal/settings/calendar"],
-        ["Tasks & Notifications", "/portal/settings/tasks"],
-        ["Knowledge & Intelligence", "/portal/settings/knowledge"],
+        ["Intelligence", "/portal/settings/intelligence"],
         ["Integrations & Security", "/portal/settings/security"],
     ] as const) {
         await openSection(page, isMobile, label);

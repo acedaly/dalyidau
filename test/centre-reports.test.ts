@@ -130,7 +130,7 @@ describe("Situation reports", () => {
         expect((await apiCall("POST", `${C}/reports/preview`, { scope: { kind: "nsw" }, at: new Date(Date.now() + 2 * HOUR).toISOString() })).status).toBe(422);
     });
 
-    it("are stored in R2, owned by their author, saved to Knowledge once, and deleted with their content", async () => {
+    it("are stored in R2, owned by their author, and deleted with their content (no longer saved to Knowledge)", async () => {
         await seed();
         const saved = await apiCall<{ report: SituationReport; summary: ReportSummary }>("POST", `${C}/reports`, { scope: { kind: "nsw" } });
         expect(saved.status, saved.text).toBe(201);
@@ -140,9 +140,8 @@ describe("Situation reports", () => {
         expect(await media().head(row!.object_key)).toBeTruthy();
         expect((await apiCall("GET", `${C}/reports/${id}`, undefined, { email: SECOND_OWNER })).status).toBe(404);
         expect((await apiCall<{ report: SituationReport }>("GET", `${C}/reports/${id}`)).json.report.id).toBe(id);
-        const first = await apiCall<{ objectId: string }>("POST", `${C}/reports/${id}/knowledge`, {});
-        expect(first.status, first.text).toBe(200);
-        expect((await apiCall<{ objectId: string }>("POST", `${C}/reports/${id}/knowledge`, {})).json.objectId).toBe(first.json.objectId);
+        expect(saved.json.summary).not.toHaveProperty("knowledgeObjectId");
+        expect((await apiCall("POST", `${C}/reports/${id}/knowledge`, {})).status).toBe(410);
         expect((await apiCall("DELETE", `${C}/reports/${id}`, undefined, { email: SECOND_OWNER })).status).toBe(404);
         expect((await apiCall("DELETE", `${C}/reports/${id}`)).status).toBe(200);
         expect(await media().head(row!.object_key)).toBeNull();

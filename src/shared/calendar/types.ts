@@ -1,6 +1,5 @@
 // Data shapes for Daly Calendar and the Leave Planner, shared by the Worker and the browser.
 import { z } from "zod";
-import type { DayPlan, FeedTimeBlocks, PlannerData, PlannerPreferences, PlannerTaskLists } from "../planner/types";
 import type { LeaveAccrual, LeaveSettings, WorkPattern } from "./leave";
 import type { HolidayKind, SchoolDivision } from "./nsw";
 import type { RepeatRule } from "./recurrence";
@@ -84,7 +83,6 @@ export const LIMITS = {
     occurrencesPerWindow: 2000,
     /** The longest window one request may expand. */
     windowDays: 400,
-    linksPerEvent: 20,
     people: 10,
 } as const;
 
@@ -104,13 +102,12 @@ export const calendarPreferences = z
             .object({
                 holidays: z.boolean().default(true),
                 school: z.boolean().default(true),
-                tasks: z.boolean().default(true),
                 leave: z.boolean().default(true),
                 sharedLeave: z.boolean().default(true),
                 /** Home & Assets dates (registration, renewals, servicing, warranties) as reminders. */
                 assets: z.boolean().default(true),
             })
-            .default({ holidays: true, school: true, tasks: true, leave: true, sharedLeave: true, assets: true }),
+            .default({ holidays: true, school: true, leave: true, sharedLeave: true, assets: true }),
         /** Added to new events you create (minutes before); null for none. */
         defaultReminderMinutes: z.number().int().min(0).max(40320).nullable().default(null),
         /** Email reminders as well as in-app ones (also needs the portal's "Calendar reminder emails" switch). */
@@ -213,12 +210,6 @@ export interface EventReminderInfo {
     minutesBefore: number;
 }
 
-export type EventLink =
-    | { id: string; kind: "task"; available: true; targetId: string; title: string; status: string; dueDate: string | null }
-    | { id: string; kind: "project"; available: true; targetId: string; title: string }
-    | { id: string; kind: "knowledge"; available: true; targetId: string; title: string; spaceName: string }
-    | { id: string; kind: "task" | "project" | "knowledge"; available: false };
-
 /** Everything the event panel needs to show and edit one event. */
 export interface EventDetail {
     id: string;
@@ -248,7 +239,6 @@ export interface EventDetail {
     source: "local" | "subscription" | "import";
     canEdit: boolean;
     reminders: EventReminderInfo[];
-    links: EventLink[];
     overrides: { key: string; cancelled: boolean }[];
     createdBy: string;
     updatedAt: string;
@@ -273,16 +263,6 @@ export interface SchoolOverlay {
     custom: boolean;
     provisional: boolean;
     school: string | null;
-}
-
-export interface TaskOverlay {
-    id: string;
-    title: string;
-    date: string;
-    time: string | null;
-    kind: "due" | "deadline" | "milestone";
-    projectName: string;
-    priority: number;
 }
 
 export interface LeaveOverlay {
@@ -316,7 +296,6 @@ export interface AssetDateOverlay {
 export interface Overlays {
     holidays: HolidayOverlay[];
     school: SchoolOverlay[];
-    tasks: TaskOverlay[];
     leave: LeaveOverlay[];
     nonWorking: CustomDateOverlay[];
     /** Home & Assets reminders, for people who can open it and kept them on. */
@@ -354,7 +333,6 @@ export const feedScope = z
     .object({
         calendarIds: z.array(z.string().regex(/^cal_[a-z0-9]{14}$/)).max(50),
         leave: z.boolean(),
-        tasks: z.enum(["none", "deadlines", "dated"]),
         /** busy: every event is published as "Busy" with no details. */
         detail: z.enum(["full", "busy"]),
     })
@@ -365,8 +343,6 @@ export interface CalendarFeedInfo {
     id: string;
     name: string;
     scope: FeedScope;
-    /** The owner's time blocks: never, as "Busy" or as "Focus time" (never a task's title). */
-    timeBlocks: FeedTimeBlocks;
     tokenHint: string;
     createdAt: string;
     rotatedAt: string | null;
@@ -502,8 +478,6 @@ export interface CalendarShell {
     preferences: CalendarPreferences;
     calendars: CalendarInfo[];
     notifications: CalendarNotification[];
-    canUseTasks: boolean;
-    canUseKnowledge: boolean;
     /** Portal switches the pages need to explain themselves. */
     switches: { feeds: boolean; reminderEmails: boolean };
     /** Subscriptions currently failing, for the warning on every Calendar page. */
@@ -532,17 +506,6 @@ export type CalendarRoute =
           overlays: Overlays;
           openEvent: string | null;
           truncated: boolean;
-          /** The Tasks panel and time blocks (day and week views, for people who can open Tasks). */
-          planner: PlannerData | null;
-      })
-    | (CalendarShell & {
-          route: "calendar-planner";
-          date: string;
-          occurrences: EventOccurrence[];
-          overlays: Overlays;
-          plan: DayPlan & { lists: PlannerTaskLists };
-          plannerPreferences: { preferences: PlannerPreferences; version: number };
-          openBlock: string | null;
       })
     | (CalendarShell & { route: "calendar-year"; year: number; overlays: Overlays; busy: Record<string, number> })
     | (CalendarShell & {

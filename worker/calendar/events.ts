@@ -41,7 +41,6 @@ import {
     occurrencesBefore,
     seriesEndAt,
 } from "./expand";
-import { eventLinks } from "./links";
 
 // --- Rows ----------------------------------------------------------------------------------------
 
@@ -314,7 +313,7 @@ async function loadRow(db: D1Database, id: string): Promise<EventRow> {
 export async function eventDetail(db: D1Database, user: PortalUser, id: string): Promise<EventDetail> {
     const access = await requireEvent(db, user, id);
     const row = await loadRow(db, id);
-    const [reminders, overrides, links] = await Promise.all([
+    const [reminders, overrides] = await Promise.all([
         db
             .prepare("SELECT id, minutes_before FROM calendar_reminders WHERE event_id = ? AND email = ? ORDER BY minutes_before")
             .bind(id, user.email)
@@ -323,7 +322,6 @@ export async function eventDetail(db: D1Database, user: PortalUser, id: string):
             .prepare("SELECT occurrence_key, cancelled FROM calendar_event_overrides WHERE event_id = ? ORDER BY occurrence_key")
             .bind(id)
             .all<{ occurrence_key: string; cancelled: number }>(),
-        eventLinks(db, user, id),
     ]);
     const repeat = row.rrule ? fromRRule(row.rrule, row.start_date) : null;
     return {
@@ -357,7 +355,6 @@ export async function eventDetail(db: D1Database, user: PortalUser, id: string):
         source: row.source,
         canEdit: access.calendar_source === "local" && row.source !== "subscription" && (access.role === "owner" || access.role === "editor"),
         reminders: reminders.results.map((r) => ({ id: r.id, minutesBefore: r.minutes_before })),
-        links,
         overrides: overrides.results.map((o) => ({ key: o.occurrence_key, cancelled: !!o.cancelled })),
         createdBy: row.created_by,
         updatedAt: row.updated_at,
@@ -564,11 +561,6 @@ export async function updateEvent(db: D1Database, user: PortalUser, id: string, 
             db
                 .prepare(
                     "INSERT INTO calendar_reminders (id, event_id, email, minutes_before, created_at) SELECT 'crm_' || lower(hex(randomblob(7))), ?, email, minutes_before, ? FROM calendar_reminders WHERE event_id = ?",
-                )
-                .bind(nextId, now, id),
-            db
-                .prepare(
-                    "INSERT INTO calendar_event_links (id, event_id, task_id, project_id, object_id, added_by, added_at) SELECT 'cel_' || lower(hex(randomblob(7))), ?, task_id, project_id, object_id, added_by, ? FROM calendar_event_links WHERE event_id = ?",
                 )
                 .bind(nextId, now, id),
             activity(db, { actor: user.email, action: "event.split", entityType: "event", entityId: nextId, calendarId: row.calendar_id, via }),

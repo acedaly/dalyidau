@@ -1,7 +1,7 @@
-// Today's per-person preferences (migration 0024): sections and their order, breaks, focus periods,
-// calendars that don't count towards availability, the briefing's display and the like. Working
-// hours and session lengths stay in the Daily Planner's own preferences (worker/planner/blocks.ts),
-// which Today's settings edit alongside these.
+// Today's per-person preferences (migration 0024): sections and their order, breaks, calendars that
+// don't count towards availability, the briefing's display and the like. Planning hours and buffers
+// are kept in their own document (planner_preferences, ./window.ts), which Today's settings edit
+// alongside these.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import type { PortalUser } from "../../src/shared/portal/types";
@@ -14,7 +14,7 @@ import { HttpError } from "../portal/http";
 export async function loadTodayPrefs(db: D1Database, email: string): Promise<{ preferences: TodayPreferences; version: number }> {
     const row = await db.prepare("SELECT value, version FROM today_preferences WHERE email = ?").bind(email).first<{ value: string; version: number }>();
     if (!row) return { preferences: DEFAULT_TODAY_PREFERENCES, version: 0 };
-    // An older or damaged document falls back to the defaults rather than breaking Today or the planner.
+    // A damaged document falls back to the defaults rather than breaking Today.
     const parsed = todayPreferences.safeParse(parseJson<Record<string, unknown>>(row.value, {}));
     return { preferences: parsed.success ? parsed.data : DEFAULT_TODAY_PREFERENCES, version: row.version };
 }

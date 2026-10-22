@@ -3,8 +3,6 @@ import type { AssetsRoute } from "../assets/types";
 import type { CalendarRoute } from "../calendar/types";
 import type { CentreRoute } from "../centre/types";
 import type { IntelligenceRoute } from "../intelligence/types";
-import type { KnowledgeRoute } from "../knowledge/types";
-import type { TasksRoute } from "../tasks/types";
 import type { TodayRoute } from "../today/types";
 import type { AmplenoteStatus } from "../website";
 import type { ApplicationId } from "./applications";
@@ -920,8 +918,6 @@ export type PortalRoute =
           website: AmplenoteStatus | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
-    | KnowledgeRoute
-    | TasksRoute
     | CalendarRoute
     | IntelligenceRoute
     | CentreRoute

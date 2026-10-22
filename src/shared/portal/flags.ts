@@ -44,13 +44,6 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Blog",
     },
-    "tasks.reminders.email": {
-        label: "Task reminder emails",
-        description:
-            "Email Daly Tasks reminders in the background to people who have turned on email reminders in Tasks → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, reminders appear only in the app.",
-        default: false,
-        group: "Communications",
-    },
     "calendar.feeds": {
         label: "Calendar subscription addresses",
         description:

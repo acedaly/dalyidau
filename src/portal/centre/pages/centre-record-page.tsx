@@ -1,13 +1,11 @@
 // One record: what the provider published, in its words, with every time it carries, where it is
 // (as precisely as published), what changed and when, measurements over time, possibly related
 // records (derived, labelled) and the source's own details and health.
-import { useState } from "react";
-import { BellRinging01, BookOpen01, ClockRewind, Database01, Map01, MessageChatSquare, Route, Stars02 } from "@untitledui/icons";
+import { BellRinging01, ClockRewind, Database01, Map01, MessageChatSquare, Route, Stars02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { PageData } from "@/portal/lib/page-types";
-import { centreApi } from "../centre-api";
-import { CorrelationItem, KnowledgeSaveDialog, TimelineList } from "../history-ui";
+import { CorrelationItem, TimelineList } from "../history-ui";
 import { CentreMap, type MapFeature } from "../map/centre-map";
 import { RecordSummary } from "../record-summary";
 import { SeriesChart } from "../series-chart";
@@ -36,7 +34,6 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
           ? [point[0] - 0.2, point[1] - 0.15, point[0] + 0.2, point[1] + 0.15]
           : null;
     const metricLabel = (key: string) => record.metrics.find((m) => m.key === key);
-    const [savingTimeline, setSavingTimeline] = useState(false);
     const official = record.kind !== "observation" && record.kind !== "detection";
 
     return (
@@ -112,15 +109,7 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
                     </Card>
                 );
             })}
-            <Card
-                title="Timeline"
-                icon={Route}
-                action={
-                    <Button size="sm" color="secondary" iconLeading={BookOpen01} onClick={() => setSavingTimeline(true)}>
-                        Save timeline to Knowledge
-                    </Button>
-                }
-            >
+            <Card title="Timeline" icon={Route}>
                 {data.timeline.startsAtBaseline && (
                     <p className="px-4 pt-3 text-xs text-tertiary sm:px-5">
                         History for this record begins when it was first recorded as it stood: earlier updates weren't kept as versions.
@@ -135,13 +124,6 @@ export const CentreRecordPage = ({ data }: { data: PageData<"centre-record"> }) 
                     </ul>
                 )}
             </Card>
-            <KnowledgeSaveDialog
-                isOpen={savingTimeline}
-                onOpenChange={setSavingTimeline}
-                title="Save the timeline to Knowledge"
-                description="A note listing every event with its nature, the provider's time and when it was collected."
-                save={(target) => centreApi.timelineToKnowledge(record.id, target)}
-            />
             <Card title="Changes" icon={ClockRewind}>
                 {data.changes.length ? (
                     <ul className="divide-y divide-secondary">

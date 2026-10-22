@@ -8,7 +8,7 @@ import { type ApplicationId, applicationById, canAccessApplication } from "./app
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "calendar", "tasks", "knowledge", "website", "security", "privacy"] as const;
+export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "calendar", "intelligence", "website", "security", "privacy"] as const;
 export type PortalSettingsTab = (typeof PORTAL_SETTINGS_TABS)[number];
 
 export interface PortalSettingsSection {
@@ -28,11 +28,10 @@ export const PORTAL_SETTINGS_SECTIONS: Record<PortalSettingsTab, PortalSettingsS
         description: "Private subscription addresses, reminder emails, and where each person's calendar settings live.",
         applications: ["calendar"],
     },
-    tasks: { label: "Tasks & Notifications", description: "Task reminder emails and where each person's notification choices live.", applications: ["tasks"] },
-    knowledge: {
-        label: "Knowledge & Intelligence",
-        description: "Knowledge export and Daly Intelligence's AI and storage settings.",
-        applications: ["knowledge", "intelligence"],
+    intelligence: {
+        label: "Intelligence",
+        description: "Where Daly Intelligence's AI settings, budget and briefing preferences live.",
+        applications: ["intelligence"],
     },
     website: {
         label: "Website & Blog",
@@ -66,11 +65,14 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
     "/portal/settings/people": "/portal/settings/access",
     "/portal/settings/fields": "/portal/wedding/settings/fields",
     "/portal/wedding/settings/features": "/portal/settings/features#features-wedding",
+    // Daly Knowledge and Daly Tasks were retired; their sections went with them.
+    "/portal/settings/knowledge": "/portal/settings/intelligence",
+    "/portal/settings/tasks": "/portal/settings",
 };
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["wedding", "calendar", "tasks", "centre", "assets", "website"] as const;
+export const FEATURE_AREAS = ["wedding", "calendar", "centre", "assets", "website"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
 /** An area belongs to an application, or (for the public website, which isn't one) needs a permission. */
@@ -86,11 +88,6 @@ export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
         label: "Calendar & Subscriptions",
         description: "Private subscription addresses and reminder emails. Each person still chooses their own notifications in Calendar → Settings.",
         application: "calendar",
-    },
-    tasks: {
-        label: "Tasks & Notifications",
-        description: "Reminder emails for Daly Tasks. Each person still chooses whether to receive them in Tasks → Settings.",
-        application: "tasks",
     },
     centre: {
         label: "Intelligence Centre",
@@ -130,7 +127,6 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "module.communications": "wedding",
     "module.planning": "wedding",
     "module.budget": "wedding",
-    "tasks.reminders.email": "tasks",
     "calendar.feeds": "calendar",
     "calendar.reminders.email": "calendar",
     "intelligence_centre.ingestion": "centre",

@@ -2,18 +2,16 @@
 // its column headers, time markers, row labels and event pills are used as they are; the views
 // around them are rebuilt so they are controlled by the page (dates come from the Worker, in the
 // person's own time zone rather than the browser's), every event is a real button, all-day events
-// and overlays (public holidays, school holidays, leave, task due dates) have their own lane, and
+// and overlays (public holidays, school holidays, leave, asset due dates) have their own lane, and
 // overlapping events sit side by side. Phones get a stacked list instead of a seven-column grid.
-import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckDone01, Flag01, GraduationHat01, Package, Plane, Plus } from "@untitledui/icons";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Flag01, GraduationHat01, Package, Plane, Plus } from "@untitledui/icons";
 import { CalendarDwViewEvent } from "@/components/application/calendar/base-components/calendar-dw-view-event";
 import { CalendarMonthViewEvent, eventViewColors } from "@/components/application/calendar/base-components/calendar-month-view-event";
 import { CalendarTimeMarker } from "@/components/application/calendar/base-components/calendar-time-marker";
 import { addDays, dayLabel, eachDate, isoWeekday, longDateLabel, timeLabel, toMinutes, wallClock, weekdayLabel } from "@/shared/calendar/time";
 import type { EventOccurrence, Overlays } from "@/shared/calendar/types";
-import type { TimeBlockInfo } from "@/shared/planner/types";
 import { cx } from "@/utils/cx";
-import { DRAG_TYPE, type DragPayload, durationLabel, readDrag } from "./planner-api";
 
 const HOUR = 48;
 
@@ -26,13 +24,6 @@ export interface ViewProps {
     overlays: Overlays;
     onOpen: (occurrence: EventOccurrence) => void;
     onCreate: (date: string, time: string | null) => void;
-    /** Time blocks (Daily Planner), drawn with the events. */
-    blocks?: TimeBlockInfo[];
-    /** Blocks with a conflict, marked with a warning. */
-    conflicted?: ReadonlySet<string>;
-    onOpenBlock?: (block: TimeBlockInfo) => void;
-    /** Something from the Tasks panel or the timeline dropped on a time. */
-    onDropPlan?: (payload: DragPayload, date: string, time: string) => void;
 }
 
 const timeRange = (o: EventOccurrence) => (o.allDay ? "All day" : `${timeLabel(o.startTime!)} – ${timeLabel(o.endTime!)}`);
@@ -52,7 +43,6 @@ function dayExtras(overlays: Overlays, date: string) {
         holidays: overlays.holidays.filter((h) => h.date === date),
         school: overlays.school.filter((s) => s.kind !== "term" && s.start <= date && s.end >= date),
         leave: overlays.leave.filter((l) => l.start <= date && l.end >= date),
-        tasks: overlays.tasks.filter((t) => t.date === date),
         nonWorking: overlays.nonWorking.filter((n) => n.start <= date && n.end >= date),
         assets: (overlays.assets ?? []).filter((a) => a.date === date),
     };
@@ -67,7 +57,7 @@ const Chip = ({
 }: {
     icon?: typeof Flag01;
     children: ReactNode;
-    tone: "holiday" | "school" | "leave" | "task" | "asset" | "muted";
+    tone: "holiday" | "school" | "leave" | "asset" | "muted";
     href?: string;
     title?: string;
 }) => {
@@ -75,7 +65,6 @@ const Chip = ({
         holiday: "bg-utility-orange-50 text-utility-orange-700 ring-utility-orange-200",
         school: "bg-utility-green-50 text-utility-green-700 ring-utility-green-200",
         leave: "bg-utility-blue-50 text-utility-blue-700 ring-utility-blue-200",
-        task: "bg-secondary text-secondary ring-secondary",
         asset: "bg-primary text-tertiary ring-primary",
         muted: "bg-secondary_subtle text-tertiary ring-secondary",
     };
@@ -97,7 +86,7 @@ const Chip = ({
     );
 };
 
-/** Public holidays, school holidays, leave, tasks and non-working days for a date. */
+/** Public holidays, school holidays, leave, non-working days and Home & Assets reminders for a date. */
 export const DayChips = ({ overlays, date, compact = false }: { overlays: Overlays; date: string; compact?: boolean }) => {
     const x = dayExtras(overlays, date);
     const items: ReactNode[] = [
@@ -131,18 +120,6 @@ export const DayChips = ({ overlays, date, compact = false }: { overlays: Overla
         ...x.nonWorking.map((n) => (
             <Chip key={`n${n.id}`} tone="muted">
                 {n.name}
-            </Chip>
-        )),
-        ...x.tasks.map((t) => (
-            <Chip
-                key={`t${t.id}${t.kind}`}
-                icon={CheckDone01}
-                tone="task"
-                href={`/portal/tasks/t/${t.id}`}
-                title={`${t.kind === "deadline" ? "Deadline" : t.kind === "milestone" ? "Milestone" : "Due"} · ${t.projectName}`}
-            >
-                {t.kind === "deadline" ? "Deadline: " : ""}
-                {t.title}
             </Chip>
         )),
         ...x.assets.map((a) => (
@@ -235,93 +212,8 @@ function place<T extends Timed>(items: T[], date: string): Placed<T>[] {
 
 const isAllDayLane = (o: EventOccurrence) => o.allDay || o.startDate !== o.endDate;
 
-const isBlock = (o: Timed): o is TimeBlockInfo => "taskId" in o;
-
-const describeBlock = (b: TimeBlockInfo, conflict: boolean) =>
-    [
-        `Planned: ${b.title}`,
-        `${timeLabel(b.startTime)} – ${timeLabel(b.endTime === "24:00" ? "23:59" : b.endTime)}`,
-        durationLabel(b.durationMinutes),
-        conflict ? "has a conflict" : null,
-    ]
-        .filter(Boolean)
-        .join(", ");
-
-/** A time block: a dashed card, distinct from events, that opens its panel and can be dragged to another time. */
-export const BlockButton = ({
-    block,
-    conflict,
-    onOpen,
-    compact = false,
-    className,
-}: {
-    block: TimeBlockInfo;
-    conflict: boolean;
-    onOpen?: (block: TimeBlockInfo) => void;
-    compact?: boolean;
-    className?: string;
-}) => {
-    const done = block.taskStatus === "completed" || block.earlierOccurrence;
-    return (
-        <button
-            type="button"
-            draggable={block.canEdit && !done}
-            onDragStart={(e) => {
-                const payload: DragPayload = { kind: "block", blockId: block.id, version: block.version, minutes: block.durationMinutes };
-                e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload));
-                e.dataTransfer.effectAllowed = "move";
-            }}
-            onClick={() => onOpen?.(block)}
-            aria-label={describeBlock(block, conflict)}
-            data-block={block.id}
-            className={cx(
-                "flex h-full w-full min-w-0 cursor-pointer flex-col overflow-hidden rounded-md border border-dashed px-1.5 py-1 text-left outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-1",
-                conflict ? "border-error bg-error-primary" : "border-brand bg-brand-primary",
-                done && "opacity-60",
-                className,
-            )}
-        >
-            <span className="flex min-w-0 items-center gap-1 text-xs font-semibold text-primary">
-                {conflict ? (
-                    <AlertTriangle aria-hidden="true" className="size-3 shrink-0 text-fg-error-secondary" />
-                ) : (
-                    <CheckDone01 aria-hidden="true" className="size-3 shrink-0 text-fg-brand-secondary" />
-                )}
-                <span className={cx("truncate", done && "line-through")}>{block.title}</span>
-            </span>
-            {!compact && (
-                <span className="truncate text-xs text-tertiary">
-                    {timeLabel(block.startTime)} – {timeLabel(block.endTime === "24:00" ? "23:59" : block.endTime)}
-                </span>
-            )}
-        </button>
-    );
-};
-
-/** The time under the pointer in a day column, rounded down to a quarter hour. */
-const timeAt = (e: DragEvent<HTMLElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const minutes = Math.max(0, Math.min(23 * 60 + 45, Math.floor((((e.clientY - rect.top) / HOUR) * 60) / 15) * 15));
-    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-};
-
-export const TimeGrid = ({
-    from,
-    to,
-    today,
-    timeZone,
-    occurrences,
-    overlays,
-    onOpen,
-    onCreate,
-    blocks = [],
-    conflicted,
-    onOpenBlock,
-    onDropPlan,
-    startHour = 8,
-}: ViewProps & { startHour?: number }) => {
+export const TimeGrid = ({ from, to, today, timeZone, occurrences, overlays, onOpen, onCreate, startHour = 8 }: ViewProps & { startHour?: number }) => {
     const days = eachDate(from, to, 7);
-    const [dropAt, setDropAt] = useState<{ date: string; time: string } | null>(null);
     const scroller = useRef<HTMLDivElement>(null);
     const [now, setNow] = useState(() => wallClock(new Date(), timeZone));
     useEffect(() => {
@@ -390,38 +282,13 @@ export const TimeGrid = ({
                         ))}
                     </div>
                     {days.map((d) => {
-                        const placed = place<EventOccurrence | TimeBlockInfo>(
-                            [
-                                ...occurrences.filter((o) => !isAllDayLane(o) && o.startDate <= d && o.endDate >= d),
-                                ...blocks.filter((b) => b.startDate <= d && b.endDate >= d),
-                            ],
+                        const placed = place(
+                            occurrences.filter((o) => !isAllDayLane(o) && o.startDate <= d && o.endDate >= d),
                             d,
                         );
                         const weekend = isoWeekday(d) >= 6;
                         return (
-                            <div
-                                key={d}
-                                data-date={d}
-                                className={cx("relative border-r border-secondary last:border-r-0", weekend && "bg-secondary_subtle")}
-                                // Tasks and blocks can be dropped anywhere in the column, events included.
-                                onDragOver={(e) => {
-                                    if (!onDropPlan || !e.dataTransfer.types.includes(DRAG_TYPE)) return;
-                                    e.preventDefault();
-                                    e.dataTransfer.dropEffect = "move";
-                                    const time = timeAt(e);
-                                    if (dropAt?.date !== d || dropAt.time !== time) setDropAt({ date: d, time });
-                                }}
-                                onDragLeave={(e) => {
-                                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
-                                }}
-                                onDrop={(e) => {
-                                    const payload = onDropPlan ? readDrag(e.dataTransfer) : null;
-                                    setDropAt(null);
-                                    if (!payload) return;
-                                    e.preventDefault();
-                                    onDropPlan!(payload, d, timeAt(e));
-                                }}
-                            >
+                            <div key={d} data-date={d} className={cx("relative border-r border-secondary last:border-r-0", weekend && "bg-secondary_subtle")}>
                                 {Array.from({ length: 24 }, (_, h) => (
                                     <button
                                         key={h}
@@ -435,31 +302,20 @@ export const TimeGrid = ({
                                         <Plus className="hidden size-4 text-fg-quaternary group-hover:block" />
                                     </button>
                                 ))}
-                                {dropAt?.date === d && (
-                                    <div
-                                        aria-hidden="true"
-                                        className="pointer-events-none absolute inset-x-0.5 z-10 rounded-md bg-brand-solid/15 ring-2 ring-brand ring-inset"
-                                        style={{ top: (toMinutes(dropAt.time) / 60) * HOUR, height: HOUR / 2 }}
-                                    />
-                                )}
                                 {placed.map((p) => (
                                     <div
                                         key={p.o.id}
                                         className="absolute px-0.5 py-0.5"
                                         style={{ top: p.top, height: p.height, left: `${(p.column / p.columns) * 100}%`, width: `${100 / p.columns}%` }}
                                     >
-                                        {isBlock(p.o) ? (
-                                            <BlockButton block={p.o} conflict={!!conflicted?.has(p.o.id)} onOpen={onOpenBlock} compact={p.height < 40} />
-                                        ) : (
-                                            <EventButton o={p.o} onOpen={onOpen} className="h-full">
-                                                <CalendarDwViewEvent
-                                                    label={p.o.title}
-                                                    color={p.o.color}
-                                                    supportingText={p.height >= 40 ? timeRange(p.o) : undefined}
-                                                    withDot={p.o.showAs === "free"}
-                                                />
-                                            </EventButton>
-                                        )}
+                                        <EventButton o={p.o} onOpen={onOpen} className="h-full">
+                                            <CalendarDwViewEvent
+                                                label={p.o.title}
+                                                color={p.o.color}
+                                                supportingText={p.height >= 40 ? timeRange(p.o) : undefined}
+                                                withDot={p.o.showAs === "free"}
+                                            />
+                                        </EventButton>
                                     </div>
                                 ))}
                                 {d === now.date && (
@@ -580,9 +436,6 @@ export const AgendaDay = ({
     overlays,
     onOpen,
     onCreate,
-    blocks = [],
-    conflicted,
-    onOpenBlock,
 }: {
     date: string;
     today: string;
@@ -590,9 +443,6 @@ export const AgendaDay = ({
     overlays: Overlays;
     onOpen: ViewProps["onOpen"];
     onCreate: ViewProps["onCreate"];
-    blocks?: TimeBlockInfo[];
-    conflicted?: ReadonlySet<string>;
-    onOpenBlock?: ViewProps["onOpenBlock"];
 }) => (
     <section aria-labelledby={`day-${date}`} className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
@@ -609,15 +459,6 @@ export const AgendaDay = ({
             </button>
         </div>
         <DayChips overlays={overlays} date={date} />
-        {blocks.length > 0 && (
-            <ul aria-label={`Planned on ${longDateLabel(date)}`} className="flex flex-col gap-1.5">
-                {blocks.map((b) => (
-                    <li key={b.id}>
-                        <BlockButton block={b} conflict={!!conflicted?.has(b.id)} onOpen={onOpenBlock} className="min-h-11 px-3 py-2" />
-                    </li>
-                ))}
-            </ul>
-        )}
         {occurrences.length ? (
             <ul className="flex flex-col divide-y divide-secondary overflow-hidden rounded-xl bg-primary shadow-xs ring-1 ring-secondary ring-inset">
                 {occurrences.map((o) => (
@@ -643,34 +484,20 @@ export const AgendaDay = ({
                     </li>
                 ))}
             </ul>
-        ) : blocks.length ? null : (
+        ) : (
             <p className="text-sm text-tertiary">Nothing scheduled.</p>
         )}
     </section>
 );
 
-export const AgendaList = ({
-    from,
-    to,
-    today,
-    occurrences,
-    overlays,
-    onOpen,
-    onCreate,
-    blocks = [],
-    conflicted,
-    onOpenBlock,
-    skipEmpty = true,
-}: ViewProps & { skipEmpty?: boolean }) => {
+export const AgendaList = ({ from, to, today, occurrences, overlays, onOpen, onCreate, skipEmpty = true }: ViewProps & { skipEmpty?: boolean }) => {
     const days = eachDate(from, to, 400).filter((d) => {
         if (!skipEmpty || d === today) return true;
         const x = dayExtras(overlays, d);
         return (
             occurrences.some((o) => o.startDate <= d && o.endDate >= d) ||
-            blocks.some((b) => b.startDate === d) ||
             x.holidays.length ||
             x.leave.length ||
-            x.tasks.length ||
             x.assets.length ||
             x.school.some((s) => s.start === d)
         );
@@ -687,9 +514,6 @@ export const AgendaList = ({
                     overlays={overlays}
                     onOpen={onOpen}
                     onCreate={onCreate}
-                    blocks={blocks.filter((b) => b.startDate === d)}
-                    conflicted={conflicted}
-                    onOpenBlock={onOpenBlock}
                 />
             ))}
         </div>

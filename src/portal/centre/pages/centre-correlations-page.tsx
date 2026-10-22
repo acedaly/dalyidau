@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import { Stars02 } from "@untitledui/icons";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { Card } from "@/portal/knowledge/pages/knowledge-home-page";
+import { Card } from "@/portal/components/card";
 import type { PageData } from "@/portal/lib/page-types";
 import { CorrelationItem } from "../history-ui";
 import { CentreHeader, CentreNotices } from "../shared";

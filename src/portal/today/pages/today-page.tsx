@@ -1,55 +1,37 @@
-// Today (/portal/today): one place to plan and run the day. A greeting and the date (today, tomorrow
-// or any day), the Chief of Staff briefing, capacity, a timeline of fixed commitments and movable
-// task time, what needs attention, deadlines, commitments and notifications, in the order the person
-// chose, with the Tasks panel beside them. Plan My Day, Morning planning, the Evening review and Quick
-// capture start from the header.
+// Today (/portal/today): one place to see the day. A greeting and the date (today, tomorrow or any
+// day), the Chief of Staff briefing, capacity, a timeline of commitments, breaks, leave and free
+// time, commitments and notifications, in the order the person chose. An appointment can be added
+// from the header.
 //
-// Today owns no records. Sessions are the Daily Planner's, tasks are Tasks', events Calendar's and
-// notes Knowledge's, each changed through its own API. After a change only the affected parts are
-// fetched again (the plan, briefing and completed tasks), never the whole page.
-import { useCallback, useEffect, useMemo, useState } from "react";
+// Today owns no records: events are Calendar's, changed through Calendar's own API. After a change
+// only the affected parts are fetched again, never the whole page.
+import { useCallback, useState } from "react";
 import { type CalendarDate, parseDate } from "@internationalized/date";
-import { ArrowLeft, ArrowRight, Calendar, ChevronLeft, ChevronRight, Moon01, Settings01, Stars02, Sunrise } from "@untitledui/icons";
+import { ArrowLeft, ArrowRight, Calendar, Settings01 } from "@untitledui/icons";
 import { DatePicker } from "@/components/application/date-picker/date-picker";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { calendarApi } from "@/portal/calendar/api";
-import { PlanningSettings } from "@/portal/calendar/pages/calendar-planner-page";
-import { plannerApi } from "@/portal/calendar/planner-api";
-import { BlockPanel, type PlannerState, ScheduleDialog, TasksPanel, usePlanner } from "@/portal/calendar/planner-ui";
 import { Card } from "@/portal/calendar/shared";
 import { TimeGrid } from "@/portal/calendar/views";
 import { PageHeader } from "@/portal/components/page-header";
 import { useToast } from "@/portal/components/toast";
-import { ApiError, errorMessage } from "@/portal/lib/api";
+import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import { tasksApi } from "@/portal/tasks/api";
-import { TASK_CREATED_EVENT } from "@/portal/tasks/quick-add-events";
 import { AssetsTodaySection } from "@/portal/today/assets-section";
 import { CentreTodaySection } from "@/portal/today/centre-section";
 import { addDays, dayLabel, longDateLabel, zoneAbbreviation } from "@/shared/calendar/time";
-import type { PlannerTask } from "@/shared/planner/types";
 import type { TodayDashboard, TodaySection } from "@/shared/today/types";
 import { cx } from "@/utils/cx";
-import { PlanMyDayDialog } from "../plan-my-day";
-import { QuickCaptureMenu } from "../quick-capture";
-import { EveningReview, MorningPlanning } from "../routines";
-import {
-    AttentionSection,
-    BriefingSection,
-    CapacitySection,
-    CommitmentsSection,
-    DeadlinesSection,
-    NotificationsSection,
-    STATUS,
-    TimelineList,
-} from "../sections";
+import { AddAppointment } from "../add-appointment";
+import { PlanningHoursDialog } from "../planning-hours-dialog";
+import { BriefingSection, CapacitySection, CommitmentsSection, NotificationsSection, STATUS, TimelineList } from "../sections";
 import { TodaySettingsDialog } from "../settings-dialog";
 import { type TodayPart, todayApi } from "../today-api";
 
-const AFTER_CHANGE: TodayPart[] = ["plan", "briefing", "completed"];
+const AFTER_CHANGE: TodayPart[] = ["plan", "briefing"];
 
 /** Any other day: Untitled UI's date picker, applied with its own Apply button. */
 const GoToDate = ({ date, onGo }: { date: string; onGo: (date: string) => void }) => {
@@ -69,74 +51,21 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
     const toast = useToast();
     const { user } = usePortal();
     const [data, setData] = useState<TodayDashboard>(page.dashboard);
-    const [planning, setPlanning] = useState(page.plannerPreferences);
-    const [dialog, setDialog] = useState<"plan" | "morning" | "evening" | "settings" | "planning" | null>(null);
+    const [hours, setHours] = useState(page.planningHours);
+    const [dialog, setDialog] = useState<"settings" | "hours" | null>(null);
     const [timelineView, setTimelineView] = useState(data.preferences.timelineView);
-    const [panelOpen, setPanelOpen] = useState(true);
     const { date, today } = data;
 
     const refresh = useCallback(
         async (parts: TodayPart[] = AFTER_CHANGE) => {
             const { today: next } = await todayApi.get(date, parts);
             setData((d) => ({ ...d, ...next }));
-            return next;
         },
         [date],
     );
-    const load = useCallback(async (): Promise<PlannerState> => {
-        const next = await refresh();
-        return { lists: next.lists!, blocks: next.blocks!, conflicts: next.conflicts! };
-    }, [refresh]);
-    const planner = usePlanner({ lists: data.lists, blocks: data.blocks, conflicts: data.conflicts }, load);
-
-    // A task added with Quick capture (Tasks' Quick Add) shows up without a reload.
-    useEffect(() => {
-        const onCreated = () => void planner.refresh();
-        window.addEventListener(TASK_CREATED_EVENT, onCreated);
-        return () => window.removeEventListener(TASK_CREATED_EVENT, onCreated);
-    }, [planner.refresh]);
-    // Links from the briefing and MCP open a session (?block=); "Morning planning" can be where the day starts.
-    useEffect(() => {
-        if (page.openBlock) {
-            const known = data.blocks.find((b) => b.id === page.openBlock);
-            if (known) planner.setOpenBlock(known);
-            else
-                plannerApi
-                    .get(page.openBlock)
-                    .then((r) => planner.setOpenBlock(r.block))
-                    .catch(() => undefined);
-        } else if (data.preferences.startView === "morning" && date === today && !data.reviews.morning && data.greeting === "Good morning")
-            setDialog("morning");
-        // Only on first render.
-    }, []);
-
-    const byId = useMemo(() => new Map(planner.state.lists.tasks.map((t) => [t.id, t])), [planner.state.lists.tasks]);
-    const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter((t): t is PlannerTask => !!t);
-    const unscheduled = pick(planner.state.lists.buckets.unscheduled);
-    const conflicted = useMemo(() => new Set(planner.state.conflicts.map((c) => c.blockId).filter((id): id is string => !!id)), [planner.state.conflicts]);
     const hrefFor = (d: string) => (d === today ? "/portal/today" : `/portal/today?date=${d}`);
     const go = (d: string) => (window.location.href = hrefFor(d));
     const firstName = (user.name ?? user.email.split("@")[0]).split(/\s+/)[0];
-    const schedule = (task: PlannerTask, time: string | null = null) => planner.setTarget({ kind: "task", task, date: date < today ? today : date, time });
-
-    const complete = async (task: PlannerTask) => {
-        try {
-            // Tasks' own API, rules and history.
-            const result = await tasksApi.complete(task.id, task.dueDate, false);
-            toast.show({
-                title: result.nextDate ? `Done. Next: ${dayLabel(result.nextDate)}` : "Task completed",
-                description: task.title,
-                color: "success",
-                action: { label: "Undo", run: () => void tasksApi.reopen(task.id).then(() => planner.refresh()) },
-            });
-            await planner.refresh();
-        } catch (error) {
-            toast.error(
-                error instanceof ApiError && error.code === "open_subtasks" ? "It has open subtasks: complete it in Tasks" : "Couldn't complete the task",
-                errorMessage(error),
-            );
-        }
-    };
 
     const sections: Record<TodaySection, () => React.ReactNode> = {
         briefing: () => <BriefingSection briefing={data.briefing} preferences={data.preferences.briefing} canUseIntelligence={data.canUseIntelligence} />,
@@ -145,7 +74,7 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
             <div id="timeline" className="scroll-mt-4">
                 <Card
                     title="Timeline"
-                    description="Fixed commitments, movable task time, breaks and free time. Events from subscribed calendars are never changed here."
+                    description="Commitments, breaks, leave and free time. Events from subscribed calendars are never changed here."
                     actions={
                         <ButtonGroup
                             size="sm"
@@ -173,50 +102,16 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
                                 overlays={page.overlays}
                                 onOpen={(o) => (window.location.href = `/portal/calendar?view=day&date=${o.startDate}&event=${o.eventId}`)}
                                 onCreate={() => undefined}
-                                blocks={planner.state.blocks}
-                                conflicted={conflicted}
-                                onOpenBlock={planner.setOpenBlock}
-                                onDropPlan={(payload, d, time) => void planner.drop(payload, d, time)}
                                 startHour={Number(page.workingHoursStart.slice(0, 2))}
                             />
                         </div>
                     )}
                     <div className={cx(timelineView === "grid" && "md:hidden")}>
-                        <TimelineList
-                            timeline={data.timeline}
-                            blocks={planner.state.blocks}
-                            unscheduled={unscheduled}
-                            onOpenBlock={planner.setOpenBlock}
-                            onPlanAt={(task, time) => schedule(task, time)}
-                        />
+                        <TimelineList timeline={data.timeline} />
                     </div>
                 </Card>
             </div>
         ),
-        attention: () => (
-            <AttentionSection
-                today={today}
-                onSchedule={(t) => schedule(t)}
-                onComplete={(t) => void complete(t)}
-                groups={[
-                    {
-                        key: "today",
-                        title: "Due today",
-                        empty: "Nothing due today.",
-                        tasks: pick(planner.state.lists.buckets.today).filter((t) => t.dueDate === today || t.deadline === today),
-                    },
-                    { key: "overdue", title: "Overdue", empty: "Nothing overdue.", tasks: pick(planner.state.lists.buckets.overdue) },
-                    {
-                        key: "priority",
-                        title: "High priority, unscheduled",
-                        empty: "Every P1 and P2 task has time planned.",
-                        tasks: pick(planner.state.lists.buckets.priority).filter((t) => t.scheduledMinutes === 0),
-                    },
-                ]}
-                completed={data.preferences.showCompleted ? data.completed : []}
-            />
-        ),
-        deadlines: () => <DeadlinesSection deadlines={data.deadlines} today={today} />,
         commitments: () => <CommitmentsSection commitments={data.commitments} date={date} lookahead={data.preferences.briefing.lookaheadDays} />,
         notifications: () => (
             <NotificationsSection
@@ -249,10 +144,7 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
                 breadcrumbs={[{ label: "Today" }]}
                 actions={
                     <>
-                        <QuickCaptureMenu data={data} spaces={page.spaces} onChanged={() => window.location.reload()} />
-                        <Button size="md" color="secondary" iconLeading={Stars02} onClick={() => setDialog("plan")} isDisabled={date < today}>
-                            Plan my day
-                        </Button>
+                        <AddAppointment data={data} onChanged={() => window.location.reload()} />
                         <ButtonUtility size="sm" color="secondary" icon={Settings01} tooltip="Customise Today" onClick={() => setDialog("settings")} />
                     </>
                 }
@@ -288,16 +180,6 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
                         <span className="font-medium text-secondary">{status.label}</span>
                         {data.capacity.availableMinutes > 0 && ` · ${Math.round(data.capacity.freeMinutes / 6) / 10} h free`}
                     </span>
-                    {date === today && (
-                        <>
-                            <Button size="sm" color="secondary" iconLeading={Sunrise} onClick={() => setDialog("morning")}>
-                                {data.reviews.morning ? "Morning planning ✓" : "Morning planning"}
-                            </Button>
-                            <Button size="sm" color="secondary" iconLeading={Moon01} onClick={() => setDialog("evening")}>
-                                {data.reviews.evening ? "Evening review ✓" : "Evening review"}
-                            </Button>
-                        </>
-                    )}
                     <Button size="sm" color="tertiary" iconLeading={Calendar} href={`/portal/calendar?view=${data.preferences.calendarView}&date=${date}`}>
                         Open in Calendar
                     </Button>
@@ -307,79 +189,36 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
             {page.centre && <CentreTodaySection centre={page.centre} />}
             {page.assets && <AssetsTodaySection assets={page.assets} />}
 
-            <div className={cx("grid grid-cols-1 gap-6", panelOpen ? "xl:grid-cols-[minmax(0,1fr)_22rem]" : "xl:grid-cols-[minmax(0,1fr)_auto]")}>
-                <div className="flex min-w-0 flex-col gap-6">
-                    {order.map((s) => (
-                        <div key={s} data-section={s}>
-                            {sections[s]()}
-                        </div>
-                    ))}
-                    {!order.length && <p className="text-sm text-tertiary">Every section is hidden. Choose some with Customise Today.</p>}
-                </div>
-                <aside aria-label="Tasks" className="flex min-w-0 flex-col gap-2 xl:sticky xl:top-4 xl:self-start">
-                    <Button
-                        size="sm"
-                        color="tertiary"
-                        iconLeading={panelOpen ? ChevronRight : ChevronLeft}
-                        aria-expanded={panelOpen}
-                        aria-controls="today-tasks"
-                        onClick={() => setPanelOpen(!panelOpen)}
-                        className="self-end"
-                        aria-label={panelOpen ? "Hide the Tasks panel" : "Show the Tasks panel"}
-                    >
-                        {panelOpen ? "Hide tasks" : "Tasks"}
-                    </Button>
-                    <div id="today-tasks" className={cx(!panelOpen && "hidden")}>
-                        <TasksPanel planner={planner} today={today} defaultDate={date < today ? today : date} extended collapsible={false} title="Tasks" />
+            <div className="flex min-w-0 flex-col gap-6">
+                {order.map((s) => (
+                    <div key={s} data-section={s}>
+                        {sections[s]()}
                     </div>
-                </aside>
+                ))}
+                {!order.length && <p className="text-sm text-tertiary">Every section is hidden. Choose some with Customise Today.</p>}
             </div>
 
-            <ScheduleDialog planner={planner} today={today} />
-            <BlockPanel planner={planner} />
-            <PlanMyDayDialog
-                date={date}
-                isOpen={dialog === "plan"}
-                onOpenChange={(o) => setDialog(o ? "plan" : null)}
-                onApplied={() => void planner.refresh()}
-            />
-            {date === today && (
-                <>
-                    <MorningPlanning
-                        data={data}
-                        isOpen={dialog === "morning"}
-                        onOpenChange={(o) => setDialog(o ? "morning" : null)}
-                        onDone={() => void planner.refresh().then(() => refresh(["reviews", "briefing"]))}
-                    />
-                    <EveningReview
-                        data={data}
-                        isOpen={dialog === "evening"}
-                        onOpenChange={(o) => setDialog(o ? "evening" : null)}
-                        onDone={() => void planner.refresh().then(() => refresh(["reviews", "briefing"]))}
-                    />
-                </>
-            )}
             {dialog === "settings" && (
                 <TodaySettingsDialog
                     isOpen
                     onOpenChange={(o) => setDialog(o ? "settings" : null)}
                     data={data}
-                    onOpenPlanning={() => setDialog("planning")}
+                    onOpenPlanning={() => setDialog("hours")}
                     onSaved={(preferences, version) => {
                         setData((d) => ({ ...d, preferences, preferencesVersion: version }));
                         setTimelineView(preferences.timelineView);
-                        void planner.refresh();
+                        void refresh();
                     }}
                 />
             )}
-            <PlanningSettings
-                isOpen={dialog === "planning"}
-                onOpenChange={(o) => setDialog(o ? "planning" : null)}
-                initial={planning.preferences}
-                version={planning.version}
+            <PlanningHoursDialog
+                isOpen={dialog === "hours"}
+                onOpenChange={(o) => setDialog(o ? "hours" : null)}
+                initial={hours.preferences}
+                version={hours.version}
                 onSaved={(preferences, version) => {
-                    setPlanning({ preferences, version });
-                    void planner.refresh();
+                    setHours({ preferences, version });
+                    void refresh();
                 }}
             />
         </>

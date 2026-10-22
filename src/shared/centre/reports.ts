@@ -84,7 +84,6 @@ export interface ReportSummary {
     facts: number;
     trigger: "manual" | "schedule" | "mcp";
     scheduleId: string | null;
-    knowledgeObjectId: string | null;
     hasNarrative: boolean;
 }
 
@@ -99,7 +98,6 @@ export const scheduleInputSchema = z
         timeZone: z.string().max(60).default("Australia/Sydney"),
         periodHours: z.number().int().min(1).max(744).default(24),
         notify: z.enum(["none", "in_app", "email"]).default("in_app"),
-        saveToKnowledge: z.boolean().default(false),
         narrative: z.boolean().default(false),
         enabled: z.boolean().default(true),
     })

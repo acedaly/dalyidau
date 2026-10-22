@@ -20,8 +20,8 @@ import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { type AssetFileView, FILE_KINDS, LIMITS, PHOTO_TAGS } from "../../src/shared/assets/types";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { zipBombReason } from "../intelligence/attachments";
 import { imageDimensions } from "../lib/image";
+import { zipBombReason } from "../lib/office-files";
 import { newId, nowIso } from "../portal/db";
 import { HttpError } from "../portal/http";
 import {

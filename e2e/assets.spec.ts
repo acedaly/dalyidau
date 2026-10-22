@@ -140,7 +140,7 @@ test("completing scheduled maintenance moves the schedule on and adds the next o
     await page.goto(`/portal/assets/item/${s.hilux}?tab=maintenance`);
     await expect(page.getByText("Overdue").first()).toBeVisible();
     // Make the open record for the schedule, then complete it in the browser.
-    await send(request, "post", `${A}/tasks`, { refKind: "schedule", refId: s.service });
+    await send(request, "post", `${A}/maintenance`, { assetId: s.hilux, scheduleId: s.service, title: "Service" });
     await page.reload();
     const todo = page.locator("section").filter({ has: page.getByRole("heading", { name: "To do", exact: true }) });
     await todo.getByRole("button", { name: "Done" }).first().click();
@@ -172,13 +172,15 @@ test("a scanned label's address opens its asset, and other addresses are never f
     await page.getByRole("button", { name: "Find" }).click();
     await expect(page.getByText("Not a Home & Assets label")).toBeVisible();
     await expect(page).toHaveURL(/capture\?mode=scan/);
+    // On a phone the toast sits over the form, and pausing on hover keeps it there: dismiss it.
+    await page.getByRole("button", { name: "Dismiss" }).click();
     await page.getByLabel("Or type a code").fill(`${BASE}/portal/assets/item/${s.camper}?v=1`);
     await page.getByRole("button", { name: "Find" }).click();
     await expect(page).toHaveURL(new RegExp(`/portal/assets/item/${s.camper}`));
     await expect(page.getByRole("heading", { level: 1, name: /Cub Camper Frontier/ })).toBeVisible();
 });
 
-test("Today shows Home & Assets dates with whether a task exists", async ({ page, request }, info) => {
+test("Today shows Home & Assets dates", async ({ page, request }, info) => {
     await seed(request, `${info.project.name}-today`);
     // Room for every seeded item: other tests in this shared database add their own.
     const prefs = await (await request.get(`${A}/preferences`)).json();
@@ -189,5 +191,6 @@ test("Today shows Home & Assets dates with whether a task exists", async ({ page
     await page.goto("/portal/today");
     const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "Home & Assets", exact: true }) });
     await expect(section.getByText(/Cub Camper Frontier \(.+\) registration is due in 21 days\./).first()).toBeVisible();
-    await expect(section.getByText("No renewal Task has been created.").first()).toBeVisible();
+    // Daly Tasks is retired: nothing offers to make a task from it.
+    await expect(section.getByText(/Task/)).toHaveCount(0);
 });

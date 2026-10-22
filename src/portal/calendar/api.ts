@@ -14,7 +14,6 @@ import type {
     CustomDate,
     EventCategory,
     EventDetail,
-    EventLink,
     EventOccurrence,
     EventPeople,
     EventVisibility,
@@ -27,7 +26,6 @@ import type {
     Overlays,
     SubscriptionInfo,
 } from "@/shared/calendar/types";
-import type { FeedTimeBlocks } from "@/shared/planner/types";
 
 const C = "/api/portal/calendar";
 
@@ -86,11 +84,6 @@ export const calendarApi = {
         api<{ deleted: EditScope }>("DELETE", `${C}/events/${id}?scope=${scope}${key ? `&key=${encodeURIComponent(key)}` : ""}`),
     restoreOccurrence: (id: string, key: string) => api<{ event: EventDetail }>("POST", `${C}/events/${id}/restore`, { key }),
     reminders: (id: string, minutes: number[]) => api<{ event: EventDetail }>("PUT", `${C}/events/${id}/reminders`, { minutes }),
-    addLink: (id: string, kind: "task" | "project" | "knowledge", targetId: string) =>
-        api<{ links: EventLink[] }>("POST", `${C}/events/${id}/links`, { kind, targetId }),
-    removeLink: (id: string, linkId: string) => api<{ links: EventLink[] }>("DELETE", `${C}/events/${id}/links/${linkId}`),
-    createTask: (id: string, body: { dueDate: string; dueTime?: string | null; title?: string; projectId?: string; clientId?: string }) =>
-        api<{ task: { id: string; title: string }; links: EventLink[] }>("POST", `${C}/events/${id}/task`, body),
 
     calendars: () => api<{ calendars: CalendarInfo[] }>("GET", `${C}/calendars`),
     createCalendar: (body: {
@@ -135,10 +128,8 @@ export const calendarApi = {
     unsubscribe: (id: string) => api<{ subscriptions: SubscriptionInfo[] }>("DELETE", `${C}/subscriptions/${id}`),
 
     feeds: () => api<{ feeds: CalendarFeedInfo[] }>("GET", `${C}/feeds`),
-    createFeed: (name: string, scope: FeedScope, timeBlocks: FeedTimeBlocks = "none") =>
-        api<{ feed: CalendarFeedInfo; address: string }>("POST", `${C}/feeds`, { name, scope, timeBlocks }),
-    updateFeed: (id: string, body: { name?: string; scope?: FeedScope; timeBlocks?: FeedTimeBlocks }) =>
-        api<{ feed: CalendarFeedInfo }>("PATCH", `${C}/feeds/${id}`, body),
+    createFeed: (name: string, scope: FeedScope) => api<{ feed: CalendarFeedInfo; address: string }>("POST", `${C}/feeds`, { name, scope }),
+    updateFeed: (id: string, body: { name?: string; scope?: FeedScope }) => api<{ feed: CalendarFeedInfo }>("PATCH", `${C}/feeds/${id}`, body),
     rotateFeed: (id: string) => api<{ feed: CalendarFeedInfo; address: string }>("POST", `${C}/feeds/${id}/rotate`, {}),
     revokeFeed: (id: string) => api<{ feeds: CalendarFeedInfo[] }>("DELETE", `${C}/feeds/${id}`),
 
