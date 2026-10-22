@@ -188,8 +188,8 @@ describe("who may call the portal through the MCP gateway", () => {
             ].sort(),
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
-        expect(writes.every((n) => /_(create|update|schedule|save|complete|refresh)/.test(n))).toBe(true);
-        expect(writes).toHaveLength(14);
+        expect(writes.every((n) => /_(create|update|schedule|save|complete|refresh|append)/.test(n))).toBe(true);
+        expect(writes).toHaveLength(17);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {
