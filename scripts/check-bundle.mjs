@@ -1,8 +1,9 @@
 // Guards the client build (run after `npm run build:client`):
 //  - the blog's assets contain no portal or wedding code, and stay within a size budget;
+//  - Tailwind scans exactly the source files the blog imports (see src/styles/globals.css);
 //  - no client asset contains server-only configuration names or anything that looks like a secret.
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { ROOT, Report } from "./lib/ops.mjs";
 
 const dist = join(ROOT, "dist", "client");
@@ -36,6 +37,44 @@ report.check(
     size(blogCss) <= CSS_BUDGET,
     `Blog CSS ${(size(blogCss) / 1024).toFixed(0)} KB (budget ${CSS_BUDGET / 1024} KB)`,
     `Blog CSS is ${(size(blogCss) / 1024).toFixed(0)} KB, over the ${CSS_BUDGET / 1024} KB budget`,
+);
+
+// Tailwind scans only the files globals.css lists, so it must list every file the blog imports (or
+// that file's classes are silently missing) and nothing else (or unused classes creep back in).
+const STYLES = join(ROOT, "src", "styles");
+const globalsCss = readFileSync(join(STYLES, "globals.css"), "utf8");
+const sources = [...globalsCss.matchAll(/@source (not )?"([^"]+)"/g)].map((m) => ({ not: Boolean(m[1]), path: relative(ROOT, resolve(STYLES, m[2])) }));
+const under = (path, file) => file === path || file.startsWith(`${path}/`);
+const scanned = (file) => sources.some((s) => !s.not && under(s.path, file)) && !sources.some((s) => s.not && under(s.path, file));
+const isFile = (file) => existsSync(join(ROOT, file)) && statSync(join(ROOT, file)).isFile();
+const resolveImport = (from, spec) => {
+    const base = spec.startsWith("@/") ? join("src", spec.slice(2)) : spec.startsWith(".") ? join(dirname(from), spec) : null;
+    return base && ["", ".tsx", ".ts", "/index.tsx", "/index.ts"].map((ext) => base + ext).find((f) => /\.tsx?$/.test(f) && isFile(f));
+};
+const blogSources = new Set();
+for (const queue = ["src/entry-client.tsx"]; queue.length;) {
+    const file = queue.pop();
+    if (blogSources.has(file)) continue;
+    blogSources.add(file);
+    for (const m of readFileSync(join(ROOT, file), "utf8").matchAll(/^(?:import|export) (?!type\b)[^;]*?from "([^"]+)"/gm)) {
+        const target = resolveImport(file, m[1]);
+        if (target) queue.push(target);
+    }
+}
+const unscanned = [...blogSources].filter((f) => !scanned(f));
+report.check(
+    unscanned.length === 0,
+    `Tailwind scans all ${blogSources.size} files the blog imports`,
+    `globals.css doesn't scan files the blog imports (add an @source): ${unscanned.join(", ")}`,
+);
+const listFiles = (path) => (statSync(join(ROOT, path)).isDirectory() ? readdirSync(join(ROOT, path)).flatMap((f) => listFiles(join(path, f))) : [path]);
+const extra = [...new Set(sources.filter((s) => !s.not).flatMap((s) => listFiles(s.path)))].filter(
+    (f) => /\.tsx?$/.test(f) && scanned(f) && !blogSources.has(f),
+);
+report.check(
+    extra.length === 0,
+    "Tailwind scans nothing the blog doesn't import",
+    `globals.css scans files the blog doesn't import (narrow the @source or add an @source not): ${extra.join(", ")}`,
 );
 
 // Nothing secret anywhere in the client build. Setting NAMES may appear in help text; VALUES never.
