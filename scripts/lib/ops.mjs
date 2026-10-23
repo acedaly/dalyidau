@@ -357,6 +357,24 @@ export const INTEGRITY_CHECKS = [
         sql: "SELECT id FROM assets WHERE json_valid(tags) = 0 OR json_valid(custom) = 0 OR json_valid(depreciation) = 0 UNION ALL SELECT asset_id FROM asset_vehicles WHERE json_valid(specs) = 0 LIMIT 20",
         level: "fail",
     },
+    {
+        // The unique index already refuses these; a hit means the index itself was lost.
+        name: "No transaction is in the ledger twice (Household Finance)",
+        sql: "SELECT account_id FROM finance_transactions WHERE deleted_at IS NULL GROUP BY account_id, fingerprint HAVING COUNT(*) > 1 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Both sides of a transfer point at it, are live and are marked as transfers.
+        name: "Household Finance transfers link two live transactions",
+        sql: "SELECT tr.id FROM finance_transfers tr WHERE (SELECT COUNT(*) FROM finance_transactions t WHERE t.transfer_id = tr.id AND t.is_transfer = 1 AND t.deleted_at IS NULL AND t.id IN (tr.out_transaction_id, tr.in_transaction_id)) <> 2 LIMIT 20",
+        level: "fail",
+    },
+    {
+        // Set while a commit runs, for the length of one D1 batch; left behind only if a Worker died mid-commit.
+        name: "No Household Finance import is stuck mid-commit",
+        sql: "SELECT id FROM finance_imports WHERE status = 'committing' LIMIT 20",
+        level: "warn",
+    },
 ];
 
 /**
@@ -512,4 +530,15 @@ export const TABLES = [
     "ic_wallboard_views",
     "ic_event_links",
     "ic_cache",
+    // Household Finance (0031). Exists only in D1: accounts, the ledger, imports and their rows,
+    // transfers, reconciliations, categories and history can't be rebuilt from anywhere else.
+    "finance_accounts",
+    "finance_categories",
+    "finance_imports",
+    "finance_import_rows",
+    "finance_transfers",
+    "finance_transactions",
+    "finance_transfer_dismissals",
+    "finance_reconciliations",
+    "finance_activity",
 ];

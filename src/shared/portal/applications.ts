@@ -1,9 +1,9 @@
 import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre" | "assets";
+export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre" | "assets" | "finance";
 
-export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre" | "assets";
+export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre" | "assets" | "finance";
 
 export type NavigationIcon =
     | "dashboard"
@@ -57,7 +57,11 @@ export type NavigationIcon =
     | "insurance"
     | "warranty"
     | "documents"
-    | "scan";
+    | "scan"
+    | "finance"
+    | "transactions"
+    | "accounts"
+    | "import";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -312,6 +316,34 @@ export const APPLICATIONS = [
                     { label: "Capture and scan", href: "/portal/assets/capture", icon: "scan", active: "prefix" },
                     { label: "Reports and export", href: "/portal/assets/reports", icon: "reports", active: "prefix" },
                     { label: "Settings", href: "/portal/assets/settings", icon: "settings" },
+                ],
+            },
+        ],
+    },
+    {
+        id: "finance",
+        name: "Household Finance",
+        summary: "Accounts, imports and where our money goes.",
+        description:
+            "Import bank CSV files (NAB first), check balances against the bank, categorise spending and see where the household's money goes. Private accounts stay private; shared accounts are visible to both of us.",
+        icon: "finance",
+        baseRoute: "/portal/finance",
+        requiredPermission: "finance.use",
+        enabled: true,
+        navigation: [
+            {
+                label: "Household Finance",
+                items: [
+                    { label: "Overview", href: "/portal/finance", icon: "finance" },
+                    { label: "Transactions", href: "/portal/finance/transactions", icon: "transactions" },
+                    { label: "Accounts", href: "/portal/finance/accounts", icon: "accounts", active: "prefix" },
+                ],
+            },
+            {
+                label: "Application",
+                items: [
+                    { label: "Import transactions", href: "/portal/finance/import", icon: "import", active: "prefix" },
+                    { label: "Categories and settings", href: "/portal/finance/settings", icon: "settings" },
                 ],
             },
         ],

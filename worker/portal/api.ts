@@ -18,6 +18,7 @@ import { archiveCapacities, undoReplacement } from "../capacities/archive";
 import { handleCentreApi } from "../centre/api";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
+import { handleFinanceApi } from "../finance/api";
 import { handleIntelligenceApi } from "../intelligence/api";
 import { handleTodayApi } from "../today/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
@@ -966,6 +967,8 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         if (url.pathname.startsWith("/api/portal/centre/")) return await handleCentreApi(request, env, user, exec);
         // And Home & Assets: access there is per asset (owner, or what it's shared with you for).
         if (url.pathname.startsWith("/api/portal/assets/")) return await handleAssetsApi(request, env, user);
+        // And Household Finance: access there is per account (the owner's, or shared with the household).
+        if (url.pathname.startsWith("/api/portal/finance/")) return await handleFinanceApi(request, env, user);
         // And Today: it needs Calendar, and reads and changes everything through Calendar's own functions.
         if (url.pathname === "/api/portal/today" || url.pathname.startsWith("/api/portal/today/")) return await handleTodayApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;

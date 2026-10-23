@@ -124,6 +124,15 @@ export async function apiCall<T = unknown>(method: string, path: string, body?: 
 }
 
 const PORTAL_TABLES = [
+    "finance_activity",
+    "finance_transfer_dismissals",
+    "finance_reconciliations",
+    "finance_import_rows",
+    "finance_transactions",
+    "finance_transfers",
+    "finance_imports",
+    "finance_categories",
+    "finance_accounts",
     "asset_notifications",
     "asset_activity",
     "asset_task_links",

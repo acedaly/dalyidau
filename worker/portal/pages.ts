@@ -18,6 +18,7 @@ import { todayCentre } from "../centre/actions";
 import { type CentrePage, loadCentrePage } from "../centre/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
+import { loadFinancePage } from "../finance/pages";
 import { loadIntelligencePage } from "../intelligence/pages";
 import { todayDashboard } from "../today/dashboard";
 import { loadPlanningHours } from "../today/window";
@@ -460,6 +461,31 @@ const PAGES: PageDef[] = [
         title: "Hazards",
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "hazards", match[1]),
+    },
+    // Household Finance. The application's permission is checked here; each account's visibility in the loaders.
+    {
+        pattern: /^\/portal\/finance$/,
+        title: "Household Finance",
+        application: "finance",
+        load: ({ env, user, url }) => loadFinancePage(env, user, url, "overview"),
+    },
+    {
+        pattern: /^\/portal\/finance\/(transactions|accounts|import|settings)$/,
+        title: "Household Finance",
+        application: "finance",
+        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, match[1] as "transactions" | "accounts" | "import" | "settings"),
+    },
+    {
+        pattern: /^\/portal\/finance\/accounts\/(fac_[a-z0-9]{14})$/,
+        title: "Account",
+        application: "finance",
+        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, "account", match[1]),
+    },
+    {
+        pattern: /^\/portal\/finance\/import\/(fim_[a-z0-9]{14})$/,
+        title: "Review import",
+        application: "finance",
+        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, "import-review", match[1]),
     },
     // Home & Assets. The application's permission is checked here; each asset's own rights in the loaders.
     {
