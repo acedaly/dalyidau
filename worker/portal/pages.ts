@@ -1,6 +1,6 @@
 // Server-side loaders for portal pages. Each returns the data the page needs for its first render;
 // after that the page talks to /api/portal directly.
-import { type ApplicationId, applicationById, availableApplications, canAccessApplication } from "../../src/shared/portal/applications";
+import { type ApplicationId, applicationById, canAccessApplication, listedApplications } from "../../src/shared/portal/applications";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
@@ -63,7 +63,8 @@ const PAGES: PageDef[] = [
     {
         pattern: /^\/portal$/,
         title: "Applications",
-        load: async ({ user }) => ({ route: "portal-home", applications: availableApplications(user).map((application) => application.id) }),
+        // Only the applications the portal lists (Portal settings → Features → Other applications).
+        load: async ({ user, flags }) => ({ route: "portal-home", applications: listedApplications(user, flags).map((application) => application.id) }),
     },
     {
         pattern: /^\/portal\/wedding$/,

@@ -65,13 +65,14 @@ const flagRows = async () =>
     (await db().prepare("SELECT key, enabled, updated_at, updated_by FROM feature_flags ORDER BY key").all<Record<string, unknown>>()).results;
 
 describe("settings sections and switch areas", () => {
-    it("places every feature switch in exactly one area belonging to a real application (or, for the website, a permission)", () => {
+    it("places every feature switch in exactly one area belonging to a real application (or, for the portal and the website, a permission)", () => {
         expect(Object.keys(FLAG_AREAS).sort()).toEqual([...FLAG_KEYS].sort());
         const placed = FEATURE_AREAS.flatMap(flagsInArea);
         expect(placed.sort()).toEqual([...FLAG_KEYS].sort());
         for (const area of FEATURE_AREAS) {
             const details = FEATURE_AREA_DETAILS[area];
-            if ("permission" in details) expect(area).toBe("website");
+            // The portal-wide and website areas aren't applications; they need portal.settings.manage.
+            if ("permission" in details) expect(["portal", "website"]).toContain(area);
             else expect(APPLICATIONS.some((application) => application.id === details.application)).toBe(true);
         }
         expect(FLAG_AREAS["website.capacities.sync"]).toBe("website");

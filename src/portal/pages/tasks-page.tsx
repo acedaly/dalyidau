@@ -171,8 +171,9 @@ export const TasksPage = ({ data }: { data: PageData<"tasks"> }) => {
                 }
             />
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:gap-6">
                 <MetricCard
+                    className="max-sm:col-span-2"
                     label="Progress"
                     value={`${percent(counts.done, counts.total)}%`}
                     progress={percent(counts.done, counts.total)}

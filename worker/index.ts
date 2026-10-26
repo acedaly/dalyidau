@@ -5,7 +5,7 @@ import { portalBootShell } from "../src/portal/boot-shell";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
 import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
-import type { GuestInvitationPageData, PortalPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
+import type { GuestInvitationPageData, PortalPageData, PortalUser, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { INGEST_PATH, amplenoteCallback, handleIngest } from "./amplenote/api";
 import { CALLBACK_PATH as AMPLENOTE_CALLBACK_PATH } from "./amplenote/client";
@@ -31,6 +31,7 @@ import { processDueMessages } from "./portal/comms";
 import { loadFlags } from "./portal/flags";
 import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { loadPortalPage } from "./portal/pages";
+import { APP_SCOPE, MANIFEST_PATH, OFFLINE_PATH, SERVICE_WORKER_PATH, offlineDocument, serviceWorkerScript, webAppManifest } from "./portal/pwa";
 import { CREDENTIAL_PERMISSION, hideCredentials } from "./portal/redact";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
@@ -331,6 +332,7 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
         for (const [key, value] of Object.entries(PRIVATE_HEADERS)) redirected.headers.set(key, value);
         return redirected;
     }
+    if (path === MANIFEST_PATH || path === SERVICE_WORKER_PATH || path === OFFLINE_PATH) return portalAppFile(env, auth.user, path);
     const preview = /^\/portal\/wedding\/website\/preview(\/rsvp)?$/.exec(path);
     if (preview) {
         const application = applicationById("wedding");
@@ -357,6 +359,21 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
         status: result.status,
         headers: PRIVATE_HEADERS,
     });
+}
+
+/** Wedding Planner's installable app: manifest, service worker and offline page (./portal/pwa.ts). */
+async function portalAppFile(env: Env, user: PortalUser, path: string): Promise<Response> {
+    const application = applicationById("wedding");
+    if (!application || !canAccessApplication(user, application)) return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    if (path === MANIFEST_PATH)
+        return new Response(JSON.stringify(webAppManifest()), { headers: { "Content-Type": "application/manifest+json; charset=utf-8", ...PRIVATE_HEADERS } });
+    const { html, version } = await shell(env, "portal");
+    if (path === SERVICE_WORKER_PATH)
+        return new Response(serviceWorkerScript(version, html), {
+            // Served from /portal/sw.js but controls /portal itself (the launcher) as well.
+            headers: { "Content-Type": "text/javascript; charset=utf-8", "Service-Worker-Allowed": APP_SCOPE, ...PRIVATE_HEADERS },
+        });
+    return new Response(offlineDocument(html, site.shortName), { headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
 }
 
 async function portalApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

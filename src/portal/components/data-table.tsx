@@ -51,6 +51,10 @@ interface DataTableProps<T extends { id: string }> {
     className?: string;
 }
 
+// Untitled UI's table pads every cell 20–24px each side; at phone width that pushes the last column
+// out of view, so cells (and their headings) are a little tighter below md.
+const PHONE_CELL = "max-md:px-4";
+
 const compare = (a: unknown, b: unknown) => {
     if (a === b) return 0;
     if (a === null || a === undefined || a === "") return 1;
@@ -200,7 +204,7 @@ export function DataTable<T extends { id: string }>({
                                     tooltip={column.tooltip}
                                     allowsSorting={!!column.sortValue}
                                     isRowHeader={column.isRowHeader}
-                                    className={column.className}
+                                    className={cx(PHONE_CELL, column.className)}
                                 />
                             ))}
                         </Table.Header>
@@ -208,7 +212,7 @@ export function DataTable<T extends { id: string }>({
                             {(row) => (
                                 <Table.Row id={row.id} className={cx(onRowAction && "cursor-pointer")}>
                                     {columns.map((column) => (
-                                        <Table.Cell key={column.id} className={column.className}>
+                                        <Table.Cell key={column.id} className={cx(PHONE_CELL, column.className)}>
                                             {column.render(row)}
                                         </Table.Cell>
                                     ))}

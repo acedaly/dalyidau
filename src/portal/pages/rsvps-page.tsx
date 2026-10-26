@@ -154,7 +154,7 @@ export const RsvpsPage = ({ data }: { data: PageData<"rsvps"> }) => {
                 </div>
             </section>
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 md:gap-6 xl:grid-cols-4">
                 <MetricCard label="Attending" icon={CheckCircle} value={formatNumber(rsvp.attending)} detail="Guests coming to at least one event" />
                 <MetricCard label="Declined" icon={XCircle} value={formatNumber(rsvp.declined)} detail="Guests who declined everything" />
                 <MetricCard

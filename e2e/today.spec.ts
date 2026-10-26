@@ -1,5 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { setOtherApplications } from "./helpers";
+
+// These pages are reached from the launcher and the sidebar, which list them only with the switch on.
+test.beforeAll(() => setOtherApplications(true));
+test.afterAll(() => setOtherApplications(false));
 
 // Today in a real browser, desktop and Pixel 7: the dashboard fits and passes accessibility checks,
 // the launcher and sidebar lead to it, an appointment added from Today lands in the calendar and on

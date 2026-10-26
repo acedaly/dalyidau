@@ -1,6 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { PNG } from "pngjs";
+import { setOtherApplications } from "./helpers";
+
+// These pages are reached from the launcher and the sidebar, which list them only with the switch on.
+test.beforeAll(() => setOtherApplications(true));
+test.afterAll(() => setOtherApplications(false));
 
 // Home & Assets (Milestone 10) in a real browser, desktop and Pixel 7: every page fits the screen
 // and passes accessibility checks; Quick add needs only a name and a category; completing scheduled

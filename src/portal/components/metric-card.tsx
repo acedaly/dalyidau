@@ -23,21 +23,23 @@ interface MetricCardProps {
 
 export const MetricCard = ({ label, value, icon, detail, change, progress, progressLabel, footer, className }: MetricCardProps) => (
     <div className={cx("flex flex-col rounded-xl bg-primary shadow-xs ring-1 ring-secondary ring-inset", className)}>
-        <div className="flex flex-1 flex-col gap-4 px-4 py-5 md:px-5">
+        <div className="flex flex-1 flex-col gap-3 px-4 py-4 md:gap-4 md:px-5 md:py-5">
             <div className="flex items-center gap-3">
-                {icon && <FeaturedIcon icon={icon} color="gray" theme="modern" size="md" />}
+                {/* Phones show metrics two to a row (docs/PORTAL.md#mobile-layout), where the icon would crowd the label. */}
+                {icon && <FeaturedIcon icon={icon} color="gray" theme="modern" size="md" className="max-md:hidden" />}
                 <h3 className="text-sm font-medium text-tertiary">{label}</h3>
             </div>
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-end justify-between gap-2">
-                    <p className="text-display-sm font-semibold text-primary tabular-nums">{value}</p>
+                    <p className="text-display-xs font-semibold text-primary tabular-nums md:text-display-sm">{value}</p>
                     {change && <MetricChangeIndicator type="modern" trend={change.trend} value={change.value} />}
                 </div>
                 {detail && <div className="text-sm text-tertiary">{detail}</div>}
                 {typeof progress === "number" && (
                     <ProgressBar
                         value={Math.max(0, Math.min(100, progress))}
-                        labelPosition="right"
+                        // Below the bar: beside it, a label such as "Closes 3 Feb 2027" squeezes the bar away in a half-width card on phones.
+                        labelPosition="bottom"
                         aria-label={progressLabel ?? label}
                         valueFormatter={() => progressLabel ?? `${Math.round(progress)}%`}
                     />

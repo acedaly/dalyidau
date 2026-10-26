@@ -74,8 +74,10 @@ export const GuestsPage = ({ data }: { data: PageData<"guests"> }) => {
             sortValue: (g) => `${g.lastName} ${g.firstName}`,
             render: (g) => (
                 <div className="flex items-center gap-3">
-                    <Avatar size="md" initials={initials(`${g.firstName} ${g.lastName}`)} />
-                    <div className="min-w-0">
+                    {/* Phones need the room for the RSVP column: no avatar, and long names and emails are cut short
+                        (a table cell grows to fit its content, so truncate needs a width to work against). */}
+                    <Avatar size="md" initials={initials(`${g.firstName} ${g.lastName}`)} className="max-sm:hidden" />
+                    <div className="min-w-0 max-md:max-w-[calc(100vw_-_16rem)]">
                         <p className="truncate font-medium text-primary">
                             {g.firstName} {g.lastName}
                             {g.isPlusOne && <span className="ml-1.5 text-xs font-normal text-tertiary">(plus one)</span>}

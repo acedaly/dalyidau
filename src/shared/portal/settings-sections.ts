@@ -72,13 +72,18 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["wedding", "calendar", "centre", "assets", "website"] as const;
+export const FEATURE_AREAS = ["portal", "wedding", "calendar", "centre", "assets", "website"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
-/** An area belongs to an application, or (for the public website, which isn't one) needs a permission. */
+/** An area belongs to an application, or (for the portal as a whole and the public website, which aren't one) needs a permission. */
 export type FeatureAreaDetails = { label: string; description: string } & ({ application: ApplicationId } | { permission: Permission });
 
 export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
+    portal: {
+        label: "Portal",
+        description: "Which applications the sidebar and the application launcher list. Hidden applications keep their addresses, data and AI assistant tools.",
+        permission: "portal.settings.manage",
+    },
     wedding: {
         label: "Wedding Planner",
         description: "The public website and Save the Date page, native RSVP, guest email and SMS, and which Wedding Planner modules are on.",
@@ -127,6 +132,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "module.communications": "wedding",
     "module.planning": "wedding",
     "module.budget": "wedding",
+    "portal.other_applications": "portal",
     "calendar.feeds": "calendar",
     "calendar.reminders.email": "calendar",
     "intelligence_centre.ingestion": "centre",

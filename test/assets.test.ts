@@ -30,7 +30,7 @@ import {
     sydneyToday,
     upload,
 } from "./assets-helpers";
-import { accessToken, db, call as rawCall, resetPortal } from "./portal-helpers";
+import { accessToken, apiCall, db, call as rawCall, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
 const media = () => (env as unknown as Env).MEDIA;
@@ -683,8 +683,10 @@ describe("the portal pages", () => {
         expect((await rawCall(`/portal/assets/property/${place.json.location.id}`, { token: await accessToken({ email: B }) })).status).toBe(404);
     });
 
-    it("lists Home & Assets on the launcher for people who can open it", async () => {
-        const page = await rawCall("/portal", { token: await accessToken({ email: A }) });
-        expect(await page.text()).toContain('"assets"');
+    it("lists Home & Assets on the launcher for people who can open it, once other applications are listed", async () => {
+        const token = await accessToken({ email: A });
+        expect(await (await rawCall("/portal", { token })).text()).not.toContain('"assets"');
+        expect((await apiCall("PUT", "/api/portal/flags/portal.other_applications", { enabled: true })).status).toBe(200);
+        expect(await (await rawCall("/portal", { token })).text()).toContain('"assets"');
     });
 });

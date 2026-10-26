@@ -97,7 +97,8 @@ describe("access to Calendar", () => {
         expect((await cal("GET", "/calendars", undefined, EDITOR)).status).toBe(403);
         expect((await apiCall("GET", "/portal/calendar", undefined, { email: EDITOR })).status).toBe(403);
         expect((await cal("GET", "/calendars")).status).toBe(200);
-        // The launcher offers it to an owner, with the compact cards.
+        // The launcher offers it to an owner, with the compact cards, once other applications are listed.
+        expect((await apiCall("PUT", "/api/portal/flags/portal.other_applications", { enabled: true })).status).toBe(200);
         const home = await rawCall("/portal", { token: await accessToken({ email: A }) });
         expect(await home.text()).toContain('"calendar"');
     });

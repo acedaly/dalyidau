@@ -128,6 +128,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Home & Assets",
     },
+    "portal.other_applications": {
+        label: "Other applications in the portal",
+        description:
+            "List Today, Daly Calendar, Daly Intelligence, the Intelligence Centre, Home & Assets and Household Finance in the sidebar and on the application launcher. While off, the portal shows only Wedding Planner; those applications' addresses, data and AI assistant (MCP) tools keep working for anyone who can use them.",
+        default: false,
+        group: "Navigation",
+    },
     "module.communications": {
         label: "Communications module",
         description: "Templates, message preparation and delivery history.",

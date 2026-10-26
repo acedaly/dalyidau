@@ -1,6 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { NAB_FILE_A, NAB_FILE_B } from "../fixtures/finance/fixtures";
+import { setOtherApplications } from "./helpers";
+
+// These pages are reached from the launcher and the sidebar, which list them only with the switch on.
+test.beforeAll(() => setOtherApplications(true));
+test.afterAll(() => setOtherApplications(false));
 
 // Household Finance (Milestone 11.1) in a real browser, desktop and Pixel 7: importing a NAB export
 // through the review screen, the same file again being recognised as already imported, the balance

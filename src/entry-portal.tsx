@@ -17,3 +17,12 @@ if (payload) {
         </StrictMode>,
     );
 }
+
+// Wedding Planner installs as an app (worker/portal/pwa.ts). The service worker only adds an offline
+// page and keeps the app's static files; it never stores portal pages or data. Registering is best
+// effort: the portal works the same without it.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/portal/sw.js", { scope: "/portal" }).catch(() => undefined);
+    });
+}

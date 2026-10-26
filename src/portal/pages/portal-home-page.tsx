@@ -4,6 +4,8 @@
 // queries, so the number of columns follows the width actually available beside the sidebar:
 // one on small phones, two on large phones and tablets, three, then four on wide desktops. Below the
 // applications, the same cards lead to what's shared by all of them: Portal settings and the audit log.
+// The server sends only the applications the portal lists (Portal settings → Features → Other
+// applications); Today's card follows the same switch.
 import { ArrowUpRight, Calendar, Globe04, HeartRounded, LayoutGrid01, Package, Settings01, ShieldTick, Stars02, Sun, Wallet03 } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
@@ -11,7 +13,7 @@ import { Empty } from "@/portal/components/empty";
 import { PageHeader } from "@/portal/components/page-header";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import { type ApplicationIcon, type PortalApplication, applicationById } from "@/shared/portal/applications";
+import { type ApplicationIcon, type PortalApplication, applicationById, isApplicationListed } from "@/shared/portal/applications";
 import type { Permission } from "@/shared/portal/permissions";
 import { cx } from "@/utils/cx";
 
@@ -101,7 +103,7 @@ const PortalLinkCard = ({ link }: { link: (typeof PORTAL_LINKS)[number] }) => (
 );
 
 export const PortalHomePage = ({ data }: { data: PageData<"portal-home"> }) => {
-    const { user, can } = usePortal();
+    const { user, can, flags } = usePortal();
     const portalLinks = PORTAL_LINKS.filter((link) => !link.permission || can(link.permission));
     const name = user.name ?? user.email.split("@")[0];
     const applications = data.applications.map(applicationById).filter((application): application is PortalApplication => !!application);
@@ -114,7 +116,7 @@ export const PortalHomePage = ({ data }: { data: PageData<"portal-home"> }) => {
                 breadcrumbs={[{ label: "All applications" }]}
             />
 
-            {can("calendar.use") && (
+            {can("calendar.use") && isApplicationListed("today", flags) && (
                 <a href="/portal/today" aria-describedby="today-summary" data-portal-link="today" className={cx(CARD_CLASSES, "bg-brand-primary_alt")}>
                     <FeaturedIcon icon={Sun} color="brand" theme="light" size="md" className="shrink-0" />
                     <div className="flex min-w-0 flex-1 flex-col gap-1 pr-5">

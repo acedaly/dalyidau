@@ -179,7 +179,8 @@ const portalSections = (path: string): { label: string; items: NavEntry[] }[] =>
             label: "Applications",
             items: [
                 // Today first: the day from Calendar. The launcher stays right below it.
-                { label: "Today", href: "/portal/today", icon: Sun, permission: "calendar.use" },
+                // Listed only with Portal settings → Features → Other applications on (applications.ts).
+                { label: "Today", href: "/portal/today", icon: Sun, permission: "calendar.use", flag: "portal.other_applications" },
                 { label: "All Applications", href: "/portal", icon: LayoutGrid01 },
             ],
         },

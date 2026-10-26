@@ -1,4 +1,4 @@
-import type { FlagKey } from "./flags";
+import type { FlagKey, Flags } from "./flags";
 import type { Permission } from "./permissions";
 
 export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre" | "assets" | "finance";
@@ -360,3 +360,15 @@ export const canAccessApplication = (user: { permissions: readonly Permission[] 
 
 export const availableApplications = (user: { permissions: readonly Permission[] }): PortalApplication[] =>
     APPLICATIONS.filter((application) => canAccessApplication(user, application));
+
+/**
+ * Whether the sidebar and the launcher list an application (and, for Today, its link). While
+ * "portal.other_applications" is off the portal lists only Wedding Planner. This only hides links:
+ * every application's routes, API and MCP tools keep working, and its own navigation still shows
+ * while someone is inside it.
+ */
+export const isApplicationListed = (id: ApplicationId | "today", flags: Pick<Flags, "portal.other_applications">): boolean =>
+    id === "wedding" || flags["portal.other_applications"];
+
+export const listedApplications = (user: { permissions: readonly Permission[] }, flags: Pick<Flags, "portal.other_applications">): PortalApplication[] =>
+    availableApplications(user).filter((application) => isApplicationListed(application.id, flags));

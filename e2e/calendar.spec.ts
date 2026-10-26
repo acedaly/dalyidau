@@ -1,5 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { setOtherApplications } from "./helpers";
+
+// These pages are reached from the launcher and the sidebar, which list them only with the switch on.
+test.beforeAll(() => setOtherApplications(true));
+test.afterAll(() => setOtherApplications(false));
 
 // Daly Calendar (Milestone 6) in a real browser, desktop and Pixel 7: the compact application
 // launcher, every Calendar and Leave page, creating an event, setting up leave and booking it,

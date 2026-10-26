@@ -40,7 +40,8 @@ export const AttendanceBars = ({ rows, caption }: { rows: AttendanceRow[]; capti
                 const title = `${row.label}: ${row.attending} attending, ${row.declined} declined, ${pending} awaiting of ${row.invited} invited`;
                 return (
                     <li key={row.label} className="flex flex-col gap-1.5" title={title}>
-                        <div className="flex items-baseline justify-between gap-3 text-sm">
+                        {/* On phones the event's name sits above its numbers rather than being cut short. */}
+                        <div className="flex flex-col gap-0.5 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
                             <span className="truncate font-medium text-secondary">{row.label}</span>
                             <span className="shrink-0 text-tertiary tabular-nums">
                                 <span className="font-semibold text-primary">{formatNumber(row.attending)}</span> attending · {formatNumber(row.declined)}{" "}

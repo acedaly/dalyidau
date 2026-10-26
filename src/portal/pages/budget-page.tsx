@@ -195,8 +195,10 @@ export const BudgetPage = ({ data }: { data: PageData<"budget"> }) => {
                 }
             />
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {/* Phones: the total (with its bar) and overdue span the row, committed and paid share one. */}
+            <div className="grid grid-cols-2 gap-4 md:gap-6 xl:grid-cols-4">
                 <MetricCard
+                    className="max-sm:col-span-2"
                     label="Total budget"
                     icon={Wallet02}
                     value={settings.totalCents ? formatMoney(settings.totalCents, settings.currency, { whole: true }) : "Not set"}
@@ -216,6 +218,7 @@ export const BudgetPage = ({ data }: { data: PageData<"budget"> }) => {
                     detail={`${formatMoney(totals.outstanding, settings.currency, { whole: true })} still to pay`}
                 />
                 <MetricCard
+                    className="max-sm:col-span-2"
                     label="Overdue"
                     value={formatMoney(totals.overdue, settings.currency, { whole: true })}
                     detail={totals.overdue ? "Past the due date and not fully paid" : "Nothing overdue"}

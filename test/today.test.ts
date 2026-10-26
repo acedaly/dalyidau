@@ -300,6 +300,12 @@ describe("pages and navigation", () => {
         const cal = await defaultCalendar();
         await event(timed(cal.id, "Water the plants", today(), "23:00", "23:30"));
         const token = await accessToken();
+        // By default the portal lists only Wedding Planner (Portal settings → Features → Other applications).
+        const weddingOnly = renderPage(await (await rawCall("/portal", { token })).text());
+        expect(weddingOnly.html).toContain('data-application="wedding"');
+        expect(weddingOnly.html).not.toContain('href="/portal/today"');
+        for (const app of ["calendar", "intelligence"]) expect(weddingOnly.html).not.toContain(`data-application="${app}"`);
+        expect((await apiCall("PUT", "/api/portal/flags/portal.other_applications", { enabled: true })).status).toBe(200);
         const response = await rawCall("/portal/today", { token });
         expect(response.status).toBe(200);
         const page = renderPage(await response.text());

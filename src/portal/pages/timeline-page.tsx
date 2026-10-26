@@ -87,8 +87,9 @@ export const TimelinePage = ({ data }: { data: PageData<"timeline"> }) => {
                                             aria-hidden="true"
                                             className="absolute top-5 -left-[33px] size-3.5 rounded-full border-2 border-bg-primary bg-brand-solid ring-2 ring-brand"
                                         />
-                                        <div className="flex flex-col gap-3 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset sm:flex-row sm:items-start sm:justify-between">
-                                            <div className="flex flex-col gap-1.5">
+                                        {/* Edit stays in the corner on phones too, rather than taking a row of its own. */}
+                                        <div className="flex items-start justify-between gap-3 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset">
+                                            <div className="flex min-w-0 flex-col gap-1.5">
                                                 <p className="text-sm font-semibold text-brand-secondary tabular-nums">
                                                     {formatTime(item.startsAt)}
                                                     {item.endsAt && ` – ${formatTime(item.endsAt)}`}
@@ -110,7 +111,7 @@ export const TimelinePage = ({ data }: { data: PageData<"timeline"> }) => {
                                                 </div>
                                                 {item.notes && <p className="text-sm whitespace-pre-line text-tertiary">{item.notes}</p>}
                                             </div>
-                                            <Button size="sm" color="secondary" iconLeading={Edit01} onClick={() => openPanel(item)} className="self-start">
+                                            <Button size="sm" color="secondary" iconLeading={Edit01} onClick={() => openPanel(item)} className="shrink-0">
                                                 {canEdit ? "Edit" : "View"}
                                             </Button>
                                         </div>
