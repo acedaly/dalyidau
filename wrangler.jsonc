@@ -36,6 +36,7 @@
         "ENVIRONMENT": "production",
         "SITE_URL": "https://daly.id.au",
         "WEDDING_URL": "https://wedding.daly.id.au",
+        "PLANNER_URL": "https://weddingplanner.daly.id.au",
         "CAPACITIES_API_BASE": "https://api.capacities.io",
         "CAPACITIES_STRUCTURE_NAME": "Blog Post",
         "SYNC_MAX_REQUESTS": "40",
@@ -59,6 +60,12 @@
         },
         {
             "pattern": "wedding.daly.id.au",
+            "custom_domain": true,
+        },
+        // Wedding Planner's own address (docs/PLANNER.md), added with the owner's approval (27 Oct 2026).
+        // Until Cloudflare Access covers it, the Worker serves only a "sign-in isn't set up" page there.
+        {
+            "pattern": "weddingplanner.daly.id.au",
             "custom_domain": true,
         },
     ],

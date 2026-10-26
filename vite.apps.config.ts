@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig } from "vite";
 
-// Browser bundles for the portal (/portal) and the public wedding website (/wedding). Built
+// Browser bundles for the portal (/portal), Wedding Planner (/portal/planner) and the public wedding website (/wedding). Built
 // separately from the blog (vite.config.ts): in one build, React Aria's package index makes every
 // component the portal uses look shared with the blog, and they leak into the blog's chunks.
 export default defineConfig({
@@ -25,6 +25,7 @@ export default defineConfig({
                 portal: path.resolve(import.meta.dirname, "shell-portal.html"),
                 wedding: path.resolve(import.meta.dirname, "shell-wedding.html"),
                 display: path.resolve(import.meta.dirname, "shell-display.html"),
+                planner: path.resolve(import.meta.dirname, "shell-planner.html"),
             },
         },
     },

@@ -18,11 +18,12 @@ if (payload) {
     );
 }
 
-// Wedding Planner installs as an app (worker/portal/pwa.ts). The service worker only adds an offline
-// page and keeps the app's static files; it never stores portal pages or data. Registering is best
-// effort: the portal works the same without it.
-if ("serviceWorker" in navigator && window.isSecureContext) {
-    window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/portal/sw.js", { scope: "/portal" }).catch(() => undefined);
-    });
+// The first Wedding Planner release made the whole portal installable, with a service worker for
+// /portal. Wedding Planner is now its own app (/portal/planner, weddingplanner.daly.id.au), so that
+// worker is removed here; /portal/sw.js also retires it on its own (worker/planner/pwa.ts).
+if ("serviceWorker" in navigator) {
+    void navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.filter((r) => new URL(r.scope).pathname === "/portal").map((r) => r.unregister())))
+        .catch(() => undefined);
 }

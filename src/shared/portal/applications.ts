@@ -61,7 +61,8 @@ export type NavigationIcon =
     | "finance"
     | "transactions"
     | "accounts"
-    | "import";
+    | "import"
+    | "app";
 
 export interface ApplicationNavigationItem {
     label: string;
@@ -162,7 +163,11 @@ export const APPLICATIONS = [
             },
             {
                 label: "Application",
-                items: [{ label: "Wedding settings", href: "/portal/wedding/settings", icon: "settings", active: "prefix" }],
+                items: [
+                    // Wedding Planner, the installable phone app over the same data (docs/PLANNER.md).
+                    { label: "Phone app", href: "/portal/planner", icon: "app" },
+                    { label: "Wedding settings", href: "/portal/wedding/settings", icon: "settings", active: "prefix" },
+                ],
             },
         ],
     },

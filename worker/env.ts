@@ -10,6 +10,8 @@ export interface Env {
     SITE_URL: string;
     /** Canonical public wedding origin. */
     WEDDING_URL?: string;
+    /** Wedding Planner's own address (docs/PLANNER.md), e.g. https://weddingplanner.daly.id.au. Unset: only /portal/planner. */
+    PLANNER_URL?: string;
     CAPACITIES_API_BASE: string;
     CAPACITIES_STRUCTURE_NAME: string;
     /** Optional: pin the Blog Post type by id instead of by name. */

@@ -1,9 +1,9 @@
-// Portal and wedding compositions must use Untitled UI semantic tokens so light/dark/wedding
+// Portal, Wedding Planner and wedding compositions must use Untitled UI semantic tokens so light/dark/wedding
 // themes remain consistent. Installed design-system primitives are validated upstream and excluded.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const files = execFileSync("git", ["ls-files", "src/portal", "src/wedding"], { encoding: "utf8" })
+const files = execFileSync("git", ["ls-files", "src/portal", "src/wedding", "src/planner"], { encoding: "utf8" })
     .trim()
     .split("\n")
     .filter((file) => /\.(?:ts|tsx|css)$/.test(file));

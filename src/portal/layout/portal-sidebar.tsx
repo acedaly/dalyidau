@@ -37,6 +37,7 @@ import {
     MessageChatSquare,
     Monitor01,
     Package,
+    Phone01,
     Plane,
     PlayCircle,
     QrCode02,
@@ -147,6 +148,7 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     transactions: SwitchHorizontal01,
     accounts: Bank,
     import: Upload01,
+    app: Phone01,
 };
 
 const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
