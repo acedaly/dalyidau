@@ -48,7 +48,8 @@ test.describe("application launcher", () => {
             await page.goto("/portal");
             const cards = page.locator("[data-application]");
             await expect(cards.first()).toBeVisible();
-            expect(await cards.count()).toBeGreaterThanOrEqual(5);
+            // Wedding Planner, Calendar, Intelligence and the Intelligence Centre (Home & Assets and Household Finance are retired).
+            expect(await cards.count()).toBeGreaterThanOrEqual(4);
             const boxes = await cards.evaluateAll((els) =>
                 els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: Math.round(r.top), height: r.height, left: Math.round(r.left) })),
             );

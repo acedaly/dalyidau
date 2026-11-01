@@ -1,6 +1,6 @@
 # Daly Calendar, Family Planner and Leave Planner (Milestone 6)
 
-A personal and household calendar at `/portal/calendar`, built on the existing Worker, D1 and Access: day, week, month and agenda views, a 12-month year planner, personal and shared calendars, repeating events, external ICS/webcal subscriptions, private ICS feeds for other calendar apps, NSW public holidays and school terms, a family planner, and an annual leave planner with forecasts and a deterministic optimiser. It's connected to Today, Home & Assets, Intelligence (Chief of Staff) and the MCP gateway. There's no paid service and no AI in any calculation. Calendar works whether Intelligence is on or off.
+A personal and household calendar at `/portal/calendar`, built on the existing Worker, D1 and Access: day, week, month and agenda views, a 12-month year planner, personal and shared calendars, repeating events, external ICS/webcal subscriptions, private ICS feeds for other calendar apps, NSW public holidays and school terms, a family planner, and an annual leave planner with forecasts and a deterministic optimiser. It's connected to Today, Intelligence (Chief of Staff) and the MCP gateway. There's no paid service and no AI in any calculation. Calendar works whether Intelligence is on or off.
 
 **Status:** this is a draft PR. Nothing is merged or deployed, and migration `0022_calendar.sql` hasn't been applied anywhere remote. Both new switches start **off**. See [Deploying](#deploying).
 
@@ -150,9 +150,9 @@ Answers list exact dates and hours. Years without official holiday data are flag
 - **Add a year**: copy the published dates into `nsw.ts`, set `verifiedOn`, update `COVERED_YEARS`, and run `npm test`. `test/calendar-engine.test.ts` checks weekdays, ordering, overlaps and sources.
 - Regional public holidays, schools near the borders, non-government schools and a school's own pupil-free days are **custom dates**, personal or for the whole household. Custom school dates are shown alongside the official ones, never instead of them.
 
-## Home & Assets and Chief of Staff
+## Chief of Staff
 
-- **Home & Assets** dates (registration, roadside renewal, inspections, policy renewals, warranties ending, leases ending, maintenance due, and booked work without its own appointment) are a reminder overlay worked out from Home & Assets on each request, through its access rules, never copied as events. Each person can turn them off (`overlays.assets`, Settings → Overlays). A booked service can become a real appointment through `createEvent`, once per record. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
+- **Home & Assets** dates used to be a reminder overlay here. Home & Assets was retired on 1 Nov 2026 ([DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md)), and the overlay, its setting (`overlays.assets`, ignored when stored) and `assetReminders` in `calendar_get_agenda` went with it. Events created from asset records stay ordinary events.
 - **Chief of Staff** (`chief_of_staff_daily_context` / `weekly_context`) and **Intelligence briefings** (the new "Calendar and leave" section) include: the next 7 or 14 days of events, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected balances, and failing subscriptions. Calendar is no longer listed under `notChecked` for people with Calendar. Every fact is deterministic and linked. Private events are "Busy" and sensitive ones "Private event". AI can explain them, but never supplies dates, balances or approvals.
 
 ## MCP tools
@@ -165,7 +165,7 @@ Answers list exact dates and hours. Years without official holiday data are flag
 | `calendar_create_subscription`, `calendar_refresh_subscription`                                                                                                                                                    | Writes. Same SSRF checks; at most one refresh a minute.                                                            |
 | `leave_create_proposal`, `leave_update_proposal`                                                                                                                                                                   | Writes. **Draft or proposed only**; can cancel, never request, approve or take.                                    |
 
-Seventeen of the gateway's 66 tools (3.0.0; [MCP.md](MCP.md)). Identity comes only from the re-verified Access token. Writes go through `mcp_writes` (ids only, request ids replay; the ledger was rebuilt in 0022 for `calendar_event`, `calendar_subscription` and `leave_booking`) and the gateway's write rate limit. There are no delete tools. `PORTAL_MCP_TOOLS` and `mcp/src/portal-tools.ts` are compared field by field in `test/mcp-contract.test.ts`. The gateway's instructions describe Calendar.
+Seventeen of the gateway's 56 tools (3.2.0; [MCP.md](MCP.md)). Identity comes only from the re-verified Access token. Writes go through `mcp_writes` (ids only, request ids replay; the ledger was rebuilt in 0022 for `calendar_event`, `calendar_subscription` and `leave_booking`) and the gateway's write rate limit. There are no delete tools. `PORTAL_MCP_TOOLS` and `mcp/src/portal-tools.ts` are compared field by field in `test/mcp-contract.test.ts`. The gateway's instructions describe Calendar.
 
 ## Notifications
 
@@ -245,7 +245,7 @@ The steps below are from Milestone 6's release, kept for reference.
     - `npx wrangler secret put CALENDAR_ENCRYPTION_KEY --env=""` (e.g. `openssl rand -base64 48`) to encrypt subscription addresses. Set it before adding subscriptions, or they're encrypted at their next refresh.
     - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar subscription addresses** (`calendar.feeds`) to serve private feeds. Off by default because anyone with an address can read it.
     - Portal settings → Features (also linked from Calendar → Settings and Portal settings → Calendar & Subscriptions) → **Calendar reminder emails** (`calendar.reminders.email`), plus the existing `EMAIL_DELIVERY` secrets. Off by default; send yourself a test reminder first.
-7. **MCP**: the gateway is deployed by hand only (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`), after the portal Worker is live with 0022. It changes code only (Worker `dalyhub-mcp`). The current gateway is 3.0.0: follow [MCP_CUTOVER.md](MCP_CUTOVER.md).
+7. **MCP**: the gateway is deployed by hand only (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`), after the portal Worker is live with 0022. It changes code only (Worker `dalyhub-mcp`). The current gateway is 3.2.0 (3.1.0 until it is deployed): follow [MCP_CUTOVER.md](MCP_CUTOVER.md).
 8. No DNS, `routes` or Access changes. `/calendar/feed/*` is a path on the existing domain outside the Access application's `portal` and `api/portal` paths. That's intended: calendar apps can't sign in, and the token is the credential.
 
 **Rollback**: redeploy the previous Worker (`npx wrangler rollback --env=""`). The new tables are ignored by earlier code. The rebuilt `mcp_writes` keeps the same columns, and earlier code writes only entity types it still accepts. D1 has no down migrations, so reverting the schema means restoring a backup (or D1 Time Travel to the bookmark logged before migrating). Switching the two switches off stops feeds and emails immediately. Disabling a subscription stops its fetches.

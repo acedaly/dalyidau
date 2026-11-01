@@ -20,7 +20,6 @@ import { useToast } from "@/portal/components/toast";
 import { errorMessage } from "@/portal/lib/api";
 import type { PageData } from "@/portal/lib/page-types";
 import { usePortal } from "@/portal/portal-context";
-import { AssetsTodaySection } from "@/portal/today/assets-section";
 import { CentreTodaySection } from "@/portal/today/centre-section";
 import { addDays, dayLabel, longDateLabel, zoneAbbreviation } from "@/shared/calendar/time";
 import type { TodayDashboard, TodaySection } from "@/shared/today/types";
@@ -187,7 +186,6 @@ export const TodayPage = ({ data: page }: { data: PageData<"today"> }) => {
             </div>
 
             {page.centre && <CentreTodaySection centre={page.centre} />}
-            {page.assets && <AssetsTodaySection assets={page.assets} />}
 
             <div className="flex min-w-0 flex-col gap-6">
                 {order.map((s) => (

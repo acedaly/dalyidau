@@ -1,17 +1,3 @@
-import { AssetsCapturePage } from "@/portal/assets/pages/assets-capture-page";
-import { AssetsDocumentsPage } from "@/portal/assets/pages/assets-documents-page";
-import { AssetsInsurancePage } from "@/portal/assets/pages/assets-insurance-page";
-import { AssetsItemPage } from "@/portal/assets/pages/assets-item-page";
-import { AssetsLabelsPage } from "@/portal/assets/pages/assets-labels-page";
-import { AssetsListPage } from "@/portal/assets/pages/assets-list-page";
-import { AssetsMaintenancePage } from "@/portal/assets/pages/assets-maintenance-page";
-import { AssetsOverviewPage } from "@/portal/assets/pages/assets-overview-page";
-import { AssetsLocationPage, AssetsPropertyPage } from "@/portal/assets/pages/assets-property-page";
-import { AssetsRegisterPage } from "@/portal/assets/pages/assets-register-page";
-import { AssetsReportsPage } from "@/portal/assets/pages/assets-reports-page";
-import { AssetsSearchPage } from "@/portal/assets/pages/assets-search-page";
-import { AssetsSettingsPage } from "@/portal/assets/pages/assets-settings-page";
-import { AssetsWarrantiesPage } from "@/portal/assets/pages/assets-warranties-page";
 import { CalendarCalendarsPage } from "@/portal/calendar/pages/calendar-calendars-page";
 import { CalendarFamilyPage } from "@/portal/calendar/pages/calendar-family-page";
 import { CalendarHolidaysPage } from "@/portal/calendar/pages/calendar-holidays-page";
@@ -44,13 +30,6 @@ import { CentreWallboardEditorPage } from "@/portal/centre/pages/centre-wallboar
 import { CentreWallboardsPage } from "@/portal/centre/pages/centre-wallboards-page";
 import { CentreWatchesPage } from "@/portal/centre/pages/centre-watches-page";
 import { ToastProvider } from "@/portal/components/toast";
-import { FinanceAccountPage } from "@/portal/finance/pages/finance-account-page";
-import { FinanceAccountsPage } from "@/portal/finance/pages/finance-accounts-page";
-import { FinanceImportPage } from "@/portal/finance/pages/finance-import-page";
-import { FinanceImportReviewPage } from "@/portal/finance/pages/finance-import-review-page";
-import { FinanceOverviewPage } from "@/portal/finance/pages/finance-overview-page";
-import { FinanceSettingsPage } from "@/portal/finance/pages/finance-settings-page";
-import { FinanceTransactionsPage } from "@/portal/finance/pages/finance-transactions-page";
 import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
 import { IntelligenceHomePage } from "@/portal/intelligence/pages/intelligence-home-page";
 import { IntelligenceSettingsPage } from "@/portal/intelligence/pages/intelligence-settings-page";
@@ -197,50 +176,6 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <CentreAssistantPage data={data} />;
         case "centre-wallboard":
             return <CentreWallboardEditorPage key={data.wallboard.id} data={data} />;
-        case "assets-overview":
-            return <AssetsOverviewPage data={data} />;
-        case "assets-list":
-            return <AssetsListPage key={data.section} data={data} />;
-        case "assets-item":
-            return <AssetsItemPage key={data.detail.asset.id} data={data} />;
-        case "assets-property":
-            return <AssetsPropertyPage data={data} />;
-        case "assets-location":
-            return <AssetsLocationPage key={data.location.id} data={data} />;
-        case "assets-maintenance":
-            return <AssetsMaintenancePage data={data} />;
-        case "assets-insurance":
-            return <AssetsInsurancePage data={data} />;
-        case "assets-warranties":
-            return <AssetsWarrantiesPage data={data} />;
-        case "assets-documents":
-            return <AssetsDocumentsPage data={data} />;
-        case "assets-reports":
-            return <AssetsReportsPage data={data} />;
-        case "assets-register":
-            return <AssetsRegisterPage data={data} />;
-        case "assets-settings":
-            return <AssetsSettingsPage data={data} />;
-        case "assets-capture":
-            return <AssetsCapturePage data={data} />;
-        case "assets-labels":
-            return <AssetsLabelsPage data={data} />;
-        case "assets-search":
-            return <AssetsSearchPage data={data} />;
-        case "finance-overview":
-            return <FinanceOverviewPage data={data} />;
-        case "finance-transactions":
-            return <FinanceTransactionsPage data={data} />;
-        case "finance-accounts":
-            return <FinanceAccountsPage data={data} />;
-        case "finance-account":
-            return <FinanceAccountPage key={data.account.id} data={data} />;
-        case "finance-import":
-            return <FinanceImportPage data={data} />;
-        case "finance-import-review":
-            return <FinanceImportReviewPage key={data.detail.summary.id} data={data} />;
-        case "finance-settings":
-            return <FinanceSettingsPage data={data} />;
         case "today":
             return <TodayPage data={data} />;
         case "forbidden":

@@ -6,7 +6,7 @@
 // applications, the same cards lead to what's shared by all of them: Portal settings and the audit log.
 // The server sends only the applications the portal lists (Portal settings → Features → Other
 // applications); Today's card follows the same switch.
-import { ArrowUpRight, Calendar, Globe04, HeartRounded, LayoutGrid01, Package, Settings01, ShieldTick, Stars02, Sun, Wallet03 } from "@untitledui/icons";
+import { ArrowUpRight, Calendar, Globe04, HeartRounded, LayoutGrid01, Settings01, ShieldTick, Stars02, Sun } from "@untitledui/icons";
 import { BadgeWithDot } from "@/components/base/badges/badges";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Empty } from "@/portal/components/empty";
@@ -46,8 +46,6 @@ const ICONS: Record<ApplicationIcon, typeof HeartRounded> = {
     calendar: Calendar,
     intelligence: Stars02,
     centre: Globe04,
-    assets: Package,
-    finance: Wallet03,
 };
 
 export const ApplicationCard = ({ application }: { application: PortalApplication }) => {

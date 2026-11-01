@@ -144,7 +144,7 @@ add("GET", "/events", async ({ env, url, user }) => {
                   .slice(0, 50)
             : null,
     });
-    const overlays = url.searchParams.get("overlays") === "0" ? null : await overlaysFor(env.DB, user, prefs, await loadLeave(env.DB, user), from, to);
+    const overlays = url.searchParams.get("overlays") === "0" ? null : await overlaysFor(prefs, await loadLeave(env.DB, user), from, to);
     return json({ from, to, ...result, overlays });
 });
 
@@ -183,7 +183,7 @@ add("PUT", "/events/:id/reminders", async ({ env, request, user, params }) =>
 add("GET", "/overlays", async ({ env, url, user }) => {
     const { from, to } = windowParams(url);
     return json({
-        overlays: await overlaysFor(env.DB, user, await preferences(env.DB, user.email), await loadLeave(env.DB, user), from, to),
+        overlays: await overlaysFor(await preferences(env.DB, user.email), await loadLeave(env.DB, user), from, to),
     });
 });
 

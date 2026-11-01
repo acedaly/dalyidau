@@ -7,8 +7,6 @@ import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from 
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
 import type { TodayDashboard } from "../../src/shared/today/types";
 import { amplenoteStatus } from "../amplenote/api";
-import { todayAssets } from "../assets/dashboard";
-import { type AssetsPage, loadAssetsPage } from "../assets/pages";
 import { preferences as calendarPreferences } from "../calendar/access";
 import { occurrencesInWindow } from "../calendar/events";
 import { overlaysFor } from "../calendar/holidays";
@@ -18,7 +16,6 @@ import { todayCentre } from "../centre/actions";
 import { type CentrePage, loadCentrePage } from "../centre/pages";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
-import { loadFinancePage } from "../finance/pages";
 import { loadIntelligencePage } from "../intelligence/pages";
 import { todayDashboard } from "../today/dashboard";
 import { loadPlanningHours } from "../today/window";
@@ -36,7 +33,7 @@ import { listImports } from "./import";
 import { householdAddressing, listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
 import { distinctGuestValues, householdResponseCounts, householdResponses, listAudit, listSubmissions } from "./queries";
-import { RETIRED_MESSAGE, isRetiredPage } from "./retired";
+import { retiredPageMessage } from "./retired";
 import { listQuestions, questionSummaries } from "./rsvp-questions";
 import { seatingState, seatingTableDef } from "./seating";
 import { getSettings } from "./settings";
@@ -463,62 +460,6 @@ const PAGES: PageDef[] = [
         application: "intelligence-centre",
         load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "hazards", match[1]),
     },
-    // Household Finance. The application's permission is checked here; each account's visibility in the loaders.
-    {
-        pattern: /^\/portal\/finance$/,
-        title: "Household Finance",
-        application: "finance",
-        load: ({ env, user, url }) => loadFinancePage(env, user, url, "overview"),
-    },
-    {
-        pattern: /^\/portal\/finance\/(transactions|accounts|import|settings)$/,
-        title: "Household Finance",
-        application: "finance",
-        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, match[1] as "transactions" | "accounts" | "import" | "settings"),
-    },
-    {
-        pattern: /^\/portal\/finance\/accounts\/(fac_[a-z0-9]{14})$/,
-        title: "Account",
-        application: "finance",
-        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, "account", match[1]),
-    },
-    {
-        pattern: /^\/portal\/finance\/import\/(fim_[a-z0-9]{14})$/,
-        title: "Review import",
-        application: "finance",
-        load: ({ env, user, url, match }) => loadFinancePage(env, user, url, "import-review", match[1]),
-    },
-    // Home & Assets. The application's permission is checked here; each asset's own rights in the loaders.
-    {
-        pattern: /^\/portal\/assets$/,
-        title: "Home & Assets",
-        application: "assets",
-        load: ({ env, user, url }) => loadAssetsPage(env, user, url, "overview"),
-    },
-    {
-        pattern: /^\/portal\/assets\/(all|vehicles|property|maintenance|insurance|warranties|documents|reports|settings|capture|labels|search)$/,
-        title: "Home & Assets",
-        application: "assets",
-        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, match[1] as AssetsPage),
-    },
-    {
-        pattern: /^\/portal\/assets\/reports\/register$/,
-        title: "Asset register",
-        application: "assets",
-        load: ({ env, user, url }) => loadAssetsPage(env, user, url, "register"),
-    },
-    {
-        pattern: /^\/portal\/assets\/item\/(ast_[a-z0-9]{14})$/,
-        title: "Asset",
-        application: "assets",
-        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, "item", match[1]),
-    },
-    {
-        pattern: /^\/portal\/assets\/property\/(alo_[a-z0-9]{14})$/,
-        title: "Place",
-        application: "assets",
-        load: ({ env, user, url, match }) => loadAssetsPage(env, user, url, "location", match[1]),
-    },
     // Today: needs Calendar; everything is read through Calendar's own access.
     {
         pattern: /^\/portal\/today$/,
@@ -538,7 +479,7 @@ const PAGES: PageDef[] = [
             const { date } = dashboard;
             const [{ occurrences }, overlays] = await Promise.all([
                 occurrencesInWindow(env.DB, user, { from: date, to: date, timeZone: dashboard.timeZone }),
-                overlaysFor(env.DB, user, calendarPrefs, leave, date, date),
+                overlaysFor(calendarPrefs, leave, date, date),
             ]);
             return {
                 route: "today",
@@ -549,8 +490,6 @@ const PAGES: PageDef[] = [
                 workingHoursStart: calendarPrefs.workingHours.start,
                 // A failure here never stops Today from loading.
                 centre: await todayCentre(env, user).catch(() => null),
-                // Home & Assets: only what the person's own settings ask for; a failure never stops Today.
-                assets: await todayAssets(env.DB, user).catch(() => null),
             };
         },
     },
@@ -564,7 +503,8 @@ const PAGES: PageDef[] = [
 
 export async function loadPortalPage(path: string, url: URL, env: Env, user: PortalUser, flags: Flags): Promise<PortalPageResult> {
     // Retired applications: a clear answer, never their records (./retired.ts).
-    if (isRetiredPage(path)) return { data: { route: "forbidden", message: RETIRED_MESSAGE }, status: 410, title: "Retired" };
+    const retired = retiredPageMessage(path);
+    if (retired) return { data: { route: "forbidden", message: retired }, status: 410, title: "Retired" };
     for (const page of PAGES) {
         const match = page.pattern.exec(path);
         if (!match) continue;

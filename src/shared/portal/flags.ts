@@ -114,24 +114,10 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Intelligence Centre",
     },
-    "assets.ai": {
-        label: "Home & Assets AI suggestions",
-        description:
-            "Let Home & Assets ask Daly Intelligence to read a receipt, a photo or a policy document and suggest values for a person to check and approve. Also needs Intelligence and its document feature switched on (Intelligence settings) and Workers AI connected. While off, every capture works by hand and nothing is sent to a model.",
-        default: false,
-        group: "Home & Assets",
-    },
-    "assets.reminders.email": {
-        label: "Home & Assets reminder emails",
-        description:
-            "Email reminders (servicing, registration, renewals, warranty expiry) to people who turned email on in Home & Assets → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, reminders appear only in the portal.",
-        default: false,
-        group: "Home & Assets",
-    },
     "portal.other_applications": {
         label: "Other applications in the portal",
         description:
-            "List Today, Daly Calendar, Daly Intelligence, the Intelligence Centre, Home & Assets and Household Finance in the sidebar and on the application launcher. While off, the portal shows only Wedding Planner; those applications' addresses, data and AI assistant (MCP) tools keep working for anyone who can use them.",
+            "List Today, Daly Calendar, Daly Intelligence and the Intelligence Centre in the sidebar and on the application launcher. While off, the portal shows only Wedding Planner; those applications' addresses, data and AI assistant (MCP) tools keep working for anyone who can use them.",
         default: false,
         group: "Navigation",
     },

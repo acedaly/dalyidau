@@ -457,3 +457,21 @@ test("Daly Knowledge and Daly Tasks are gone from the launcher, and their addres
     // The Wedding Planner's own tasks are a different feature.
     expect((await page.goto("/portal/wedding/tasks"))?.status()).toBe(200);
 });
+
+test("Home & Assets and Household Finance are gone from the launcher, and their addresses say what replaced them", async ({ page }) => {
+    await page.goto("/portal");
+    await expect(page.locator('[data-application="assets"], [data-application="finance"]')).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Home & Assets|Household Finance/ })).toHaveCount(0);
+    for (const [path, message] of [
+        ["/portal/assets", /Home & Assets has been retired and replaced by Home in Cloudflare OS/],
+        ["/portal/assets/maintenance", /Home & Assets has been retired/],
+        ["/portal/finance", /Household Finance has been retired and replaced by Finances in Cloudflare OS/],
+        ["/portal/finance/transactions", /Household Finance has been retired/],
+    ] as const) {
+        const response = await page.goto(path);
+        expect(response?.status(), path).toBe(410);
+        await expect(page.getByText(message).first()).toBeVisible();
+    }
+    // The Wedding Planner's budget is a different feature.
+    expect((await page.goto("/portal/wedding/budget"))?.status()).toBe(200);
+});

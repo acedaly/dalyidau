@@ -1,11 +1,15 @@
-// MCP tools retired with Daly Knowledge and Daly Tasks (docs/DECOMMISSION_KNOWLEDGE_TASKS.md): every
-// Knowledge, Tasks and project tool, the Daily Planner's, Daly Intelligence's capture, suggestion and
-// semantic search tools, Today's task planning tools, and Home & Assets' task and Knowledge links.
+// Retired MCP tools.
+//
+// - With Daly Knowledge and Daly Tasks (docs/DECOMMISSION_KNOWLEDGE_TASKS.md): every Knowledge, Tasks
+//   and project tool, the Daily Planner's, Daly Intelligence's capture, suggestion and semantic search
+//   tools, Today's task planning tools, and Home & Assets' task and Knowledge links.
+// - With Home & Assets and Household Finance (docs/DECOMMISSION_ASSETS_FINANCE.md): every other
+//   assets_* tool. Household Finance never had MCP tools.
 //
 // A call to one is refused with "retired" before anything is read, whichever gateway version sent
 // it, so an older gateway still advertising them can't reach a retired record. The gateway keeps the
 // same list (mcp/src/portal-tools.ts RETIRED_TOOL_NAMES; test/mcp-contract.test.ts compares them).
-export const RETIRED_MCP_TOOLS: ReadonlySet<string> = new Set([
+const KNOWLEDGE_TASKS_TOOLS = [
     "knowledge_list_spaces",
     "knowledge_list_types",
     "knowledge_search",
@@ -57,7 +61,32 @@ export const RETIRED_MCP_TOOLS: ReadonlySet<string> = new Set([
     "today_get_conflicts",
     "assets_link_knowledge",
     "assets_create_task",
-]);
+];
+
+const ASSETS_TOOLS = [
+    "assets_search",
+    "assets_list",
+    "assets_get",
+    "assets_maintenance_history",
+    "assets_upcoming_maintenance",
+    "assets_insurance_renewals",
+    "assets_warranty_expiries",
+    "assets_list_documents",
+    "assets_summary",
+    "assets_get_attention",
+    "assets_create",
+    "assets_update",
+    "assets_create_maintenance",
+    "assets_complete_maintenance",
+];
+
+export const RETIRED_MCP_TOOLS: ReadonlySet<string> = new Set([...KNOWLEDGE_TASKS_TOOLS, ...ASSETS_TOOLS]);
 
 export const RETIRED_MCP_MESSAGE =
     "This Daly Portal tool was retired with Daly Knowledge and Daly Tasks, and is no longer available. Nothing was read or changed.";
+
+export const RETIRED_ASSETS_MCP_MESSAGE =
+    "This Daly Portal tool was retired with Home & Assets, which Home in Cloudflare OS replaces, and is no longer available. Nothing was read or changed.";
+
+/** What a retired tool answers: the retirement it went with. */
+export const retiredMcpMessage = (name: string) => (ASSETS_TOOLS.includes(name) ? RETIRED_ASSETS_MCP_MESSAGE : RETIRED_MCP_MESSAGE);

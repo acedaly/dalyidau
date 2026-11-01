@@ -1,6 +1,6 @@
 # Daly MCP: Daly Portal for AI clients
 
-AI clients (Claude, ChatGPT, Codex and other MCP clients) reach Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and Home & Assets at `https://mcp.daly.id.au/mcp`. The whole service lives in this repository:
+AI clients (Claude, ChatGPT, Codex and other MCP clients) reach Daly Calendar and Today, Daly Intelligence's briefings, the Intelligence Centre and (for the owner) Amplenote at `https://mcp.daly.id.au/mcp`. The whole service lives in this repository:
 
 - `mcp/`: the gateway Worker. It handles the MCP protocol, tool descriptions, Access token checks and per-person rate limits.
 - `worker/mcp/`: `PortalMcpEntrypoint` in the portal Worker. It handles identity, permissions, access to each record, data and the write ledger.
@@ -8,6 +8,8 @@ AI clients (Claude, ChatGPT, Codex and other MCP clients) reach Daly Calendar an
 There's no DalyHub V2 runtime dependency: no DalyHub Worker, database, `ChiefOfStaffEntrypoint` or service binding. Moving production over was a separate, owner-approved step: [MCP_CUTOVER.md](MCP_CUTOVER.md).
 
 > **Daly Knowledge and Daly Tasks are retired** (gateway 3.0.0). Every `knowledge_*`, `tasks_*` and `planner_*` tool, Intelligence's capture and suggestion tools, Today's planning tools and Home & Assets' task and Knowledge links were removed. Calling one gets a `"retired"` answer (below). See [DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md#mcp).
+
+> **Home & Assets and Household Finance are retired** (1 Nov 2026, gateway 3.2.0), replaced by Home and Finances in Cloudflare OS. The 14 `assets_*` tools are refused with `"retired"` by the portal (and by gateway 3.2.0 once it's deployed), and the Chief of Staff context no longer has a Home & Assets section. Household Finance never had tools. See [DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md#mcp).
 
 ## Architecture decision (October 2026)
 
@@ -40,11 +42,11 @@ mcp.daly.id.au/mcp — gateway Worker (mcp/, deployed as "dalyhub-mcp")
 PORTAL service binding → dalyidau :: PortalMcpEntrypoint.invoke({ assertion, tool, input })
   │  verifies the forwarded Access JWT AGAIN (worker/portal/access.ts), against MCP_ACCESS_AUD
   │  email → portal role (PORTAL_OWNER_EMAILS, then an active portal_users row)
-  │  retired tool → "retired"; then the tool's permission (calendar.use, assets.use, …) and strict input schema
+  │  retired tool → "retired"; then the tool's permission (calendar.use, centre.use, …) and strict input schema
   │  writes: claimed in mcp_writes (audit + request-id replay)
   ▼
-worker/calendar/*, worker/assets/*, worker/centre/*, … — the same functions the portal API uses
-  │  calendar membership, asset rights, the caller's own watch areas (others get "not found")
+worker/calendar/*, worker/centre/*, worker/amplenote/*, … — the same functions the portal API uses
+  │  calendar membership, the caller's own watch areas (others get "not found")
   ▼
 D1 (dalyidau-production)
 ```
@@ -55,23 +57,23 @@ The gateway has no database, storage, queue or Durable Object binding (`test/mcp
 
 - **Authentication happens twice.** Access authenticates the person and the gateway checks the token. The portal doesn't take the gateway's word for who's calling: the gateway forwards `Cf-Access-Jwt-Assertion` exactly as received, and `verifyMcpAssertion` checks it again against the MCP application's audience only (never the portal's `ACCESS_AUD`), plus expiry, not-before and a real email. A portal browser token is refused, and so are expired, forged and service tokens.
 - **No identity in arguments.** Every schema is strict and none has an email, user, owner or actor field (`test/mcp-contract.test.ts`).
-- **The portal's rules, unchanged.** Roles come from `userForEmail`, exactly as for a browser sign-in. Every record is reached through the caller's own access: calendar membership, an asset's owner or its shares, their own watch areas. A portal owner gets nothing extra: neither owner can see the other's private calendars or assets.
+- **The portal's rules, unchanged.** Roles come from `userForEmail`, exactly as for a browser sign-in. Every record is reached through the caller's own access: calendar membership, their own watch areas. A portal owner gets nothing extra: neither owner can see the other's private calendars or assets.
 - **Who can call the entrypoint.** A named entrypoint has no route. Any Worker on the account could bind to it, which is why it trusts only what the token proves. If `MCP_ACCESS_AUD` is unset, every call is refused.
 - **Errors don't leak.** Anything the caller can't reach is `not_found`. Storage errors become `unavailable`. An unreachable portal is `unavailable` ("Do not treat this as an empty result"), never an empty list.
 - **Logs.** The gateway logs `mcp_gateway_refused` with an HTTP status only, and `mcp_gateway_retired_tool` with the tool name. The portal logs one `mcp_call` line per call (tool, ok, error code, duration) and `mcp_auth_refused` with a reason. Never a person, token, argument or result (`isolation.test.ts` checks this).
 
 ## Tools
 
-**Seventy tools (17 writes)** in gateway 3.1.0: chief of staff (2), Daly Intelligence briefings (2), Calendar and leave (17), Today (3), the Intelligence Centre (28), Home & Assets (14) and Amplenote (4). Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
+**Fifty-six tools (13 writes)** in gateway 3.2.0: chief of staff (2), Daly Intelligence briefings (2), Calendar and leave (17), Today (3), the Intelligence Centre (28) and Amplenote (4). (Gateway 3.1.0, still live until 3.2.0 is deployed by hand, also advertises the 14 retired Home & Assets tools; the portal refuses them.) Every result carries `source: "daly-portal"`, ids and `url` links back to the portal. Lists are capped and say so (`count`, `truncated`, `nextOffset` or `mayHaveMore`).
 
 ### Chief of Staff
 
-| Tool                            | What it returns                                                                                                                                                                                                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chief_of_staff_daily_context`  | For people with Calendar, `calendar`: events for the next 7 days, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected leave balances and failing subscriptions. For people with Home & Assets, `homeAssets`: what's overdue or due in 30 days |
-| `chief_of_staff_weekly_context` | For people with Calendar, the same `calendar` facts over 14 days (no Home & Assets section)                                                                                                                                                                                                          |
+| Tool                            | What it returns                                                                                                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chief_of_staff_daily_context`  | For people with Calendar, `calendar`: events for the next 7 days, overlapping commitments, important dates, planned leave, school holidays with and without leave, projected leave balances and failing subscriptions |
+| `chief_of_staff_weekly_context` | For people with Calendar, the same `calendar` facts over 14 days                                                                                                                                                      |
 
-Both are facts only, each with its id and link, from `worker/calendar/chief.ts` and Home & Assets' briefing facts. They need Calendar or Home & Assets; a module the caller can't use is absent. `notChecked` names what's never read: email, external calendars that aren't subscribed in Daly Calendar, Daly Tasks and Daly Knowledge (retired), and DalyHub (retired). There's no model call in either Worker.
+Both are facts only, each with its id and link, from `worker/calendar/chief.ts`. They need `calendar.use`. `notChecked` names what's never read: email, external calendars that aren't subscribed in Daly Calendar, Daly Tasks and Daly Knowledge (retired), DalyHub (retired), and Home & Assets and Household Finance (retired). There's no model call in either Worker.
 
 ### Daly Intelligence
 
@@ -95,10 +97,6 @@ Twenty-eight tools, described in [INTELLIGENCE_CENTRE.md](INTELLIGENCE_CENTRE.md
 - **Writes (4), through the ledger:** `centre_create_rule`, `centre_update_rule`, `centre_schedule_report` and `centre_save_report`.
 
 Public records come with the providers' own times, links and attribution, and every result says it isn't an official warning service. Watch areas are the caller's own and **never include a location** (names, kinds and settings only); another person's watch area is `not_found`. Rules name watch areas by id, never coordinates. No tool collects from a provider or runs a model.
-
-### Home & Assets
-
-Fourteen tools, described in [HOME_ASSETS.md](HOME_ASSETS.md#mcp). Ten read: `assets_search`, `assets_list`, `assets_get`, `assets_maintenance_history`, `assets_upcoming_maintenance`, `assets_insurance_renewals`, `assets_warranty_expiries`, `assets_list_documents` (names and kinds, never file contents), `assets_summary` and `assets_get_attention`. Four write through the ledger: `assets_create`, `assets_update`, `assets_create_maintenance` and `assets_complete_maintenance`. They need `assets.use` and the asset's own rights (another person's private asset is `not_found`; unshared values and insurance are "not shared with you"). No delete, sharing, upload or bulk tool.
 
 ### Amplenote
 
@@ -124,14 +122,14 @@ Deleting, trashing or erasing anything. Bulk changes. Members and sharing. Impor
 
 ### Retired tools
 
-The **51 retired tools** are listed in `worker/mcp/retired.ts` and `mcp/src/portal-tools.ts` (`RETIRED_TOOL_NAMES`), and `test/mcp-contract.test.ts` checks the two lists match and that no retired tool is advertised. They cover every `knowledge_*`, `tasks_*` and `planner_*` tool, plus `intelligence_list_suggestions`, `intelligence_get_processing_status`, `intelligence_capture_text`, `intelligence_request_analysis`, `intelligence_approve_suggestion`, `meetings_get_transcript`, `today_list_unscheduled`, `today_propose_plan`, `today_get_conflicts`, `assets_link_knowledge` and `assets_create_task`.
+The **65 retired tools** are listed in `worker/mcp/retired.ts` and `mcp/src/portal-tools.ts` (`RETIRED_TOOL_NAMES`), and `test/mcp-contract.test.ts` checks the two lists match and that no retired tool is advertised. They cover every `knowledge_*`, `tasks_*` and `planner_*` tool, plus `intelligence_list_suggestions`, `intelligence_get_processing_status`, `intelligence_capture_text`, `intelligence_request_analysis`, `intelligence_approve_suggestion`, `meetings_get_transcript`, `today_list_unscheduled`, `today_propose_plan`, `today_get_conflicts`, `assets_link_knowledge` and `assets_create_task` (retired with Knowledge and Tasks), and the 14 other `assets_*` tools (retired with Home & Assets: [DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md#mcp)). Each answer names the retirement it went with.
 
-- **Gateway 3.0.0** answers `tools/call` for a retired name itself, after authentication and the rate limit, with an `isError` result whose `code` is `"retired"`. The call never reaches the portal.
+- **The gateway** (3.0.0 for the Knowledge and Tasks tools, 3.2.0 for the Home & Assets ones) answers `tools/call` for a retired name itself, after authentication and the rate limit, with an `isError` result whose `code` is `"retired"`. The call never reaches the portal.
 - **Portal entrypoint** refuses it with `"retired"` after verifying the Access token, before anything is read. So an older gateway (2.x) that still advertises the tools can't reach a retired record either.
 
 ### The 34 DalyHub tools: retired
 
-The DalyHub-backed gateway served 34 tools against DalyHub's single-owner D1. They're gone from this gateway: none is listed, and calling one is an error (`test/mcp-gateway/protocol.test.ts`). Their Daly Portal replacements for tasks, notes, projects and decisions were themselves retired with Daly Tasks and Daly Knowledge, so there is no MCP replacement for them now. The Chief of Staff context tools remain (`chief_of_staff_daily_context`, `chief_of_staff_weekly_context`), drawing on Calendar and Home & Assets.
+The DalyHub-backed gateway served 34 tools against DalyHub's single-owner D1. They're gone from this gateway: none is listed, and calling one is an error (`test/mcp-gateway/protocol.test.ts`). Their Daly Portal replacements for tasks, notes, projects and decisions were themselves retired with Daly Tasks and Daly Knowledge, so there is no MCP replacement for them now. The Chief of Staff context tools remain (`chief_of_staff_daily_context`, `chief_of_staff_weekly_context`), drawing on Calendar.
 
 ## Writes: audit and retries
 
@@ -157,7 +155,7 @@ Request ids are per person: the same id from two people creates two records and 
 | gateway                               | `PORTAL` service binding    | `dalyidau` / `PortalMcpEntrypoint` (locally `dalyidau-staging`)                                            |
 | gateway                               | `MCP_CALLS`, `MCP_WRITES`   | Rate Limiting namespaces 4401 and 4402: 120 and 30 per person per minute                                   |
 | Access, `mcp.daly.id.au` application  | Allow policy                | Who may connect. Each person then sees only their own and shared portal data                               |
-| Portal users                          | role                        | `calendar.use`, `intelligence.use`, `centre.use`, `assets.use` (owner or admin today)                      |
+| Portal users                          | role                        | `calendar.use`, `intelligence.use`, `centre.use` (owner or admin today)                                    |
 
 `DALYHUB_OWNER_EMAILS`, if it was ever set on `dalyhub-mcp`, is unused by this code. Removing it is on the decommissioning checklist.
 
@@ -167,6 +165,8 @@ The portal first, then the gateway. Each step needs the owner's approval. The ga
 
 1. **Portal.** Merging to `main` deploys `dalyidau` and applies any migrations. The live gateway keeps working throughout: it advertises its existing tools, and the portal serves them (retired ones are refused with `"retired"`).
 2. **Gateway.** Record the current version id (`npx wrangler deployments list --name dalyhub-mcp`), then `npm run mcp:deploy:dry-run` and `npx wrangler deploy --config mcp/wrangler.jsonc --env production`. Clients may need to reconnect, or refresh their tool list, to see the change.
+
+For 3.2.0 (Home & Assets retired): merge, then deploy the gateway when convenient; no migration. Until then 3.1.0 advertises the `assets_*` tools and the portal refuses them. Rollback to 3.1.0 only advertises them again. See [DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md#deployment-order).
 
 For 3.1.0 (Amplenote): merge (migration `0030` rebuilds `mcp_writes`; back up first with `npm run db:backup`), then deploy the gateway. Rollback to 3.0.0 only stops advertising the four tools. Nothing reaches Amplenote until the owner switches on Amplenote for AI assistants and reconnects.
 
@@ -196,11 +196,11 @@ No new paid service. The gateway replaces an existing Worker. Service binding ca
 
 - `npm test` runs both Vitest projects.
 - `test/mcp-gateway/` (`vitest.mcp.config.ts`, workerd with `nodejs_compat`, as the gateway runs) drives real MCP JSON-RPC through `mcp/src` into the portal's real `handleMcpCall` and a local D1. The PORTAL hop structured-clones like Worker RPC. Every outbound fetch except the Access key set is refused and recorded.
-    - `protocol.test.ts`: initialize (with the working instructions), `tools/list` (exactly 70, with annotations), a retired tool answered with `"retired"` without reaching the portal, none of the 34 legacy tools, calls, schema validation, `/mcp` only, 401/503 failures, development token limits and Host validation.
+    - `protocol.test.ts`: initialize (with the working instructions), `tools/list` (exactly 56, with annotations), a retired tool answered with `"retired"` without reaching the portal, none of the 34 legacy tools, calls, schema validation, `/mcp` only, 401/503 failures, development token limits and Host validation.
     - `isolation.test.ts`: the deployable config binds only `PORTAL` (no D1/KV/R2/DO/queues, nothing named DalyHub, no routes). The source imports nothing from DalyHub. A whole session (reads, writes, retries, briefings) runs with nothing but the binding. Also an unreachable or missing portal, per-person and write rate limits, and logs that hold no person, token or content.
-    - `identities.test.ts`: two independent identities, both portal owners. Private events and assets stay invisible by id, list, search and briefing, and can't be changed by the other person. Arguments can't name someone else, and request ids don't cross people. A shared calendar shows its events to a member, with the other's private events as "Busy", and removal cuts access on the next call. A person without a portal role and a service token get nothing.
+    - `identities.test.ts`: two independent identities, both portal owners. Private events stay invisible by id, list, search and briefing, and can't be changed by the other person. Arguments can't name someone else, and request ids don't cross people. A shared calendar shows its events to a member, with the other's private events as "Busy", and removal cuts access on the next call. A person without a portal role and a service token get nothing.
 - `test/amplenote-assistant.test.ts` covers the Amplenote tools against the stand-in in `fixtures/amplenote`: the switch, owner-only access, scopes, the ledger, unknown outcomes and refused task properties.
-- `test/mcp.test.ts` covers the portal entrypoint directly (tokens, roles, the 70 tools, retired tools refused for every role, Chief of Staff, the write ledger).
+- `test/mcp.test.ts` covers the portal entrypoint directly (tokens, roles, the 56 tools, retired tools refused for every role with the right message, Chief of Staff, the write ledger).
 - `test/mcp-contract.test.ts` compares the gateway's tools with the portal's: names, retired names, write set, every argument name, annotations, no identity fields.
 - `npm run mcp:deploy:dry-run` builds the production gateway bundle and lists its bindings.
 

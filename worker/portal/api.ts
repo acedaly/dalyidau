@@ -12,13 +12,11 @@ import { ASSISTANT_FLAG } from "../amplenote/assistant";
 import { SCOPE as AMPLENOTE_LIST_SCOPE, ASSISTANT_SCOPE, disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
 import { extractMetadata } from "../amplenote/metadata";
 import { postId as amplenotePostId, reconcile as reconcileAmplenote } from "../amplenote/publisher";
-import { handleAssetsApi } from "../assets/api";
 import { handleCalendarApi } from "../calendar/api";
 import { archiveCapacities, undoReplacement } from "../capacities/archive";
 import { handleCentreApi } from "../centre/api";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
-import { handleFinanceApi } from "../finance/api";
 import { handleIntelligenceApi } from "../intelligence/api";
 import { handleTodayApi } from "../today/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
@@ -62,7 +60,7 @@ import { applyMobileReview, mobileReview } from "./mobile-review";
 import { applyRetention, deleteHousehold, erase, listDeleted, restore, retentionPreview } from "./privacy";
 import { listAudit } from "./queries";
 import { CREDENTIAL_PERMISSION, hideCredentials } from "./redact";
-import { isRetiredApi, retiredResponse } from "./retired";
+import { retiredApiMessage, retiredResponse } from "./retired";
 import { archiveQuestion, listQuestions, questionSummaries, saveQuestion } from "./rsvp-questions";
 import { assignSeats, deleteSnapshot, listSnapshots, restoreSnapshot, saveSnapshot, seatingState, seatingTableDef } from "./seating";
 import { getSettings, saveSettings } from "./settings";
@@ -958,17 +956,14 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         checkCrossSite(request);
         checkMutation(request, env);
         // Retired applications and features: a clear 410, never their records (worker/portal/retired.ts).
-        if (isRetiredApi(url.pathname)) return retiredResponse();
+        const retired = retiredApiMessage(url.pathname);
+        if (retired) return retiredResponse(retired);
         // Calendar has its own router: access there is by calendar membership, and leave is always the caller's own.
         if (url.pathname.startsWith("/api/portal/calendar/")) return await handleCalendarApi(request, env, user);
         // And Intelligence: everything there is the caller's own, or reached through their memberships.
         if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user);
         // And the Intelligence Centre: public records for everyone with centre.use; watch areas, alerts and wallboards per person.
         if (url.pathname.startsWith("/api/portal/centre/")) return await handleCentreApi(request, env, user, exec);
-        // And Home & Assets: access there is per asset (owner, or what it's shared with you for).
-        if (url.pathname.startsWith("/api/portal/assets/")) return await handleAssetsApi(request, env, user);
-        // And Household Finance: access there is per account (the owner's, or shared with the household).
-        if (url.pathname.startsWith("/api/portal/finance/")) return await handleFinanceApi(request, env, user);
         // And Today: it needs Calendar, and reads and changes everything through Calendar's own functions.
         if (url.pathname === "/api/portal/today" || url.pathname.startsWith("/api/portal/today/")) return await handleTodayApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;

@@ -16,7 +16,7 @@ import { offlineDocument, plannerView, serviceWorkerScript, shellStylesheets } f
 import { accessToken, apiCall, auditActions, portalEnv, call as rawCall, resetPortal } from "./portal-helpers";
 
 const MCP_AUD = "aud-mcp-gateway-0123456789abcdef";
-const OTHER_APPS = ["calendar", "intelligence", "intelligence-centre", "assets", "finance"];
+const OTHER_APPS = ["calendar", "intelligence", "intelligence-centre"];
 const PLANNER_HOST = "weddingplanner.daly.id.au";
 
 const pageData = <T>(html: string) => {
@@ -40,7 +40,7 @@ describe("only Wedding Planner in the portal's navigation", () => {
     it("is a reversible switch that defaults off and lives in Portal settings → Features", () => {
         expect(FLAG_DEFINITIONS["portal.other_applications"].default).toBe(false);
         expect(FLAG_AREAS["portal.other_applications"]).toBe("portal");
-        const owner = { permissions: ["wedding.view", "calendar.use", "intelligence.use", "centre.use", "assets.use", "finance.use"] as const };
+        const owner = { permissions: ["wedding.view", "calendar.use", "intelligence.use", "centre.use"] as const };
         expect(listedApplications(owner, defaultFlags()).map((a) => a.id)).toEqual(["wedding"]);
         expect(listedApplications(owner, { "portal.other_applications": true }).map((a) => a.id)).toEqual(["wedding", ...OTHER_APPS]);
         expect(isApplicationListed("today", defaultFlags())).toBe(false);
@@ -69,7 +69,7 @@ describe("only Wedding Planner in the portal's navigation", () => {
 
     it("keeps the hidden applications' pages, API and MCP tools working", async () => {
         const token = await accessToken();
-        for (const path of ["/portal/today", "/portal/calendar", "/portal/intelligence", "/portal/intelligence-centre", "/portal/assets", "/portal/finance"])
+        for (const path of ["/portal/today", "/portal/calendar", "/portal/intelligence", "/portal/intelligence-centre"])
             expect((await rawCall(path, { token })).status, path).toBe(200);
         expect((await page("/portal/calendar")).html).toContain('href="/portal/calendar/leave"');
         expect((await apiCall("GET", "/api/portal/calendar/calendars")).status).toBe(200);

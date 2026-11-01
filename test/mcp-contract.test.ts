@@ -14,12 +14,12 @@ describe("MCP tool contract", () => {
 
     it("advertises exactly the tools the portal serves", () => {
         expect([...PORTAL_TOOL_NAMES].sort()).toEqual([...portal.keys()].sort());
-        expect(PORTAL_TOOL_NAMES).toHaveLength(70);
+        expect(PORTAL_TOOL_NAMES).toHaveLength(56);
     });
 
     it("retires the same tools on both sides, and serves none of them", () => {
         expect([...RETIRED_TOOL_NAMES].sort()).toEqual([...RETIRED_MCP_TOOLS].sort());
-        expect(RETIRED_TOOL_NAMES).toHaveLength(51);
+        expect(RETIRED_TOOL_NAMES).toHaveLength(65);
         for (const name of RETIRED_TOOL_NAMES) expect((PORTAL_TOOL_NAMES as readonly string[]).includes(name), name).toBe(false);
     });
 

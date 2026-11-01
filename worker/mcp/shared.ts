@@ -26,8 +26,8 @@ export interface ToolDef<S extends z.ZodType = z.ZodType> {
     name: string;
     /** Writes go through the ledger (audit and retry safety) and the gateway's tighter write rate limit. */
     write: boolean;
-    /** The portal permission needed to use the tool at all ("any_productivity": Calendar or Home & Assets). Access is then checked per record. */
-    permission: Permission | "any_productivity";
+    /** The portal permission needed to use the tool at all. Access is then checked per record. */
+    permission: Permission;
     input: S;
     run: (ctx: ToolContext, input: z.output<S>) => Promise<ToolResult>;
     /** For a retried write (same request id): the record as it is now, without writing again. */

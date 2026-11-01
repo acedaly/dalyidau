@@ -1,9 +1,9 @@
 import type { FlagKey, Flags } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre" | "assets" | "finance";
+export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre";
 
-export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre" | "assets" | "finance";
+export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre";
 
 export type NavigationIcon =
     | "dashboard"
@@ -21,7 +21,6 @@ export type NavigationIcon =
     | "budget"
     | "suppliers"
     | "settings"
-    | "knowledge"
     | "shared"
     | "reports"
     | "intelligence"
@@ -50,18 +49,6 @@ export type NavigationIcon =
     | "correlations"
     | "rules"
     | "assistant"
-    | "assets"
-    | "vehicles"
-    | "property"
-    | "maintenance"
-    | "insurance"
-    | "warranty"
-    | "documents"
-    | "scan"
-    | "finance"
-    | "transactions"
-    | "accounts"
-    | "import"
     | "app";
 
 export interface ApplicationNavigationItem {
@@ -215,7 +202,7 @@ export const APPLICATIONS = [
         name: "Daly Intelligence",
         summary: "AI settings, budgets and briefings.",
         description:
-            "The portal's shared AI layer: daily briefings and weekly reviews from your calendar, the AI budget, and the settings Home & Assets and the Intelligence Centre use. Off until an owner switches it on.",
+            "The portal's shared AI layer: daily briefings and weekly reviews from your calendar, the AI budget, and the settings the Intelligence Centre uses. Off until an owner switches it on.",
         icon: "intelligence",
         baseRoute: "/portal/intelligence",
         requiredPermission: "intelligence.use",
@@ -282,73 +269,6 @@ export const APPLICATIONS = [
                     { label: "Wallboards", href: "/portal/intelligence-centre/wallboards", icon: "wallboard", active: "prefix" },
                     { label: "Sources", href: "/portal/intelligence-centre/sources", icon: "sources" },
                     { label: "Settings", href: "/portal/intelligence-centre/settings", icon: "settings" },
-                ],
-            },
-        ],
-    },
-    {
-        id: "assets",
-        name: "Home & Assets",
-        summary: "What we own, its upkeep, warranties and insurance.",
-        description:
-            "Everything we own, maintain, insure or will need to replace: vehicles and trailers, the home and rentals, servicing and repairs, warranties, insurance, receipts and manuals, values and QR labels. Private to you unless you share.",
-        icon: "assets",
-        baseRoute: "/portal/assets",
-        requiredPermission: "assets.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "Home & Assets",
-                items: [
-                    { label: "Overview", href: "/portal/assets", icon: "assets" },
-                    { label: "All assets", href: "/portal/assets/all", icon: "knowledge" },
-                    { label: "Vehicles & trailers", href: "/portal/assets/vehicles", icon: "vehicles" },
-                    { label: "Home & property", href: "/portal/assets/property", icon: "property", active: "prefix" },
-                ],
-            },
-            {
-                label: "Keep on top of",
-                items: [
-                    { label: "Maintenance", href: "/portal/assets/maintenance", icon: "maintenance" },
-                    { label: "Insurance", href: "/portal/assets/insurance", icon: "insurance" },
-                    { label: "Warranties", href: "/portal/assets/warranties", icon: "warranty" },
-                    { label: "Documents", href: "/portal/assets/documents", icon: "documents" },
-                ],
-            },
-            {
-                label: "Application",
-                items: [
-                    { label: "Capture and scan", href: "/portal/assets/capture", icon: "scan", active: "prefix" },
-                    { label: "Reports and export", href: "/portal/assets/reports", icon: "reports", active: "prefix" },
-                    { label: "Settings", href: "/portal/assets/settings", icon: "settings" },
-                ],
-            },
-        ],
-    },
-    {
-        id: "finance",
-        name: "Household Finance",
-        summary: "Accounts, imports and where our money goes.",
-        description:
-            "Import bank CSV files (NAB first), check balances against the bank, categorise spending and see where the household's money goes. Private accounts stay private; shared accounts are visible to both of us.",
-        icon: "finance",
-        baseRoute: "/portal/finance",
-        requiredPermission: "finance.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "Household Finance",
-                items: [
-                    { label: "Overview", href: "/portal/finance", icon: "finance" },
-                    { label: "Transactions", href: "/portal/finance/transactions", icon: "transactions" },
-                    { label: "Accounts", href: "/portal/finance/accounts", icon: "accounts", active: "prefix" },
-                ],
-            },
-            {
-                label: "Application",
-                items: [
-                    { label: "Import transactions", href: "/portal/finance/import", icon: "import", active: "prefix" },
-                    { label: "Categories and settings", href: "/portal/finance/settings", icon: "settings" },
                 ],
             },
         ],

@@ -68,7 +68,7 @@ export async function loadCalendarPage(env: Env, user: PortalUser, url: URL, pag
                 const leave = await loadLeave(db, user);
                 const [{ occurrences, truncated }, overlays] = await Promise.all([
                     occurrencesInWindow(db, user, { from, to, timeZone: s.preferences.timeZone }),
-                    overlaysFor(db, user, s.preferences, leave, from, to),
+                    overlaysFor(s.preferences, leave, from, to),
                 ]);
                 const event = url.searchParams.get("event");
                 return {
@@ -91,7 +91,7 @@ export async function loadCalendarPage(env: Env, user: PortalUser, url: URL, pag
                 const leave = await loadLeave(db, user);
                 const [{ occurrences }, overlays] = await Promise.all([
                     occurrencesInWindow(db, user, { from, to, timeZone: s.preferences.timeZone, limit: 5000 }),
-                    overlaysFor(db, user, s.preferences, leave, from, to),
+                    overlaysFor(s.preferences, leave, from, to),
                 ]);
                 // Per-day counts only: the year view shows how busy each day is, not every event.
                 const busy: Record<string, number> = {};

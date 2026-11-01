@@ -22,10 +22,6 @@ export const PERMISSIONS = [
     "intelligence.use",
     /** Opening the Intelligence Centre (public hazard information). Watch areas, alerts and wallboards are each person's own. */
     "centre.use",
-    /** Opening Home & Assets. What each person sees inside is decided per asset (owner, or what it's shared with them for). */
-    "assets.use",
-    /** Opening Household Finance. Owners only: what each sees inside is their own accounts and those shared with the household. */
-    "finance.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",
@@ -36,8 +32,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     owner: PERMISSIONS,
-    // Household Finance is for the household's two owners: an admin (who may help with the wedding) never sees money.
-    admin: PERMISSIONS.filter((p) => p !== "portal.users.manage" && p !== "portal.data.erase" && p !== "finance.use"),
+    admin: PERMISSIONS.filter((p) => p !== "portal.users.manage" && p !== "portal.data.erase"),
     editor: [
         "wedding.view",
         "wedding.guests.edit",

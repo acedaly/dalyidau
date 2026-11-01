@@ -98,7 +98,7 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
 
         const s = await session(OWNER, { env });
         expect(s.init.status).toBe(200);
-        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(70);
+        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(56);
         const event = (
             await s.ok<{ event: { id: string } }>("calendar_create_event", { title: "Renew passport", startDate: "2030-03-01", requestId: "isolation-0001" })
         ).event;
@@ -108,9 +108,6 @@ describe("running with DalyHub V2 and its database completely unavailable", () =
             requestId: "isolation-0001",
         });
         expect(again.event.id).toBe(event.id);
-        const asset = (await s.ok<{ asset: { id: string } }>("assets_create", { name: "Passport wallet", category: "other", requestId: "isolation-0002" }))
-            .asset;
-        await s.ok("assets_create_maintenance", { assetId: asset.id, title: "Check expiry", requestId: "isolation-0003" });
         await s.ok("today_get_summary");
         await s.ok("chief_of_staff_daily_context");
         await s.ok("chief_of_staff_weekly_context");
@@ -171,7 +168,7 @@ describe("logs", () => {
         const s = await session(OWNER);
         await s.ok("calendar_create_event", { title: "Secret-surprise-party", description: "confidential-details", startDate: "2030-03-01" });
         await s.ok("calendar_search_events", { query: "Secret-surprise-party" });
-        await s.tool("assets_get", { assetId: "ast_aaaaaaaaaaaaaa" });
+        await s.tool("calendar_get_agenda", { date: "2030-03-01" });
         await s.tool("tasks_get", { taskId: "tsk_aaaaaaaaaaaaaa" });
         await (await import("./helpers")).post({}, { token: "not-a-jwt" });
         const all = lines.join("\n");

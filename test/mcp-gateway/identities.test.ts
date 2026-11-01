@@ -17,7 +17,6 @@ beforeEach(async () => {
 });
 
 type Event = { id: string; title: string; version: number };
-type Asset = { id: string; name: string; version: number };
 
 /** Words only A's private records contain. They must never appear in anything B receives. */
 const SECRET = ["Zanzibar", "pineapple-lantern"];
@@ -34,8 +33,7 @@ async function privateRecordsOfA() {
             startTime: "09:00",
         })
     ).event;
-    const asset = (await a.ok<{ asset: Asset }>("assets_create", { name: "Zanzibar surfboard", category: "outdoor", notes: "pineapple-lantern" })).asset;
-    return { a, event, asset };
+    return { a, event };
 }
 
 async function sharedCalendar(role: "editor" | "viewer") {
@@ -52,18 +50,13 @@ async function sharedCalendar(role: "editor" | "viewer") {
 }
 
 describe("private records", () => {
-    it("B can't read A's private event or asset by id, list, search or briefing", async () => {
-        const { asset } = await privateRecordsOfA();
+    it("B can't read A's private event by list, search or briefing", async () => {
+        await privateRecordsOfA();
         const b = await session(B);
-        const answer = await b.tool("assets_get", { assetId: asset.id });
-        expect(answer.isError).toBe(true);
-        expect(answer.data.error?.code).toBe("not_found");
         for (const [tool, args] of [
             ["calendar_list_events", { from: DAY, to: DAY }],
             ["calendar_search_events", { query: "Zanzibar" }],
             ["calendar_get_agenda", { date: DAY }],
-            ["assets_search", { query: "Zanzibar" }],
-            ["assets_list", {}],
             ["chief_of_staff_daily_context", {}],
             ["today_get_summary", {}],
         ] as const) {
@@ -73,24 +66,19 @@ describe("private records", () => {
     });
 
     it("A still sees their own records through the same tools", async () => {
-        const { a, asset } = await privateRecordsOfA();
-        expect((await a.ok<{ asset: Asset }>("assets_get", { assetId: asset.id })).asset.name).toBe("Zanzibar surfboard");
+        const { a } = await privateRecordsOfA();
         expect(JSON.stringify(await a.ok("calendar_search_events", { query: "Zanzibar" }))).toContain("Zanzibar flights");
     });
 
     it("B can't change A's private records", async () => {
-        const { a, event, asset } = await privateRecordsOfA();
+        const { a, event } = await privateRecordsOfA();
         const b = await session(B);
-        for (const [tool, args] of [
-            ["calendar_update_event", { eventId: event.id, version: event.version, title: "Hijacked" }],
-            ["assets_update", { assetId: asset.id, version: asset.version, name: "Hijacked" }],
-            ["assets_create_maintenance", { assetId: asset.id, title: "Hijacked" }],
-        ] as const) {
+        for (const [tool, args] of [["calendar_update_event", { eventId: event.id, version: event.version, title: "Hijacked" }]] as const) {
             const answer = await b.tool(tool, args);
             expect(answer.isError, tool).toBe(true);
             expect(answer.data.error?.code, tool).toBe("not_found");
         }
-        expect((await a.ok<{ asset: Asset }>("assets_get", { assetId: asset.id })).asset.name).toBe("Zanzibar surfboard");
+        expect(JSON.stringify(await a.ok("calendar_search_events", { query: "Zanzibar" }))).toContain("Zanzibar flights");
     });
 
     it("identity comes only from the assertion: arguments can't name someone else", async () => {
@@ -160,7 +148,7 @@ describe("people without access", () => {
     it("a verified Access identity with no portal role gets no data from any tool", async () => {
         await privateRecordsOfA();
         const stranger = await session("stranger@example.com");
-        for (const tool of ["calendar_list_calendars", "assets_list", "chief_of_staff_daily_context"]) {
+        for (const tool of ["calendar_list_calendars", "chief_of_staff_daily_context"]) {
             const answer = await stranger.tool(tool);
             expect(answer.isError, tool).toBe(true);
             expect(answer.data.error?.code, tool).toBe("forbidden");

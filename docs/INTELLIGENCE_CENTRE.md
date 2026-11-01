@@ -202,7 +202,7 @@ A full-screen, read-only view for a monitor, TV or kiosk at `https://daly.id.au/
 
 ## MCP
 
-Twelve **read-only** tools, served by `worker/mcp/centre.ts` and advertised by the gateway (`mcp/src/portal-tools.ts`). 9.1 adds sixteen more ([INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#mcp)), so the Centre has 28 of gateway 3.0.0's 66 tools ([MCP.md](MCP.md)). (When Milestone 9 shipped, as gateway 2.6.0, the gateway had 85 tools; many of those were retired with Daly Tasks and Daly Knowledge.) They need `centre.use`, have strict schemas and no identity fields, use the gateway's existing rate limits, and write nothing (`mcp_writes` doesn't change). Every result includes the providers' attribution and the disclaimer.
+Twelve **read-only** tools, served by `worker/mcp/centre.ts` and advertised by the gateway (`mcp/src/portal-tools.ts`). 9.1 adds sixteen more ([INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#mcp)), so the Centre has 28 of gateway 3.2.0's 56 tools ([MCP.md](MCP.md)). (When Milestone 9 shipped, as gateway 2.6.0, the gateway had 85 tools; many of those were retired with Daly Tasks and Daly Knowledge.) They need `centre.use`, have strict schemas and no identity fields, use the gateway's existing rate limits, and write nothing (`mcp_writes` doesn't change). Every result includes the providers' attribution and the disclaimer.
 
 | Tool                           | What                                                                                          |
 | ------------------------------ | --------------------------------------------------------------------------------------------- |

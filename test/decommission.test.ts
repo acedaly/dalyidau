@@ -49,7 +49,7 @@ const RETAINED = [
 
 describe("nothing of Knowledge or Tasks is offered", () => {
     it("has no Knowledge or Tasks application, permission or switch", () => {
-        expect(APPLICATIONS.map((a) => a.id)).toEqual(["wedding", "calendar", "intelligence", "intelligence-centre", "assets", "finance"]);
+        expect(APPLICATIONS.map((a) => a.id)).toEqual(["wedding", "calendar", "intelligence", "intelligence-centre"]);
         expect(PERMISSIONS).not.toContain("knowledge.use" as never);
         expect(PERMISSIONS).not.toContain("tasks.use" as never);
         for (const role of Object.values(ROLE_PERMISSIONS)) expect(role.join(" ")).not.toMatch(/knowledge|tasks\.use/);
@@ -59,7 +59,7 @@ describe("nothing of Knowledge or Tasks is offered", () => {
     });
 
     it("shows no launcher card, sidebar link or quick-add for them, on any page", async () => {
-        for (const path of ["/portal", "/portal/today", "/portal/calendar", "/portal/intelligence", "/portal/assets", "/portal/wedding"]) {
+        for (const path of ["/portal", "/portal/today", "/portal/calendar", "/portal/intelligence", "/portal/wedding"]) {
             const { response, html } = await render(path);
             expect(response.status, path).toBe(200);
             expect(html, path).not.toMatch(
@@ -195,8 +195,6 @@ describe("the approved cleanup (scripts/sql, never a migration)", () => {
             "/api/portal/today?date=2026-11-02",
             "/api/portal/calendar/events?from=2026-11-01&to=2026-11-30",
             "/api/portal/calendar/leave",
-            "/api/portal/assets/overview",
-            "/api/portal/assets/notifications",
             "/api/portal/wedding/tasks",
             "/api/portal/intelligence/settings",
         ]) {

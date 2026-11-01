@@ -12,7 +12,6 @@ import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { INGEST_PATH, amplenoteCallback, handleIngest } from "./amplenote/api";
 import { CALLBACK_PATH as AMPLENOTE_CALLBACK_PATH } from "./amplenote/client";
 import { reconcile as reconcileAmplenote } from "./amplenote/publisher";
-import { processAssetReminders } from "./assets/notify";
 import { serveFeed } from "./calendar/feeds";
 import { processCalendarNotifications } from "./calendar/notify";
 import { processDueSubscriptions } from "./calendar/subscriptions";
@@ -65,7 +64,7 @@ export default {
         }
     },
 
-    async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
         // Amplenote publishing: the API's view and link checks. Does nothing until it's set up (docs/AMPLENOTE.md).
         ctx.waitUntil(
@@ -90,13 +89,6 @@ export default {
             runCentreCron(env).then(
                 () => undefined,
                 (error) => console.error(JSON.stringify({ event: "centre_cron_error", message: (error as Error).message })),
-            ),
-        );
-        // Home & Assets: reminders (email only with its switch on) and purging deleted assets.
-        ctx.waitUntil(
-            processAssetReminders(env, { scheduledTime: controller.scheduledTime }).then(
-                () => undefined,
-                (error) => console.error(JSON.stringify({ event: "asset_reminders_error", message: (error as Error).message })),
             ),
         );
         // Daly Intelligence: retention always; scheduled briefings only when switched on.

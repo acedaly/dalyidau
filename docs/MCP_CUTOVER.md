@@ -1,6 +1,12 @@
 # MCP cutover and DalyHub decommissioning
 
-The ordered plan for moving `mcp.daly.id.au` from the DalyHub-V2 gateway to the gateway in this repository ([MCP.md](MCP.md)), then retiring DalyHub V2, and the release of gateway **3.0.0**, which retires the Daly Knowledge and Daly Tasks tools. **Every production step needs the owner's approval** and is run by hand. Nothing here merges, deploys, migrates a remote database, or changes DNS, Access or secrets on its own.
+The ordered plan for moving `mcp.daly.id.au` from the DalyHub-V2 gateway to the gateway in this repository ([MCP.md](MCP.md)), then retiring DalyHub V2, the release of gateway **3.0.0**, which retires the Daly Knowledge and Daly Tasks tools, and of **3.2.0**, which retires the Home & Assets tools. **Every production step needs the owner's approval** and is run by hand. Nothing here merges, deploys, migrates a remote database, or changes DNS, Access or secrets on its own.
+
+## Gateway 3.2.0: Home & Assets retired
+
+Home & Assets and Household Finance are retired, replaced by Home and Finances in Cloudflare OS ([DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md)). Gateway 3.2.0 advertises **56 tools (13 writes)**: chief of staff (2), Daly Intelligence briefings (2), Calendar and leave (17), Today (3, read-only), the Intelligence Centre (28) and Amplenote (4). The 14 `assets_*` tools join the retired list (**65** in all) and are answered with `"retired"` and a message naming Home & Assets, by the portal now and by the gateway once 3.2.0 is deployed. Household Finance never had tools.
+
+**Order:** merge and deploy the portal (no migrations); the live 3.1.0 gateway keeps working, and its `assets_*` tools are refused at the portal. Then, when convenient, deploy 3.2.0 by hand exactly as in step 3 below and refresh the connectors. **Rollback:** `npx wrangler rollback <version id> --name dalyhub-mcp` brings back 3.1.0's list, whose `assets_*` tools the portal still refuses.
 
 ## Gateway 3.0.0: Knowledge and Tasks retired
 
@@ -28,7 +34,7 @@ A 3.0.0 gateway in front of an older portal would still work, but would describe
 
 ---
 
-The rest of this document is the original cutover plan from DalyHub-V2 (October 2026). Its tool counts and checks have been updated for 3.0.0; the DalyHub data migration it once included was removed with Daly Knowledge and Daly Tasks.
+The rest of this document is the original cutover plan from DalyHub-V2 (October 2026). Its tool counts and checks have been updated for 3.2.0; the DalyHub data migration it once included was removed with Daly Knowledge and Daly Tasks.
 
 ## Where things stood (18 October 2026)
 
@@ -99,7 +105,7 @@ This uploads new code to the **existing** Worker. It keeps the Custom Domain, th
 
 ### 6. Optionally admit other people (approval: Access policy)
 
-There are no single-owner tools, so admitting another person to the `mcp.daly.id.au` Access policy only gives them their own and shared portal data. Give them a portal role with the applications they need (Calendar, Home & Assets, the Intelligence Centre) first, then repeat the two-person checks below with their account.
+There are no single-owner tools, so admitting another person to the `mcp.daly.id.au` Access policy only gives them their own and shared portal data. Give them a portal role with the applications they need (Calendar, the Intelligence Centre) first, then repeat the two-person checks below with their account.
 
 ### 7. Optional, later: rename the Worker
 
@@ -109,17 +115,17 @@ Renaming `dalyhub-mcp` to `daly-mcp` is cosmetic. If wanted, do it once everythi
 
 Do these in order, in **Claude (web)** first, then **Claude Code**, **ChatGPT** (developer mode) and **Codex**. Check each client's redirect URI is allowed in the Access application before trying it. Record pass/fail per client.
 
-| #   | Ask the client                                         | Expect                                                                                                                                                                   |
-| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | List your tools                                        | 66 tools, all Daly Portal (`calendar_*`, `leave_*`, `today_*`, `centre_*`, `assets_*`, `intelligence_*`, `chief_of_staff_*`); no `tasks_*`, `knowledge_*` or `get_today` |
-| 2   | "Brief me from my Daly Portal"                         | Calls `chief_of_staff_daily_context`; events and Home & Assets items match the portal                                                                                    |
-| 3   | "What's on today, and how busy am I?"                  | `today_get_summary` or `today_get_capacity`; matches `/portal/today`                                                                                                     |
-| 4   | "Add 'MCP cutover test' to my calendar tomorrow at 9"  | Client asks before writing; one event appears; `mcp_writes` has one `done` row                                                                                           |
-| 5   | Ask it to do 4 again in the same conversation          | No duplicate if the client reused its requestId; otherwise a second event (delete it by hand)                                                                            |
-| 6   | "Show my tasks" (a client with a cached old tool list) | A `tasks_*` call answers `"retired"`, and the client says Daly Tasks is retired                                                                                          |
-| 7   | Second person (if admitted): "List my calendars"       | Only their own and shared calendars; never the owner's personal ones                                                                                                     |
-| 8   | Second person: ask for the owner's private event by id | `not_found`                                                                                                                                                              |
-| 9   | Sign out of Access, then call a tool                   | The client asks to sign in again; no data                                                                                                                                |
+| #   | Ask the client                                         | Expect                                                                                                                                                                                  |
+| --- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | List your tools                                        | 56 tools, all Daly Portal (`calendar_*`, `leave_*`, `today_*`, `centre_*`, `intelligence_*`, `chief_of_staff_*`, `amplenote_*`); no `tasks_*`, `knowledge_*`, `assets_*` or `get_today` |
+| 2   | "Brief me from my Daly Portal"                         | Calls `chief_of_staff_daily_context`; events match the portal                                                                                                                           |
+| 3   | "What's on today, and how busy am I?"                  | `today_get_summary` or `today_get_capacity`; matches `/portal/today`                                                                                                                    |
+| 4   | "Add 'MCP cutover test' to my calendar tomorrow at 9"  | Client asks before writing; one event appears; `mcp_writes` has one `done` row                                                                                                          |
+| 5   | Ask it to do 4 again in the same conversation          | No duplicate if the client reused its requestId; otherwise a second event (delete it by hand)                                                                                           |
+| 6   | "Show my tasks" (a client with a cached old tool list) | A `tasks_*` call answers `"retired"`, and the client says Daly Tasks is retired                                                                                                         |
+| 7   | Second person (if admitted): "List my calendars"       | Only their own and shared calendars; never the owner's personal ones                                                                                                                    |
+| 8   | Second person: ask for the owner's private event by id | `not_found`                                                                                                                                                                             |
+| 9   | Sign out of Access, then call a tool                   | The client asks to sign in again; no data                                                                                                                                               |
 
 ## Monitoring
 

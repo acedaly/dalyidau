@@ -1,5 +1,7 @@
 # Household Finance (Milestone 11)
 
+> **Retired 1 Nov 2026 — replaced by Cloudflare OS Finances.** `/portal/finance` and `/api/portal/finance` answer 410 and the code is removed. Every table is kept untouched until the owner approves a cleanup. See [DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md). The rest of this document describes the application as it was, and the plan for 11.2–11.4 won't be built.
+
 `/portal/finance`: the household's accounts, imported bank transactions, balances checked against the bank, categories and where the money goes. Built so that importing a bank's CSV export (NAB first) replaces typing transactions in, and so that a paid budgeting app isn't needed.
 
 Milestone 11.1 (this document's main subject) is the financial foundation. Budgets, bills, savings goals, reports and integrations follow in 11.2–11.4 ([plan](#plan-111114)).

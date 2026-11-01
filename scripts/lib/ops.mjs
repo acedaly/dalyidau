@@ -336,7 +336,7 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
-        // Worked out from the schedule's own rule (src/shared/assets/engine.ts); stale only if a write was interrupted.
+        // Worked out from the schedule's own rule (src/shared/assets/engine.ts, retired with Home & Assets); stale only if a write was interrupted.
         name: "Maintenance schedules have an interval",
         sql: "SELECT id FROM asset_schedules WHERE interval_count IS NULL AND interval_km IS NULL LIMIT 20",
         level: "fail",

@@ -72,7 +72,7 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["portal", "wedding", "calendar", "centre", "assets", "website"] as const;
+export const FEATURE_AREAS = ["portal", "wedding", "calendar", "centre", "website"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
 /** An area belongs to an application, or (for the portal as a whole and the public website, which aren't one) needs a permission. */
@@ -99,12 +99,6 @@ export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
         description:
             "Collecting public hazard data, alert emails and wallboard displays. Which sources are collected is chosen in Intelligence Centre → Sources.",
         application: "intelligence-centre",
-    },
-    assets: {
-        label: "Home & Assets",
-        description:
-            "AI suggestions for receipts, photos and policies, and reminder emails. Each person still chooses their own reminders in Home & Assets → Settings.",
-        application: "assets",
     },
     website: {
         label: "Website & Blog",
@@ -142,8 +136,6 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "intelligence_centre.rules": "centre",
     "intelligence_centre.reports": "centre",
     "intelligence_centre.assistant": "centre",
-    "assets.ai": "assets",
-    "assets.reminders.email": "assets",
     "website.capacities.sync": "website",
     "website.amplenote.assistant": "website",
 };

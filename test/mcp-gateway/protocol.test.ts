@@ -49,7 +49,7 @@ const LEGACY_DALYHUB_TOOLS = [
 ];
 
 describe("MCP protocol", () => {
-    it("initializes with the working instructions and lists exactly the 70 Daly Portal tools with their annotations", async () => {
+    it("initializes with the working instructions and lists exactly the 56 Daly Portal tools with their annotations", async () => {
         const s = await session(OWNER);
         expect(s.init.status).toBe(200);
         const init = s.init.body.result as {
@@ -58,8 +58,9 @@ describe("MCP protocol", () => {
             capabilities: Record<string, unknown>;
             instructions?: string;
         };
-        expect(init.serverInfo).toMatchObject({ name: "daly-portal", version: "3.1.0" });
+        expect(init.serverInfo).toMatchObject({ name: "daly-portal", version: "3.2.0" });
         expect(init.instructions).toMatch(/Daly Tasks and Daly Knowledge have been retired/);
+        expect(init.instructions).toMatch(/Home & Assets and Household Finance have been retired/);
         expect(init.instructions).not.toMatch(/tasks_|knowledge_|planner_|intelligence_capture/);
         expect(init.instructions).toMatch(/Never invent an id/);
         expect(init.protocolVersion).toBe(PROTOCOL_VERSION);
@@ -68,7 +69,7 @@ describe("MCP protocol", () => {
         const listed = await s.rpc("tools/list");
         const tools = (listed.body.result as { tools: { name: string; inputSchema: { type: string }; annotations?: { readOnlyHint?: boolean } }[] }).tools;
         expect(tools.map((t) => t.name).sort()).toEqual([...PORTAL_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(70);
+        expect(tools).toHaveLength(56);
         for (const t of tools) expect(t.inputSchema.type).toBe("object");
         expect(tools.find((t) => t.name === "calendar_list_calendars")?.annotations?.readOnlyHint).toBe(true);
         expect(tools.find((t) => t.name === "calendar_create_event")?.annotations?.readOnlyHint).toBe(false);
@@ -85,7 +86,9 @@ describe("MCP protocol", () => {
             const answer = await s.tool(retired, { title: "x" });
             expect(answer.isError, retired).toBe(true);
             expect(answer.data.error?.code, retired).toBe("retired");
-            expect(answer.data.error?.message).toMatch(/retired with Daly Knowledge and Daly Tasks/);
+            expect(answer.data.error?.message).toMatch(
+                /^assets_(?!link_knowledge|create_task)/.test(retired) ? /retired with Home & Assets/ : /retired with Daly Knowledge and Daly Tasks/,
+            );
         }
         expect(binding.calls).toEqual([]);
         // Without a valid assertion, a retired tool is refused like everything else: 401, no answer.

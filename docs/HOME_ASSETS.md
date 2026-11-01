@@ -1,5 +1,7 @@
 # Home & Assets (Milestone 10)
 
+> **Retired 1 Nov 2026 — replaced by Cloudflare OS Home.** `/portal/assets` and `/api/portal/assets` answer 410, the `assets_*` MCP tools are refused with `"retired"`, and the code is removed. Every table and every file under `private/assets/` is kept untouched until the owner approves a cleanup. See [DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md). The rest of this document describes the application as it was.
+
 `/portal/assets`: what the household owns, maintains, insures or will need to replace. Vehicles and trailers, the home and rentals, servicing and repairs, warranties, insurance, receipts and manuals, values, QR labels and reports, with links into Daly Calendar, Today, the Chief of Staff and MCP.
 
 > **Retired:** "Create task", automatic tasks and links to Knowledge notes were removed with Daly Tasks and Daly Knowledge. Their routes answer 410, `assets_create_task` and `assets_link_knowledge` are refused with `"retired"`, and `asset_task_links` and `asset_knowledge_links` are kept untouched until the owner approves the cleanup. See [DECOMMISSION_KNOWLEDGE_TASKS.md](DECOMMISSION_KNOWLEDGE_TASKS.md).

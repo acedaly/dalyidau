@@ -2,6 +2,8 @@
 
 Daly Knowledge (`/portal/knowledge`) and Daly Tasks (`/portal/tasks`) are retired, along with everything that existed only to serve them. This release turns off access and removes the code. **It does not delete any data.** The tables, the full-text index and the R2 files stay exactly as they were until the owner approves the separate cleanup described [below](#cleanup).
 
+> **Later:** Home & Assets and Household Finance were retired on 1 Nov 2026, the same way ([DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md)). The gateway counts below are as of 3.0.0; gateway 3.2.0 advertises 56 tools and retires 65. Where this document says Home & Assets is unchanged, that held until then.
+
 ## What changed for people
 
 | Before                                                                                               | Now                                                                                                                                                                                                                                                                   |

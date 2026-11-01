@@ -2,7 +2,7 @@
 
 Personal website and blog for Aidan Daly. The blog is written in [Amplenote](https://www.amplenote.com) and published automatically to a Cloudflare Worker ([docs/AMPLENOTE.md](docs/AMPLENOTE.md)); older articles from [Capacities](https://capacities.io) are archived in Cloudflare ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)). No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard built on the calendar, and six applications: the Wedding Planner, [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, family planning, NSW holidays and a leave planner), [Daly Intelligence](docs/INTELLIGENCE.md) (calendar briefings and the portal's AI settings and budget, off by default), the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default) [Home & Assets](docs/HOME_ASSETS.md) (what the household owns, maintains, insures or will replace) and [Household Finance](docs/HOUSEHOLD_FINANCE.md) (bank CSV imports, balances and where the money goes; owners only); and the public wedding website at `/wedding`. Daly Knowledge and Daly Tasks are retired ([docs/DECOMMISSION_KNOWLEDGE_TASKS.md](docs/DECOMMISSION_KNOWLEDGE_TASKS.md)). See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard built on the calendar, and four applications: the Wedding Planner, [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, family planning, NSW holidays and a leave planner), [Daly Intelligence](docs/INTELLIGENCE.md) (calendar briefings and the portal's AI settings and budget, off by default), the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default); and the public wedding website at `/wedding`. Daly Knowledge and Daly Tasks are retired ([docs/DECOMMISSION_KNOWLEDGE_TASKS.md](docs/DECOMMISSION_KNOWLEDGE_TASKS.md)), and so are Home & Assets and Household Finance, replaced by Home and Finances in Cloudflare OS ([docs/DECOMMISSION_ASSETS_FINANCE.md](docs/DECOMMISSION_ASSETS_FINANCE.md)). See [docs/PORTAL.md](docs/PORTAL.md).
 
 ```
 Amplenote note tagged website/blog ──(plugin, when published)──▶ Worker ──▶ D1 (articles) + R2 (images)
@@ -43,7 +43,7 @@ src/                 React app (Untitled UI components), shared by server render
   components/site/   Site components: header, footer, post cards, pagination, TOC, share links
   content/           Editable site settings and About copy
   pages/             Home, Blog, Article, About, Contact, 404
-  portal/            The private portal: the wedding management app, Calendar, Today, Intelligence, the Intelligence Centre and Home & Assets
+  portal/            The private portal: the wedding management app, Calendar, Today, Intelligence and the Intelligence Centre
   wedding/           The public wedding website and RSVP form
   shared/portal/     Roles, feature flags and data types shared by the worker and the browser
   shared/calendar/   Calendar's time handling, repeat rules, NSW holiday data, leave engine and optimiser
@@ -57,7 +57,7 @@ worker/              Cloudflare Worker
   seo.ts             Meta tags, JSON-LD, sitemap, RSS, robots.txt
   portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API
   calendar/          Calendar: membership, events and recurrence, ICS, subscriptions, feeds, leave, notifications, API
-  today/ intelligence/ centre/ assets/   Today, Daly Intelligence, the Intelligence Centre and Home & Assets
+  today/ intelligence/ centre/   Today, Daly Intelligence and the Intelligence Centre
   mcp/               PortalMcpEntrypoint: the MCP tools behind the gateway in mcp/
   wedding/           Public wedding pages and the RSVP engine
 migrations/          D1 schema
@@ -75,8 +75,8 @@ docs/                Setup, deployment and operations
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
 - [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model
 - [Daly Intelligence](docs/INTELLIGENCE.md): Workers AI, briefings, budgets and usage, costs, backups and activation
-- [Home & Assets](docs/HOME_ASSETS.md): the asset register, vehicles and trailers, places and rentals, maintenance, insurance, warranties, files, QR labels, reports, integrations, MCP, deployment and rollback
-- [Household Finance](docs/HOUSEHOLD_FINANCE.md): the repository assessment and Milestone 11 plan, accounts and balance confidence, CSV imports and duplicates, categorising, transfers, the data model, deployment and rollback
+- [Home & Assets](docs/HOME_ASSETS.md) (retired 1 Nov 2026, [decommissioning](docs/DECOMMISSION_ASSETS_FINANCE.md)): the asset register, vehicles and trailers, places and rentals, maintenance, insurance, warranties, files, QR labels, reports, integrations, MCP, deployment and rollback
+- [Household Finance](docs/HOUSEHOLD_FINANCE.md) (retired 1 Nov 2026): the repository assessment and Milestone 11 plan, accounts and balance confidence, CSV imports and duplicates, categorising, transfers, the data model, deployment and rollback
 - [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) and its [public sources](docs/INTELLIGENCE_SOURCES.md): ingestion, map, watch areas, alerts, correlation, briefings, wallboards, MCP, costs, activation and rollback
 - [Communications](docs/COMMUNICATIONS.md): SMTP2Go email, ClickSend SMS, webhooks, consent and the activation checklist
 - [Privacy and personal data](docs/PRIVACY.md): what's collected, retention, deleting and erasing

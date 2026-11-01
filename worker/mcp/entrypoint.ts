@@ -8,7 +8,7 @@
 // The gateway's word is not taken for who is calling. It hands over the caller's Cloudflare Access
 // token as it received it, and this side verifies that token again (signature, issuer, the MCP
 // application's audience, expiry, email) and then applies the portal's own rules: the person's
-// portal role and permissions, then calendar, asset or watch-area access on every record. A service binding
+// portal role and permissions, then calendar or watch-area access on every record. A service binding
 // can't be reached from the internet, but any Worker on the account could bind to it, so nothing
 // here trusts the caller beyond what the token proves.
 //
@@ -18,22 +18,19 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZodError } from "zod";
 import { AmplenoteUncertain, AmplenoteUnsupported } from "../amplenote/assistant";
-import { AssetConflict } from "../assets/assets";
-import { MaintenanceConflict } from "../assets/maintenance";
 import { EventConflict } from "../calendar/events";
 import type { Env } from "../env";
 import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
 import { AMPLENOTE_TOOLS } from "./amplenote";
-import { ASSETS_TOOLS } from "./assets";
 import { CALENDAR_TOOLS } from "./calendar";
 import { CENTRE_TOOLS } from "./centre";
 import { CENTRE_HISTORY_TOOLS } from "./centre-history";
 import { CHIEF_TOOLS } from "./chief";
 import { INTELLIGENCE_TOOLS } from "./intelligence";
 import { claimWrite, failWrite, holdWrite, settleWrite } from "./ledger";
-import { RETIRED_MCP_MESSAGE, RETIRED_MCP_TOOLS } from "./retired";
+import { RETIRED_MCP_TOOLS, retiredMcpMessage } from "./retired";
 import type { ToolContext, ToolDef } from "./shared";
 import { TODAY_TOOLS } from "./today";
 
@@ -67,7 +64,6 @@ export const PORTAL_MCP_TOOLS: ToolDef[] = [
     ...TODAY_TOOLS,
     ...CENTRE_TOOLS,
     ...CENTRE_HISTORY_TOOLS,
-    ...ASSETS_TOOLS,
     ...AMPLENOTE_TOOLS,
 ];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
@@ -83,7 +79,6 @@ const fail = (code: PortalMcpErrorCode, message: string, details?: Record<string
 export function toFailure(error: unknown): PortalMcpResponse {
     if (error instanceof EventConflict)
         return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
-    if (error instanceof AssetConflict || error instanceof MaintenanceConflict) return fail("conflict", error.message, { current: error.current });
     if (error instanceof AmplenoteUnsupported) return fail("validation", error.message, { unsupported: error.unsupported });
     // Amplenote may have carried the write out: say so, rather than the generic "nothing was assumed".
     if (error instanceof AmplenoteUncertain) return fail("unavailable", error.message, { outcome: "unknown" });
@@ -152,11 +147,10 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
 
     // 2. Which tool, and may this person use that application at all. Retired tools are refused
     //    first, whatever the person's role: nothing of theirs is read.
-    if (RETIRED_MCP_TOOLS.has(toolName)) return respond(fail("retired", RETIRED_MCP_MESSAGE));
+    if (RETIRED_MCP_TOOLS.has(toolName)) return respond(fail("retired", retiredMcpMessage(toolName)));
     const def = TOOLS.get(toolName);
     if (!def) return respond(fail("unknown_tool", "That tool isn't available from Daly Portal."));
-    const allowed = def.permission === "any_productivity" ? can(user, "calendar.use") || can(user, "assets.use") : can(user, def.permission);
-    if (!allowed) return respond(fail("forbidden", "You don't have access to that part of Daly Portal."));
+    if (!can(user, def.permission)) return respond(fail("forbidden", "You don't have access to that part of Daly Portal."));
 
     let size = 0;
     try {

@@ -1,4 +1,4 @@
-// The MCP gateway's portal entrypoint (worker/mcp) after Daly Knowledge and Daly Tasks were retired:
+// The MCP gateway's portal entrypoint (worker/mcp) after the retirement of Daly Knowledge and Daly Tasks, and of Home & Assets:
 // who may call it, the tools it serves, the retired tools it refuses whatever the caller's role, the
 // Chief of Staff context and the write ledger. Every identity and record is fictional.
 import { createExecutionContext } from "cloudflare:test";
@@ -8,8 +8,7 @@ import type { Env } from "../worker/env";
 import worker, { PortalMcpEntrypoint } from "../worker/index";
 import { PORTAL_MCP_TOOLS, type PortalMcpResponse, handleMcpCall } from "../worker/mcp/entrypoint";
 import { RETIRED_MCP_TOOLS } from "../worker/mcp/retired";
-import { addPortalUser, createAsset, plusDays } from "./assets-helpers";
-import { AUD, OWNER, SECOND_OWNER, accessToken, db, portalEnv, resetPortal } from "./portal-helpers";
+import { AUD, OWNER, SECOND_OWNER, accessToken, apiCall, db, portalEnv, resetPortal } from "./portal-helpers";
 
 const MCP_AUD = "aud-mcp-gateway-0123456789abcdef";
 const A = OWNER;
@@ -21,6 +20,8 @@ beforeEach(resetPortal);
 
 const mcpEnv = (overrides: Partial<Env> = {}) => portalEnv({ MCP_ACCESS_AUD: MCP_AUD, ...overrides });
 const today = () => localDate(new Date(), "Australia/Sydney");
+const plusDays = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+const addPortalUser = (email: string, role: "admin" | "editor" | "viewer") => apiCall("POST", "/api/portal/users", { email, role });
 
 /** Calls a tool as `email`, with a freshly signed token for the MCP Access application. */
 async function mcp<T = Record<string, unknown>>(tool: string, input: unknown = {}, email = A, options: { env?: Env; assertion?: string } = {}) {
@@ -82,10 +83,9 @@ describe("who may call the portal through the MCP gateway", () => {
         await refused("calendar_list_calendars", {}, ADMIN, "forbidden");
     });
 
-    it("needs the application's permission: a wedding editor can't use Calendar, Home & Assets or the Chief of Staff", async () => {
+    it("needs the application's permission: a wedding editor can't use Calendar or the Chief of Staff", async () => {
         await addPortalUser(WEDDING_EDITOR, "editor");
         await refused("calendar_list_calendars", {}, WEDDING_EDITOR, "forbidden");
-        await refused("assets_list", {}, WEDDING_EDITOR, "forbidden");
         await refused("chief_of_staff_daily_context", {}, WEDDING_EDITOR, "forbidden");
     });
 
@@ -112,7 +112,7 @@ describe("who may call the portal through the MCP gateway", () => {
         expect(response.ok).toBe(true);
     });
 
-    it("serves exactly these 70 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
+    it("serves exactly these 56 tools (the gateway side is compared directly in mcp-contract.test.ts)", () => {
         expect(PORTAL_MCP_TOOLS.map((t) => t.name).sort()).toEqual(
             [
                 "chief_of_staff_daily_context",
@@ -167,20 +167,6 @@ describe("who may call the portal through the MCP gateway", () => {
                 "centre_update_rule",
                 "centre_schedule_report",
                 "centre_save_report",
-                "assets_search",
-                "assets_list",
-                "assets_get",
-                "assets_maintenance_history",
-                "assets_upcoming_maintenance",
-                "assets_insurance_renewals",
-                "assets_warranty_expiries",
-                "assets_list_documents",
-                "assets_summary",
-                "assets_get_attention",
-                "assets_create",
-                "assets_update",
-                "assets_create_maintenance",
-                "assets_complete_maintenance",
                 "amplenote_list_notes",
                 "amplenote_create_note",
                 "amplenote_append",
@@ -189,7 +175,7 @@ describe("who may call the portal through the MCP gateway", () => {
         );
         const writes = PORTAL_MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
         expect(writes.every((n) => /_(create|update|schedule|save|complete|refresh|append)/.test(n))).toBe(true);
-        expect(writes).toHaveLength(17);
+        expect(writes).toHaveLength(13);
     });
 
     it("publishes no destructive, bulk, sharing or administrative tool", () => {
@@ -200,8 +186,8 @@ describe("who may call the portal through the MCP gateway", () => {
 });
 
 describe("retired tools", () => {
-    it("refuses every Knowledge, Tasks, project, planner and capture tool for every role, before reading anything", async () => {
-        expect(RETIRED_MCP_TOOLS.size).toBe(51);
+    it("refuses every Knowledge, Tasks, project, planner, capture and Home & Assets tool for every role, before reading anything", async () => {
+        expect(RETIRED_MCP_TOOLS.size).toBe(65);
         const served = new Set(PORTAL_MCP_TOOLS.map((t) => t.name));
         for (const name of RETIRED_MCP_TOOLS) expect(served.has(name), name).toBe(false);
         await addPortalUser(ADMIN, "admin");
@@ -213,34 +199,37 @@ describe("retired tools", () => {
                 if (!response.ok) {
                     expect(response.error.code).toBe("retired");
                     expect(response.error.message).toMatch(/retired/);
+                    // Each answer names the retirement it went with.
+                    expect(response.error.message).toMatch(
+                        /^assets_(?!link_knowledge|create_task)/.test(tool) ? /retired with Home & Assets/ : /retired with Daly Knowledge and Daly Tasks/,
+                    );
                 }
             }
         // Nothing was claimed in the ledger or written anywhere.
         expect(await ledger()).toHaveLength(0);
-        for (const table of ["task_items", "task_projects", "knowledge_objects", "task_time_blocks", "ai_captures"])
+        for (const table of ["task_items", "task_projects", "knowledge_objects", "task_time_blocks", "ai_captures", "assets", "asset_maintenance"])
             expect((await db().prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n, table).toBe(0);
     });
 });
 
 describe("Chief of Staff context", () => {
-    it("reports the person's own Calendar and Home & Assets facts, says what it never checked, and leaves others' out", async () => {
+    it("reports the person's own Calendar facts, says what it never checked, and leaves others' out", async () => {
         await ok("calendar_create_event", { title: "Electricity meter reading", startDate: plusDays(today(), 1), startTime: "10:00" });
-        await createAsset({ name: "Cub Camper Frontier", category: "trailers", vehicle: { registrationExpiry: plusDays(today(), 21) } });
         const context = await ok<{
             checked: Record<string, boolean>;
             notChecked: string[];
             calendar: { events: { count: number; items: { title: string }[] }; failingSubscriptions: unknown[] };
-            homeAssets: { dueSoon: { fact: string }[] };
         }>("chief_of_staff_daily_context");
-        expect(context.checked).toEqual({ calendar: true, homeAssets: true });
+        expect(context.checked).toEqual({ calendar: true });
+        expect(context).not.toHaveProperty("homeAssets");
         expect(context).not.toHaveProperty("tasks");
         expect(context).not.toHaveProperty("knowledge");
         expect(context.notChecked).toContain("email");
         expect(context.notChecked.join(" ")).toMatch(/Daly Tasks and Daly Knowledge \(retired/);
+        expect(context.notChecked.join(" ")).toMatch(/Home & Assets and Household Finance \(retired/);
         expect(context.calendar.events.items.map((e) => e.title)).toContain("Electricity meter reading");
-        expect(context.homeAssets.dueSoon[0].fact).toBe("Cub Camper Frontier registration is due in 21 days.");
         const theirs = await ok("chief_of_staff_daily_context", {}, B);
-        expect(JSON.stringify(theirs)).not.toMatch(/Electricity|Cub Camper/);
+        expect(JSON.stringify(theirs)).not.toMatch(/Electricity/);
         const weekly = await ok<{ checked: Record<string, boolean>; calendar: unknown }>("chief_of_staff_weekly_context");
         expect(weekly.checked.calendar).toBe(true);
         expect(weekly).not.toHaveProperty("tasks");

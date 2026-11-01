@@ -8,7 +8,7 @@ This document covers **[Today](#today)**, the daily dashboard at `/portal/today`
 
 # Today
 
-One place to see the day: `/portal/today` brings together Daly Calendar (events, shared and subscribed calendars, leave and holidays), portal notifications, Home & Assets and Intelligence Centre sections, and a Chief of Staff briefing, with an optional explanation from Daly Intelligence.
+One place to see the day: `/portal/today` brings together Daly Calendar (events, shared and subscribed calendars, leave and holidays), portal notifications, an Intelligence Centre section, and a Chief of Staff briefing, with an optional explanation from Daly Intelligence.
 
 There's no feature switch, secret or binding of its own.
 
@@ -38,7 +38,7 @@ src/portal/today/
   add-appointment.tsx      Add appointment (through Calendar's API)
   settings-dialog.tsx      Customise Today
   planning-hours-dialog.tsx  Planning hours and buffers
-  assets-section.tsx centre-section.tsx   Home & Assets and Intelligence Centre sections
+  centre-section.tsx       Intelligence Centre section
   today-api.ts             Browser client
 ```
 
@@ -46,7 +46,7 @@ Today is a portal-level page (not inside one application), so the sidebar shows 
 
 **Intelligence Centre:** unread Centre alerts for the person's own watch areas appear in Today's notifications (source `intelligence-centre`), and a short "Conditions in your watch areas" card sits above the sections. It shows only matching warnings and incidents from the person's chosen level, fire danger for their districts, closures and outages, and optional calendar matches. It has at most six lines and doesn't appear when nothing is relevant. A failure there never stops Today loading. Configured in Intelligence Centre → Settings, not in Today's own preferences.
 
-**Home & Assets:** a section (on by default, each person's own, Home & Assets → Settings) lists what's overdue or due in the next 30, 60 or 90 days (registration, renewals, servicing, warranties, inspections, leases, urgent repairs), each a sentence from a record. See [HOME_ASSETS.md](HOME_ASSETS.md#integrations).
+**Home & Assets:** Today's Home & Assets section was removed when Home & Assets was retired on 1 Nov 2026 ([DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md)).
 
 ## Data
 

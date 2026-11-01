@@ -1,12 +1,11 @@
 // Custom dates (a school's own development days, regional holidays, non-working days) and the
-// overlays drawn on every view: public holidays, school terms, leave and Home & Assets reminders.
+// overlays drawn on every view: public holidays, school terms and leave.
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { holidayOverlays, schoolOverlays } from "../../src/shared/calendar/holidays";
 import { daysBetween } from "../../src/shared/calendar/time";
 import { CUSTOM_DATE_KINDS, type CalendarPreferences, type CustomDate, type LeaveData, type Overlays } from "../../src/shared/calendar/types";
 import type { PortalUser } from "../../src/shared/portal/types";
-import { assetOverlays } from "../assets/dashboard";
 import { newId, nowIso } from "../portal/db";
 import { ValidationError } from "../portal/entities";
 import { HttpError } from "../portal/http";
@@ -109,7 +108,7 @@ export function leaveOverlays(leave: LeaveData, from: string, to: string, includ
 }
 
 /** Every overlay for a window, according to the person's overlay choices. */
-export async function overlaysFor(db: D1Database, user: PortalUser, prefs: CalendarPreferences, leave: LeaveData, from: string, to: string): Promise<Overlays> {
+export function overlaysFor(prefs: CalendarPreferences, leave: LeaveData, from: string, to: string): Overlays {
     const o = prefs.overlays;
     return {
         holidays: o.holidays ? holidayOverlays(from, to, leave.profile.settings, leave.customDates) : [],
@@ -118,7 +117,5 @@ export async function overlaysFor(db: D1Database, user: PortalUser, prefs: Calen
         nonWorking: leave.customDates
             .filter((d) => d.kind === "non_working" && d.mine && d.end >= from && d.start <= to)
             .map((d) => ({ id: d.id, kind: d.kind, name: d.name, start: d.start, end: d.end })),
-        // Reminders from Home & Assets, through its own access rules. A failure there never breaks the calendar.
-        assets: o.assets ? await assetOverlays(db, user, from, to).catch(() => []) : [],
     };
 }

@@ -2,10 +2,10 @@
 // its column headers, time markers, row labels and event pills are used as they are; the views
 // around them are rebuilt so they are controlled by the page (dates come from the Worker, in the
 // person's own time zone rather than the browser's), every event is a real button, all-day events
-// and overlays (public holidays, school holidays, leave, asset due dates) have their own lane, and
+// and overlays (public holidays, school holidays, leave) have their own lane, and
 // overlapping events sit side by side. Phones get a stacked list instead of a seven-column grid.
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Flag01, GraduationHat01, Package, Plane, Plus } from "@untitledui/icons";
+import { Flag01, GraduationHat01, Plane, Plus } from "@untitledui/icons";
 import { CalendarDwViewEvent } from "@/components/application/calendar/base-components/calendar-dw-view-event";
 import { CalendarMonthViewEvent, eventViewColors } from "@/components/application/calendar/base-components/calendar-month-view-event";
 import { CalendarTimeMarker } from "@/components/application/calendar/base-components/calendar-time-marker";
@@ -44,7 +44,6 @@ function dayExtras(overlays: Overlays, date: string) {
         school: overlays.school.filter((s) => s.kind !== "term" && s.start <= date && s.end >= date),
         leave: overlays.leave.filter((l) => l.start <= date && l.end >= date),
         nonWorking: overlays.nonWorking.filter((n) => n.start <= date && n.end >= date),
-        assets: (overlays.assets ?? []).filter((a) => a.date === date),
     };
 }
 
@@ -57,7 +56,7 @@ const Chip = ({
 }: {
     icon?: typeof Flag01;
     children: ReactNode;
-    tone: "holiday" | "school" | "leave" | "asset" | "muted";
+    tone: "holiday" | "school" | "leave" | "muted";
     href?: string;
     title?: string;
 }) => {
@@ -65,7 +64,6 @@ const Chip = ({
         holiday: "bg-utility-orange-50 text-utility-orange-700 ring-utility-orange-200",
         school: "bg-utility-green-50 text-utility-green-700 ring-utility-green-200",
         leave: "bg-utility-blue-50 text-utility-blue-700 ring-utility-blue-200",
-        asset: "bg-primary text-tertiary ring-primary",
         muted: "bg-secondary_subtle text-tertiary ring-secondary",
     };
     const body = (
@@ -86,7 +84,7 @@ const Chip = ({
     );
 };
 
-/** Public holidays, school holidays, leave, non-working days and Home & Assets reminders for a date. */
+/** Public holidays, school holidays, leave and non-working days for a date. */
 export const DayChips = ({ overlays, date, compact = false }: { overlays: Overlays; date: string; compact?: boolean }) => {
     const x = dayExtras(overlays, date);
     const items: ReactNode[] = [
@@ -120,11 +118,6 @@ export const DayChips = ({ overlays, date, compact = false }: { overlays: Overla
         ...x.nonWorking.map((n) => (
             <Chip key={`n${n.id}`} tone="muted">
                 {n.name}
-            </Chip>
-        )),
-        ...x.assets.map((a) => (
-            <Chip key={`a${a.id}`} icon={Package} tone="asset" href={a.url} title="Reminder from Home & Assets (not an appointment)">
-                {a.title}
             </Chip>
         )),
     ];
@@ -494,13 +487,7 @@ export const AgendaList = ({ from, to, today, occurrences, overlays, onOpen, onC
     const days = eachDate(from, to, 400).filter((d) => {
         if (!skipEmpty || d === today) return true;
         const x = dayExtras(overlays, d);
-        return (
-            occurrences.some((o) => o.startDate <= d && o.endDate >= d) ||
-            x.holidays.length ||
-            x.leave.length ||
-            x.assets.length ||
-            x.school.some((s) => s.start === d)
-        );
+        return occurrences.some((o) => o.startDate <= d && o.endDate >= d) || x.holidays.length || x.leave.length || x.school.some((s) => s.start === d);
     });
     if (!days.length) return <p className="text-sm text-tertiary">Nothing scheduled in this period.</p>;
     return (
