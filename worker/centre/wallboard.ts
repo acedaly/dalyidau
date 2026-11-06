@@ -20,7 +20,7 @@
 // cut off. The payload a screen gets is built in display.ts.
 import type { D1Database } from "@cloudflare/workers-types";
 import type { CentreChange, CentreRecord, DisplayToken, MapLayer, Wallboard, WallboardInput, WallboardPayload } from "../../src/shared/centre/types";
-import { wallboardInputSchema } from "../../src/shared/centre/types";
+import { DISPLAY_SCOPE_RE, wallboardInputSchema } from "../../src/shared/centre/types";
 import type { ViewInput, WallboardView, Widget } from "../../src/shared/centre/wallboard";
 import { legacyViews, viewsInputSchema } from "../../src/shared/centre/wallboard";
 import type { PortalUser } from "../../src/shared/portal/types";
@@ -69,6 +69,7 @@ interface TokenRow {
     last_used_at: string | null;
     renewable: number;
     renewed_at: string | null;
+    scope: string;
 }
 
 interface ViewRow {
@@ -81,7 +82,7 @@ interface ViewRow {
     widgets: string;
 }
 
-const TOKEN_COLUMNS = "id, wallboard_id, label, created_at, expires_at, revoked_at, last_used_at, renewable, renewed_at";
+const TOKEN_COLUMNS = "id, wallboard_id, label, created_at, expires_at, revoked_at, last_used_at, renewable, renewed_at, scope";
 
 const toToken = (t: TokenRow): DisplayToken => ({
     id: t.id,
@@ -92,6 +93,7 @@ const toToken = (t: TokenRow): DisplayToken => ({
     lastUsedAt: t.last_used_at,
     renewable: t.renewable === 1,
     renewedAt: t.renewed_at,
+    scope: t.scope,
 });
 
 const toView = (v: ViewRow): WallboardView => ({
@@ -309,7 +311,21 @@ export async function deleteWallboard(db: D1Database, user: PortalUser, id: stri
 /** A new display credential. The token is returned once and never again. */
 export async function createDisplayToken(db: D1Database, user: PortalUser, boardId: string, body: unknown) {
     const board = await requireWallboard(db, user.email, boardId);
-    const { label, expiresInDays, renewable } = (body ?? {}) as { label?: unknown; expiresInDays?: unknown; renewable?: unknown };
+    const {
+        label,
+        expiresInDays,
+        renewable,
+        scope = "wallboard",
+    } = (body ?? {}) as {
+        label?: unknown;
+        expiresInDays?: unknown;
+        renewable?: unknown;
+        scope?: unknown;
+    };
+    if (typeof scope !== "string" || !DISPLAY_SCOPE_RE.test(scope))
+        throw new HttpError(422, "validation", 'Scope is "wallboard" or "display:<name>" (lower-case letters, digits and hyphens)');
+    // A display-feed credential is read by a server on the owner's network, which doesn't renew it.
+    if (scope !== "wallboard" && renewable) throw new HttpError(422, "validation", "Only a wallboard screen can renew its own address");
     if (typeof label !== "string" || !label.trim() || label.trim().length > 60)
         throw new HttpError(422, "validation", "Name the display (up to 60 characters), e.g. Kitchen TV");
     if (
@@ -329,7 +345,7 @@ export async function createDisplayToken(db: D1Database, user: PortalUser, board
     await db.batch([
         db
             .prepare(
-                "INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, expires_at, renewable, lifetime_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ic_display_tokens (id, wallboard_id, token_hash, label, created_by, created_at, expires_at, renewable, lifetime_days, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(
                 id,
@@ -341,16 +357,18 @@ export async function createDisplayToken(db: D1Database, user: PortalUser, board
                 expires,
                 renewable ? 1 : 0,
                 typeof expiresInDays === "number" ? expiresInDays : null,
+                scope,
             ),
         auditStatement(db, {
             actor: user.email,
             action: "centre.display.create",
             entityType: "centre_display",
             entityId: id,
-            summary: "Created a wallboard display credential",
+            summary: scope === "wallboard" ? "Created a wallboard display credential" : "Created a display feed credential",
         }),
     ]);
-    return { id, token, path: `/display#t=${token}`, expiresAt: expires };
+    // A feed credential has no page to open; the display sends it as a bearer token to /api/display/feed.
+    return { id, token, path: scope === "wallboard" ? `/display#t=${token}` : "/api/display/feed", expiresAt: expires, scope };
 }
 
 export async function revokeDisplayToken(db: D1Database, user: PortalUser, boardId: string, tokenId: string) {
@@ -401,6 +419,7 @@ interface CredentialRow {
     lifetime_days: number | null;
     email: string;
     current: number;
+    scope: string;
 }
 
 /** A display credential by its hash, or by the hash it just replaced (only during the short overlap). */
@@ -412,13 +431,15 @@ async function credential(env: Env, request: Request): Promise<CredentialRow> {
     const hash = await hashDisplayToken(token);
     const now = new Date().toISOString();
     const row = await env.DB.prepare(
-        `SELECT t.id, t.wallboard_id, t.expires_at, t.revoked_at, t.renewable, t.lifetime_days, b.email, CASE WHEN t.token_hash = ?1 THEN 1 ELSE 0 END AS current
+        `SELECT t.id, t.wallboard_id, t.expires_at, t.revoked_at, t.renewable, t.lifetime_days, t.scope, b.email, CASE WHEN t.token_hash = ?1 THEN 1 ELSE 0 END AS current
          FROM ic_display_tokens t JOIN ic_wallboards b ON b.id = t.wallboard_id
          WHERE t.token_hash = ?1 OR (t.previous_hash = ?1 AND t.previous_until > ?2)`,
     )
         .bind(hash, now)
         .first<CredentialRow>();
     if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at) < Date.now())) throw new DisplayRefused(404);
+    // A display-feed credential reads the feed and nothing else, wallboards included.
+    if (row.scope !== "wallboard") throw new DisplayRefused(404);
     return row;
 }
 

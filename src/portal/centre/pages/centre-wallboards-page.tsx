@@ -124,6 +124,15 @@ const NewBoard = ({
     );
 };
 
+/** A display feed's scope name from its label: "Daly Display" → "daly-display". */
+const feedName = (label: string) =>
+    label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32)
+        .replace(/-+$/, "") || "display";
+
 export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboards"> }) => {
     const toast = useToast();
     const [boards, setBoards] = useState<Wallboard[]>(data.wallboards);
@@ -133,7 +142,8 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
     const [label, setLabel] = useState("");
     const [days, setDays] = useState("");
     const [renewable, setRenewable] = useState(false);
-    const [issued, setIssued] = useState<{ url: string } | null>(null);
+    const [kind, setKind] = useState<"wallboard" | "feed">("wallboard");
+    const [issued, setIssued] = useState<{ url: string; feed: boolean } | null>(null);
     const reload = async () => setBoards((await wallboardApi.list()).wallboards);
     const areaOf = (b: Wallboard) => (b.watchId ? `Watch area: ${data.watches.find((w) => w.id === b.watchId)?.name ?? "removed"}` : "All of NSW");
 
@@ -141,8 +151,15 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
         if (!issuing) return;
         try {
             const expires = days ? Number(days) : null;
-            const r = await wallboardApi.createDisplay(issuing.id, { label, expiresInDays: expires, renewable: !!expires && renewable });
-            setIssued({ url: `${window.location.origin}${r.path}` });
+            const feed = kind === "feed";
+            const r = await wallboardApi.createDisplay(issuing.id, {
+                label,
+                expiresInDays: expires,
+                renewable: !feed && !!expires && renewable,
+                scope: feed ? `display:${feedName(label)}` : "wallboard",
+            });
+            // A feed credential is the token itself, sent by the display as a bearer token.
+            setIssued(feed ? { url: r.token, feed } : { url: `${window.location.origin}${r.path}`, feed });
             await reload();
         } catch (e) {
             toast.error("Couldn't create the display address", errorMessage(e));
@@ -208,7 +225,7 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                                     size="sm"
                                     color="secondary"
                                     iconLeading={Plus}
-                                    onClick={() => (setIssuing(b), setLabel(""), setDays(""), setRenewable(false), setIssued(null))}
+                                    onClick={() => (setIssuing(b), setLabel(""), setDays(""), setRenewable(false), setKind("wallboard"), setIssued(null))}
                                 >
                                     Add a screen
                                 </Button>
@@ -249,6 +266,11 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                                         <li key={t.id} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                                             <span className="text-sm text-secondary">
                                                 {t.label}{" "}
+                                                {t.scope !== "wallboard" && (
+                                                    <Badge size="sm" type="color" color="purple">
+                                                        Display feed
+                                                    </Badge>
+                                                )}{" "}
                                                 {t.revokedAt ? (
                                                     <Badge size="sm" type="color" color="gray">
                                                         Revoked
@@ -358,11 +380,13 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                 <PortalDialog
                     isOpen
                     onOpenChange={(o) => !o && setIssuing(null)}
-                    title={issued ? "The screen's address" : `Add a screen to ${issuing.name}`}
+                    title={issued ? (issued.feed ? "The display's credential" : "The screen's address") : `Add a screen to ${issuing.name}`}
                     description={
                         issued
-                            ? "Open this on the screen. It's shown once: copy it now. Anyone with it can see this wallboard (only this wallboard) until you revoke it."
-                            : "The screen gets its own address that reads this wallboard and nothing else in the portal."
+                            ? issued.feed
+                                ? "Paste this into the display as its secret (sent as a bearer token to /api/display/feed). It's shown once: copy it now. It reads only the display feed until you revoke it."
+                                : "Open this on the screen. It's shown once: copy it now. Anyone with it can see this wallboard (only this wallboard) until you revoke it."
+                            : "The screen gets its own credential that reads this wallboard (or the display feed) and nothing else in the portal."
                     }
                     icon={Monitor01}
                     onSubmit={(e) => {
@@ -400,7 +424,7 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                                         .catch(() => toast.error("Couldn't copy", "Select the address and copy it."))
                                 }
                             >
-                                Copy address
+                                {issued.feed ? "Copy credential" : "Copy address"}
                             </Button>
                             <p className="text-xs text-tertiary">
                                 Kiosk setup for Safari, Chrome and TV browsers: see the Intelligence Centre documentation (Kiosk setup).
@@ -408,6 +432,20 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                         </div>
                     ) : (
                         <div className="flex flex-col gap-4">
+                            <NativeSelect
+                                label="Kind"
+                                value={kind}
+                                onChange={(e) => setKind(e.target.value === "feed" ? "feed" : "wallboard")}
+                                hint={
+                                    kind === "feed"
+                                        ? "For a wall display on your network (e.g. Daly Display): NSW holidays and school dates, plus this wallboard's warnings and fire danger. Never the watch area's name or location."
+                                        : "A screen that opens this wallboard at /display."
+                                }
+                                options={[
+                                    { label: "Wallboard screen", value: "wallboard" },
+                                    { label: "Display feed", value: "feed" },
+                                ]}
+                            />
                             <Input label="Screen name" value={label} onChange={setLabel} isRequired maxLength={60} placeholder="e.g. Kitchen TV" />
                             <Input
                                 label="Expires after (days, optional)"
@@ -416,7 +454,7 @@ export const CentreWallboardsPage = ({ data }: { data: PageData<"centre-wallboar
                                 onChange={setDays}
                                 hint="Leave empty to keep it until you revoke it"
                             />
-                            {days && Number(days) > 0 && (
+                            {kind === "wallboard" && days && Number(days) > 0 && (
                                 <Toggle
                                     label="Let this screen renew its own address before it expires"
                                     hint="In its last 14 days the screen swaps the address for a new one with the same lifetime. You can still revoke it at any time."

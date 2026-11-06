@@ -132,6 +132,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "intelligence_centre.ingestion": "centre",
     "intelligence_centre.alerts.email": "centre",
     "intelligence_centre.wallboard": "centre",
+    "intelligence_centre.display_feed": "centre",
     "intelligence_centre.history": "centre",
     "intelligence_centre.rules": "centre",
     "intelligence_centre.reports": "centre",

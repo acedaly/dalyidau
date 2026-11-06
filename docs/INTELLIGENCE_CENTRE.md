@@ -60,6 +60,7 @@ All off by default, in Portal settings → Features → **Intelligence Centre** 
 | `intelligence_centre.ingestion`    | The cron collects the sources switched on in **Sources**. While off, nothing is fetched on a schedule; records already collected stay, with their age |
 | `intelligence_centre.alerts.email` | Emails watch-area alerts and daily summaries to people who opted in. Also needs `EMAIL_DELIVERY`. While off, alerts are in the portal only            |
 | `intelligence_centre.wallboard`    | Serves `/display` and accepts display credentials. While off, `/display` and its API answer 404 and every credential is refused; nothing is deleted   |
+| `intelligence_centre.display_feed` | Serves `/api/display/feed` to display-feed credentials (see [Display feed](#display-feed)). While off, the feed answers 404; nothing is deleted       |
 
 **Sources** are switched on one at a time on the Sources page (owners and admins, audited), not with feature switches. Every source starts off. Restricted and unsupported sources can't be switched on. A manual **Refresh now** works whether or not the collection switch is on, and is limited to three per source per ten minutes.
 
@@ -200,6 +201,20 @@ A full-screen, read-only view for a monitor, TV or kiosk at `https://daly.id.au/
 - **Sizes:** dark and high contrast; type scales with the screen (`clamp(16px, 1.05vw, 44px)`), so it reads at 1080p and 4K. Both were checked in Chromium. It uses no browser features beyond what Safari 15+, Chrome and kiosk browsers support; the wake lock is optional.
 - **Without AI:** everything works; an interpretation appears only if the owner prepared one and turned it on for the board.
 
+## Display feed
+
+A small JSON feed for a wall display on the owner's own network that isn't a wallboard (Daly Display, a Home Screens plugin). It reuses the display credential: 256 random bits, shown once, only its SHA-256 stored, optional expiry, revoked instantly from the wallboard's **Screens** list.
+
+- **Credentials have a scope** (`ic_display_tokens.scope`, migration `0032_display_feed.sql`): `wallboard` (every credential issued before the feed, and the default) or `display:<name>` (lower-case letters, digits and hyphens, up to 32). Mint one in **Wallboards → Add a screen → Kind: Display feed**; the dialog shows the credential itself, once. A feed credential reads only the feed; a wallboard credential reads only its wallboard (`/api/display/wallboard`, `/renew`, tiles answer 404 to a feed credential). Feed credentials don't renew themselves.
+- **Request:** `GET /api/display/feed` with `Authorization: Bearer <credential>`, outside Access. Optional `?school=eastern|western|none` (NSW school division, default `eastern`).
+- **Refusals are distinct**, because the client is a server: 404 switch off; 401 missing, unknown, revoked or expired credential, or an owner who can no longer open the Centre (with `WWW-Authenticate: Bearer`); 403 a credential that isn't a display-feed credential; 429 over 10 requests a minute per credential.
+- **Payload** (`DisplayFeed` in `src/shared/centre/types.ts`), `Cache-Control: private, max-age=60`:
+    - `holidays`: NSW public holidays in the next 90 days (bank holiday excluded), school terms, holidays and development days overlapping them, and `schoolHolidayToday`. From `src/shared/calendar/nsw.ts`; nothing personal from Calendar.
+    - `warnings`: the provider's warnings (and incidents at Watch and Act or Emergency Warning) matching the wallboard's watch area, most severe first: id, title, category, level, provider, updatedAt.
+    - `fireDanger`: the provider's ratings for the fire districts matching the watch area: today, tomorrow and total fire bans.
+    - A board without a watch area gets no warnings or ratings, never all of NSW.
+- **Never in it:** the watch area's name, location or outline, people, calendar events, interpretations.
+
 ## MCP
 
 Twelve **read-only** tools, served by `worker/mcp/centre.ts` and advertised by the gateway (`mcp/src/portal-tools.ts`). 9.1 adds sixteen more ([INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#mcp)), so the Centre has 28 of gateway 3.2.0's 56 tools ([MCP.md](MCP.md)). (When Milestone 9 shipped, as gateway 2.6.0, the gateway had 85 tools; many of those were retired with Daly Tasks and Daly Knowledge.) They need `centre.use`, have strict schemas and no identity fields, use the gateway's existing rate limits, and write nothing (`mcp_writes` doesn't change). Every result includes the providers' attribution and the disclaimer.
@@ -237,7 +252,7 @@ All under `/api/portal/centre`, with Access and `centre.use`. Writes need the po
 | `GET/PUT /preferences`, `GET /settings`, `PUT /settings` †                                                                      | The caller's preferences; account settings                                                                                                                                                     |
 | `GET/POST /wallboards`, `PUT/DELETE /wallboards/:id`, `POST /wallboards/:id/displays`, `DELETE /wallboards/:id/displays/:token` | The caller's wallboards and display credentials                                                                                                                                                |
 
-Outside Access: `GET /display` (the display shell) and `GET /api/display/wallboard` (Bearer display credential). Both answer 404 unless the wallboard switch is on.
+Outside Access: `GET /display` (the display shell) and `GET /api/display/wallboard` (Bearer display credential). Both answer 404 unless the wallboard switch is on. `GET /api/display/feed` (Bearer display-feed credential) answers 404 unless the display feed switch is on.
 
 ## Data retention
 

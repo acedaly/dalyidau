@@ -13,8 +13,8 @@ export const wallboardApi = {
     duplicate: (id: string, name?: string) => api<{ wallboard: Wallboard }>("POST", `${C}/${id}/duplicate`, name ? { name } : {}),
     remove: (id: string) => api<{ ok: true }>("DELETE", `${C}/${id}`),
     preview: (id: string) => api<{ wallboard: WallboardPayloadV2 }>("GET", `${C}/${id}/preview`),
-    createDisplay: (id: string, body: { label: string; expiresInDays?: number | null; renewable?: boolean }) =>
-        api<{ id: string; token: string; path: string; expiresAt: string | null }>("POST", `${C}/${id}/displays`, body),
+    createDisplay: (id: string, body: { label: string; expiresInDays?: number | null; renewable?: boolean; scope?: string }) =>
+        api<{ id: string; token: string; path: string; expiresAt: string | null; scope: string }>("POST", `${C}/${id}/displays`, body),
     revokeDisplay: (id: string, tokenId: string) => api<{ ok: true }>("DELETE", `${C}/${id}/displays/${tokenId}`),
 };
 
