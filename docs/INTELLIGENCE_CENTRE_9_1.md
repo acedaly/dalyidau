@@ -581,7 +581,7 @@ Everything is under `/api/portal/centre`, behind Access and `centre.use`, with t
 | `GET/POST /events/links`, `DELETE /events/links/:id`                                                                                                    | Journeys                                                                                                                                 |
 | `GET /basemap`, `GET /basemap/:z/:x/:y.mvt`                                                                                                             | Basemap info and tiles                                                                                                                   |
 
-Outside Access, with a display credential: `GET /api/display/wallboard?v=2` (304 with `If-None-Match`), `POST /api/display/renew` and `GET /api/display/tiles/:z/:x/:y.mvt`.
+Outside Access, with a display credential: `GET /api/display/wallboard?v=2` (304 with `If-None-Match`), `POST /api/display/renew` and `GET /api/display/tiles/:z/:x/:y.mvt`; with a display-feed credential, `GET /api/display/feed` ([Display feed](INTELLIGENCE_CENTRE.md#display-feed)).
 
 ## Security and privacy
 

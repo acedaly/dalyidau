@@ -86,6 +86,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Intelligence Centre",
     },
+    "intelligence_centre.display_feed": {
+        label: "Display feed",
+        description:
+            "Serve /api/display/feed to wall displays holding a display-feed credential (Intelligence Centre → Wallboards → Add a screen → Display feed): NSW public holidays and school dates, plus official warnings and fire danger ratings for that wallboard's watch area. Never the watch area's name or location. While off, the feed answers 404; nothing is deleted.",
+        default: false,
+        group: "Intelligence Centre",
+    },
     "intelligence_centre.history": {
         label: "Intelligence Centre history recording",
         description:

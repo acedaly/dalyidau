@@ -568,6 +568,36 @@ export interface DisplayToken {
     /** The screen may swap this credential for a new one near its expiry. */
     renewable: boolean;
     renewedAt: string | null;
+    /** What it reads: "wallboard" (its wallboard at /display) or "display:<name>" (the display feed only). */
+    scope: string;
+}
+
+/** A display credential's scope: a wallboard screen, or a named display reading the display feed. */
+export const DISPLAY_SCOPE_RE = /^(wallboard|display:[a-z0-9][a-z0-9-]{0,31})$/;
+export const isFeedScope = (scope: string) => scope.startsWith("display:") && DISPLAY_SCOPE_RE.test(scope);
+
+/**
+ * What a display-feed credential receives (/api/display/feed): household-level facts for a
+ * third-party wall display. Public holidays and school dates (NSW), the provider's own warnings and
+ * fire danger ratings for the wallboard's watch area. Never the watch area's name or location, no
+ * people, no calendar events.
+ */
+export interface DisplayFeed {
+    generatedAt: string;
+    timeZone: string;
+    today: string;
+    holidays: {
+        /** NSW public holidays in the next 90 days (bank holiday excluded). */
+        public: { date: string; name: string; provisional: boolean }[];
+        /** NSW school terms and holidays overlapping the next 90 days, for the requested division. */
+        school: { name: string; kind: "term" | "holidays" | "development_day"; start: string; end: string; provisional: boolean }[];
+        schoolHolidayToday: boolean;
+        division: "eastern" | "western" | "none";
+    };
+    /** Active official warnings matching the wallboard's watch area, most severe first. Empty without a watch area. */
+    warnings: { id: string; title: string; category: string; level: string | null; provider: string; updatedAt: string | null }[];
+    /** The provider's fire danger ratings for districts matching the watch area. */
+    fireDanger: { district: string; today: string; tomorrow: string; banToday: boolean; banTomorrow: boolean; updatedAt: string | null }[];
 }
 
 /** What a display receives: only this board's view, never a coordinate of the watch area itself. */

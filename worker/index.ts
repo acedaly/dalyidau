@@ -17,6 +17,7 @@ import { processCalendarNotifications } from "./calendar/notify";
 import { processDueSubscriptions } from "./calendar/subscriptions";
 import { serveTile, tilePath } from "./centre/basemap";
 import { displayStateKey, wallboardPayloadV2 } from "./centre/display";
+import { FeedRefused, authenticateFeed, displayFeed } from "./centre/display-feed";
 import { runCentreCron } from "./centre/ingest";
 import { DisplayRefused, authenticateDisplay, authenticateDisplayTiles, renewDisplayToken, wallboardPayload } from "./centre/wallboard";
 import { handleCommsWebhook } from "./comms/webhooks";
@@ -144,6 +145,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     // Wallboard displays: a display credential, not Cloudflare Access (worker/centre/wallboard.ts).
     if (path === "/api/display/wallboard") return displayApi(request, env);
     if (path === "/api/display/renew") return displayRenew(request, env);
+    if (path === "/api/display/feed") return displayFeedApi(request, env);
     if (path.startsWith("/api/display/tiles/")) return displayTiles(request, env, path);
     if (path === "/display") return displayPage(request, env, path);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
@@ -513,6 +515,32 @@ async function displayRenew(request: Request, env: Env): Promise<Response> {
     } catch (error) {
         if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
         return errorResponse(error, "/api/display/renew");
+    }
+}
+
+/**
+ * The display feed for a wall display on the owner's network (docs/INTELLIGENCE_CENTRE.md#display-feed).
+ * Its client is a server-side proxy, so refusals are distinct (401 credential, 403 scope) rather
+ * than the wallboard's uniform 404. Each display may cache it for a minute.
+ */
+async function displayFeedApi(request: Request, env: Env): Promise<Response> {
+    if (request.method !== "GET") return apiJson({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+    try {
+        checkCrossSiteDisplay(request);
+        const { board, owner } = await authenticateFeed(env, request);
+        const school = new URL(request.url).searchParams.get("school");
+        const division = school === "western" || school === "none" ? school : "eastern";
+        return apiJson({ feed: await displayFeed(env, board, owner, { division }) }, 200, {
+            "Cache-Control": "private, max-age=60",
+            "Referrer-Policy": "no-referrer",
+        });
+    } catch (error) {
+        if (error instanceof FeedRefused) {
+            const code = { 401: "unauthorized", 403: "forbidden", 404: "not_found", 429: "rate_limited" }[error.status];
+            return apiJson({ error: code }, error.status, error.status === 401 ? { "WWW-Authenticate": 'Bearer realm="display-feed"' } : {});
+        }
+        if (error instanceof DisplayRefused) return apiJson({ error: "not_found" }, 404);
+        return errorResponse(error, "/api/display/feed");
     }
 }
 
