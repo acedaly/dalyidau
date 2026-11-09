@@ -16,12 +16,6 @@ export const PERMISSIONS = [
     "wedding.budget.edit",
     "wedding.website.edit",
     "wedding.export",
-    /** Opening Daly Calendar and the Leave Planner. What each person can see inside is decided by calendar membership; leave is always their own. */
-    "calendar.use",
-    /** Opening Daly Intelligence. Every briefing and preference is the person's own. */
-    "intelligence.use",
-    /** Opening the Intelligence Centre (public hazard information). Watch areas, alerts and wallboards are each person's own. */
-    "centre.use",
     "portal.settings.manage",
     "portal.users.manage",
     "portal.audit.view",

@@ -1,10 +1,5 @@
 // Data shapes shared by the worker and the portal/wedding browser bundles.
-import type { CalendarRoute } from "../calendar/types";
-import type { CentreRoute } from "../centre/types";
-import type { IntelligenceRoute } from "../intelligence/types";
-import type { TodayRoute } from "../today/types";
-import type { AmplenoteStatus } from "../website";
-import type { ApplicationId } from "./applications";
+import type { CapacitiesStatus } from "../website";
 import type { CalendarLinks } from "./calendar";
 import type { Flags } from "./flags";
 import type { ImportHistoryEntry } from "./guest-import";
@@ -818,14 +813,9 @@ export interface PortalIntegrations {
     email: string | null;
     sms: string | null;
     webhooks: boolean;
-    /** The MCP gateway's Access audience is set, so AI assistants can connect. */
-    mcp: boolean;
-    /** Subscribed calendar addresses are encrypted at rest. */
-    calendarEncryption: boolean;
 }
 
 export type PortalRoute =
-    | { route: "portal-home"; applications: ApplicationId[] }
     | { route: "dashboard"; stats: DashboardStats; widgets: DashboardWidget[] }
     | {
           route: "guests";
@@ -913,14 +903,10 @@ export type PortalRoute =
           privacy: { settings: PrivacySettings; deleted: DeletedRecord[]; retention: RetentionPreview | null } | null;
           /** What's configured on the Worker, as names and yes/no only. Owners and admins only. */
           integrations: PortalIntegrations | null;
-          /** Amplenote blog publishing. Owners and admins only. */
-          website: AmplenoteStatus | null;
+          /** The blog's Capacities articles and their archive. Owners and admins only. */
+          website: CapacitiesStatus | null;
       }
     | { route: "audit"; entries: AuditEntry[]; page: number; totalPages: number; filters: { q: string; entity: string | null } }
-    | CalendarRoute
-    | IntelligenceRoute
-    | CentreRoute
-    | TodayRoute
     | { route: "forbidden"; message: string }
     | { route: "not-found"; path: string };
 

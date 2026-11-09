@@ -29,8 +29,8 @@ export const PageHeader = ({
     actions,
     children,
     className,
-    homeHref = "/portal",
-    homeLabel = "All applications",
+    homeHref = "/portal/wedding",
+    homeLabel = "Wedding Planner",
 }: PageHeaderProps) => (
     <header className={cx("flex flex-col gap-5", className)}>
         {breadcrumbs.length > 0 && (

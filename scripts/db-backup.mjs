@@ -1,7 +1,6 @@
 // Exports a D1 database to a SQL file and proves the file is a usable backup.
 //
 //   node scripts/db-backup.mjs --env production          # before every deploy that migrates
-//   node scripts/db-backup.mjs --env staging
 //   node scripts/db-backup.mjs --prune 5                 # keep only the newest 5 backups per environment
 //
 // Steps: export (read-only on the remote), record row counts, restore the file into a throwaway

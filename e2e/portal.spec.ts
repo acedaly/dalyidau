@@ -20,20 +20,19 @@ const watchErrors = (page: Page) => {
     return errors;
 };
 
-test("launches Wedding Planner directly into its dashboard", async ({ page }) => {
+test("opens the portal straight onto Wedding Planner's dashboard", async ({ page, isMobile }) => {
     await page.goto("/portal");
-    await expect(page.getByRole("heading", { level: 1, name: "Applications" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Wedding Planner" })).toBeVisible();
-    await page.getByRole("link", { name: "Open Wedding Planner" }).click();
     await expect(page).toHaveURL(/\/portal\/wedding$/);
     await expect(page.getByText("Everything for", { exact: false })).toBeVisible();
-    await expect(page.getByRole("link", { name: "All Applications" }).first()).toBeVisible();
+    if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
+    const nav = page.getByRole("navigation", { name: "Portal" });
+    await expect(nav.getByRole("link", { name: "Guests" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Portal settings" })).toBeVisible();
 });
 
 test("every portal page loads, hydrates and fits the screen", async ({ page }) => {
     const errors = watchErrors(page);
     for (const path of [
-        "/portal",
         "/portal/wedding",
         "/portal/wedding/guests",
         "/portal/wedding/guests/import",
@@ -54,7 +53,7 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
         "/portal/settings",
         "/portal/settings/access",
         "/portal/settings/features",
-        "/portal/settings/calendar",
+        "/portal/settings/website",
         "/portal/settings/security",
         "/portal/settings/privacy",
         "/portal/audit",
@@ -69,7 +68,7 @@ test("every portal page loads, hydrates and fits the screen", async ({ page }) =
 
 test("core portal workflows expose labelled controls and keyboard focus", async ({ page }) => {
     for (const path of [
-        "/portal",
+        "/portal/wedding",
         "/portal/wedding/rsvps",
         "/portal/wedding/seating",
         "/portal/wedding/catering",
@@ -445,33 +444,35 @@ test("deletes a guest, restores it, then erases it with typed confirmation", asy
     await expect(page.getByRole("row", { name: new RegExp(name) })).toBeHidden();
 });
 
-test("Daly Knowledge and Daly Tasks are gone from the launcher, and their addresses say they're retired", async ({ page }) => {
-    await page.goto("/portal");
-    await expect(page.locator('[data-application="knowledge"], [data-application="tasks"]')).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /Daly Knowledge|Daly Tasks/ })).toHaveCount(0);
-    for (const path of ["/portal/knowledge", "/portal/tasks", "/portal/tasks/today"]) {
-        const response = await page.goto(path);
-        expect(response?.status(), path).toBe(410);
-        await expect(page.getByText(/have been retired/).first()).toBeVisible();
-    }
-    // The Wedding Planner's own tasks are a different feature.
-    expect((await page.goto("/portal/wedding/tasks"))?.status()).toBe(200);
-});
-
-test("Home & Assets and Household Finance are gone from the launcher, and their addresses say what replaced them", async ({ page }) => {
-    await page.goto("/portal");
-    await expect(page.locator('[data-application="assets"], [data-application="finance"]')).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /Home & Assets|Household Finance/ })).toHaveCount(0);
+test("retired applications are gone from the portal, and their addresses say they're retired", async ({ page, request }) => {
+    await page.goto("/portal/wedding");
+    await expect(page.locator('[data-application]:not([data-application="wedding"])')).toHaveCount(0);
+    await expect(
+        page.getByRole("link", {
+            name: /Daly Knowledge|Daly Tasks|Home & Assets|Household Finance|Daly Calendar|Daly Intelligence|Intelligence Centre|All Applications/,
+        }),
+    ).toHaveCount(0);
     for (const [path, message] of [
+        ["/portal/knowledge", /Daly Knowledge and Daly Tasks have been retired/],
+        ["/portal/tasks/today", /Daly Knowledge and Daly Tasks have been retired/],
         ["/portal/assets", /Home & Assets has been retired and replaced by Home in Cloudflare OS/],
-        ["/portal/assets/maintenance", /Home & Assets has been retired/],
-        ["/portal/finance", /Household Finance has been retired and replaced by Finances in Cloudflare OS/],
-        ["/portal/finance/transactions", /Household Finance has been retired/],
+        ["/portal/finance/transactions", /Household Finance has been retired and replaced by Finances in Cloudflare OS/],
+        ["/portal/calendar", /Daly Calendar and the Leave Planner have been retired/],
+        ["/portal/calendar/leave", /Daly Calendar and the Leave Planner have been retired/],
+        ["/portal/today", /Today has been retired/],
+        ["/portal/intelligence", /Daly Intelligence has been retired/],
+        ["/portal/intelligence-centre", /The Intelligence Centre has been retired/],
+        ["/portal/intelligence-centre/map", /The Intelligence Centre has been retired/],
     ] as const) {
         const response = await page.goto(path);
         expect(response?.status(), path).toBe(410);
         await expect(page.getByText(message).first()).toBeVisible();
     }
-    // The Wedding Planner's budget is a different feature.
+    // Their public addresses answer a plain 410 to anyone.
+    for (const path of ["/display", "/calendar/feed/aBcDeFgHiJkLmNoPqRsTuVwXyZ012345.ics", "/api/display/wallboard"])
+        expect((await request.get(path)).status(), path).toBe(410);
+    expect((await request.post("/api/amplenote/ingest", { data: {} })).status()).toBe(410);
+    // The Wedding Planner's own tasks and budget are different features.
+    expect((await page.goto("/portal/wedding/tasks"))?.status()).toBe(200);
     expect((await page.goto("/portal/wedding/budget"))?.status()).toBe(200);
 });

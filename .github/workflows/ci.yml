@@ -29,8 +29,8 @@ jobs:
               run: npm run check:bundle
             - name: Untitled UI semantic token guard
               run: npm run check:styles
-            - name: Configuration safety (production and staging, config file only)
-              run: node scripts/check-config.mjs --offline && node scripts/check-config.mjs --env staging --offline
+            - name: Configuration safety (config file only)
+              run: node scripts/check-config.mjs --env production --offline
             - name: Install Chromium
               run: npx playwright install --with-deps chromium
             - name: End-to-end tests

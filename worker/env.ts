@@ -1,5 +1,4 @@
 import type { D1Database, Fetcher, R2Bucket, SendEmail } from "@cloudflare/workers-types";
-import type { AiBinding } from "./intelligence/bindings";
 
 export interface Env {
     DB: D1Database;
@@ -23,20 +22,6 @@ export interface Env {
     // Secrets (wrangler secret put …)
     CAPACITIES_API_TOKEN?: string;
     ADMIN_TOKEN?: string;
-
-    // Amplenote publishing (docs/AMPLENOTE.md). Everything is off until these are set.
-    /** Secret: shared with the Amplenote plugin, which sends its reports with it. At least 32 characters. */
-    AMPLENOTE_PUBLISH_TOKEN?: string;
-    /** Secret, optional: the approved Amplenote API application's client id (enables the 15-minute API checks). */
-    AMPLENOTE_CLIENT_ID?: string;
-    /** Secret, optional: the application's client secret, if Amplenote issued one. */
-    AMPLENOTE_CLIENT_SECRET?: string;
-    /** Secret: seals the API's access and refresh tokens at rest (AES-GCM). At least 32 characters. Required to connect. */
-    AMPLENOTE_TOKEN_KEY?: string;
-    /** Optional var: the tag that marks a note for the blog (default "website/blog"). */
-    AMPLENOTE_TAG?: string;
-    /** Development only (ENVIRONMENT=development): a local stand-in for Amplenote's hosts (scripts/mock-amplenote.mjs). */
-    AMPLENOTE_TEST_BASE?: string;
 
     // Portal (see docs/PORTAL.md). Without ACCESS_TEAM_DOMAIN and ACCESS_AUD every portal request is refused.
     /** e.g. "daly.cloudflareaccess.com" */
@@ -92,25 +77,4 @@ export interface Env {
     EMAIL?: SendEmail;
     /** HMAC key for long, revocable native RSVP invitation links. */
     RSVP_LINK_SECRET?: string;
-
-    // Daly Calendar (docs/CALENDAR.md).
-    /** Secret, optional: encrypts subscription addresses at rest (AES-GCM). At least 32 characters. */
-    CALENDAR_ENCRYPTION_KEY?: string;
-
-    // Daly Intelligence (docs/INTELLIGENCE.md). The binding isn't in wrangler.jsonc yet: until the
-    // owner adds it, every AI feature reports itself unavailable and nothing is called or billed.
-    /** Workers AI. */
-    AI?: AiBinding;
-    /** Optional AI Gateway id. Calls then go through the gateway for analytics; turn its log collection off. */
-    AI_GATEWAY_ID?: string;
-    /** Local development and browser tests only: "mock" answers with deterministic local responses instead of Workers AI. */
-    AI_PROVIDER?: string;
-
-    // Daly Intelligence Centre (docs/INTELLIGENCE_CENTRE.md). Keys for sources that need free registration.
-    /** Secret: Transport for NSW Open Data API key (Live Traffic hazards). */
-    TFNSW_API_KEY?: string;
-    /** Secret: NASA FIRMS MAP_KEY (satellite thermal detections). */
-    NASA_FIRMS_MAP_KEY?: string;
-    /** Local development and browser tests only: a local server of recorded fixtures (scripts/mock-feeds.mjs) instead of the providers. */
-    CENTRE_FEED_BASE?: string;
 }

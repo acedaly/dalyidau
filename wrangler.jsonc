@@ -46,9 +46,10 @@
         "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
         "EMAIL_REPLY_TO": "wedding@daly.id.au",
         "SMS_DELIVERY": "clicksend",
-        "AI_GATEWAY_ID": "daly-intelligence",
     },
-    "workers_dev": true,
+    // Served only on the custom domains below: no *.workers.dev address (nothing uses one; the portal
+    // refuses requests without a valid Access token on every hostname anyway).
+    "workers_dev": false,
     "routes": [
         {
             "pattern": "daly.id.au",
@@ -79,63 +80,5 @@
             "enabled": true,
             "head_sampling_rate": 0.1,
         },
-    },
-    "env": {
-        "staging": {
-            "name": "dalyidau-staging",
-            "workers_dev": true,
-            "routes": [],
-            "define": {
-                "process.env.NODE_ENV": "\"production\"",
-            },
-            "d1_databases": [
-                {
-                    "binding": "DB",
-                    "database_name": "dalyidau-staging",
-                    "database_id": "a88696eb-3621-4dcb-ac9f-a907a9cd9c06",
-                    "migrations_dir": "migrations",
-                },
-            ],
-            "r2_buckets": [
-                {
-                    "binding": "MEDIA",
-                    "bucket_name": "dalyidau-media-staging",
-                },
-            ],
-            "triggers": {
-                "crons": [],
-            },
-            "vars": {
-                "ENVIRONMENT": "staging",
-                "SITE_URL": "https://daly.id.au",
-                "WEDDING_URL": "https://wedding.daly.id.au",
-                "CAPACITIES_API_BASE": "https://api.capacities.io",
-                "CAPACITIES_STRUCTURE_NAME": "Blog Post",
-                "SYNC_MAX_REQUESTS": "40",
-                "SYNC_REQUEST_SPACING_MS": "2100",
-                "IMAGE_TRANSFORMS": "off",
-                "EMAIL_DELIVERY": "off",
-                "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
-                "EMAIL_REPLY_TO": "wedding@daly.id.au",
-                "SMS_DELIVERY": "off",
-            },
-            "observability": {
-                "enabled": true,
-                "redact_query_string": true,
-                "logs": {
-                    "enabled": true,
-                },
-                "traces": {
-                    "enabled": true,
-                    "head_sampling_rate": 0.1,
-                },
-            },
-            "ai": {
-                "binding": "AI",
-            },
-        },
-    },
-    "ai": {
-        "binding": "AI",
     },
 }

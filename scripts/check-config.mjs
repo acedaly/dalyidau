@@ -1,9 +1,10 @@
 // Checks that an environment is configured safely for the portal, without printing any secret.
 //
 //   node scripts/check-config.mjs                       # production config + secret names
-//   node scripts/check-config.mjs --env staging
 //   node scripts/check-config.mjs --url https://daly.id.au --team <team>.cloudflareaccess.com
-//   node scripts/check-config.mjs --env staging --offline     # config file only (used in CI)
+//   node scripts/check-config.mjs --env production --offline  # config file only (used in CI)
+//
+// Production is the only environment: the staging environment was removed (docs/DECOMMISSION_PORTAL_APPS.md).
 //
 // It reads wrangler.jsonc, lists secret NAMES with `wrangler secret list` (values are never fetched),
 // and optionally probes the live URL without credentials to confirm the portal refuses access.
@@ -12,24 +13,19 @@ import { Report, envFlag, environmentConfig, parseArgs, readWranglerConfig, wran
 const args = parseArgs();
 const env = args.env ?? "production";
 const report = new Report();
+if (env !== "production") {
+    console.error(`There is no "${env}" environment: production is the only one.`);
+    process.exit(1);
+}
 const config = readWranglerConfig();
 const target = environmentConfig(config, env);
-const production = environmentConfig(config, "production");
 
 console.log(`Checking ${env} (Worker "${target.name}")\n`);
 
 // --- wrangler.jsonc ---------------------------------------------------------------------------------
 
 report.check(target.vars.ENVIRONMENT === env, `ENVIRONMENT is "${env}"`, `ENVIRONMENT is "${target.vars.ENVIRONMENT}", expected "${env}"`);
-for (const name of [
-    "ACCESS_DEV_EMAIL",
-    "ACCESS_DEV_ALT_EMAIL",
-    "ACCESS_TEST_JWKS",
-    "RSVP_LINK_SECRET",
-    "AI_PROVIDER",
-    "CENTRE_FEED_BASE",
-    "AMPLENOTE_TEST_BASE",
-]) {
+for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "RSVP_LINK_SECRET"]) {
     report.check(!(name in target.vars), `${name} is not set in vars`, `${name} is set in vars: remove it, it is for local development/tests only`);
 }
 // Provider credentials are secrets; a plain var would be visible in the dashboard and in wrangler.jsonc.
@@ -41,8 +37,6 @@ for (const name of [
     "CLICKSEND_USERNAME",
     "CLICKSEND_API_KEY",
     "COMMS_WEBHOOK_SECRET",
-    "TFNSW_API_KEY",
-    "NASA_FIRMS_MAP_KEY",
 ]) {
     report.check(
         !(name in target.vars),
@@ -51,30 +45,30 @@ for (const name of [
     );
 }
 const delivery = target.vars.EMAIL_DELIVERY ?? "off";
-report.check(
-    delivery !== "log",
-    `EMAIL_DELIVERY is "${delivery}"`,
-    `EMAIL_DELIVERY is "log", which only works outside production`,
-    env === "production" ? "fail" : "warn",
-);
+report.check(delivery !== "log", `EMAIL_DELIVERY is "${delivery}"`, `EMAIL_DELIVERY is "log", which only works outside production`);
 
 const sms = target.vars.SMS_DELIVERY ?? "off";
-report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", which only works outside production`, env === "production" ? "fail" : "warn");
+report.check(sms !== "log", `SMS_DELIVERY is "${sms}"`, `SMS_DELIVERY is "log", which only works outside production`);
 
-// Daly Intelligence (docs/INTELLIGENCE.md): the binding is optional and its absence keeps every AI feature off.
-const block = env === "production" ? config : (config.env?.[env] ?? {});
-const ai = block.ai?.binding === "AI";
-report.info(`Workers AI binding: ${ai ? "present" : "absent (Intelligence can't run)"}`);
-// Vectorize served Daly Knowledge's semantic search, which was retired: no environment binds it any more.
+// Bindings and settings of retired applications (docs/DECOMMISSION_PORTAL_APPS.md): nothing uses them.
+report.check(!config.ai, "No Workers AI binding", "A Workers AI binding is configured, but nothing uses it since Daly Intelligence was retired");
 report.check(
-    !(block.vectorize ?? []).length,
+    !(config.vectorize ?? []).length,
     "No Vectorize binding",
     "A Vectorize binding is configured, but nothing uses it since Daly Knowledge was retired",
 );
+report.check(!("AI_GATEWAY_ID" in target.vars), "No AI_GATEWAY_ID var", "AI_GATEWAY_ID is set, but nothing uses it since Daly Intelligence was retired");
+report.check(
+    !config.env || Object.keys(config.env).length === 0,
+    "No other environments (staging was removed)",
+    `wrangler.jsonc still declares env.${Object.keys(config.env ?? {}).join(", env.")}`,
+);
+// Served only on its custom domains (no *.workers.dev address).
+report.check(target.workersDev === false, "workers_dev is off", "workers_dev is on: the Worker also answers on *.workers.dev");
 
 const db = target.d1.find((d) => d.binding === "DB");
 report.check(!!db, `D1 binding DB → ${db?.database_name}`, "No D1 binding called DB");
-if (env === "production") {
+{
     const wedding = new URL(target.vars.WEDDING_URL ?? "https://invalid.invalid");
     const customDomain = (target.routes ?? []).some((route) => typeof route === "object" && route.custom_domain && route.pattern === wedding.hostname);
     report.check(
@@ -84,18 +78,6 @@ if (env === "production") {
     );
     report.check(customDomain, `Custom domain ${wedding.hostname} is configured`, `No custom-domain route claims ${wedding.hostname}`);
 }
-if (env !== "production") {
-    const prodDb = production.d1.find((d) => d.binding === "DB");
-    report.check(db && prodDb && db.database_id !== prodDb.database_id, "Uses its own D1 database, not production's", "Shares the production D1 database!");
-    const customDomains = (target.routes ?? []).filter((r) => r.custom_domain || (typeof r === "object" && r.pattern));
-    report.check(
-        customDomains.length === 0,
-        "Has no routes of its own (production custom domains are not inherited)",
-        `Would claim routes: ${customDomains.map((r) => r.pattern).join(", ")}`,
-    );
-    report.check(target.name !== production.name, `Worker name "${target.name}" differs from production`, "Same Worker name as production!");
-}
-
 // --- Secrets (names only) --------------------------------------------------------------------------
 
 const listed = args.offline ? null : wrangler(["secret", "list", envFlag(env).replace(/"/g, ""), "--format", "json"], { quiet: true });
@@ -128,7 +110,7 @@ if (!listed) {
             `Secret ${name} is set`,
             `Secret ${name} is missing for the chosen provider: npx wrangler secret put ${name} ${envFlag(env)}`,
         );
-    for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "CENTRE_FEED_BASE", "AMPLENOTE_TEST_BASE"]) {
+    for (const name of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS"]) {
         report.check(!names.includes(name), `No ${name} secret`, `${name} is set as a secret: delete it (npx wrangler secret delete ${name} ${envFlag(env)})`);
     }
     for (const name of ["ADMIN_TOKEN", "CAPACITIES_API_TOKEN"]) {

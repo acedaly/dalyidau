@@ -210,7 +210,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
         fail(`Listing failed (${(error as Error).message}); checking known posts only and skipping deletion checks`);
     }
 
-    // Only Capacities' own rows: posts from other publishers (Amplenote) are never checked, renamed or removed here.
+    // Only Capacities' own rows: posts from earlier publishers (Amplenote, retired) are never checked, renamed or removed here.
     const posts = new Map(
         (
             await db
@@ -218,14 +218,8 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
                 .all<PostRow>()
         ).results.map((r) => [r.id, r]),
     );
-    // Slugs other publishers hold (or have reserved), which a Capacities post must not take.
-    const otherSlugs = new Set(
-        (
-            await db
-                .prepare("SELECT slug FROM posts WHERE source != 'capacities' UNION SELECT slug FROM amplenote_articles WHERE slug IS NOT NULL")
-                .all<{ slug: string }>()
-        ).results.map((r) => r.slug),
-    );
+    // Slugs other publishers' posts hold, which a Capacities post must not take.
+    const otherSlugs = new Set((await db.prepare("SELECT slug FROM posts WHERE source != 'capacities'").all<{ slug: string }>()).results.map((r) => r.slug));
     const sources = new Map(
         (await db.prepare("SELECT id, status, last_checked_at, missing_count FROM sources").all<SourceRow>()).results.map((r) => [r.id, r]),
     );
@@ -273,7 +267,8 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
     }
 
     // 3. Decide what to check this run: never-seen objects first, then least recently checked.
-    // Articles whose address now belongs to an Amplenote note (capacities/archive.ts) are never published again from here.
+    // Articles whose address was handed to an Amplenote note before Amplenote was retired (capacities/archive.ts)
+    // are never published again from here: the note's post keeps the address.
     const moved = new Set((await db.prepare("SELECT id FROM capacities_archive WHERE replaced_by IS NOT NULL").all<{ id: string }>()).results.map((r) => r.id));
     const candidates = (listedIds ?? [...new Set([...posts.keys(), ...sources.keys()])]).filter((id) => !moved.has(id));
     const order = [...candidates].sort((a, b) => {

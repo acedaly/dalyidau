@@ -1,24 +1,14 @@
 // JSON API for the portal (/api/portal/*). Every route declares the permission it needs and, where
 // relevant, the module flag that must be on. Authentication has already happened by the time a
 // handler runs; the router only adds authorisation, CSRF checks and error mapping.
-import type { ExecutionContext } from "@cloudflare/workers-types";
 import { z } from "zod";
 import { type FlagKey, isFlagKey } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { formatMobile, normaliseMobile } from "../../src/shared/portal/phone";
 import type { PortalUser, SettingsKey } from "../../src/shared/portal/types";
-import { amplenoteStatus } from "../amplenote/api";
-import { ASSISTANT_FLAG } from "../amplenote/assistant";
-import { SCOPE as AMPLENOTE_LIST_SCOPE, ASSISTANT_SCOPE, disconnect as disconnectAmplenote, restConfigured, startConnect } from "../amplenote/client";
-import { extractMetadata } from "../amplenote/metadata";
-import { postId as amplenotePostId, reconcile as reconcileAmplenote } from "../amplenote/publisher";
-import { handleCalendarApi } from "../calendar/api";
-import { archiveCapacities, undoReplacement } from "../capacities/archive";
-import { handleCentreApi } from "../centre/api";
+import { archiveCapacities } from "../capacities/archive";
 import { emailProvider, htmlForText, providerStatus, safeFilename, smsProvider, validateProviderConnection } from "../comms/providers";
 import type { Env } from "../env";
-import { handleIntelligenceApi } from "../intelligence/api";
-import { handleTodayApi } from "../today/api";
 import { invitationLinksConfigured, invitationUrl } from "../wedding/invitations";
 import { deleteMedia, listMedia, updateMedia, uploadMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -50,7 +40,7 @@ import { getLayout, resetLayout, saveLayout } from "./dashboard";
 import { audit, auditStatement, newRsvpCode, nowIso } from "./db";
 import { ENTITY_DEFS, type EntityDef, NotFoundError, createEntity, deleteEntity, getEntity, householdDef, listEntities, updateEntity } from "./entities";
 import { EXPORTS, fullJsonExport } from "./exports";
-import { isEnabled, loadFlags, setFlag } from "./flags";
+import { loadFlags, setFlag } from "./flags";
 import { bulkUpdateGuests, createGuest, deleteGuest, getGuest, listGuests, setGuestRsvp, updateGuest } from "./guests";
 import { bulkUpdateHouseholds, generateInvitations, listHouseholdRows } from "./households";
 import { HttpError, checkCrossSite, checkMutation, errorResponse, json, readJson } from "./http";
@@ -129,109 +119,11 @@ const collection = (ctx: Ctx) => {
     return def;
 };
 
-// --- Website: Amplenote publishing (worker/amplenote, docs/AMPLENOTE.md) ---------------------------
+// --- Website: the Capacities archive (worker/capacities/archive.ts, docs/CAPACITIES_RETIREMENT.md) ----
 
-add("GET", "/api/portal/website/amplenote", "portal.settings.manage", async ({ env }) => json({ status: await amplenoteStatus(env) }));
-
-add("POST", "/api/portal/website/amplenote/connect", "portal.settings.manage", async ({ env, user }) => {
-    if (!restConfigured(env)) throw new HttpError(409, "not_configured", "Set AMPLENOTE_CLIENT_ID and AMPLENOTE_TOKEN_KEY on the Worker first");
-    // The blog needs only notes:list. Adding notes and content is asked for only while assistants may use it.
-    const scope = (await isEnabled(env.DB, ASSISTANT_FLAG)) ? ASSISTANT_SCOPE : AMPLENOTE_LIST_SCOPE;
-    const { url, cookie } = await startConnect(env, user.email, scope);
-    return json({ url }, 200, { "Set-Cookie": cookie });
-});
-
-add("POST", "/api/portal/website/amplenote/check", "portal.settings.manage", async ({ env, user }) => {
-    const summary = await reconcileAmplenote(env, { trigger: "manual" });
-    await audit(env.DB, {
-        actor: user.email,
-        action: "website.amplenote.check",
-        entityType: "website",
-        entityId: "amplenote",
-        summary: `Checked Amplenote articles: ${summary.published} published, ${summary.updated} updated, ${summary.unpublished} unpublished`,
-    });
-    return json({ summary, status: await amplenoteStatus(env) });
-});
-
-add("POST", "/api/portal/website/amplenote/disconnect", "portal.settings.manage", async ({ env, user }) => {
-    await disconnectAmplenote(env, user.email);
-    return json({ status: await amplenoteStatus(env) });
-});
-
-// --- Website: retiring Capacities (worker/capacities/archive.ts, docs/CAPACITIES_RETIREMENT.md) -----
-
-add("POST", "/api/portal/website/capacities/archive", "portal.settings.manage", async ({ env, user }) => {
-    const capacities = await archiveCapacities(env, user.email);
-    return json({ capacities, status: await amplenoteStatus(env) });
-});
-
-const noteUuid = (value: string) => {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new HttpError(404, "not_found", "No such note");
-    return value.toLowerCase();
-};
-
-/**
- * Approves moving a Capacities article's address to the Amplenote note that names it ("replaces:"),
- * then runs a check so it happens straight away. Only an address the note names, only an article
- * still published from Capacities, and only with Capacities sync off.
- */
-add("POST", "/api/portal/website/amplenote/:uuid/replacement", "portal.settings.manage", async ({ env, user, params, request }) => {
-    const uuid = noteUuid(params.uuid);
-    const { slug } = z.object({ slug: z.string().min(1).max(96) }).parse(await readJson(request));
-    const note = await env.DB.prepare("SELECT markdown FROM amplenote_articles WHERE uuid = ?").bind(uuid).first<{ markdown: string | null }>();
-    if (!note?.markdown) throw new HttpError(404, "not_found", "That note hasn't been published from Amplenote");
-    const wanted = extractMetadata(note.markdown).metadata.replaces;
-    const target = wanted
-        ? await env.DB.prepare(
-              `SELECT slug FROM posts WHERE source = 'capacities' AND (slug = ?1 OR id = (SELECT post_id FROM slug_redirects WHERE from_slug = ?1))`,
-          )
-              .bind(wanted)
-              .first<{ slug: string }>()
-        : null;
-    if (!target || target.slug !== slug)
-        throw new HttpError(409, "conflict", "The note doesn't name that Capacities article any more. Check the note's Website section.");
-    if (await isEnabled(env.DB, "website.capacities.sync"))
-        throw new HttpError(409, "conflict", "Switch off Capacities sync in Portal settings → Features first");
-    await env.DB.batch([
-        env.DB.prepare("UPDATE amplenote_articles SET replace_slug = ?, replace_approved_by = ?, replace_approved_at = ?, updated_at = ? WHERE uuid = ?").bind(
-            slug,
-            user.email,
-            nowIso(),
-            nowIso(),
-            uuid,
-        ),
-        auditStatement(env.DB, {
-            actor: user.email,
-            action: "website.capacities.replace",
-            entityType: "website",
-            entityId: uuid,
-            summary: `Approved moving /blog/${slug} from Capacities to an Amplenote note`,
-        }),
-    ]);
-    const summary = await reconcileAmplenote(env, { trigger: "manual" });
-    return json({ summary, status: await amplenoteStatus(env) });
-});
-
-/** Withdraws an approval, or (once moved) puts the archived Capacities article back at its address. */
-add("DELETE", "/api/portal/website/amplenote/:uuid/replacement", "portal.settings.manage", async ({ env, user, params }) => {
-    const uuid = noteUuid(params.uuid);
-    if (!(await undoReplacement(env, uuid, user.email, amplenotePostId(uuid)))) {
-        const cleared = await env.DB.prepare(
-            "UPDATE amplenote_articles SET replace_slug = NULL, replace_approved_by = NULL, replace_approved_at = NULL WHERE uuid = ? AND replace_slug IS NOT NULL RETURNING replace_slug",
-        )
-            .bind(uuid)
-            .first();
-        if (!cleared) throw new HttpError(404, "not_found", "Nothing to undo for that note");
-        await audit(env.DB, {
-            actor: user.email,
-            action: "website.capacities.replace_cancel",
-            entityType: "website",
-            entityId: uuid,
-            summary: "Withdrew approval to move a Capacities article to an Amplenote note",
-        });
-    }
-    return json({ status: await amplenoteStatus(env) });
-});
+add("POST", "/api/portal/website/capacities/archive", "portal.settings.manage", async ({ env, user }) =>
+    json({ capacities: await archiveCapacities(env, user.email) }),
+);
 
 // --- Session ------------------------------------------------------------------------------------
 
@@ -950,7 +842,7 @@ async function withoutCredentials(response: Response) {
     return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
 }
 
-export async function handlePortalApi(request: Request, env: Env, user: PortalUser, exec?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
+export async function handlePortalApi(request: Request, env: Env, user: PortalUser): Promise<Response> {
     const url = new URL(request.url);
     try {
         checkCrossSite(request);
@@ -958,14 +850,6 @@ export async function handlePortalApi(request: Request, env: Env, user: PortalUs
         // Retired applications and features: a clear 410, never their records (worker/portal/retired.ts).
         const retired = retiredApiMessage(url.pathname);
         if (retired) return retiredResponse(retired);
-        // Calendar has its own router: access there is by calendar membership, and leave is always the caller's own.
-        if (url.pathname.startsWith("/api/portal/calendar/")) return await handleCalendarApi(request, env, user);
-        // And Intelligence: everything there is the caller's own, or reached through their memberships.
-        if (url.pathname.startsWith("/api/portal/intelligence/")) return await handleIntelligenceApi(request, env, user);
-        // And the Intelligence Centre: public records for everyone with centre.use; watch areas, alerts and wallboards per person.
-        if (url.pathname.startsWith("/api/portal/centre/")) return await handleCentreApi(request, env, user, exec);
-        // And Today: it needs Calendar, and reads and changes everything through Calendar's own functions.
-        if (url.pathname === "/api/portal/today" || url.pathname.startsWith("/api/portal/today/")) return await handleTodayApi(request, env, user);
         const method = request.method === "HEAD" ? "GET" : request.method;
         let pathMatched = false;
         for (const route of routes) {
