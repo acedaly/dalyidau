@@ -1,14 +1,13 @@
 # daly.id.au
 
-Personal website and blog for Aidan Daly. The blog is written in [Amplenote](https://www.amplenote.com) and published automatically to a Cloudflare Worker ([docs/AMPLENOTE.md](docs/AMPLENOTE.md)); older articles from [Capacities](https://capacities.io) are archived in Cloudflare ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)). No CMS, no paid hosting, no manual deploys for new posts.
+Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker ([docs/CAPACITIES.md](docs/CAPACITIES.md)) while the Capacities sync is switched on; every published article lives in Cloudflare (D1 and R2), so it stays online either way ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)). Articles published earlier from Amplenote stay online too. No CMS, no paid hosting, no manual deploys for new posts.
 
-The same Worker hosts a private portal at `/portal` (behind Cloudflare Access) with [Today](docs/DAILY_PLANNER.md#today), a daily dashboard built on the calendar, and four applications: the Wedding Planner, [Daly Calendar](docs/CALENDAR.md) (calendars, subscriptions, family planning, NSW holidays and a leave planner), [Daly Intelligence](docs/INTELLIGENCE.md) (calendar briefings and the portal's AI settings and budget, off by default), the [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) (public emergency, weather and environmental information with watch areas, alerts and wallboards, off by default); and the public wedding website at `/wedding`. Daly Knowledge and Daly Tasks are retired ([docs/DECOMMISSION_KNOWLEDGE_TASKS.md](docs/DECOMMISSION_KNOWLEDGE_TASKS.md)), and so are Home & Assets and Household Finance, replaced by Home and Finances in Cloudflare OS ([docs/DECOMMISSION_ASSETS_FINANCE.md](docs/DECOMMISSION_ASSETS_FINANCE.md)). See [docs/PORTAL.md](docs/PORTAL.md).
+The same Worker hosts the public wedding website (`wedding.daly.id.au`) and a private portal at `/portal` (behind Cloudflare Access) whose one application is the Wedding Planner, also installable as a phone app at `weddingplanner.daly.id.au` ([docs/PLANNER.md](docs/PLANNER.md)). See [docs/PORTAL.md](docs/PORTAL.md). The portal's other applications are retired: Daly Knowledge and Daly Tasks ([docs/DECOMMISSION_KNOWLEDGE_TASKS.md](docs/DECOMMISSION_KNOWLEDGE_TASKS.md)), Home & Assets and Household Finance ([docs/DECOMMISSION_ASSETS_FINANCE.md](docs/DECOMMISSION_ASSETS_FINANCE.md)), and Daly Calendar, Today, Daly Intelligence, the Intelligence Centre and Amplenote publishing ([docs/DECOMMISSION_PORTAL_APPS.md](docs/DECOMMISSION_PORTAL_APPS.md)).
 
 ```
-Amplenote note tagged website/blog ──(plugin, when published)──▶ Worker ──▶ D1 (articles) + R2 (images)
-Capacities (retired: its articles are archived in D1/R2; sync off)                           │
-                                                                                             │
-Browser ◀── server-rendered React (Untitled UI) ◀── Worker fetch ────────────────────────────┘
+Capacities Blog Post (Status: Published) ──(cron, every 15 min, while sync is on)──▶ Worker ──▶ D1 (articles) + R2 (images)
+                                                                                                  │
+Browser ◀── server-rendered React (Untitled UI) ◀── Worker fetch ─────────────────────────────────┘
 ```
 
 ## Quick start
@@ -21,19 +20,17 @@ npm run sync:local             # runs a real sync against the mock API
 scripts/local-down.sh
 ```
 
-| Command                           | What it does                                                                                           |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `npm run typecheck`               | TypeScript for the app, worker, tests and config                                                       |
-| `npm test`                        | Builds the client, then runs the Vitest suite inside workerd with local D1 and R2                      |
-| `npm run test:e2e`                | Playwright against `wrangler dev` and the mock API (desktop and mobile)                                |
-| `npm run build`                   | Typecheck, client builds (blog, then portal and wedding site) and a Worker bundle dry run              |
-| `npm run seed:portal`             | Fill a local portal with invented demo data (localhost only)                                           |
-| `npm run check:config`            | Check an environment's configuration and secret names (never values); `-- --env staging`, `-- --url …` |
-| `npm run check:bundle`            | After a build: no portal code in the blog bundle, no secrets in any client file                        |
-| `npm run db:verify` / `db:backup` | Read-only database health check / verified backup ([docs/DATABASE.md](docs/DATABASE.md))               |
-| `npm run seed:staging`            | Fictional demo data for staging (`-- --yes`) or a local database (`-- --local`)                        |
-| `npm run deploy`                  | Manual production deploy (normally GitHub Actions does this)                                           |
-| `npm run deploy:staging`          | Deploy the staging Worker                                                                              |
+| Command                           | What it does                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `npm run typecheck`               | TypeScript for the app, worker, tests and config                                               |
+| `npm test`                        | Builds the client, then runs the Vitest suite inside workerd with local D1 and R2              |
+| `npm run test:e2e`                | Playwright against `wrangler dev` and the mock API (desktop and mobile)                        |
+| `npm run build`                   | Typecheck, client builds (blog, then portal and wedding site) and a Worker bundle dry run      |
+| `npm run seed:portal`             | Fill a local portal with invented demo data (localhost only)                                   |
+| `npm run check:config`            | Check production's configuration and secret names (never values); `-- --offline`, `-- --url …` |
+| `npm run check:bundle`            | After a build: no portal code in the blog bundle, no secrets in any client file                |
+| `npm run db:verify` / `db:backup` | Read-only database health check / verified backup ([docs/DATABASE.md](docs/DATABASE.md))       |
+| `npm run deploy`                  | Manual production deploy (normally GitHub Actions does this)                                   |
 
 ## Repository layout
 
@@ -43,22 +40,21 @@ src/                 React app (Untitled UI components), shared by server render
   components/site/   Site components: header, footer, post cards, pagination, TOC, share links
   content/           Editable site settings and About copy
   pages/             Home, Blog, Article, About, Contact, 404
-  portal/            The private portal: the wedding management app, Calendar, Today, Intelligence and the Intelligence Centre
+  portal/            The private portal: the Wedding Planner's management pages and Portal settings
+  planner/           Wedding Planner, the installable phone app
   wedding/           The public wedding website and RSVP form
   shared/portal/     Roles, feature flags and data types shared by the worker and the browser
-  shared/calendar/   Calendar's time handling, repeat rules, NSW holiday data, leave engine and optimiser
   entry-server.tsx   renderToString for the Worker (blog, portal, wedding)
-  entry-client.tsx   Blog hydration; entry-portal.tsx and entry-wedding.tsx for the other areas
+  entry-client.tsx   Blog hydration; entry-portal.tsx, entry-planner.tsx and entry-wedding.tsx for the other areas
 worker/              Cloudflare Worker
   index.ts           Routing, SSR assembly, caching, media, admin API, cron handler
   sync.ts            Capacities → D1/R2 synchronisation
   capacities/        API client, schema mapping and block-to-HTML renderer
   posts.ts           D1 queries for public pages
   seo.ts             Meta tags, JSON-LD, sitemap, RSS, robots.txt
-  portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API
-  calendar/          Calendar: membership, events and recurrence, ICS, subscriptions, feeds, leave, notifications, API
-  today/ intelligence/ centre/   Today, Daly Intelligence and the Intelligence Centre
-  mcp/               PortalMcpEntrypoint: the MCP tools behind the gateway in mcp/
+  portal/            Access verification, roles, audited CRUD, guests, comms, import/export, API, retired addresses
+  planner/           Wedding Planner's manifest, service worker and offline page
+  mcp/               PortalMcpEntrypoint: the portal's end of the MCP gateway in mcp/ (it serves no tools now)
   wedding/           Public wedding pages and the RSVP engine
 migrations/          D1 schema
 fixtures/capacities/ Sample Capacities space and mock API (development and tests only)
@@ -71,19 +67,14 @@ docs/                Setup, deployment and operations
 
 - [Architecture](docs/ARCHITECTURE.md): how it fits together and why
 - [Capacities setup and publishing](docs/CAPACITIES.md): the Blog Post type, publishing and unpublishing
+- [The Capacities sync switch and archive](docs/CAPACITIES_RETIREMENT.md): keeping articles online without Capacities, and when it's safe to cancel
 - [Deployment](docs/DEPLOYMENT.md): Cloudflare resources, secrets, CI, DNS cut-over and rollback
 - [Operations](docs/OPERATIONS.md): logs, manual resync, troubleshooting and running costs
 - [Portal and wedding website](docs/PORTAL.md): Cloudflare Access setup, roles, feature switches, RSVPs, email, data model
-- [Daly Intelligence](docs/INTELLIGENCE.md): Workers AI, briefings, budgets and usage, costs, backups and activation
-- [Home & Assets](docs/HOME_ASSETS.md) (retired 1 Nov 2026, [decommissioning](docs/DECOMMISSION_ASSETS_FINANCE.md)): the asset register, vehicles and trailers, places and rentals, maintenance, insurance, warranties, files, QR labels, reports, integrations, MCP, deployment and rollback
-- [Household Finance](docs/HOUSEHOLD_FINANCE.md) (retired 1 Nov 2026): the repository assessment and Milestone 11 plan, accounts and balance confidence, CSV imports and duplicates, categorising, transfers, the data model, deployment and rollback
-- [Intelligence Centre](docs/INTELLIGENCE_CENTRE.md) and its [public sources](docs/INTELLIGENCE_SOURCES.md): ingestion, map, watch areas, alerts, correlation, briefings, wallboards, MCP, costs, activation and rollback
+- [Wedding Planner](docs/PLANNER.md): the installable phone app
 - [Communications](docs/COMMUNICATIONS.md): SMTP2Go email, ClickSend SMS, webhooks, consent and the activation checklist
 - [Privacy and personal data](docs/PRIVACY.md): what's collected, retention, deleting and erasing
 - [Database](docs/DATABASE.md): migrations, verification, backups, restore and rollback
-- [Staging](docs/STAGING.md): the separate staging environment and how to set it up
-- [Retiring Daly Knowledge and Daly Tasks](docs/DECOMMISSION_KNOWLEDGE_TASKS.md): what was removed, what's kept, MCP, deployment order, rollback and the owner-approved cleanup
-- [Daly Calendar](docs/CALENDAR.md): calendars, recurrence and time zones, ICS subscriptions (SSRF rules) and private feeds, the Family Planner, NSW holidays and school dates, the leave engine and optimiser, MCP, deployment and rollback
-- [Today](docs/DAILY_PLANNER.md#today): the daily dashboard at `/portal/today`: capacity from planning hours, the timeline, Add appointment, the Chief of Staff briefing and MCP
-- [Daly MCP gateway](docs/MCP.md): Daly Portal for Claude, ChatGPT and Codex through `mcp.daly.id.au` (gateway Worker in `mcp/`): architecture decision, trust model, tools, audit, client set-up and testing
+- [Daly MCP gateway](docs/MCP.md): the gateway Worker in `mcp/` (`mcp.daly.id.au`): trust model, retired tools, client set-up and testing
 - [MCP cutover and DalyHub decommissioning](docs/MCP_CUTOVER.md): gateway 3.0.0, ordered production cutover, real-client checks, monitoring, rollback and the DalyHub retirement checklist
+- Retirements: [Daly Knowledge and Daly Tasks](docs/DECOMMISSION_KNOWLEDGE_TASKS.md), [Home & Assets and Household Finance](docs/DECOMMISSION_ASSETS_FINANCE.md), and [Daly Calendar, Today, Daly Intelligence, the Intelligence Centre, Amplenote and staging](docs/DECOMMISSION_PORTAL_APPS.md)

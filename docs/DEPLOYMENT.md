@@ -4,17 +4,19 @@
 
 Everything for this site is separate from DalyHub. Nothing below touches `dalyhub-*` Workers, the `dalyhub-v2` D1 database or the `dalyhub-v2-*` R2 buckets.
 
-| Resource | Production | Staging |
-| --- | --- | --- |
-| Worker | `dalyidau` | `dalyidau-staging` |
-| D1 database | `dalyidau-production` (`a003fec1-8404-4468-a23f-de5fb202bc57`) | `dalyidau-staging` (`a88696eb-3621-4dcb-ac9f-a907a9cd9c06`) |
-| R2 bucket | `dalyidau-media` | `dalyidau-media-staging` |
-| Cron | `*/15 * * * *` | none (sync manually) |
-| Hostname | `daly.id.au`, `wedding.daly.id.au`, `dalyidau.<account>.workers.dev` | `dalyidau-staging.<account>.workers.dev` |
+Production is the only environment: the staging environment (its Worker, D1 database, R2 bucket and Vectorize indexes) was removed on 9 Nov 2026 ([DECOMMISSION_PORTAL_APPS.md](DECOMMISSION_PORTAL_APPS.md)).
 
-The D1 databases and R2 buckets already exist (created 11 October 2026). The Workers are created on the first deploy. Local development uses Miniflare's local D1/R2 and never touches either environment.
+| Resource    | Production                                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker      | `dalyidau`                                                                                                                                                      |
+| D1 database | `dalyidau-production` (`a003fec1-8404-4468-a23f-de5fb202bc57`)                                                                                                  |
+| R2 bucket   | `dalyidau-media`                                                                                                                                                |
+| Cron        | `*/15 * * * *` (the Capacities sync while it's switched on, and scheduled wedding messages)                                                                     |
+| Hostnames   | `daly.id.au`, `www.daly.id.au`, `wedding.daly.id.au`, `weddingplanner.daly.id.au` (Custom Domains; `workers_dev` is off, so there's no `*.workers.dev` address) |
 
-Only the production Worker on `daly.id.au` is indexable. workers.dev hosts and staging send `noindex` and a disallow-all `robots.txt`.
+The D1 database and R2 bucket already exist (created 11 October 2026). Local development uses Miniflare's local D1/R2 and never touches production.
+
+Only the production Worker on `daly.id.au` is indexable; other hosts (local development, previews) send `noindex` and a disallow-all `robots.txt`.
 
 ## One-time setup
 
@@ -35,12 +37,12 @@ Limit it to your account and the `daly.id.au` zone.
 
 Settings → Secrets and variables → Actions:
 
-| Secret | Value |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Token from step 1 |
+| Secret                  | Value                                    |
+| ----------------------- | ---------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Token from step 1                        |
 | `CLOUDFLARE_ACCOUNT_ID` | Dashboard → Workers & Pages → Account ID |
 
-Also create GitHub environments named `production` and `staging` (Settings → Environments). Add required reviewers to `production` if you want a manual approval gate.
+Also create a GitHub environment named `production` (Settings → Environments). Add required reviewers to it if you want a manual approval gate.
 
 ### 3. First deploy
 
@@ -54,15 +56,11 @@ After the first deploy:
 npx wrangler secret put CAPACITIES_API_TOKEN --env=""   # read-only Capacities token
 npx wrangler secret put ADMIN_TOKEN --env=""            # any random string, 24+ characters
 # e.g. openssl rand -base64 32
-
-# Staging, if used:
-npx wrangler secret put CAPACITIES_API_TOKEN --env staging
-npx wrangler secret put ADMIN_TOKEN --env staging
 ```
 
 Until `CAPACITIES_API_TOKEN` is set, each cron run logs "CAPACITIES_API_TOKEN is not set; nothing was changed" and the site shows its empty states.
 
-Check it works at `https://dalyidau.<account>.workers.dev`, then run a manual sync ([OPERATIONS.md](OPERATIONS.md)).
+Check it works at `https://daly.id.au/api/health`, then run a manual sync ([OPERATIONS.md](OPERATIONS.md)).
 
 ## DNS cut-over (done 11 October 2026)
 
@@ -72,27 +70,23 @@ The configuration change does not activate itself from this feature branch: do n
 
 **Records removed (the only DNS change):**
 
-| Name | Type | Value | Proxied | Was used by |
-| --- | --- | --- | --- | --- |
-| `daly.id.au` | A | `103.168.172.37` | No | Fastmail-hosted homepage |
-| `daly.id.au` | A | `103.168.172.52` | No | Fastmail-hosted homepage |
-| `www.daly.id.au` | A | `110.232.143.111` | Yes | Old cPanel host serving a default page |
+| Name             | Type | Value             | Proxied | Was used by                            |
+| ---------------- | ---- | ----------------- | ------- | -------------------------------------- |
+| `daly.id.au`     | A    | `103.168.172.37`  | No      | Fastmail-hosted homepage               |
+| `daly.id.au`     | A    | `103.168.172.52`  | No      | Fastmail-hosted homepage               |
+| `www.daly.id.au` | A    | `110.232.143.111` | Yes     | Old cPanel host serving a default page |
 
 **Left alone:** the `*.daly.id.au` wildcard (Fastmail IPs, also what `my.daly.id.au` in the SPF record resolves through), `mail`, MX, SPF, DKIM (`fm1`–`fm3`), DMARC, the Fastmail SRV records, `hub.daly.id.au` and `mcp.daly.id.au` (DalyHub Workers) and every other subdomain.
 
 **Undo the cut-over:** remove the two Custom Domains (Workers & Pages → dalyidau → Settings → Domains & Routes), comment out the `routes` block, then recreate the three records above.
 
-## Intelligence Centre 9.1
-
-Merging applies `0027` (take `npm run db:backup -- --env production` first). The detailed basemap is a separate, optional, owner-only step: `npm run centre:basemap -- --maxzoom 13` builds the archive in `migration-work/` and prints the upload command for the MEDIA bucket (`private/centre/basemap/basemap.pmtiles`); nothing is uploaded by CI. Deploy the MCP gateway (2.8.0) by hand only after the portal Worker. New switches stay off until the owner turns them on. Order and rollback: [INTELLIGENCE_CENTRE_9_1.md](INTELLIGENCE_CENTRE_9_1.md#activation).
-
 ## Rollback
 
-| Problem | Fix |
-| --- | --- |
-| Bad code deploy | `npx wrangler deployments list --env=""`, then `npx wrangler rollback <version-id> --env=""`. Or Dashboard → Workers & Pages → dalyidau → Deployments → Rollback. Or revert the commit on `main`. |
-| Bad content | Fix it in Amplenote (the plugin republishes it), or unpublish the note. Archived Capacities articles: move them to Amplenote ([CAPACITIES_RETIREMENT.md](CAPACITIES_RETIREMENT.md)). |
-| Damaged database | D1 Time Travel keeps 30 days: `npx wrangler d1 time-travel info dalyidau-production`, then `npx wrangler d1 time-travel restore dalyidau-production --timestamp=<ISO time>` |
-| Rebuild from scratch | Archived Capacities articles exist **only in D1 and R2** once Capacities is retired: restore them from a backup (`npm run db:backup`, `npm run capacities:inventory -- --download`). Amplenote articles come back as the plugin next runs. **Wedding portal data exists only in D1**: restore it from Time Travel or a backup ([DATABASE.md](DATABASE.md#restoring)). |
+| Problem              | Fix                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bad code deploy      | `npx wrangler deployments list --env=""`, then `npx wrangler rollback <version-id> --env=""`. Or Dashboard → Workers & Pages → dalyidau → Deployments → Rollback. Or revert the commit on `main`.                                                                                                                                                                                             |
+| Bad content          | Fix it in Capacities (with Capacities sync on, the next run republishes it), or set its Status to anything but Published ([CAPACITIES.md](CAPACITIES.md)). Articles published earlier from Amplenote can only be changed in D1.                                                                                                                                                               |
+| Damaged database     | D1 Time Travel keeps 30 days: `npx wrangler d1 time-travel info dalyidau-production`, then `npx wrangler d1 time-travel restore dalyidau-production --timestamp=<ISO time>`                                                                                                                                                                                                                   |
+| Rebuild from scratch | Articles can be rebuilt from Capacities by a sync while it holds them; otherwise, and for the articles published from Amplenote, they exist **only in D1 and R2**: restore them from a backup (`npm run db:backup`, `npm run capacities:inventory -- --download`). **Wedding portal data exists only in D1**: restore it from Time Travel or a backup ([DATABASE.md](DATABASE.md#restoring)). |
 
-Migrations are forward-only. Add new files to `migrations/` and they apply before each deploy, after a restore point is logged and before the code goes out; see [DATABASE.md](DATABASE.md). Staging setup is in [STAGING.md](STAGING.md).
+Migrations are forward-only. Add new files to `migrations/` and they apply before each deploy, after a restore point is logged and before the code goes out; see [DATABASE.md](DATABASE.md).

@@ -2,6 +2,8 @@
 
 Daly Knowledge (`/portal/knowledge`) and Daly Tasks (`/portal/tasks`) are retired, along with everything that existed only to serve them. This release turns off access and removes the code. **It does not delete any data.** The tables, the full-text index and the R2 files stay exactly as they were until the owner approves the separate cleanup described [below](#cleanup).
 
+> **Cleanup, 9 Nov 2026:** with the owner's approval, migration `0032` dropped this retirement's tables, except `assets`, `asset_locations`, `attachments` and `knowledge_spaces`, which wait for [docs/pending/0033](pending/0033_drop_retired_portal_app_tables.sql) (kept tables still name the last two in foreign keys). `scripts/sql/decommission-knowledge-tasks-cleanup.sql` is gone. The MCP tool counts and the Today, Calendar and Intelligence details below were superseded the same day, when those applications were retired too ([DECOMMISSION_PORTAL_APPS.md](DECOMMISSION_PORTAL_APPS.md)). What follows is the record of the retirement as it was done.
+
 > **Later:** Home & Assets and Household Finance were retired on 1 Nov 2026, the same way ([DECOMMISSION_ASSETS_FINANCE.md](DECOMMISSION_ASSETS_FINANCE.md)). The gateway counts below are as of 3.0.0; gateway 3.2.0 advertises 56 tools and retires 65. Where this document says Home & Assets is unchanged, that held until then.
 
 ## What changed for people
