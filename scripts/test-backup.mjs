@@ -4,25 +4,23 @@
 //
 // 1. Builds a scratch database with every migration before 0014, and fills it with blog, wedding and
 //    Knowledge rows (including the FTS5 index).
-// 2. Applies 0014 to that populated database and checks nothing existing changed.
-// 3. Adds rows to every Milestone 3 table (daily notes, collections, pins, favourites, saved views,
-//    templates), every Daly Tasks table (0015, 0016, 0017) the MCP write ledger (0018, rebuilt in 0020), DalyHub migration provenance (0019) and
-//    project request ids (0020), Daly Intelligence (0021) and Daly Calendar and the Leave Planner (0022).
-// 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports per table,
-//    restores into a throwaway database and checks row counts, schema objects and integrity.
-// 5. Restores that backup once more and checks search works, relations are intact, nothing crosses
-//    spaces and the wedding and blog rows are there.
-//
-// Daly Knowledge, Daly Tasks and the DalyHub import are retired, but their records are kept until the
-// approved cleanup (docs/DECOMMISSION_KNOWLEDGE_TASKS.md), so backups must still carry them intact.
+// 2. Applies 0014–0031 to that populated database, checks nothing existing changed, and adds rows to
+//    every table they create: Knowledge Milestone 3, Daly Tasks, Home & Assets, Household Finance, the
+//    MCP write ledger, the DalyHub import, Daly Intelligence, Daly Calendar and the Leave Planner, the
+//    Daily Planner, Today and the Intelligence Centre.
+// 3. Applies 0032 (the approved drop of the earlier retired applications' tables, docs/DECOMMISSION_PORTAL_APPS.md)
+//    to that populated database: exactly those tables go, every other row stays, and nothing is left
+//    pointing at a row that's gone.
+// 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports, restores into
+//    a throwaway database and checks row counts, schema objects and integrity.
+// 5. Restores that backup once more and checks the wedding, blog and kept rows and their rules.
 //
 // Nothing remote is touched. The scratch databases and the backup it makes are deleted afterwards.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ROOT, Report, d1Query, migrationFiles, wrangler } from "./lib/ops.mjs";
-import { VIRTUAL_TABLE_REBUILDS } from "./lib/virtual-tables.mjs";
 
 const report = new Report();
 const work = mkdtempSync(join(tmpdir(), "dalyidau-backup-test-"));
@@ -69,7 +67,10 @@ INSERT INTO knowledge_object_tags (space_id, object_id, tag_id) VALUES ('ksp_bac
 INSERT INTO knowledge_revisions (id, space_id, object_id, version, kind, type_id, title, content_json, content_format, properties_json, changed_by, started_at, changed_at) VALUES
   ('krv_backuptest0001', 'ksp_backuptest0001', 'kob_backuptest0001', 1, 'create', 'kty_backuptest0001', 'Hydrant inspection notes', '{"type":"doc","content":[]}', 'daly.doc.v1', '{}', 'x', '${NOW}', '${NOW}');
 INSERT INTO knowledge_audit (space_id, at, actor, action, entity_type, entity_id, summary) VALUES ('ksp_backuptest0001', '${NOW}', 'x', 'object.create', 'object', 'kob_backuptest0001', 'Created an object');
-${VIRTUAL_TABLE_REBUILDS.knowledge_fts.map((s) => `${s};`).join("\n")}
+DELETE FROM knowledge_fts;
+INSERT INTO knowledge_fts (rowid, title, body, tags) SELECT o.search_rowid, o.title, o.body_text,
+    COALESCE((SELECT group_concat(t.name, ' ') FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = o.id), '')
+    FROM knowledge_objects o;
 `;
 
 const M3 = `
@@ -85,7 +86,10 @@ INSERT INTO knowledge_saved_views (id, space_id, owner_email, name, definition_j
   ('kvw_backuptest0001', 'ksp_backuptest0001', 'owner@example.com', 'Seasonal', '{"tag":"seasonal"}', 'x', 'x', '${NOW}', '${NOW}');
 INSERT INTO knowledge_templates (id, space_id, type_id, name, is_default, created_by, updated_by, created_at, updated_at) VALUES
   ('ktp_backuptest0001', 'ksp_backuptest0001', 'kty_backuptest0001', 'Inspection', 1, 'x', 'x', '${NOW}', '${NOW}');
-${VIRTUAL_TABLE_REBUILDS.knowledge_fts.map((s) => `${s};`).join("\n")}
+DELETE FROM knowledge_fts;
+INSERT INTO knowledge_fts (rowid, title, body, tags) SELECT o.search_rowid, o.title, o.body_text,
+    COALESCE((SELECT group_concat(t.name, ' ') FROM knowledge_object_tags ot JOIN knowledge_tags t ON t.id = ot.tag_id WHERE ot.object_id = o.id), '')
+    FROM knowledge_objects o;
 `;
 
 // Daly Tasks (0015): every table, a shared project with two members, a section, a parent and a
@@ -427,6 +431,10 @@ const M3_TABLES = [
     "knowledge_saved_views",
     "knowledge_templates",
 ];
+// The approved drop (migration 0032) and the tables it names.
+const DROP_MIGRATION = "0032_drop_retired_tables.sql";
+const DROPPED = [...readFileSync(join(ROOT, "migrations", DROP_MIGRATION), "utf8").matchAll(/^DROP TABLE IF EXISTS (\w+);/gm)].map((m) => m[1]);
+
 const count = (table, persistTo = state) => query(`SELECT COUNT(*) AS n FROM ${table}`, persistTo)[0].n;
 const searchHits = (term, persistTo) =>
     query(
@@ -440,15 +448,17 @@ try {
     copyFileSync(join(ROOT, "wrangler.jsonc"), join(work, "wrangler.jsonc"));
     mkdirSync(join(work, "migrations"));
     const all = migrationFiles();
-    const before = all.filter((m) => m < "0014");
-    for (const m of before) copyFileSync(join(ROOT, "migrations", m), join(work, "migrations", m));
+    const copy = (names) => {
+        for (const m of names) copyFileSync(join(ROOT, "migrations", m), join(work, "migrations", m));
+    };
+    copy(all.filter((m) => m < "0014"));
     migrate();
     run(PRE_0014);
-    report.pass(`A populated database at ${before.at(-1)} (blog, wedding and Knowledge rows, FTS index built)`);
+    report.pass("A populated database at 0013 (blog, wedding and Knowledge rows, FTS index built)");
 
-    // 2. The new migrations on top of existing data.
+    // 2. 0014–0031 on top of existing data, then rows in every table they create.
     const objectsBefore = query("SELECT id, title, body_text, version, updated_at FROM knowledge_objects ORDER BY id");
-    for (const m of all.filter((name) => name >= "0014")) copyFileSync(join(ROOT, "migrations", m), join(work, "migrations", m));
+    copy(all.filter((m) => m >= "0014" && m < DROP_MIGRATION));
     migrate();
     const objectsAfter = query("SELECT id, title, body_text, version, updated_at FROM knowledge_objects ORDER BY id");
     report.check(
@@ -456,72 +466,57 @@ try {
         "Migrating left every existing object unchanged",
         "Migrating changed existing objects",
     );
-    report.check(
-        query("SELECT COUNT(*) AS n FROM knowledge_objects WHERE daily_date IS NOT NULL")[0].n === 0,
-        "Existing objects aren't daily notes",
-        "Existing objects gained a date",
-    );
     report.check(searchHits("hydrant", state).join() === "kob_backuptest0001", "Search still works after migrating", "Search broke after migrating");
     report.check(count("guests") === 1 && count("posts") === 1, "Wedding and blog rows are untouched", "Wedding or blog rows changed");
+    for (const sql of [M3, TASKS, TASKS_M3, HOME_ASSETS, FINANCE, MCP, DALYHUB, INTELLIGENCE, CALENDAR, PLANNER, TODAY, CENTRE]) run(sql);
+    const filled = [
+        ...M3_TABLES,
+        ...TASK_TABLES,
+        ...TASK_M3_TABLES,
+        ...MCP_TABLES,
+        ...DALYHUB_TABLES,
+        ...INTELLIGENCE_TABLES,
+        ...CALENDAR_TABLES,
+        ...PLANNER_TABLES,
+        ...TODAY_TABLES,
+        ...CENTRE_TABLES,
+    ];
+    const empty = filled.filter((t) => count(t) === 0);
+    report.check(empty.length === 0, `Every table up to 0031 has rows (${filled.length} checked)`, `Empty tables: ${empty.join(", ")}`);
 
-    // 3. Rows in every new table.
-    run(M3);
+    // 3. The approved drop (0032) on that populated database.
+    const tablesNow = () =>
+        query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").map((r) => r.name);
+    const before = new Set(tablesNow());
+    const dropped = DROPPED.filter((t) => before.has(t));
     report.check(
-        M3_TABLES.every((t) => count(t) > 0),
-        "Every Milestone 3 table has rows",
-        "A Milestone 3 table is empty",
+        dropped.length === DROPPED.length,
+        `All ${DROPPED.length} tables 0032 drops exist beforehand`,
+        `Missing before 0032: ${DROPPED.filter((t) => !before.has(t)).join(", ")}`,
     );
-
-    run(TASKS);
-    run(TASKS_M3);
-    run(HOME_ASSETS);
-    run(FINANCE);
+    const kept = [...before].filter((t) => !DROPPED.includes(t) && !/^knowledge_fts_/.test(t) && t !== "d1_migrations");
+    const keptCounts = Object.fromEntries(kept.map((t) => [t, count(t)]));
+    copy([DROP_MIGRATION]);
+    migrate();
+    const after = new Set(tablesNow());
+    const left = DROPPED.filter((t) => after.has(t)).concat([...after].filter((t) => /^knowledge_fts/.test(t)));
     report.check(
-        [...TASK_TABLES, ...TASK_M3_TABLES].every((t) => count(t) > 0),
-        "Every Tasks table has rows (Milestones 1–3)",
-        "A Tasks table is empty",
+        left.length === 0,
+        `0032 dropped all ${DROPPED.length} tables, and the search index's shadow tables with them`,
+        `Still there: ${left.join(", ")}`,
     );
-    run(MCP);
+    const lost = kept.filter((t) => !after.has(t) || count(t) !== keptCounts[t]);
+    report.check(lost.length === 0, `Every other table (${kept.length}) is still there with every row`, `Changed by 0032: ${lost.join(", ")}`);
     report.check(
-        MCP_TABLES.every((t) => count(t) > 0),
-        "The MCP write ledger has rows",
-        "The MCP write ledger is empty",
+        query("SELECT location_id FROM assets WHERE id = 'ast_backuptest0001'")[0]?.location_id === "alo_backuptest0001" &&
+            query("SELECT space_id FROM attachments WHERE id = 'att_backuptest0001'")[0]?.space_id === "ksp_backuptest0001",
+        "assets and attachments keep their rows and the place and space they name (kept until docs/pending/0033)",
+        "assets or attachments lost a row or a reference",
     );
-    run(DALYHUB);
     report.check(
-        DALYHUB_TABLES.every((t) => count(t) > 0),
-        "The DalyHub migration provenance has rows",
-        "The DalyHub migration provenance is empty",
-    );
-    run(INTELLIGENCE);
-    report.check(
-        INTELLIGENCE_TABLES.every((t) => count(t) > 0),
-        "Every Intelligence table has rows (0021)",
-        "An Intelligence table is empty",
-    );
-    run(CALENDAR);
-    report.check(
-        CALENDAR_TABLES.every((t) => count(t) > 0),
-        "Every Calendar and Leave table has rows (0022)",
-        "A Calendar or Leave table is empty",
-    );
-    run(PLANNER);
-    report.check(
-        PLANNER_TABLES.every((t) => count(t) > 0),
-        "Every Daily Planner table has rows (0023)",
-        "A Daily Planner table is empty",
-    );
-    run(TODAY);
-    report.check(
-        TODAY_TABLES.every((t) => count(t) > 0),
-        "Every Today table has rows (0024)",
-        "A Today table is empty",
-    );
-    run(CENTRE);
-    report.check(
-        CENTRE_TABLES.every((t) => count(t) > 0),
-        "Every Intelligence Centre table has rows (0025)",
-        "An Intelligence Centre table is empty",
+        query("PRAGMA foreign_key_check").length === 0,
+        "No foreign key points at a missing row or table after 0032",
+        "Foreign key problems after 0032",
     );
 
     // 4. The real backup script.
@@ -545,77 +540,8 @@ try {
         mkdirSync(restored);
         const result = wrangler(["d1", "execute", "DB", "--local", "--env=", "--persist-to", restored, "--file", backupFile, "--yes"], { quiet: true });
         report.check(result.ok, "The backup restores into an empty database", `The backup doesn't restore: ${result.stderr}`);
-        for (const table of [
-            "posts",
-            "households",
-            "guests",
-            "events",
-            "guest_events",
-            "knowledge_objects",
-            "knowledge_relations",
-            "knowledge_revisions",
-            ...M3_TABLES,
-            ...TASK_TABLES,
-            ...TASK_M3_TABLES,
-            ...MCP_TABLES,
-            ...DALYHUB_TABLES,
-            ...INTELLIGENCE_TABLES,
-            ...CALENDAR_TABLES,
-            ...PLANNER_TABLES,
-            ...TODAY_TABLES,
-            ...CENTRE_TABLES,
-        ])
-            report.check(count(table, restored) === count(table), `${table}: ${count(table)} row(s) restored`, `${table}: row counts differ`);
-        report.check(
-            searchHits("hydrant", restored).join() === "kob_backuptest0001",
-            "Search finds titles after restoring",
-            "Search doesn't work after restoring",
-        );
-        report.check(
-            searchHits("nursery", restored).join() === "kob_backuptest0004",
-            "Search finds daily notes after restoring",
-            "Daily notes aren't searchable after restoring",
-        );
-        report.check(
-            query("SELECT source_id, target_id FROM knowledge_relations", restored)
-                .map((r) => `${r.source_id}>${r.target_id}`)
-                .join() === "kob_backuptest0001>kob_backuptest0002",
-            "Relations are intact",
-            "Relations changed",
-        );
-        const crossing = query(
-            `SELECT 'relation' AS kind FROM knowledge_relations r JOIN knowledge_objects s ON s.id = r.source_id JOIN knowledge_objects t ON t.id = r.target_id WHERE s.space_id <> t.space_id
-             UNION ALL SELECT 'collection' FROM knowledge_collection_items i JOIN knowledge_objects o ON o.id = i.object_id JOIN knowledge_collections c ON c.id = i.collection_id WHERE o.space_id <> c.space_id OR i.space_id <> c.space_id
-             UNION ALL SELECT 'favourite' FROM knowledge_favourites f JOIN knowledge_objects o ON o.id = f.object_id WHERE o.space_id <> f.space_id`,
-            restored,
-        );
-        report.check(crossing.length === 0, "Nothing crosses spaces in the restored copy", `Cross-space rows: ${JSON.stringify(crossing)}`);
-        const indexes = query(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('knowledge_objects_daily', 'knowledge_templates_default')",
-            restored,
-        );
-        report.check(indexes.length === 2, "The daily-note and default-template unique indexes survive", "Unique indexes are missing after restoring");
-        let refused = false;
-        try {
-            run(
-                "INSERT INTO knowledge_objects (id, space_id, type_id, title, daily_date, search_rowid, created_by, updated_by, created_at, updated_at) VALUES ('kob_backuptest0009', 'ksp_backuptest0001', 'kty_backuptest0001', 'x', '2026-10-17', 99, 'x', 'x', 'x', 'x');",
-                restored,
-            );
-        } catch {
-            refused = true;
-        }
-        report.check(refused, "The restored copy still refuses a second daily note for a date", "The restored copy accepted a duplicate daily note");
-        let reused = false;
-        try {
-            run(
-                "INSERT INTO mcp_writes (id, email, tool, request_key, created_at) VALUES ('mcw_backuptest0009', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'x');",
-                restored,
-            );
-        } catch {
-            reused = true;
-        }
-        report.check(reused, "The restored copy still refuses a reused MCP request id", "The restored copy accepted a reused MCP request id");
-        // Tasks' own rules survive: the personal-project trigger and the composite keys.
+        const differ = kept.filter((t) => count(t, restored) !== keptCounts[t]);
+        report.check(differ.length === 0, `Every kept table (${kept.length}) restores with the same rows`, `Row counts differ: ${differ.join(", ")}`);
         const refuses = (sql) => {
             try {
                 run(sql, restored);
@@ -626,10 +552,10 @@ try {
         };
         report.check(
             refuses(
-                "INSERT INTO task_project_members (project_id, email, role, added_by, created_at, updated_at) VALUES ('tpj_backuptest0001', 'partner@example.com', 'editor', 'x', 'x', 'x');",
+                "INSERT INTO mcp_writes (id, email, tool, request_key, created_at) VALUES ('mcw_backuptest0009', 'owner@example.com', 'tasks_create', 'req-backuptest-0001', 'x');",
             ),
-            "The restored copy still keeps personal projects to one member",
-            "The restored copy let a second person into a personal project",
+            "The restored copy still refuses a reused MCP request id",
+            "The restored copy accepted a reused MCP request id",
         );
         report.check(
             refuses(
@@ -639,128 +565,13 @@ try {
             "The restored copy lost a calendar rule",
         );
         report.check(
-            refuses("UPDATE task_items SET project_id = 'tpj_backuptest0001' WHERE id = 'tsk_backuptest0002';"),
-            "The restored copy still refuses a subtask in a different project from its parent and section",
-            "The restored copy accepted a cross-project subtask",
+            query("SELECT first_name FROM guests WHERE id = 'gst_backuptest0001'", restored)[0]?.first_name === "Robin" &&
+                query("SELECT slug FROM posts WHERE id = 'post-1'", restored)[0]?.slug === "hello",
+            "Wedding and blog rows restore intact",
+            "Wedding or blog rows were lost",
         );
-        report.check(
-            query("SELECT recurrence_json FROM task_items WHERE id = 'tsk_backuptest0002'", restored)[0]?.recurrence_json?.includes('"anchor":"2026-10-21"'),
-            "Repeat rules restore intact",
-            "Repeat rules changed in the restored copy",
-        );
-        // Milestone 2 (0016): delivery state, request ids, exceptions, templates and import provenance.
-        report.check(
-            query("SELECT delivery_status, attempts FROM task_reminders WHERE id = 'trm_backuptest0001'", restored)[0]?.delivery_status === "sent" &&
-                query("SELECT client_id FROM task_items WHERE id = 'tsk_backuptest0001'", restored)[0]?.client_id === "qa-backuptest-0001",
-            "Reminder delivery state and Quick Add request ids restore intact",
-            "Reminder delivery state or request ids were lost",
-        );
-        report.check(
-            query("SELECT moved_to FROM task_recurrence_exceptions WHERE task_id = 'tsk_backuptest0002'", restored)[0]?.moved_to === "2026-10-29" &&
-                query("SELECT subtasks_json FROM task_templates WHERE id = 'ttp_backuptest0001'", restored)[0]?.subtasks_json === '[{"title":"Sunscreen"}]' &&
-                query("SELECT target_id FROM task_import_items WHERE source_key = 'k1'", restored)[0]?.target_id === "tsk_backuptest0001",
-            "Repeat exceptions, templates and Todoist import records restore intact",
-            "Exceptions, templates or import records were lost",
-        );
-        report.check(
-            refuses(
-                "INSERT INTO task_items (id, project_id, depth, title, position, created_by, updated_by, created_at, updated_at, client_id) VALUES ('tsk_backuptest0009', 'tpj_backuptest0002', 0, 'Copy', 2, 'x', 'x', 'x', 'x', 'qa-backuptest-0001');",
-            ),
-            "The restored copy still refuses a second task with the same request id",
-            "The restored copy accepted a duplicate request id",
-        );
-        // MCP project management (0020): a project's request id and the ledger's project outcome.
-        report.check(
-            query("SELECT entity_type FROM mcp_writes WHERE id = 'mcw_backuptest0003'", restored)[0]?.entity_type === "task_project" &&
-                refuses(
-                    "INSERT INTO task_projects (id, name, kind, created_by, updated_by, created_at, updated_at, client_id) VALUES ('tpj_backuptest0009', 'Copy', 'personal', 'x', 'x', 'x', 'x', 'req-backuptest-0003');",
-                ) &&
-                refuses("UPDATE mcp_writes SET entity_type = 'something_else' WHERE id = 'mcw_backuptest0003';"),
-            "Project request ids and project outcomes in the MCP ledger restore intact, with their rules",
-            "Project request ids or the MCP ledger's project outcomes were lost",
-        );
-        // Milestone 3 (0017): reviews, goals, routines, health and their rules.
-        report.check(
-            query("SELECT review_frequency, health_override FROM task_projects WHERE id = 'tpj_backuptest0002'", restored)[0]?.health_override === "on_track" &&
-                query("SELECT snapshot_json FROM task_project_reviews WHERE id = 'trv_backuptest0001'", restored)[0]?.snapshot_json?.includes(
-                    '"completedSince":1',
-                ) &&
-                query("SELECT task_id FROM task_review_actions", restored)[0]?.task_id === "tsk_backuptest0001",
-            "Project health, review history and next actions restore intact",
-            "Health, reviews or next actions were lost",
-        );
-        report.check(
-            query("SELECT current_value, target_value FROM task_goals WHERE id = 'tgl_backuptest0001'", restored)[0]?.current_value === 1250 &&
-                query("SELECT COUNT(*) AS n FROM task_goal_links WHERE goal_id = 'tgl_backuptest0001'", restored)[0]?.n === 2 &&
-                query("SELECT note FROM task_goal_progress WHERE goal_id = 'tgl_backuptest0001'", restored)[0]?.note === "Tax refund",
-            "Goal progress, links, milestones and history restore intact",
-            "Goal data was lost",
-        );
-        report.check(
-            query(
-                "SELECT group_concat(email, ',') AS people FROM (SELECT email FROM task_routine_participants WHERE routine_id = 'trt_backuptest0001' ORDER BY position)",
-                restored,
-            )[0]?.people === "owner@example.com,partner@example.com" &&
-                query("SELECT rotation FROM task_routines WHERE id = 'trt_backuptest0001'", restored)[0]?.rotation === "turns" &&
-                query("SELECT COUNT(*) AS n FROM task_completions WHERE task_id = 'tsk_backuptest0003'", restored)[0]?.n === 1,
-            "Routines, their turn order and completion history restore intact",
-            "Routine data was lost",
-        );
-        report.check(
-            refuses(
-                "INSERT INTO task_routines (id, task_id, created_by, created_at, updated_at) VALUES ('trt_backuptest0009', 'tsk_backuptest0003', 'x', 'x', 'x');",
-            ) &&
-                refuses(
-                    "INSERT INTO task_project_reviews (id, project_id, status, started_by, started_at, updated_at) VALUES ('trv_a', 'tpj_backuptest0002', 'draft', 'x', 'x', 'x'), ('trv_b', 'tpj_backuptest0002', 'draft', 'x', 'x', 'x');",
-                ) &&
-                refuses(
-                    "INSERT INTO task_goal_links (id, goal_id, project_id, added_by, added_at) VALUES ('tgk_x', 'tgl_backuptest0001', 'tpj_backuptest0001', 'x', 'x');",
-                ),
-            "The restored copy still allows one routine per task, one draft review per project, and no personal projects in shared goals",
-            "A Milestone 3 rule was lost in the restored copy",
-        );
-        // Home & Assets (0026): every kind of row, and the rules that keep sharing, schedules and files safe.
-        report.check(
-            query("SELECT visibility FROM assets WHERE id = 'ast_backuptest0001'", restored)[0]?.visibility === "household" &&
-                query("SELECT can_maintain, can_financial FROM asset_shares WHERE asset_id = 'ast_backuptest0001'", restored)[0]?.can_financial === 0 &&
-                query("SELECT specs FROM asset_vehicles WHERE asset_id = 'ast_backuptest0001'", restored)[0]?.specs === '{"brakeSystem":"Electric"}' &&
-                query("SELECT verified_by FROM asset_policies WHERE id = 'aip_backuptest0001'", restored)[0]?.verified_by === "owner@example.com" &&
-                query("SELECT r2_key FROM asset_files WHERE id = 'afl_backuptest0001'", restored)[0]?.r2_key === "private/assets/afl_backuptest0001/abc" &&
-                query("SELECT task_id FROM asset_task_links WHERE id = 'atl_backuptest0001'", restored)[0]?.task_id === "tsk_backuptest0001",
-            "Home & Assets records, sharing, vehicles, policies, files and task links restore intact",
-            "Home & Assets data was lost",
-        );
-        report.check(
-            refuses(
-                "INSERT INTO asset_maintenance (id, asset_id, schedule_id, title, status, created_by, created_at, updated_by, updated_at) VALUES ('amr_backuptest0009', 'ast_backuptest0001', 'ams_backuptest0001', 'Again', 'open', 'x', 'x', 'x', 'x');",
-            ) &&
-                refuses(
-                    "INSERT INTO asset_shares (asset_id, email, can_edit, can_maintain, added_by, added_at) VALUES ('ast_backuptest0001', 'a@example.com', 1, 0, 'x', 'x');",
-                ) &&
-                refuses("UPDATE asset_files SET r2_key = 'wedding/x' WHERE id = 'afl_backuptest0001';"),
-            "The restored copy still allows one open record per schedule, and keeps sharing and file rules",
-            "A Home & Assets rule was lost in the restored copy",
-        );
-        // Household Finance (0031): accounts, imports, the ledger, transfers and reconciliations, and
-        // the rules that stop a transaction being imported twice or a transfer being categorised.
-        report.check(
-            query("SELECT visibility FROM finance_accounts WHERE id = 'fac_backuptest0002'", restored)[0]?.visibility === "private" &&
-                query("SELECT COUNT(*) AS n FROM finance_transactions WHERE transfer_id = 'ftr_backuptest0001'", restored)[0]?.n === 2 &&
-                query("SELECT category_id FROM finance_transactions WHERE id = 'ftx_backuptest0001'", restored)[0]?.category_id === "groceries" &&
-                query("SELECT rows_imported FROM finance_imports WHERE id = 'fim_backuptest0001'", restored)[0]?.rows_imported === 2 &&
-                query("SELECT COUNT(*) AS n FROM finance_import_rows WHERE import_id = 'fim_backuptest0001'", restored)[0]?.n === 2 &&
-                query("SELECT difference_cents FROM finance_reconciliations WHERE id = 'frc_backuptest0001'", restored)[0]?.difference_cents === 0 &&
-                query("SELECT SUM(amount_cents) AS s FROM finance_transactions WHERE account_id = 'fac_backuptest0001' AND deleted_at IS NULL", restored)[0]?.s === -8935,
-            "Household Finance accounts, imports, transactions, transfers and reconciliations restore intact, and balances add up",
-            "Household Finance data was lost",
-        );
-        report.check(
-            refuses(
-                `INSERT INTO finance_transactions (id, account_id, posted_on, amount_cents, description, source, import_id, fingerprint, created_by, created_at, updated_by, updated_at) VALUES ('ftx_backuptest0009', 'fac_backuptest0001', '2026-09-02', -8435, 'WOOLWORTHS', 'import', 'fim_backuptest0001', '${"c".repeat(64)}', 'x', 'x', 'x', 'x');`,
-            ) && refuses("UPDATE finance_transactions SET category_id = 'groceries', category_source = 'manual' WHERE id = 'ftx_backuptest0002';"),
-            "The restored copy still refuses a duplicate transaction and a categorised transfer",
-            "A Household Finance rule was lost in the restored copy",
-        );
+        const gone = DROPPED.filter((t) => query(`SELECT name FROM sqlite_master WHERE name = '${t}'`, restored).length > 0);
+        report.check(gone.length === 0, "No dropped table comes back from the backup", `Back again: ${gone.join(", ")}`);
     }
 } catch (error) {
     report.fail(error.message);
