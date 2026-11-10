@@ -61,3 +61,16 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - Platform suite: **53 files, 821 tests passing**. Platform tsc clean; root `tsc -b` clean.
 - **Known issue (not fixed, on purpose):** under Payload's stricter app tsconfig, `src/portal/pages/message-page.tsx:149` gives TS2339 (the type of `.catch(() => null)`). The root build is clean, the runtime is unaffected, and existing working code isn't changed for it.
 - **Test harness:** a test-only `crypto.randomUUID` shim for the http host mapping, because headless Chromium ignores the insecure-origin flag. Production is https.
+
+## 20:25Z: cron CPU confirmed; CPU for unrelated routes measured on Cloudflare
+
+- **Staging cron after the due-jobs gate** (20:15Z, `wrangler tail`): CPU **28 ms** (was 2,915 ms), wall 3.9 s (cold isolate, D1). Outcome ok, 0 exceptions, no Payload log lines, so Payload wasn't started.
+- **CPU per route** (`scripts/measure-cpu.sh` and `scripts/cpu-report.mjs`): Workers analytics `cpuTimeP50`/`P99`, one route type per UTC minute, 40 requests each, today's Worker alone (`entry-legacy-baseline.ts`) vs combined. Both ran in the private remote session on staging data.
+
+  | Route | Today p50 / p99 | Combined p50 / p99 |
+  |---|---|---|
+  | Blog home | 2.4 / 6.8 ms | 2.4 / 7.9 ms |
+  | Wedding guests API | 2.5 / 4.4 ms | 2.5 / 4.3 ms |
+  | Portal guests page | 5.4 / 20.9 ms | 5.1 / 12.5 ms |
+
+  **No measurable CPU cost on routes that don't use Payload.** The only extra cost is startup (199 vs 112 ms, once per isolate). Raw output: `poc/payload/.poc-results/cpu-report.txt`.
