@@ -28,3 +28,24 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - Fix: `scripts/deploy-staging.mjs` is now the only deploy path. It refuses if any env file sets `CLOUDFLARE_*`, `CF_*`, `WRANGLER_*` or `OPEN_NEXT_*`, runs `check-staging.mjs`, deploys with `OPEN_NEXT_DEPLOY=true` and a clean environment, then runs `check-staging.mjs --online`.
   - The template's `deploy`, `deploy:app`, `deploy:database` and `preview` scripts were removed; `staging:check` and `staging:deploy` were added.
 - **Staging redeployed** through the new script; both checks passed.
+
+## 20:06Z: unattended resumption supervisor (`poc/payload/supervisor/`)
+
+- **How usage limits show up here.** Claude Code writes an assistant record with `"error":"rate_limit"` and text like "You've hit your session limit · resets 12pm (Australia/Sydney)" to the session transcript (`~/.claude/projects/<repo>/<session>.jsonl`). That notice is the authoritative reset time. The session itself doesn't resume.
+- **Mechanism (decision: the simplest supported option).**
+  - A user-level launchd agent (`au.id.daly.payload-autonomy`, every 10 minutes) runs `supervisor.mjs`.
+  - It launches only when all of these hold: no STOP file; before the deadline; fewer than 4 launches; no other `payload-autonomy` session running; the followed transcript quiet for 10 minutes and ending in a limit notice; and the reset time (+3 min) has passed. If the notice can't be read, it backs off 30 min, 1 h, 2 h, then 3 h.
+  - It then starts one fresh `claude -p` session (auto permission mode, no MCP servers, deny rules in `headless-settings.json`, risky tools disallowed) with `resume-prompt.md`, which reads `docs/PAYLOAD-NEXT.md`.
+  - It then follows the new session.
+  - It logs decisions and outcomes only (`~/.payload-autonomy/supervisor.log`), never session content or credentials.
+- **Tests.**
+  - `node --test poc/payload/supervisor/supervisor.test.mjs`: 5 passing (parsing, Sydney DST, backoff, active, idle, deadline, cap, STOP).
+  - The parser works on a real 24 Oct limit notice (resets 01:00Z).
+  - Headless smoke test: `success`.
+  - The deny rule blocked `git push --dry-run` headlessly (`permission_denials`).
+  - Dry-run launch decision works through the file and lock handling.
+  - Installed under launchd; first tick logged "wait: session active".
+- **Not tested:** a real usage-limit event (one can't be triggered on purpose).
+- **Known limits.**
+  - Deny rules match command prefixes; a command wrapped in `node -e` wouldn't match. Auto mode's classifier and the prompt's boundaries are the other layers.
+  - When the owner returns, run `poc/payload/supervisor/install.sh uninstall` (or `touch ~/.payload-autonomy/STOP`), so the supervisor and the owner's own session never run at the same time.
