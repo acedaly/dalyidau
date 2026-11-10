@@ -116,3 +116,15 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - browser **39/39**, including Payload's Pages and Media screens with no browser errors (the admin doesn't need the blocked routes);
   - platform suite **53 files / 826 tests**, with 5 new tests (blocked routes, stripping in and out, cron unaffected);
   - platform tsc clean.
+
+## 20:50Z: staging redeploy, cutover and rollback rehearsal; scope review
+
+- **Staging redeployed** with the security fixes, through `deploy-staging.mjs` (24 s, checks passed before and after).
+- **Simple rollback rehearsal:** `wrangler rollback <previous> --env staging -y` took **3 s**, and rolling forward again took 3 s. `check-staging --online` passed after each.
+- **Full cutover rehearsal** (`scripts/rehearse-cutover.mjs`, staging only): today's Worker (`--baseline`, a new deploy-script option) → combined Worker (cutover, 18 s) → `wrangler rollback` to today's (**3 s**) → roll forward (3 s).
+  - The 12 wedding tables (row counts plus a SHA-256 of every row) were **identical at all 5 steps** (153 invented guests, 207 audit rows).
+  - Startup as reported by Cloudflare: today's 124 ms, combined 237 ms. Other deploys today gave 146 and 147 ms, so there's variance.
+  - Report: `.poc-results/rehearsal-*.json`.
+- **Cloudflare API limit:** one rehearsal run hit API error **7429 (too many requests)**, because fingerprinting made 12 calls per step. I waited instead of retrying fast, and batched each fingerprint into a single call. One deploy also failed transiently and succeeded when re-run; the rehearsal now retries a deploy once.
+- **Scope review:** `docs/PAYLOAD-SCOPE-REVIEW.md`. The essential work is now 5–8 working days, mostly approvals, a CI pipeline and the cutover. Package extraction and wedding data migration aren't needed. An honest note on value is included.
+- Confirmed from `docs/PORTAL.md`: production Access covers only `daly.id.au/portal` and `/api/portal`. Payload's paths would need adding to that application (an approval item).
