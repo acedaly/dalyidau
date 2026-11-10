@@ -75,14 +75,14 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 
   **No measurable CPU cost on routes that don't use Payload.** The only extra cost is startup (199 vs 112 ms, once per isolate). Raw output: `poc/payload/.poc-results/cpu-report.txt`.
 
-## 20:45Z: PR #48 compatibility (not merged; nothing pushed)
+## 20:30Z: PR #48 compatibility (not merged; nothing pushed)
 
 - **PR #48** (`retire-portal`, head `2c7c2a0`) is OPEN, with no review. It removes Calendar, Today, Intelligence, the Centre and Amplenote plus their tables, and drops the old staging env. It touches `worker/index.ts`, `env.ts` and `portal/api.ts`/`pages.ts`, but not the wedding routes Payload uses.
 - **Rehearsal** in a throwaway worktree: cherry-picked all 7 Payload commits onto `origin/retire-portal`. **No conflicts.** After building the client: **34 files, 476 tests passing**, including every platform, isolation, cron, staging and wedding-route test. The worktree was removed afterwards.
 - **Bundle with PR #48:** today's Worker is 606 KiB gzip (main: 845); combined 4,691 KiB (main: 4,763). Payload dominates.
 - **Decision:** no compatibility changes are needed. Once the owner merges #48, `git rebase origin/main` on this branch (expected to be clean), re-run the suite and redeploy staging. The wedding view's own route list means #48's deletion of the other apps' pages has no effect on it.
 
-## 21:00Z: D1 overload and production workers.dev investigations
+## 20:32Z: D1 overload and production workers.dev investigations
 
 - **D1 overload (10 Nov ~19:31Z).**
   - D1 analytics per minute, all databases: production's own cron reads **~365,000 rows every 15 minutes** (19:15, 19:30, 19:45). At 19:30–19:31 that coincided with staging's first Payload migrations (stg-content: 65 writes) and staging seeding.
@@ -95,7 +95,7 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - Traffic to it can't be measured with my access.
   - **Prepared, not deployed:** branch `chore/production-workers-dev-off` (`9c739ed`, local) sets `workers_dev: false` and `preview_urls: false`, updates DEPLOYMENT.md, and adds `check-config.mjs` checks (production only). The check passes on the new config. Merging and deploying it is a production change that needs the owner.
 
-## 21:30Z: authorisation of Payload's own API (security fixes)
+## 20:39Z: authorisation of Payload's own API (security fixes)
 
 - **New:** `e2e-platform/authz.mjs`, run against the real Payload in `wrangler dev --local --env-file .dev.vars.authz` (SITE_URL = localhost, signed test tokens, no dev identity). It covers 20 endpoints × 6 identities (owner, admin, editor, viewer, signed-in stranger, none).
 - **Found:**
