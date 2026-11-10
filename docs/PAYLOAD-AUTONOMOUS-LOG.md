@@ -94,3 +94,25 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - The code treats workers.dev hosts as `noindex` and requires an Access token for portal/API there (`test/access.test.ts`). `docs/DEPLOYMENT.md` used the address as a manual smoke check.
   - Traffic to it can't be measured with my access.
   - **Prepared, not deployed:** branch `chore/production-workers-dev-off` (`9c739ed`, local) sets `workers_dev: false` and `preview_urls: false`, updates DEPLOYMENT.md, and adds `check-config.mjs` checks (production only). The check passes on the new config. Merging and deploying it is a production change that needs the owner.
+
+## 21:30Z: authorisation of Payload's own API (security fixes)
+
+- **New:** `e2e-platform/authz.mjs`, run against the real Payload in `wrangler dev --local --env-file .dev.vars.authz` (SITE_URL = localhost, signed test tokens, no dev identity). It covers 20 endpoints × 6 identities (owner, admin, editor, viewer, signed-in stranger, none).
+- **Found:**
+  1. `POST /api/users/refresh-token` returned 200 and **set a `payload-token` session cookie** for any portal user. Payload would then honour that cookie as its own identity. On a shared browser, person B (verified by Access) could carry person A's Payload cookie.
+  2. **Media create/update/delete was open to every portal role**, viewer included (Payload's default is "any user").
+  3. `payload-locked-documents` was readable by editors and viewers.
+
+  (`payload-migrations` answers 501 to everyone, so it wasn't exposed.)
+- **Fixed (`platform/compose.ts`, Worker-level):**
+  - **`withoutPayloadCredentials`:** strips the `payload-token` cookie and `Authorization` header from every request to Payload, so identity comes only from Access.
+  - **`withoutPayloadSession`:** drops any `payload-token` Set-Cookie on the way out.
+  - **`PAYLOAD_BLOCKED`:** answers 404 for Payload's sign-in routes (login, logout, refresh-token, forgot/reset-password, first-register, unlock, verify, init) and its internal collections (jobs, including `/run`; migrations; kv; locked-documents) on the public path, for everyone. The cron reaches the job runner directly and is unaffected.
+
+  `Media` writes now use `contentEditor` (owner or admin), the same rule as Pages.
+- **Decision:** enforce at the Worker rather than in Payload's config. It's one place, it covers future collections, and it doesn't depend on Payload internals.
+- **Tests:**
+  - authz matrix **121/121** on the real Payload;
+  - browser **39/39**, including Payload's Pages and Media screens with no browser errors (the admin doesn't need the blocked routes);
+  - platform suite **53 files / 826 tests**, with 5 new tests (blocked routes, stripping in and out, cron unaffected);
+  - platform tsc clean.

@@ -92,6 +92,14 @@ const clicked = await page.evaluate(() => {
 await page.waitForURL(/\/admin\/wedding\//, { timeout: 10000 }).catch(() => {});
 check("Wedding links inside a screen open the Payload view, not the old portal", clicked !== null && new URL(page.url()).pathname === clicked.replace(/^\/portal\//, "/admin/").replace(/[?#].*$/, ""), `${clicked} → ${new URL(page.url()).pathname}`);
 
+// 2d. Payload's own collection screens still work with its sign-in routes and internal collections blocked.
+for (const screen of ["collections/pages", "collections/pages/create", "collections/media"]) {
+    const response = await page.goto(`http://daly.id.au/admin/${screen}`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    const body = await page.evaluate(() => document.body.innerText);
+    check(`Payload's /admin/${screen} works for the owner`, response.status() === 200 && !/session has expired|log in|login/i.test(body), `HTTP ${response.status()}`);
+}
+
 // 3. Isolation both ways.
 await page.goto("http://daly.id.au/admin/wedding/households", { waitUntil: "networkidle" });
 await page.waitForFunction(() => document.querySelector('[data-testid="wedding-screen"]')?.shadowRoot?.textContent?.includes("The Fictionals"));

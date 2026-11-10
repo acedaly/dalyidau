@@ -6,10 +6,17 @@ import { authenticate } from "../../../worker/portal/auth";
 import { createPlatformWorker, type PlatformEnv } from "../platform/compose";
 
 export const payloadCalls: string[] = [];
+/** The credentials each request carried when it reached Payload. */
+export const payloadSeen: Array<{ cookie: string | null; authorization: string | null }> = [];
 export const payloadStub = {
     async fetch(request: Request) {
         payloadCalls.push(`${new URL(request.url).host}${new URL(request.url).pathname}`);
-        return new Response("payload", { status: 200, headers: { "X-Poc-Target": "payload" } });
+        payloadSeen.push({ cookie: request.headers.get("Cookie"), authorization: request.headers.get("Authorization") });
+        // Like Payload after a sign-in: tries to set its own session cookie next to an unrelated one.
+        const headers = new Headers({ "X-Poc-Target": "payload" });
+        headers.append("Set-Cookie", "payload-token=eyJ.stub.jwt; Path=/; HttpOnly");
+        headers.append("Set-Cookie", "payload-theme=dark; Path=/");
+        return new Response("payload", { status: 200, headers });
     },
 };
 

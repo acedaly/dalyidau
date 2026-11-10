@@ -75,6 +75,43 @@ export type Authenticate<E> = (request: Request, env: E) => Promise<{ ok: true }
 /** Payload's admin and API answer nobody without a portal identity, whatever Payload itself would render. */
 const PAYLOAD_PRIVATE = (path: string) => path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/");
 
+/**
+ * Never reachable from outside, whoever asks:
+ * - Payload's own sign-in routes. Cloudflare Access is the only sign-in, and Payload must not mint its own session.
+ * - Payload's internal collections. The job runner is called only by `scheduled` below, straight into Payload.
+ */
+export const PAYLOAD_BLOCKED = /^\/api\/(?:users\/(?:login|logout|refresh-token|forgot-password|reset-password|first-register|unlock|verify|init)(?:\/|$)|payload-(?:jobs|migrations|kv|locked-documents)(?:\/|$))/;
+
+/**
+ * Identity comes only from the Access JWT, checked on every request. Payload's own credentials (its
+ * `payload-token` cookie, `Authorization: JWT …` or API-key headers) are removed on the way in, and any
+ * `payload-token` cookie Payload tries to set is dropped on the way out. That way, a cookie left in a shared
+ * browser can never make Payload act as someone other than the person Access just verified.
+ */
+export function withoutPayloadCredentials(request: Request): Request {
+    const headers = new Headers(request.headers);
+    headers.delete("Authorization");
+    const cookie = headers.get("Cookie");
+    if (cookie !== null) {
+        const kept = cookie
+            .split(";")
+            .map((part) => part.trim())
+            .filter((part) => part && !/^payload-token=/i.test(part));
+        if (kept.length) headers.set("Cookie", kept.join("; "));
+        else headers.delete("Cookie");
+    }
+    return new Request(request, { headers });
+}
+
+function withoutPayloadSession(response: Response): Response {
+    const cookies = response.headers.getSetCookie?.() ?? [];
+    if (!cookies.some((c) => /^payload-token=/i.test(c))) return response;
+    const out = new Response(response.body, response);
+    out.headers.delete("Set-Cookie");
+    for (const c of cookies) if (!/^payload-token=/i.test(c)) out.headers.append("Set-Cookie", c);
+    return out;
+}
+
 export function createPlatformWorker<E extends PlatformEnv>(apps: {
     legacy: FetchWorker<E> & ScheduledWorker<E>;
     payload: FetchWorker<E>;
@@ -99,6 +136,7 @@ export function createPlatformWorker<E extends PlatformEnv>(apps: {
             }
 
             if (url.pathname.startsWith("/api/platform/")) return handleBridge(request, env as never, url);
+            if (target === "payload" && PAYLOAD_BLOCKED.test(url.pathname)) return NOT_FOUND();
             if (target === "payload" && PAYLOAD_PRIVATE(url.pathname)) {
                 const auth = await apps.authenticate(request, env);
                 if (!auth.ok) {
@@ -108,7 +146,10 @@ export function createPlatformWorker<E extends PlatformEnv>(apps: {
                     });
                 }
             }
-            if (target === "payload") return harden(await apps.payload.fetch(request, env, ctx), url.pathname.startsWith("/admin") || url.pathname.startsWith("/api/"));
+            if (target === "payload") {
+                const response = await apps.payload.fetch(withoutPayloadCredentials(request), env, ctx);
+                return harden(withoutPayloadSession(response), url.pathname.startsWith("/admin") || url.pathname.startsWith("/api/"));
+            }
             return apps.legacy.fetch(request, env, ctx);
         },
 

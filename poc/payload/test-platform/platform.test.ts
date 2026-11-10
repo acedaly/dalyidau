@@ -6,11 +6,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { LEGACY_API_PREFIXES, PAYLOAD_API_SLUGS, routeRequest } from "../platform/hosts";
 import { payloadHasDueJobs } from "../platform/compose";
 import { OWNER, accessToken, apiCall, call, db, portalEnv, resetPortal } from "../../../test/portal-helpers";
-import worker, { payloadCalls } from "./platform-under-test";
+import worker, { payloadCalls, payloadSeen } from "./platform-under-test";
 
 beforeEach(async () => {
     await resetPortal();
     payloadCalls.length = 0;
+    payloadSeen.length = 0;
 });
 
 const GUEST_HOSTS = ["wedding.daly.id.au", "weddingplanner.daly.id.au"];
@@ -116,7 +117,7 @@ describe("experiment 3: Payload's admin and API fail closed without a portal ide
             ["no portal role", await accessToken({ email: "stranger@example.com" }), 403],
         ];
         for (const [label, token, status] of tokens) {
-            for (const path of ["/admin", "/admin/wedding/guests", "/api/users/me", "/api/pages", "/api/graphql", "/api/payload-jobs/run"]) {
+            for (const path of ["/admin", "/admin/wedding/guests", "/api/users/me", "/api/pages", "/api/graphql"]) {
                 const response = await call(path, { token });
                 // GraphQL is switched off: the existing Worker's own 404.
                 expect(response.status, `${label} ${path}`).toBe(path === "/api/graphql" ? 404 : status);
@@ -229,7 +230,59 @@ describe("experiment 5: scheduled work runs through the combined Worker", () => 
         await cron({ ...(await portalEnv()), D1: db() });
         expect(payloadCalls).toEqual([]);
         // And the same route from outside never reaches Payload without passing the gate.
-        expect((await call("/api/payload-jobs/run", { token: null })).status).toBe(401);
+        expect((await call("/api/payload-jobs/run", { token: null })).status).toBe(404);
         expect(payloadCalls).toEqual([]);
+    });
+});
+
+describe("identity comes only from Cloudflare Access, never from Payload's own session", () => {
+    it("refuses Payload's sign-in routes and internal collections to everyone, owner included", async () => {
+        const owner = await accessToken();
+        for (const path of [
+            "/api/users/login", "/api/users/logout", "/api/users/refresh-token", "/api/users/forgot-password", "/api/users/reset-password",
+            "/api/users/first-register", "/api/users/unlock", "/api/users/verify/x", "/api/users/init",
+            "/api/payload-jobs", "/api/payload-jobs/run", "/api/payload-jobs/1", "/api/payload-migrations", "/api/payload-kv", "/api/payload-locked-documents",
+        ]) {
+            for (const method of ["GET", "POST"]) {
+                const response = await call(path, { method, token: owner, headers: { Origin: "https://daly.id.au" } });
+                expect(response.status, `${method} ${path}`).toBe(404);
+            }
+        }
+        expect(payloadCalls).toEqual([]);
+    });
+
+    it("still lets the signed-in person reach Payload's ordinary API", async () => {
+        expect((await call("/api/users/me", { token: await accessToken() })).status).toBe(200);
+        expect((await call("/api/pages", { token: await accessToken() })).status).toBe(200);
+        expect(payloadCalls).toEqual(["daly.id.au/api/users/me", "daly.id.au/api/pages"]);
+    });
+
+    it("strips Payload's cookie and Authorization header on the way in, keeping other cookies", async () => {
+        await call("/admin", {
+            token: await accessToken(),
+            headers: { Cookie: "payload-token=someone-elses; payload-theme=dark; CF_Authorization=x", Authorization: "JWT someone-elses" },
+        });
+        await call("/admin", { token: await accessToken(), headers: { Cookie: "payload-token=only" } });
+        expect(payloadSeen).toEqual([
+            { cookie: "payload-theme=dark; CF_Authorization=x", authorization: null },
+            { cookie: null, authorization: null },
+        ]);
+    });
+
+    it("drops any payload-token cookie Payload tries to set, keeping its other cookies", async () => {
+        const response = await call("/admin", { token: await accessToken() });
+        const cookies = response.headers.getSetCookie();
+        expect(cookies.some((c) => /^payload-token=/.test(c))).toBe(false);
+        expect(cookies).toContain("payload-theme=dark; Path=/");
+    });
+
+    it("the cron still reaches Payload's job runner directly, with its secret", async () => {
+        await db().prepare("DROP TABLE IF EXISTS payload_jobs").run();
+        await db().prepare("CREATE TABLE payload_jobs (id integer PRIMARY KEY, completed_at text, has_error integer DEFAULT 0, processing integer DEFAULT 0, wait_until text)").run();
+        await db().prepare("INSERT INTO payload_jobs (wait_until) VALUES (NULL)").run();
+        const ctx = createExecutionContext();
+        await worker.scheduled({ cron: "*/15 * * * *", scheduledTime: Date.now(), noRetry() {} } as ScheduledController, { ...(await portalEnv({ PAYLOAD_JOBS_SECRET: "jobs-secret-0123456789abcdef" } as never)), D1: db() } as never, ctx);
+        await waitOnExecutionContext(ctx);
+        expect(payloadSeen).toEqual([{ cookie: null, authorization: "Bearer jobs-secret-0123456789abcdef" }]);
     });
 });
