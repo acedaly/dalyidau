@@ -81,3 +81,16 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **Rehearsal** in a throwaway worktree: cherry-picked all 7 Payload commits onto `origin/retire-portal`. **No conflicts.** After building the client: **34 files, 476 tests passing**, including every platform, isolation, cron, staging and wedding-route test. The worktree was removed afterwards.
 - **Bundle with PR #48:** today's Worker is 606 KiB gzip (main: 845); combined 4,691 KiB (main: 4,763). Payload dominates.
 - **Decision:** no compatibility changes are needed. Once the owner merges #48, `git rebase origin/main` on this branch (expected to be clean), re-run the suite and redeploy staging. The wedding view's own route list means #48's deletion of the other apps' pages has no effect on it.
+
+## 21:00Z: D1 overload and production workers.dev investigations
+
+- **D1 overload (10 Nov ~19:31Z).**
+  - D1 analytics per minute, all databases: production's own cron reads **~365,000 rows every 15 minutes** (19:15, 19:30, 19:45). At 19:30–19:31 that coincided with staging's first Payload migrations (stg-content: 65 writes) and staging seeding.
+  - `wrangler d1 insights dalyidau-production` (query shapes only): the top query is the Intelligence Centre's housekeeping `DELETE FROM ic_series WHERE record_id NOT IN (SELECT id FROM ic_records)`, at **26.5M rows read per day over 78 runs**. The Centre is also updating ~110k `ic_records` rows a day, so it is actively ingesting in production.
+  - **Conclusion:** the account's D1 load is dominated by production's Centre cron; staging was a small spike on top. PR #48 (which retires the Centre) would remove it. I can't confirm effects in production logs (Workers Logs returns 403 for Wrangler's sign-in).
+  - **Recommendations for the owner:** check whether the Centre's sources should still be on; merging #48 ends this. Until then, staging migrations should avoid :00/:15/:30/:45.
+- **Production workers.dev.**
+  - No runtime dependency. There are no references to `dalyidau.<account>.workers.dev` in this repo, the other `~/Projects` repos or the workflows; only daly-finance's own workers.dev appears elsewhere. The MCP gateway binds by service.
+  - The code treats workers.dev hosts as `noindex` and requires an Access token for portal/API there (`test/access.test.ts`). `docs/DEPLOYMENT.md` used the address as a manual smoke check.
+  - Traffic to it can't be measured with my access.
+  - **Prepared, not deployed:** branch `chore/production-workers-dev-off` (`9c739ed`, local) sets `workers_dev: false` and `preview_urls: false`, updates DEPLOYMENT.md, and adds `check-config.mjs` checks (production only). The check passes on the new config. Merging and deploying it is a production change that needs the owner.
