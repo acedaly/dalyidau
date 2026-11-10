@@ -1,0 +1,48 @@
+--- payload/src/payload.config.ts	2026-11-10 21:56:37
++++ payload-v4/src/payload.config.ts	2026-11-10 22:00:25
+@@ -108,7 +108,7 @@
+     prodMigrations: migrations,
+   }),
+   logger: isProduction ? cloudflareLogger : undefined,
+-  plugins: [
++  storage: [
+     r2Storage({
+       bucket: cloudflare.env.R2,
+       collections: { media: true },
+--- payload/src/views/wedding-view.tsx	2026-11-10 21:22:56
++++ payload-v4/src/views/wedding-view.tsx	2026-11-10 22:00:25
+@@ -2,8 +2,8 @@
+ // Payload's own chrome (navigation, account menu) surrounds it; the screen itself is the portal's
+ // component, unchanged, fed by the portal's own page loader through /api/platform/wedding-page.
+ import type { AdminViewServerProps } from 'payload'
+-import { DefaultTemplate } from '@payloadcms/next/templates'
+ import { Gutter } from '@payloadcms/ui'
++import { DefaultTemplate } from '@payloadcms/ui/rsc'
+ import { notFound } from 'next/navigation'
+ 
+ import { WeddingScreen } from './wedding-screen'
+--- payload/package.json	2026-11-10 21:38:16
++++ payload-v4/package.json	2026-11-10 21:59:21
+@@ -29,16 +29,16 @@
+   },
+   "dependencies": {
+     "@opennextjs/cloudflare": "^1.20.16",
+-    "@payloadcms/db-d1-sqlite": "3.93.0",
+-    "@payloadcms/next": "3.93.0",
+-    "@payloadcms/richtext-lexical": "3.93.0",
+-    "@payloadcms/storage-r2": "3.93.0",
+-    "@payloadcms/ui": "3.93.0",
++    "@payloadcms/db-d1-sqlite": "^4.0.0-beta.7",
++    "@payloadcms/next": "^4.0.0-beta.7",
++    "@payloadcms/richtext-lexical": "^4.0.0-beta.7",
++    "@payloadcms/storage-r2": "^4.0.0-beta.7",
++    "@payloadcms/ui": "^4.0.0-beta.7",
+     "cross-env": "^7.0.3",
+     "dotenv": "16.4.7",
+     "graphql": "^16.8.1",
+     "next": "^16.4.6",
+-    "payload": "3.93.0",
++    "payload": "^4.0.0-beta.7",
+     "react": "19.2.9",
+     "react-dom": "19.2.9"
+   },

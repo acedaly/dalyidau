@@ -1,0 +1,11 @@
+{
+    // The combined Worker entry (platform/) and the existing Worker it imports, with the existing
+    // compiler settings. Wrangler resolves `@/` through this; `npm run poc:typecheck` checks it.
+    "extends": "../../tsconfig.worker.json",
+    "compilerOptions": {
+        "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.platform.tsbuildinfo",
+        "types": ["@cloudflare/workers-types"],
+        "paths": { "@/*": ["../../src/*"] }
+    },
+    "include": ["platform", "../../worker", "../../src/entry-server.tsx", "../../src/types"]
+}

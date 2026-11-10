@@ -1,0 +1,49 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    // Phase 0 proof of concept only: local resources, no routes, no workers.dev, nothing remote.
+    // Payload (through OpenNext) and the existing daly.id.au Worker in one script (platform/entry.ts).
+    "name": "dalyidau-payload-poc",
+    "main": "platform/entry.ts",
+    "tsconfig": "tsconfig.platform.json",
+    "compatibility_date": "2026-07-30",
+    "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+    "workers_dev": false,
+    "preview_urls": false,
+    "routes": [],
+    "minify": true,
+    "define": { "process.env.NODE_ENV": "\"production\"" },
+    "assets": {
+        // OpenNext's static files plus the existing site's build (merged by scripts/merge-assets.mjs).
+        "directory": ".open-next/assets",
+        "binding": "ASSETS",
+        // The Worker decides first for every request, so hostname rules apply to static files too.
+        "run_worker_first": true,
+        "html_handling": "none",
+        "not_found_handling": "none",
+    },
+    "d1_databases": [
+        // Payload's own content database.
+        { "binding": "D1", "database_name": "payload-poc-content", "database_id": "00000000-0000-4000-8000-00000000c0de" },
+        // The wedding (existing portal) database, with the existing migrations. Invented data only.
+        { "binding": "DB", "database_name": "payload-poc-wedding", "database_id": "00000000-0000-4000-8000-0000000000db", "migrations_dir": "../../migrations" },
+    ],
+    "r2_buckets": [
+        { "binding": "R2", "bucket_name": "payload-poc-media" },
+        { "binding": "MEDIA", "bucket_name": "payload-poc-wedding-media" },
+    ],
+    "triggers": { "crons": ["*/15 * * * *"] },
+    "vars": {
+        "ENVIRONMENT": "development",
+        "SITE_URL": "https://daly.id.au",
+        "WEDDING_URL": "https://wedding.daly.id.au",
+        "PLANNER_URL": "https://weddingplanner.daly.id.au",
+        "CAPACITIES_API_BASE": "https://capacities.invalid",
+        "CAPACITIES_STRUCTURE_NAME": "Blog Post",
+        "SYNC_MAX_REQUESTS": "0",
+        "SYNC_REQUEST_SPACING_MS": "0",
+        "IMAGE_TRANSFORMS": "off",
+        "EMAIL_DELIVERY": "log",
+        "EMAIL_FROM": "\"Test Couple\" <wedding@example.test>",
+        "SMS_DELIVERY": "log",
+    },
+}
