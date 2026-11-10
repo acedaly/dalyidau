@@ -9,6 +9,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { unstable_readConfig } from "wrangler";
+import { STAGING_HOST } from "./staging-access.mjs";
 
 const here = path.resolve(import.meta.dirname, "..");
 const repo = path.resolve(here, "../..");
@@ -49,7 +50,17 @@ check(staging.r2_buckets.every((b) => /^dalyidau-payload-staging-/.test(b.bucket
 // Nothing public.
 check(staging.workers_dev === false, "workers.dev is off", "workers.dev is on");
 check(staging.preview_urls === false, "preview URLs are off", "preview URLs are on");
-check((staging.routes ?? []).length === 0 && !staging.route, "no routes or custom domains", "routes or custom domains are set");
+// Access mode (needs the owner's approval to switch on): exactly one route, the staging host, as a custom
+// domain. deploy-staging.mjs then refuses to deploy until staging-access.mjs verify confirms Access covers it.
+const routes = staging.routes ?? [];
+export const accessMode = routes.length > 0;
+if (!accessMode) check(!staging.route, "no routes or custom domains", "routes or custom domains are set");
+else
+    check(
+        !staging.route && routes.length === 1 && routes[0].pattern === STAGING_HOST && routes[0].custom_domain === true,
+        `access mode: only ${STAGING_HOST} (custom domain); Access is verified before every deploy`,
+        `routes other than the single ${STAGING_HOST} custom domain are set`,
+    );
 
 // Nothing else to reach: no service bindings, queues, AI, KV, Durable Object bindings to other scripts, mTLS, etc.
 const empty = (value) => value === undefined || (Array.isArray(value) ? value.length === 0 : Object.keys(value ?? {}).length === 0);
@@ -68,8 +79,15 @@ check(
 const v = staging.vars;
 check(v.ENVIRONMENT === "staging", 'ENVIRONMENT is "staging" (test keys and dev identities refused)', `ENVIRONMENT is "${v.ENVIRONMENT}"`);
 check(v.EMAIL_DELIVERY === "log" && v.SMS_DELIVERY === "log", "email and SMS are logged, never sent", "a delivery provider is configured");
-for (const key of ["SITE_URL", "WEDDING_URL", "PLANNER_URL"]) check(new URL(v[key]).hostname.endsWith(".invalid"), `${key} is an .invalid address`, `${key} is ${v[key]}`);
-check(/^(?:[^@,\s]+@example\.test,?)+$/.test(v.PORTAL_OWNER_EMAILS ?? ""), "owners are invented example.test addresses", "PORTAL_OWNER_EMAILS isn't invented");
+for (const key of ["WEDDING_URL", "PLANNER_URL"]) check(new URL(v[key]).hostname.endsWith(".invalid"), `${key} is an .invalid address`, `${key} is ${v[key]}`);
+if (!accessMode) {
+    check(new URL(v.SITE_URL).hostname.endsWith(".invalid"), "SITE_URL is an .invalid address", `SITE_URL is ${v.SITE_URL}`);
+    check(/^(?:[^@,\s]+@example\.test,?)+$/.test(v.PORTAL_OWNER_EMAILS ?? ""), "owners are invented example.test addresses", "PORTAL_OWNER_EMAILS isn't invented");
+} else {
+    check(v.SITE_URL === `https://${STAGING_HOST}`, `SITE_URL is https://${STAGING_HOST}`, `SITE_URL is ${v.SITE_URL}`);
+    // A real person signs in through Access, so their address is a secret, never in this public file.
+    check(!("PORTAL_OWNER_EMAILS" in v), "owner addresses are a secret, not in vars", "PORTAL_OWNER_EMAILS is in vars: make it a secret");
+}
 for (const key of ["ACCESS_DEV_EMAIL", "ACCESS_DEV_ALT_EMAIL", "ACCESS_TEST_JWKS", "ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "MCP_ACCESS_AUD"]) {
     check(!(key in v), `${key} is not set`, `${key} is set in vars`);
 }
@@ -78,7 +96,7 @@ check(/entry-staging\.ts$/.test(staging.main ?? ""), "entry is entry-staging.ts 
 
 if (process.argv.includes("--online")) {
     // Names only. Anything here that isn't on this list (a provider token, an Access secret) fails.
-    const ALLOWED = new Set(["PAYLOAD_SECRET", "PAYLOAD_JOBS_SECRET", "RSVP_LINK_SECRET", "COMMS_WEBHOOK_SECRET"]);
+    const ALLOWED = new Set(["PAYLOAD_SECRET", "PAYLOAD_JOBS_SECRET", "RSVP_LINK_SECRET", "COMMS_WEBHOOK_SECRET", ...(accessMode ? ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "PORTAL_OWNER_EMAILS"] : [])]);
     const out = execFileSync("npx", ["wrangler", "secret", "list", "--env", "staging", "--format", "json"], { cwd: here, encoding: "utf8" });
     const names = JSON.parse(out.slice(out.indexOf("["))).map((s) => s.name);
     const extra = names.filter((n) => !ALLOWED.has(n));

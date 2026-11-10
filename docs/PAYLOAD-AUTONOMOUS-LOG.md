@@ -128,3 +128,13 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **Cloudflare API limit:** one rehearsal run hit API error **7429 (too many requests)**, because fingerprinting made 12 calls per step. I waited instead of retrying fast, and batched each fingerprint into a single call. One deploy also failed transiently and succeeded when re-run; the rehearsal now retries a deploy once.
 - **Scope review:** `docs/PAYLOAD-SCOPE-REVIEW.md`. The essential work is now 5–8 working days, mostly approvals, a CI pipeline and the cutover. Package extraction and wedding data migration aren't needed. An honest note on value is included.
 - Confirmed from `docs/PORTAL.md`: production Access covers only `daly.id.au/portal` and `/api/portal`. Payload's paths would need adding to that application (an approval item).
+
+## 21:00Z: staging Access prepared (not enabled); cutover plan
+
+- **`scripts/staging-access.mjs`:**
+  - `verify` needs a read-only Access token from the owner (Wrangler's sign-in can't read Access: the account list is empty and the zone endpoint refuses it). It passes only if an Access application protects the whole `payload-staging.daly.id.au` host with an allow policy and no bypass or "Everyone"; the rule logic was sanity-tested.
+  - `probe` checks after attaching that every path redirects to Access or is refused.
+- **`check-staging.mjs` access mode:** a staging route is allowed only as the single `payload-staging.daly.id.au` custom domain, with SITE_URL set to match and owner addresses as secrets. It was tested on a temporary config edit, which flagged an owner list left in vars; the config was restored.
+- **`deploy-staging.mjs`** runs `verify` before uploading whenever a route is configured (no Access, no deploy), and `probe` after.
+- **Blocker (needs approval):** creating the Access application, the read-only token, and attaching the hostname. Nothing was created.
+- **`docs/PAYLOAD-CUTOVER-PLAN.md`:** staging Access test steps, production preparation, cutover runbook, rollback and evidence table. Every 🔒 step needs the owner.

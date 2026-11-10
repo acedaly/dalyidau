@@ -41,6 +41,9 @@ const run = (cmd, argv, env = process.env) => {
     }
 };
 run("node", ["scripts/check-staging.mjs"]);
+// A route means staging becomes reachable: only if Access already protects the whole host.
+const routed = execFileSync("node", ["-e", "import('wrangler').then(({unstable_readConfig:r})=>console.log((r({config:'wrangler.jsonc',env:'staging'}).routes??[]).length))"], { cwd: here, encoding: "utf8" }).trim().split("\n").at(-1) !== "0";
+if (routed) run("node", ["scripts/staging-access.mjs", "verify"]);
 
 // 3. Deploy, with only the environment Wrangler needs.
 const KEEP = ["PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "TERM", "NODE_OPTIONS", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "XDG_CONFIG_HOME"];
@@ -60,4 +63,5 @@ run(
 
 // 4. Isolation, after (includes the deployed secret names).
 run("node", ["scripts/check-staging.mjs", "--online"]);
+if (routed) run("node", ["scripts/staging-access.mjs", "probe"]);
 console.log("\nStaging deployed and re-checked.");
