@@ -14,8 +14,8 @@ import { getSettings } from "../../../worker/portal/settings";
 const HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 
-/** Only wedding screens are offered to Payload in Phase 0. */
-const WEDDING_PAGE = /^\/portal\/wedding(?:\/[a-z0-9-]+){0,3}$/;
+/** Only wedding screens are offered to Payload (message pages are /portal/wedding/communications/msg_…). */
+const WEDDING_PAGE = /^\/portal\/wedding(?:\/[a-z0-9_-]+){0,3}$/;
 
 export async function handleBridge(request: Request, env: Env, url: URL): Promise<Response> {
     if (url.pathname !== "/api/platform/wedding-page") return json({ error: "not_found" }, 404);

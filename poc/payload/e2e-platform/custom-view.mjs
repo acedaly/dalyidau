@@ -14,7 +14,9 @@ const check = (name, ok, detail = "") => {
     console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
 };
 
-const browser = await chromium.launch({ args: [`--host-resolver-rules=MAP daly.id.au 127.0.0.1:${process.env.POC_PORT ?? 8790}, MAP wedding.daly.id.au 127.0.0.1:${process.env.POC_PORT ?? 8790}`] });
+const browser = await chromium.launch({
+    args: [`--host-resolver-rules=MAP daly.id.au 127.0.0.1:${process.env.POC_PORT ?? 8790}, MAP wedding.daly.id.au 127.0.0.1:${process.env.POC_PORT ?? 8790}`],
+});
 
 // Nothing may leave the machine: any request not to the mapped hosts is aborted and fails the run.
 const offHost = [];
@@ -24,6 +26,14 @@ async function guard(context) {
 async function signedIn(email, theme = "light") {
     const context = await browser.newContext({ extraHTTPHeaders: { "Cf-Access-Jwt-Assertion": token(email) }, viewport: { width: 1440, height: 1000 }, colorScheme: theme });
     await guard(context);
+    // Test-only: the hosts are mapped over plain http here, which isn't a secure context, so the browser
+    // withholds crypto.randomUUID (the guest import screen uses it). Real users are always on https, where
+    // it exists; headless Chromium ignores --unsafely-treat-insecure-origin-as-secure.
+    await context.addInitScript(() => {
+        if (!globalThis.isSecureContext && globalThis.crypto && !crypto.randomUUID) {
+            crypto.randomUUID = () => "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16));
+        }
+    });
     const page = await context.newPage();
     page.errors = [];
     page.on("pageerror", (e) => page.errors.push(e.message));
@@ -56,6 +66,31 @@ for (const [screen, expectText] of [["households", "The Fictionals"], ["guests",
     check(`/admin/wedding/${screen} renders the existing screen inside Payload`, text.includes(expectText), `${text.length} chars in shadow root`);
     await page.screenshot({ path: `${out}/wedding-${screen || "dashboard"}.png`, fullPage: false });
 }
+
+// 2b. Every other wedding screen renders inside Payload (portal content, not an error or not-found page).
+for (const screen of ["events", "invitations", "communications", "communications/texts", "communications/providers", "tasks", "timeline", "catering", "budget", "suppliers", "website", "settings", "settings/general", "settings/fields", "guests/import"]) {
+    const response = await page.goto(`http://daly.id.au/admin/wedding/${screen}`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="wedding-screen"] >> css=.wedding-root').waitFor({ timeout: 15000 }).catch(() => {});
+    const text = await page.evaluate(() => document.querySelector('[data-testid="wedding-screen"]')?.shadowRoot?.textContent ?? "");
+    const failed = /isn.t available here|Page not found|Couldn.t load|don.t have access/i.test(text);
+    check(`/admin/wedding/${screen} renders inside Payload`, response.status() === 200 && text.length > 200 && !failed, `HTTP ${response.status()}, ${text.length} chars`);
+}
+const errorsBefore = page.errors.length;
+const unknown = await page.goto("http://daly.id.au/admin/wedding/finance", { waitUntil: "load" });
+check("A path that isn't a wedding screen is a 404 inside Payload", unknown.status() === 404, `HTTP ${unknown.status()}`);
+page.errors.length = errorsBefore; // the deliberate 404 above logs a console error; it isn't a defect
+
+// 2c. A link inside a screen to another wedding screen stays in Payload.
+await page.goto("http://daly.id.au/admin/wedding", { waitUntil: "networkidle" });
+await page.locator('[data-testid="wedding-screen"] >> css=.wedding-root').waitFor({ timeout: 15000 }).catch(() => {});
+const clicked = await page.evaluate(() => {
+    const link = [...(document.querySelector('[data-testid="wedding-screen"]')?.shadowRoot?.querySelectorAll('a[href^="/portal/wedding/"]') ?? [])][0];
+    if (!link) return null;
+    link.click();
+    return link.getAttribute("href");
+});
+await page.waitForURL(/\/admin\/wedding\//, { timeout: 10000 }).catch(() => {});
+check("Wedding links inside a screen open the Payload view, not the old portal", clicked !== null && new URL(page.url()).pathname === clicked.replace(/^\/portal\//, "/admin/").replace(/[?#].*$/, ""), `${clicked} → ${new URL(page.url()).pathname}`);
 
 // 3. Isolation both ways.
 await page.goto("http://daly.id.au/admin/wedding/households", { waitUntil: "networkidle" });

@@ -49,3 +49,15 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **Known limits.**
   - Deny rules match command prefixes; a command wrapped in `node -e` wouldn't match. Auto mode's classifier and the prompt's boundaries are the other layers.
   - When the owner returns, run `poc/payload/supervisor/install.sh uninstall` (or `touch ~/.payload-autonomy/STOP`), so the supervisor and the owner's own session never run at the same time.
+
+## 20:15Z: every wedding screen as a Payload view
+
+- `src/views/wedding-routes.ts` is the single list of the 19 wedding screens (same paths as `/portal/wedding/*`). It drives the view's routing, Payload's sidebar (15 links) and in-screen link handling. `wedding-screen.tsx` maps every wedding route to the portal's own page component, the same mapping as `portal-app.tsx`, wedding only, so PR #48's deletions don't affect it.
+- In-screen links to `/portal/wedding/*` open the Payload view (plain left-click only). Query strings are dropped for now: a known limitation, since the bridge refuses queries by design.
+- The bridge now accepts `msg_` ids (underscore), so message pages work. Dot segments are still refused.
+- **Tests:**
+  - `wedding-routes.test.ts` (new): every `/portal/wedding` pattern in `pages.ts` is routable; nothing else is; link mapping (3 tests).
+  - Browser: **36/36**, with all 19 screens rendering inside Payload, a non-wedding path returning 404, and link navigation staying in Payload.
+  - Platform suite: **53 files, 821 tests passing**. Platform tsc clean; root `tsc -b` clean.
+- **Known issue (not fixed, on purpose):** under Payload's stricter app tsconfig, `src/portal/pages/message-page.tsx:149` gives TS2339 (the type of `.catch(() => null)`). The root build is clean, the runtime is unaffected, and existing working code isn't changed for it.
+- **Test harness:** a test-only `crypto.randomUUID` shim for the http host mapping, because headless Chromium ignores the insecure-origin flag. Production is https.
