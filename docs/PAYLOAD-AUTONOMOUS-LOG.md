@@ -149,7 +149,7 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **Compatibility** with the Payload branch: clean replay, 476/476 (20:30Z entry).
 - **Verdict for the owner:** #48 is consistent with its stated approvals and good for Payload: less D1 load and a smaller Worker. Merging it is the owner's call.
 
-## 21:35Z: CI workflow, production-config check, compatibility date fix
+## 21:06Z: CI workflow, production-config check, compatibility date fix
 
 - **`.github/workflows/payload.yml`** (tests only; no deploy, no credentials; committed locally, not pushed): client build, the platform suite, supervisor tests, `check-staging`, Worker tsc, the combined build with a size gate (fails above 9 MiB gzip), the authz matrix on a local Worker, and the browser checks.
   - Rehearsed from a **fresh checkout** with real `npm ci` and an empty local state: build ok, migrations ok, **authz all passed, browser 39/39**.
@@ -161,7 +161,7 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **In-screen links now keep their query string** (e.g. `?new=1` opens "Add guest"); the route tests and browser check cover it.
 - **Rebuilt at the new date:** authz all passed, browser 39/39. Staging redeployed (checks passed).
 
-## 21:45Z: startup cost, measured properly
+## 21:10Z: startup cost, measured properly
 
 - Cloudflare's startup reading varies between uploads, so I took samples with `wrangler versions upload --env staging` (uploads a version without deploying it; staging stays on `300ec08a`):
 
