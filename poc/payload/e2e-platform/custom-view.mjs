@@ -105,6 +105,20 @@ for (const screen of ["collections/pages", "collections/pages/create", "collecti
     check(`Payload's /admin/${screen} works for the owner`, response.status() === 200 && !/session has expired|log in|login/i.test(body), `HTTP ${response.status()}`);
 }
 
+// 2e. Phone width: the Payload admin with a wedding screen doesn't scroll sideways.
+{
+    const phone = await signedIn(OWNER);
+    await phone.setViewportSize({ width: 390, height: 844 });
+    for (const screen of ["", "guests", "rsvps", "communications"]) {
+        await phone.goto(`http://daly.id.au/admin/wedding${screen ? `/${screen}` : ""}`, { waitUntil: "networkidle" });
+        await phone.locator('[data-testid="wedding-screen"] >> css=.wedding-root').waitFor({ timeout: 15000 }).catch(() => {});
+        const widths = await phone.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+        check(`Phone width (390 px): /admin/wedding/${screen} doesn't scroll sideways`, widths.page <= widths.viewport + 1, `${widths.page} px content in ${widths.viewport} px`);
+        if (!screen || screen === "guests") await phone.screenshot({ path: `${out}/phone-wedding-${screen || "dashboard"}.png` });
+    }
+    await phone.context().close();
+}
+
 // 3. Isolation both ways.
 await page.goto("http://daly.id.au/admin/wedding/households", { waitUntil: "networkidle" });
 await page.waitForFunction(() => document.querySelector('[data-testid="wedding-screen"]')?.shadowRoot?.textContent?.includes("The Fictionals"));

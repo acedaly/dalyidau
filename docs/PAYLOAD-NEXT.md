@@ -4,7 +4,7 @@ Read this first if you are a Claude Code session picking up this work. Then read
 
 ## Window and authority
 
-- The owner's autonomous directive (11 Nov 2026) authorises unattended work until **2026-11-11T02:02Z (13:02 Sydney)**. **After that, stop:** save work, update this file and the log, and write the final summary into the log.
+- The owner's autonomous directive (11 Nov 2026) authorised unattended work until 2026-11-11T02:02Z. **That work has ended:** every remaining task needs the owner's approval (see "Blocked on the owner"). Don't restart unattended work without a new instruction.
 - Make routine technical decisions yourself and record why in the log. Don't ask the owner questions; they're away.
 
 ## Safety boundaries (always in force)
@@ -56,14 +56,7 @@ Done (details in the log):
 - cutover plan (`docs/PAYLOAD-CUTOVER-PLAN.md`);
 - CI workflow `.github/workflows/payload.yml` (local, not pushed).
 
-Remaining:
-
-1. Confirm the fresh-checkout CI simulation passed (log entry), and commit the query-string link change once its tests pass.
-2. Redeploy staging with the latest build (`npm run staging:deploy`) so staging matches the branch.
-3. If time remains, low-risk polish only:
-   - stop the job-runner refusal log noise (the strategy skips `authenticate()` without an assertion header unless local dev);
-   - document the Payload admin for the owner (a short how-to in `poc/payload/README.md`).
-4. At the deadline: final log entry, update this file, and stop.
+Remaining unblocked work: none of substance. Optional polish: the Payload-tsconfig typing quirk in `message-page.tsx`, and caching the user mirror per isolate.
 
 **Blocked on the owner** (see the cutover plan):
 
@@ -90,7 +83,7 @@ cd poc/payload && npm run poc:typecheck                    # app tsc needs NODE_
 ## Outstanding tests
 
 - Authz matrix: `npx wrangler dev --local --port 8790 --env-file .dev.vars.authz`, then `node e2e-platform/authz.mjs` (121 checks).
-- Browser checks: plain `wrangler dev --local --port 8790`, then `node e2e-platform/custom-view.mjs` (39 checks).
+- Browser checks: plain `wrangler dev --local --port 8790`, then `node e2e-platform/custom-view.mjs` (43 checks).
 
 - Cron CPU on staging after the due-jobs gate.
 - Per-route CPU comparison.

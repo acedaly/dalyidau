@@ -171,3 +171,22 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   | Today's Worker alone (`entry-legacy-baseline.ts`) | 117, 125 ms (plus an outlier at 307) |
 
 - **Typical cost of Payload at startup: about +25–30 ms per cold isolate.** Outliers around 300 ms happen for either build. The scope review and cutover plan are updated.
+
+## 21:11Z: phone layout; stopping (remaining work needs the owner)
+
+- Browser checks now include phone width (390 px) for the dashboard, guests, RSVPs and communications inside Payload: no sideways scroll. **43/43.**
+- **Stopping:** every remaining task needs the owner's approval (the Access application, read-only token and staging hostname; PR #48; production D1/R2 and secrets; production Access paths; pushing or merging the CI workflow; the cutover; the workers.dev change). The work is committed and both docs are updated.
+- **Supervisor uninstalled** (`install.sh uninstall`): the work ended normally, not at a usage limit, so there's nothing to resume. This also means it can never start a session alongside the owner's. Re-enable with `poc/payload/supervisor/install.sh install <session-id> <deadline>`.
+
+### Final state
+
+- **Branch `feature/payload-phase1`** (local, not pushed), based on `origin/main` `7a1a1c4`. Branch `chore/production-workers-dev-off` is `9c739ed`, also local.
+- **Tests:**
+  - platform suite 827/827 (twice, with the combined Worker's real flags and date);
+  - authz matrix all passing (121 checks);
+  - browser 43/43;
+  - supervisor 5/5;
+  - fresh-checkout CI rehearsal passed;
+  - PR #48 replay 476/476.
+- **Staging** `dalyidau-payload-staging` runs the latest build (`300ec08a`) with no routes and workers.dev off; isolation checks pass.
+- **Revised time to production:** 5–8 working days after approvals (`docs/PAYLOAD-SCOPE-REVIEW.md`). Steps are in `docs/PAYLOAD-CUTOVER-PLAN.md`.
