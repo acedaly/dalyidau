@@ -138,3 +138,13 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **`deploy-staging.mjs`** runs `verify` before uploading whenever a route is configured (no Access, no deploy), and `probe` after.
 - **Blocker (needs approval):** creating the Access application, the read-only token, and attaching the hostname. Nothing was created.
 - **`docs/PAYLOAD-CUTOVER-PLAN.md`:** staging Access test steps, production preparation, cutover runbook, rollback and evidence table. Every 🔒 step needs the owner.
+
+## 20:55Z: PR #48 review (read-only; not merged)
+
+- **Migration `0032_drop_retired_tables.sql`** drops exactly 84 tables (asset_*, finance_*, knowledge_*, task_*, ai_*, dalyhub_import_*, daily_reviews, calendar_event_links), as the owner approved on 9 Nov per its header.
+  - Checked: **no wedding, Planner, blog, Capacities, Amplenote, media, audit or settings table is dropped.** `tasks` (the Wedding Planner's) is explicitly kept.
+  - Foreign-key parents (`asset_locations`, `knowledge_spaces`) are deliberately held back, and the header says to run `db:backup` first.
+  - It is destructive in production, so it must be applied only through the reviewed deploy, with the Time Travel bookmark recorded (the workflow already does that).
+- **The Centre cron goes away:** `worker/index.ts` on #48 has no Centre code (0 `worker/centre` files), so the ~26M rows a day of `ic_series` housekeeping stops. The `ic_*` tables themselves remain, as data, which is fine.
+- **Compatibility** with the Payload branch: clean replay, 476/476 (20:30Z entry).
+- **Verdict for the owner:** #48 is consistent with its stated approvals and good for Payload: less D1 load and a smaller Worker. Merging it is the owner's call.
