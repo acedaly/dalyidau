@@ -72,7 +72,7 @@
    - `wrangler deployments list` and note the current version ID (the **rollback target**);
    - `wrangler d1 time-travel info DB` and note the bookmark;
    - confirm no scheduled message is due within the next hour (Communications screen).
-2. Deploy through CI (or the reviewed script), and note the new version ID and Cloudflare's reported startup time. Expect roughly 150–240 ms; the limit is 1,000 ms.
+2. Deploy through CI (or the reviewed script), and note the new version ID and Cloudflare's reported startup time. Expect about 145–150 ms; single readings up to about 300 ms happen for either build, so re-check before worrying. The limit is 1,000 ms.
 3. **Smoke checks (10 minutes):**
    - `https://wedding.daly.id.au/` loads, and an RSVP lookup with a test code answers;
    - `/portal/wedding` works;

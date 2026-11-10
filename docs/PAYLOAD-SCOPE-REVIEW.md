@@ -61,6 +61,6 @@ PR #48 retires the Intelligence Centre, whose housekeeping cron is the account's
 
 ## An honest note
 
-For the wedding alone, the Payload admin adds no capability: it's the same screens in different chrome. It does add a larger Worker (about 4.9 MB compressed vs 0.6–0.85 MB; startup about +25–125 ms per cold isolate (Cloudflare reported 146–237 ms combined vs 112–124 ms today across deploys)) and Next.js/OpenNext upkeep.
+For the wedding alone, the Payload admin adds no capability: it's the same screens in different chrome. It does add a larger Worker (about 4.9 MB compressed vs 0.6–0.85 MB; startup about +25–30 ms per cold isolate (typical Cloudflare readings ≈147 ms combined vs ≈121 ms today, three samples each; either build occasionally reads ~300 ms)) and Next.js/OpenNext upkeep.
 
 The case for doing it is the website CMS and having one admin, not the wedding features. If the CMS isn't wanted soon, a reasonable alternative is to stop after the essential steps above, or to defer the cutover until after 23 Oct 2027. Either way, nothing built so far is wasted, and the old portal keeps working.

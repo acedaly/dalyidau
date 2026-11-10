@@ -160,3 +160,14 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   - Result: **827/827, twice.** One earlier run had a single Centre-assistant test failure while the machine was loaded by the CI rehearsal; it passed alone (12/12) and in two further full runs. Recorded as flaky under load; PR #48 deletes that code.
 - **In-screen links now keep their query string** (e.g. `?new=1` opens "Add guest"); the route tests and browser check cover it.
 - **Rebuilt at the new date:** authz all passed, browser 39/39. Staging redeployed (checks passed).
+
+## 21:45Z: startup cost, measured properly
+
+- Cloudflare's startup reading varies between uploads, so I took samples with `wrangler versions upload --env staging` (uploads a version without deploying it; staging stays on `300ec08a`):
+
+  | Build | Readings |
+  |---|---|
+  | Combined | 147, 151, 144 ms (plus the deploy's 281) |
+  | Today's Worker alone (`entry-legacy-baseline.ts`) | 117, 125 ms (plus an outlier at 307) |
+
+- **Typical cost of Payload at startup: about +25–30 ms per cold isolate.** Outliers around 300 ms happen for either build. The scope review and cutover plan are updated.
