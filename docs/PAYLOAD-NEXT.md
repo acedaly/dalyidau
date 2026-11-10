@@ -45,21 +45,35 @@ Done (details in the log):
 - cron CPU (2.9 s to 28 ms);
 - the guarded deploy path;
 - per-route CPU (no cost);
-- all 19 wedding screens as Payload views;
-- PR #48 rehearsal (clean, 476/476);
-- the D1 overload cause (production Centre cron);
-- workers.dev change prepared (`chore/production-workers-dev-off`);
-- Payload authorisation fixes (121/121).
+- all 19 wedding screens in Payload;
+- PR #48 rehearsal (clean, 476/476) and review;
+- D1 overload cause (production Centre cron);
+- workers.dev change prepared (`chore/production-workers-dev-off`, local);
+- Payload authorisation fixes (121/121);
+- staging rollback and full cutover rehearsal (data identical, 3 s);
+- staging Access prepared (`staging-access.mjs`, access mode);
+- scope review (`docs/PAYLOAD-SCOPE-REVIEW.md`);
+- cutover plan (`docs/PAYLOAD-CUTOVER-PLAN.md`);
+- CI workflow `.github/workflows/payload.yml` (local, not pushed).
 
 Remaining:
 
-1. Redeploy staging with the security fixes; rehearse `wrangler rollback --env staging` and roll forward; re-run `check-staging --online` and record timings.
-2. Staging hostname and Access: config, a pre-attach verifier and probe scripts only. Attaching or creating Access needs approval and an Access read token from the owner.
-3. Scope and timeline review (challenge the 7–9 weeks): minimum usable system, keep-as-is, essential vs optional.
-4. Production cutover and rollback plan (evidence-based), using the staging rehearsal.
-5. Optional, if time remains:
-   - add a CI job (platform suite, `check-staging`, authz matrix) as a workflow file; don't push;
-   - make query strings survive in-screen links.
+1. Confirm the fresh-checkout CI simulation passed (log entry), and commit the query-string link change once its tests pass.
+2. Redeploy staging with the latest build (`npm run staging:deploy`) so staging matches the branch.
+3. If time remains, low-risk polish only:
+   - stop the job-runner refusal log noise (the strategy skips `authenticate()` without an assertion header unless local dev);
+   - document the Payload admin for the owner (a short how-to in `poc/payload/README.md`).
+4. At the deadline: final log entry, update this file, and stop.
+
+**Blocked on the owner** (see the cutover plan):
+
+- the Access application and read-only token for staging, and attaching the hostname;
+- PR #48 merge;
+- production D1/R2 and secrets;
+- production Access paths;
+- merging the CI workflow changes;
+- the cutover itself;
+- deploying `chore/production-workers-dev-off`.
 
 ## Resume commands
 
