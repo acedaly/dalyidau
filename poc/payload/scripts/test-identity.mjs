@@ -1,5 +1,7 @@
 // Invented Cloudflare Access identity for local Phase 0 runs only.
 //   node scripts/test-identity.mjs init          → key pair in .poc-keys/, .dev.vars for wrangler dev
+//   node scripts/test-identity.mjs init --staging → .dev.vars.staging, for `wrangler dev --remote --env staging`
+//                                                  (a private measurement session on Cloudflare; never deployed)
 //   node scripts/test-identity.mjs token <email> → a signed Access-style JWT for that email
 // The verifier accepts these only with ENVIRONMENT=development or test (worker/portal/access.ts).
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign } from "node:crypto";
@@ -39,8 +41,12 @@ if (process.argv[2] === "init") {
         PAYLOAD_JOBS_SECRET: randomBytes(32).toString("hex"),
         COMMS_WEBHOOK_SECRET: randomBytes(24).toString("hex"),
     };
-    writeFileSync(path.join(root, ".dev.vars"), Object.entries(vars).map(([k, v]) => `${k}='${v}'`).join("\n") + "\n", { mode: 0o600 });
-    console.log("Wrote .dev.vars and .poc-keys/ (both git-ignored).");
+    // The verifier accepts the invented key only in a development session, so the measurement session
+    // is one. The deployed staging Worker keeps ENVIRONMENT=staging and has none of these.
+    const staging = process.argv.includes("--staging");
+    if (staging) vars.ENVIRONMENT = "development";
+    writeFileSync(path.join(root, staging ? ".dev.vars.staging" : ".dev.vars"), Object.entries(vars).map(([k, v]) => `${k}='${v}'`).join("\n") + "\n", { mode: 0o600 });
+    console.log(`Wrote ${staging ? ".dev.vars.staging" : ".dev.vars"} and .poc-keys/ (both git-ignored).`);
 } else if (process.argv[2] === "token") {
     console.log(token(process.argv[3] ?? OWNER));
 }

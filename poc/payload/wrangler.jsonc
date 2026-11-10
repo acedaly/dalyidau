@@ -46,4 +46,45 @@
         "EMAIL_FROM": "\"Test Couple\" <wedding@example.test>",
         "SMS_DELIVERY": "log",
     },
+    "env": {
+        // Phase 1 staging (approved 11 Nov 2026): an isolated Worker on Cloudflare to measure real startup
+        // and request performance. No routes, no custom domains, no workers.dev or preview URLs: nothing
+        // public can reach it. Its own new databases and buckets, invented data only, no provider
+        // credentials, deliveries logged, and every outbound request refused (platform/egress.ts).
+        // scripts/check-staging.mjs proves none of this touches production; run it before every deploy.
+        "staging": {
+            "name": "dalyidau-payload-staging",
+            "main": "platform/entry-staging.ts",
+            "define": { "process.env.NODE_ENV": "\"production\"" },
+            "workers_dev": false,
+            "preview_urls": false,
+            "routes": [],
+            "d1_databases": [
+                { "binding": "D1", "database_name": "dalyidau-payload-staging-content", "database_id": "da629290-cea1-4bae-83ee-e5d82b7e653e" },
+                { "binding": "DB", "database_name": "dalyidau-payload-staging-wedding", "database_id": "cdbdc5aa-5edb-40b9-b69e-badd863993f8", "migrations_dir": "../../migrations" },
+            ],
+            "r2_buckets": [
+                { "binding": "R2", "bucket_name": "dalyidau-payload-staging-media" },
+                { "binding": "MEDIA", "bucket_name": "dalyidau-payload-staging-wedding-media" },
+            ],
+            "triggers": { "crons": ["*/15 * * * *"] },
+            "vars": {
+                "ENVIRONMENT": "staging",
+                // Addresses that can't exist, so no link or email staging builds can lead anywhere real.
+                "SITE_URL": "https://site.payload-staging.invalid",
+                "WEDDING_URL": "https://wedding.payload-staging.invalid",
+                "PLANNER_URL": "https://planner.payload-staging.invalid",
+                "PORTAL_OWNER_EMAILS": "owner@example.test",
+                "CAPACITIES_API_BASE": "https://capacities.invalid",
+                "CAPACITIES_STRUCTURE_NAME": "Blog Post",
+                "SYNC_MAX_REQUESTS": "0",
+                "SYNC_REQUEST_SPACING_MS": "0",
+                "IMAGE_TRANSFORMS": "off",
+                "EMAIL_DELIVERY": "log",
+                "EMAIL_FROM": "\"Test Couple\" <wedding@example.test>",
+                "SMS_DELIVERY": "log",
+            },
+            "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true } },
+        },
+    },
 }

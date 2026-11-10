@@ -54,5 +54,6 @@ node_modules/
 .wrangler
 .poc-dist
 .dev.vars
+.dev.vars.*
 .poc-keys
 .poc-results
