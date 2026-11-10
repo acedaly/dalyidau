@@ -78,18 +78,17 @@ export default buildConfig({
   // Not used; switched off so there is one less API surface to secure.
   graphQL: { disable: true },
   jobs: {
-    // A stand-in task proving the Worker cron can drive Payload's queue (Phase 0, experiment 5).
+    // Payload's queue is run by the Worker's cron only when a job is due (platform/compose.ts
+    // payloadHasDueJobs), so Payload's own scheduler (`schedule` on a task) is deliberately not used:
+    // recurring work stays in the existing cron. This task is a stand-in for one queued on demand.
     tasks: [
       {
         slug: 'pocHeartbeat',
         inputSchema: [{ name: 'note', type: 'text' }],
         outputSchema: [{ name: 'ranAt', type: 'text' }],
-        // Queued by Payload's own scheduler whenever the run endpoint is called and it is due.
-        schedule: [{ cron: '* * * * *', queue: 'default' }],
         handler: async () => ({ output: { ranAt: new Date().toISOString() } }),
       },
     ],
-    // Queue one heartbeat per cron run.
     // Run only by the Worker's own cron (platform/compose.ts) with a secret nobody else holds.
     access: {
       run: ({ req }) => {

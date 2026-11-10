@@ -4,7 +4,8 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LEGACY_API_PREFIXES, PAYLOAD_API_SLUGS, routeRequest } from "../platform/hosts";
-import { OWNER, accessToken, apiCall, call, portalEnv, resetPortal } from "../../../test/portal-helpers";
+import { payloadHasDueJobs } from "../platform/compose";
+import { OWNER, accessToken, apiCall, call, db, portalEnv, resetPortal } from "../../../test/portal-helpers";
 import worker, { payloadCalls } from "./platform-under-test";
 
 beforeEach(async () => {
@@ -183,14 +184,51 @@ describe("experiment 2: the wedding-page bridge reuses the portal's loader and p
 });
 
 describe("experiment 5: scheduled work runs through the combined Worker", () => {
-    it("calls Payload's job runner only from the cron, with the secret", async () => {
-        const env = await portalEnv({ PAYLOAD_JOBS_SECRET: "jobs-secret-0123456789abcdef" } as never);
+    // Payload's job table, as its migration creates it, in the test database standing in for Payload's D1.
+    const jobsTable = async () => {
+        await db().prepare("DROP TABLE IF EXISTS payload_jobs").run();
+        await db()
+            .prepare(
+                `CREATE TABLE payload_jobs (id integer PRIMARY KEY NOT NULL, input text, completed_at text, total_tried numeric DEFAULT 0,
+                 has_error integer DEFAULT false, error text, task_slug text, queue text DEFAULT 'default', wait_until text,
+                 processing integer DEFAULT false, updated_at text NOT NULL DEFAULT '', created_at text NOT NULL DEFAULT '')`,
+            )
+            .run();
+    };
+    const cron = async (env: unknown) => {
         const ctx = createExecutionContext();
         await worker.scheduled({ cron: "*/15 * * * *", scheduledTime: Date.now(), noRetry() {} } as ScheduledController, env as never, ctx);
         await waitOnExecutionContext(ctx);
+    };
+
+    it("an ordinary cron run never starts Payload: nothing due, no table, or no Payload database", async () => {
+        await jobsTable();
+        const base = await portalEnv({ PAYLOAD_JOBS_SECRET: "jobs-secret-0123456789abcdef" } as never);
+        // Finished, failed, running and future jobs are not due.
+        await db()
+            .prepare(
+                `INSERT INTO payload_jobs (task_slug, completed_at, has_error, processing, wait_until) VALUES
+                 ('a', '2026-01-01T00:00:00Z', 0, 0, NULL), ('b', NULL, 1, 0, NULL), ('c', NULL, 0, 1, NULL), ('d', NULL, 0, 0, '2999-01-01T00:00:00Z')`,
+            )
+            .run();
+        await cron({ ...base, D1: db() });
+        await cron({ ...base });
+        await db().prepare("DROP TABLE payload_jobs").run();
+        await cron({ ...base, D1: db() });
+        expect(payloadCalls).toEqual([]);
+        expect(await payloadHasDueJobs(db())).toBe(false);
+    });
+
+    it("runs Payload's queue from the cron, with the secret, only when a job is due", async () => {
+        await jobsTable();
+        await db().prepare("INSERT INTO payload_jobs (task_slug, wait_until) VALUES ('pocHeartbeat', '2020-01-01T00:00:00Z')").run();
+        await cron({ ...(await portalEnv({ PAYLOAD_JOBS_SECRET: "jobs-secret-0123456789abcdef" } as never)), D1: db() });
         expect(payloadCalls).toEqual(["daly.id.au/api/payload-jobs/run"]);
-        // And the same route from outside, even with a valid owner identity, never reaches Payload without passing the gate…
+        // Without the secret, nothing runs it.
         payloadCalls.length = 0;
+        await cron({ ...(await portalEnv()), D1: db() });
+        expect(payloadCalls).toEqual([]);
+        // And the same route from outside never reaches Payload without passing the gate.
         expect((await call("/api/payload-jobs/run", { token: null })).status).toBe(401);
         expect(payloadCalls).toEqual([]);
     });

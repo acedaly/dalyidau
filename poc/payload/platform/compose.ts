@@ -20,6 +20,33 @@ export interface PlatformEnv extends HostConfig {
     ASSETS: Fetcher;
     /** Shared secret for Payload's job runner route, called only from `scheduled` below (never from outside). */
     PAYLOAD_JOBS_SECRET?: string;
+    /** Payload's own database. Read here only to see whether its job queue has anything due. */
+    D1?: D1Database;
+}
+
+/**
+ * Whether Payload's queue has a job that's due, read straight from its table so an ordinary cron run never
+ * starts Payload (starting it from cold costs ~3 s of CPU). Payload's own scheduler (`schedule` on a task)
+ * is therefore not used: recurring work stays in the existing cron. Any doubt (no table yet, a D1 error)
+ * means "nothing due", and the next run tries again.
+ */
+export async function payloadHasDueJobs(db: D1Database | undefined, now = new Date()): Promise<boolean> {
+    if (!db) return false;
+    try {
+        const row = await db
+            .prepare(
+                `SELECT 1 AS due FROM payload_jobs
+                 WHERE completed_at IS NULL AND COALESCE(has_error, 0) = 0 AND COALESCE(processing, 0) = 0
+                   AND (wait_until IS NULL OR wait_until <= ?1)
+                 LIMIT 1`,
+            )
+            .bind(now.toISOString())
+            .first<{ due: number }>();
+        return Boolean(row);
+    } catch (error) {
+        console.log(JSON.stringify({ event: "payload_jobs_check_failed", message: (error as Error).message }));
+        return false;
+    }
 }
 
 const NOT_FOUND = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } });
@@ -88,8 +115,9 @@ export function createPlatformWorker<E extends PlatformEnv>(apps: {
         async scheduled(controller: ScheduledController, env: E, ctx: ExecutionContext): Promise<void> {
             // Every existing job (wedding message queue, calendar, centre, assets, intelligence) runs exactly as today.
             await apps.legacy.scheduled?.(controller, env, ctx);
-            // Payload's job queue, if it has one: run through its own route handler with a secret only this code knows.
-            if (env.PAYLOAD_JOBS_SECRET) {
+            // Payload's job queue, only when something is due: run through its own route handler with a secret
+            // only this code knows. Otherwise Payload isn't touched, so it costs this invocation nothing.
+            if (env.PAYLOAD_JOBS_SECRET && (await payloadHasDueJobs(env.D1))) {
                 const request = new Request(`${new URL(env.SITE_URL).origin}/api/payload-jobs/run`, {
                     method: "GET",
                     headers: { Authorization: `Bearer ${env.PAYLOAD_JOBS_SECRET}` },
