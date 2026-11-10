@@ -74,3 +74,10 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
   | Portal guests page | 5.4 / 20.9 ms | 5.1 / 12.5 ms |
 
   **No measurable CPU cost on routes that don't use Payload.** The only extra cost is startup (199 vs 112 ms, once per isolate). Raw output: `poc/payload/.poc-results/cpu-report.txt`.
+
+## 20:45Z: PR #48 compatibility (not merged; nothing pushed)
+
+- **PR #48** (`retire-portal`, head `2c7c2a0`) is OPEN, with no review. It removes Calendar, Today, Intelligence, the Centre and Amplenote plus their tables, and drops the old staging env. It touches `worker/index.ts`, `env.ts` and `portal/api.ts`/`pages.ts`, but not the wedding routes Payload uses.
+- **Rehearsal** in a throwaway worktree: cherry-picked all 7 Payload commits onto `origin/retire-portal`. **No conflicts.** After building the client: **34 files, 476 tests passing**, including every platform, isolation, cron, staging and wedding-route test. The worktree was removed afterwards.
+- **Bundle with PR #48:** today's Worker is 606 KiB gzip (main: 845); combined 4,691 KiB (main: 4,763). Payload dominates.
+- **Decision:** no compatibility changes are needed. Once the owner merges #48, `git rebase origin/main` on this branch (expected to be clean), re-run the suite and redeploy staging. The wedding view's own route list means #48's deletion of the other apps' pages has no effect on it.
