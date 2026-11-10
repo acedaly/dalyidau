@@ -148,3 +148,15 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **The Centre cron goes away:** `worker/index.ts` on #48 has no Centre code (0 `worker/centre` files), so the ~26M rows a day of `ic_series` housekeeping stops. The `ic_*` tables themselves remain, as data, which is fine.
 - **Compatibility** with the Payload branch: clean replay, 476/476 (20:30Z entry).
 - **Verdict for the owner:** #48 is consistent with its stated approvals and good for Payload: less D1 load and a smaller Worker. Merging it is the owner's call.
+
+## 21:35Z: CI workflow, production-config check, compatibility date fix
+
+- **`.github/workflows/payload.yml`** (tests only; no deploy, no credentials; committed locally, not pushed): client build, the platform suite, supervisor tests, `check-staging`, Worker tsc, the combined build with a size gate (fails above 9 MiB gzip), the authz matrix on a local Worker, and the browser checks.
+  - Rehearsed from a **fresh checkout** with real `npm ci` and an empty local state: build ok, migrations ok, **authz all passed, browser 39/39**.
+  - A first attempt failed only because I had symlinked node_modules (sharp resolved outside the project); that was an artefact of my simulation, not the workflow.
+- **`scripts/production-config.mjs`** (prints only, writes nothing deployable) derives the combined Worker's production config from the real root config and checks a cutover keeps the same name, routes, crons, bindings and vars, adding only `D1`, `R2`, two secrets, flags and `run_worker_first`.
+- **Found:** the PoC used the template's **compatibility date 2026-07-30, older than production's 2026-10-01**. A cutover would have moved today's code back to older runtime behaviour. **Fixed:** set to 2026-10-01 (the check now requires them to match).
+- **The platform suite now runs with the combined Worker's real runtime settings** (its date plus `nodejs_compat` and `global_fetch_strictly_public`, read from its config), and a test proves the flags are active.
+  - Result: **827/827, twice.** One earlier run had a single Centre-assistant test failure while the machine was loaded by the CI rehearsal; it passed alone (12/12) and in two further full runs. Recorded as flaky under load; PR #48 deletes that code.
+- **In-screen links now keep their query string** (e.g. `?new=1` opens "Add guest"); the route tests and browser check cover it.
+- **Rebuilt at the new date:** authz all passed, browser 39/39. Staging redeployed (checks passed).

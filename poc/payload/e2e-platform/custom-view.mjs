@@ -90,7 +90,12 @@ const clicked = await page.evaluate(() => {
     return link.getAttribute("href");
 });
 await page.waitForURL(/\/admin\/wedding\//, { timeout: 10000 }).catch(() => {});
-check("Wedding links inside a screen open the Payload view, not the old portal", clicked !== null && new URL(page.url()).pathname === clicked.replace(/^\/portal\//, "/admin/").replace(/[?#].*$/, ""), `${clicked} → ${new URL(page.url()).pathname}`);
+const landed = new URL(page.url());
+check(
+    "Wedding links inside a screen open the Payload view (query kept), not the old portal",
+    clicked !== null && landed.pathname + landed.search === clicked.replace(/^\/portal\//, "/admin/").replace(/#.*$/, ""),
+    `${clicked} → ${landed.pathname}${landed.search}`,
+);
 
 // 2d. Payload's own collection screens still work with its sign-in routes and internal collections blocked.
 for (const screen of ["collections/pages", "collections/pages/create", "collections/media"]) {

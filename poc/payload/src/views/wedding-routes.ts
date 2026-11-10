@@ -32,5 +32,6 @@ export function adminPathForPortalLink(href: string): string | null {
   const m = /^\/portal\/wedding(?:\/([^?#]*))?([?#].*)?$/.exec(href)
   if (!m) return null
   const screen = (m[1] ?? '').replace(/\/$/, '')
-  return WEDDING_SCREEN.test(screen) ? adminPath(screen) : null
+  // The query and fragment are kept: screens read them in the browser (e.g. ?new=1 opens "Add guest").
+  return WEDDING_SCREEN.test(screen) ? adminPath(screen) + (m[2] ?? '') : null
 }

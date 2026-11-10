@@ -42,3 +42,12 @@ describe("staging egress lock", () => {
         expect(imports[0]).toMatch(/^import "\.\/egress-lock";$/);
     });
 });
+
+describe("runtime settings", () => {
+    it("the suite runs with the combined Worker's flags (nodejs_compat active)", async () => {
+        const { env } = await import("cloudflare:test");
+        expect(JSON.parse((env as { COMBINED_FLAGS_UNDER_TEST: string }).COMBINED_FLAGS_UNDER_TEST)).toEqual(["nodejs_compat", "global_fetch_strictly_public"]);
+        // nodejs_compat provides Node's process global; without the flag it doesn't exist.
+        expect(typeof (globalThis as { process?: { versions?: unknown } }).process?.versions).toBe("object");
+    });
+});

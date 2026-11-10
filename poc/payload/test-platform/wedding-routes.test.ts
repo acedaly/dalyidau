@@ -34,7 +34,8 @@ describe("wedding screens in Payload", () => {
         expect(adminPathForPortalLink("/portal/wedding")).toBe("/admin/wedding");
         expect(adminPathForPortalLink("/portal/wedding/guests")).toBe("/admin/wedding/guests");
         expect(adminPathForPortalLink("/portal/wedding/communications/msg_ab12")).toBe("/admin/wedding/communications/msg_ab12");
-        expect(adminPathForPortalLink("/portal/wedding/guests?rsvp=pending")).toBe("/admin/wedding/guests");
+        expect(adminPathForPortalLink("/portal/wedding/guests?rsvp=pending")).toBe("/admin/wedding/guests?rsvp=pending");
+        expect(adminPathForPortalLink("/portal/wedding/guests#top")).toBe("/admin/wedding/guests#top");
         for (const href of ["/portal/calendar", "/portal/wedding/unknown", "https://evil.example/portal/wedding", "//evil.example/portal/wedding", "/portal/weddingx", "/api/portal/wedding/guests.csv"]) {
             expect(adminPathForPortalLink(href), href).toBeNull();
         }
