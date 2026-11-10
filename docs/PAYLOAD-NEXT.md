@@ -40,18 +40,26 @@ If something needs an unapproved action, record it as a blocker in the log and m
 
 ## Task list (highest value first; tick in the log, not here)
 
-1. Cron CPU: the cron now checks D1 for due Payload jobs and doesn't start Payload otherwise. Confirm on staging (`wrangler tail --env staging` around :00, :15, :30 and :45) and record CPU.
-2. Deploy pipeline: `scripts/deploy-staging.mjs` is the only deploy path. Document the production equivalent in the cutover plan.
-3. Per-route CPU for unrelated routes (analytics `workersInvocationsAdaptive`, one route type per minute window).
-4. All wedding screens as Payload views. The view generalises through the bridge; list the screens from `worker/portal/pages.ts`.
-5. PR #48 compatibility: test-rebase in a throwaway worktree, run the platform suite and record conflicts. Don't merge.
-6. Investigations:
-   - D1 overload, 10 Nov around 19:30Z (analytics only, no log access);
-   - production workers.dev dependencies (code search plus analytics). Disabling it needs a production deploy, which is not allowed: prepare the change only.
-7. Staging hostname and Access: prepare config and scripts only. Attaching a hostname needs approval.
-8. Auth, session and direct-URL tests (as far as possible without real Access).
-9. Rollback rehearsal on staging: `wrangler rollback --env staging`, then re-check.
-10. Scope and timeline review (owner asked to challenge the 7–9 weeks), and a cutover plan.
+Done (details in the log):
+
+- cron CPU (2.9 s to 28 ms);
+- the guarded deploy path;
+- per-route CPU (no cost);
+- all 19 wedding screens as Payload views;
+- PR #48 rehearsal (clean, 476/476);
+- the D1 overload cause (production Centre cron);
+- workers.dev change prepared (`chore/production-workers-dev-off`);
+- Payload authorisation fixes (121/121).
+
+Remaining:
+
+1. Redeploy staging with the security fixes; rehearse `wrangler rollback --env staging` and roll forward; re-run `check-staging --online` and record timings.
+2. Staging hostname and Access: config, a pre-attach verifier and probe scripts only. Attaching or creating Access needs approval and an Access read token from the owner.
+3. Scope and timeline review (challenge the 7–9 weeks): minimum usable system, keep-as-is, essential vs optional.
+4. Production cutover and rollback plan (evidence-based), using the staging rehearsal.
+5. Optional, if time remains:
+   - add a CI job (platform suite, `check-staging`, authz matrix) as a workflow file; don't push;
+   - make query strings survive in-screen links.
 
 ## Resume commands
 
@@ -66,6 +74,9 @@ cd poc/payload && npm run poc:typecheck                    # app tsc needs NODE_
 ```
 
 ## Outstanding tests
+
+- Authz matrix: `npx wrangler dev --local --port 8790 --env-file .dev.vars.authz`, then `node e2e-platform/authz.mjs` (121 checks).
+- Browser checks: plain `wrangler dev --local --port 8790`, then `node e2e-platform/custom-view.mjs` (39 checks).
 
 - Cron CPU on staging after the due-jobs gate.
 - Per-route CPU comparison.
