@@ -67,3 +67,23 @@ Directive: owner, 11 Nov 2026 (one daly.id.au managed in Payload; standing appro
   - root 463/463, MCP 18/18, public e2e 24/24;
   - platform suite (updated: planner host redirect, bridge query, strict link mapping, Administration routes);
   - the four wedding/administration browser specs moved into Payload (`playwright.admin.config.ts`, desktop and mobile, axe scoped to the screen): 40/40.
+
+## 11:15–11:30Z: portal retirement deployed (#54, production `a5c064a6`)
+
+- **Before:**
+  - rollback target `d982daf3`;
+  - D1 backup "No problems";
+  - wedding fingerprint (households 29, guests 73, `audit_log` 195);
+  - public baseline 30 URLs;
+  - CI ✓, including the 40 browser tests inside Payload.
+- **After:**
+  - public baseline 30/30 unchanged; wedding 24/24 tables identical;
+  - `weddingplanner.daly.id.au/` 302 → `daly.id.au/admin/wedding`; its `/api/portal/me` 404; `/sw.js` 200 (retirement worker);
+  - `/portal` without a sign-in → Access login.
+- **As the owner (real mouse):**
+  - `/portal/settings/access` → `/admin/administration/access`, renders Users and permissions;
+  - Wedding → Tasks: added "Admin check task (safe to delete)" (POST 201), opened it, Delete → the confirmation dialog over the panel worked → DELETE 200, "Task deleted";
+  - through Payload's data path: guests 73, households 29, audit log 200.
+- **Public RSVP** lookup with an invalid code: 404 with the friendly message on both wedding addresses. An invalid invitation link: 404.
+- Not done in production on purpose: a real RSVP submission (it would change a real guest's response). The full RSVP flow is covered by the e2e suite and the root tests in CI.
+- Cosmetic: the Administration view's tab title read "Not Found". Fixed in #55.
