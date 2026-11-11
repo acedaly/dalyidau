@@ -2,11 +2,19 @@
 
 Read this first if you are a Claude Code session picking up this work.
 
+## Phase 4: projects-first redesign (directive 11 Nov 2026 ~11:00Z): WAITING FOR THE OWNER'S VISUAL APPROVAL
+
+- Review page: https://claude.ai/artifact/6S3ymU2DQiQK1tY14HGuye. Design, content model and go-live steps: `docs/PAYLOAD-FRONTEND-PLAN.md` §11. Journal: `docs/PAYLOAD-FRONTEND-LOG.md` ("Phase 4").
+- **PR #56** (`feature/projects-redesign`), CI green, **not merged** (the classifier refused the production deploy; the owner merges). Merging deploys with the switch **off**: the live site is unchanged; Projects appears in the admin; the preview opens at `/portal/preview`.
+- **Do not** switch on `website.projects_home` until the owner approves the design.
+- After merging: add `daly.id.au/api/projects` as a destination on the Access application `daly.id.au` (defence in depth; the Worker already fails closed and accepts Access's cookie), and open `/admin` once so Payload applies migration `20261111_085000_projects`.
+- Payload restores: always `python3 -I scripts/d1-export-reorder.py <export> > restore.sql` first.
+
 ## Phase 3: wedding publishing fixed, portal retired (directive 11 Nov 2026 ~09:35Z, current)
 
 - Journal: `docs/PAYLOAD-FRONTEND-LOG.md` ("Phase 3"). Dependency map: `docs/PAYLOAD-PORTAL-RETIREMENT.md`.
 - **Publishing fix live:** #53, production `d982daf3` (rollback `b13e3104`). Verified on both wedding addresses.
-- **Portal retirement:** branch `feature/retire-portal`; PR, deploy and production checks follow (see the log).
+- **Portal retirement live:** #54, production `a5c064a6` (rollback `d982daf3`); tab titles #55 → `431fb40f`. Verified in production (see the log).
 - The wedding and administration screens' browser suite runs inside Payload: `npx playwright test -c playwright.admin.config.ts` (needs `npm run poc:build` in `poc/payload`).
 - Next directive queued by the owner: **Phase 4, projects-first homepage redesign.** Do it on its own branch, publish to staging only, and **stop for the owner's visual approval before the live homepage changes.**
 
