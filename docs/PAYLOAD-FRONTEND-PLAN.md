@@ -85,3 +85,30 @@ Before any production change: D1 and R2 backups, restore test, public baseline, 
 4. `/wedding` on `daly.id.au`.
 5. Tests (unit, Worker integration, real-Payload e2e), screenshot comparison, PR, CI, deploy, live verification.
 6. Cleanup plan.
+
+## 9. Retiring the wedding later (checklist)
+
+When the wedding is over:
+
+1. Archive: `npm run db:backup -- --env production`, `node scripts/r2-bucket-backup.mjs dalyidau-media`, and export the guest list from Wedding Planner.
+2. Switch `wedding.site.public`, `rsvp.native` and the email/SMS switches off in Portal settings → Features. The public wedding pages then answer 404 on both addresses, and the automatic Wedding menu item disappears.
+3. Code, when you're ready (one PR): the `/wedding` branch and `weddingHost`/`plannerHost` in `worker/index.ts`; `src/wedding`, `worker/wedding`, `src/planner`, `worker/planner`; the wedding view in `poc/payload/src/views` and its `admin.components` entries in `payload.config.ts`; the wedding routes in `worker/portal/api.ts`; the `wedding.daly.id.au` and `weddingplanner.daly.id.au` routes (owner approval: they're `routes` changes).
+4. The wedding tables stay in D1 (and backups) until you approve dropping them in writing, as with 0032/0033.
+
+The site content code (`src/shared/site-content.ts`, `worker/site/`, the Website globals and Pages) imports nothing from the wedding, so none of this touches it.
+
+## 10. Legacy cleanup plan (after the website is live and verified)
+
+| Candidate | Status | Action |
+|---|---|---|
+| `src/content/site.ts` (now a re-export of the defaults) | Used by the portal sidebar and Worker error pages | Point those at `src/shared/site-content.ts`, then delete |
+| `src/components/marketing/features/features-simple-icons-01.tsx` and `topics` | Imported nowhere | Delete |
+| Payload template page `poc/payload/src/app/(frontend)` | Unreachable (`/` never routes to Payload) | Delete with its styles |
+| `/poc/*` and `/cms` prefixes in `platform/hosts.ts` | Phase 0 experiments | Remove the prefixes and their tests |
+| Capacities sync (`worker/sync.ts`, `worker/capacities/*`, mock API, its tests) | Switched off; `render.ts` must stay while Capacities-era HTML exists | Keep `render.ts` and `capacities_archive`; retire the sync and the switch in a separate PR (needs the owner: it removes a publisher) |
+| Amplenote leftovers | Retired 9 Nov; `posts.source = 'amplenote'` rows stay | Nothing to delete beyond code already gone |
+| `/portal/wedding` dashboard | Still the wedding admin's home (CLAUDE.md) | Keep until the owner prefers `/admin/wedding` |
+| `site.ts` constants in `worker/index.ts` (portal titles) | Use the defaults | Fine as is |
+| Unused secrets (`CAPACITIES_*` etc.) | Kept on purpose | Only with the owner's approval |
+
+Nothing in this table deletes content, data, backups or secrets.

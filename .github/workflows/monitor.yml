@@ -24,7 +24,7 @@ jobs:
             - name: Public site, feeds and wedding site answer
               run: |
                   fail=0
-                  for u in https://daly.id.au/ https://daly.id.au/blog https://daly.id.au/feed.xml https://daly.id.au/rss.xml https://daly.id.au/sitemap.xml https://daly.id.au/robots.txt https://wedding.daly.id.au/; do
+                  for u in https://daly.id.au/ https://daly.id.au/blog https://daly.id.au/feed.xml https://daly.id.au/rss.xml https://daly.id.au/sitemap.xml https://daly.id.au/robots.txt https://daly.id.au/about https://daly.id.au/wedding https://wedding.daly.id.au/; do
                     code=$(curl -s -o /dev/null -w "%{http_code}" "$u"); echo "$u $code"; [ "$code" = 200 ] || fail=1
                   done
                   exit $fail

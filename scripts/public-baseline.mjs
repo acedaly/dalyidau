@@ -24,7 +24,7 @@ const flag = (name, fallback) => {
 
 const EXTRA = ["/rss.xml", "/feed.xml", "/sitemap.xml", "/robots.txt", "/blog", "/about", "/contact", "/does-not-exist-404"];
 const WEDDING = ["https://wedding.daly.id.au/", "https://wedding.daly.id.au/admin", "https://wedding.daly.id.au/robots.txt"];
-const PRIVATE = ["/portal", "/portal/wedding", "/admin", "/admin/wedding", "/admin/collections/posts", "/api/users", "/api/posts", "/api/media", "/api/pages", "/api/payload-preferences", "/api/platform/wedding-page", "/api/portal/wedding/guests"];
+const PRIVATE = ["/portal", "/portal/wedding", "/admin", "/admin/wedding", "/admin/collections/posts", "/api/users", "/api/posts", "/api/media", "/api/pages", "/api/globals/site-settings", "/api/globals/homepage", "/admin/globals/homepage", "/api/payload-preferences", "/api/platform/wedding-page", "/api/portal/wedding/guests"];
 
 function attr(html, re) {
     return [...html.matchAll(re)].map((m) => m[1].replace(/&amp;/g, "&")).sort();
