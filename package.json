@@ -23,6 +23,7 @@
         "check:styles": "node scripts/check-style-tokens.mjs",
         "db:verify": "node scripts/db-verify.mjs",
         "db:backup": "node scripts/db-backup.mjs",
+        "payload:backup": "node scripts/payload-backup.mjs",
         "test:backup": "node scripts/test-backup.mjs",
         "backup:r2": "node scripts/r2-backup.mjs",
         "capacities:inventory": "node scripts/capacities-inventory.mjs",

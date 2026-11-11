@@ -57,6 +57,8 @@ Checks: migrations applied and in order, SQLite `quick_check`, foreign keys, gue
 
 ## Backups
 
+Payload's own database (`dalyidau-payload`) has its own backup and restore steps: [PAYLOAD-BACKUP.md](PAYLOAD-BACKUP.md).
+
 ### Automatic: D1 Time Travel
 
 D1 keeps a point-in-time history for **30 days** with no setup. Every deploy logs a bookmark ("Record database restore point") just before migrating, so you can return to exactly that moment.

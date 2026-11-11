@@ -8,7 +8,7 @@ Read this first if you are a Claude Code session picking up this work.
 - **PR #56** (`feature/projects-redesign`), CI green, **not merged** (the classifier refused the production deploy; the owner merges). Merging deploys with the switch **off**: the live site is unchanged; Projects appears in the admin; the preview opens at `/portal/preview`.
 - **Do not** switch on `website.projects_home` until the owner approves the design.
 - After merging: add `daly.id.au/api/projects` as a destination on the Access application `daly.id.au` (defence in depth; the Worker already fails closed and accepts Access's cookie), and open `/admin` once so Payload applies migration `20261111_085000_projects`.
-- Payload restores: always `python3 -I scripts/d1-export-reorder.py <export> > restore.sql` first.
+- Payload backups and restores: `npm run payload:backup` (export, reorder, restore-test, manifest); see `docs/PAYLOAD-BACKUP.md`.
 
 ## Phase 3: wedding publishing fixed, portal retired (directive 11 Nov 2026 ~09:35Z, current)
 
