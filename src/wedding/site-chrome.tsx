@@ -2,10 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Menu02, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import type { SectionKind, WeddingPageData } from "@/shared/portal/types";
+import type { WeddingPageData } from "@/shared/portal/types";
 import { cx } from "@/utils/cx";
 import { EucalyptusBranch } from "@/wedding/components/ornament";
 import { shortDate, weddingButton } from "@/wedding/components/ui";
+import { navItems } from "@/wedding/home-sections";
 
 export interface SiteLinks {
     home: string;
@@ -25,32 +26,6 @@ export const siteLinks = (data: WeddingPageData): SiteLinks => {
 
 export const rsvpLinkProps = (links: SiteLinks) =>
     links.rsvpExternal ? { href: links.rsvp ?? undefined, target: "_blank", rel: "noreferrer noopener" } : { href: links.rsvp ?? undefined };
-
-/** Short navigation labels for each kind of section. */
-const NAV_LABELS: Partial<Record<SectionKind, string>> = {
-    story: "Our story",
-    details: "Schedule",
-    venue: "Venue",
-    accommodation: "Stay",
-    travel: "Travel",
-    transport: "Transport",
-    children: "Families",
-    faq: "FAQ",
-    registry: "Gifts",
-};
-
-export const navItems = (data: WeddingPageData) => {
-    const seen = new Set<string>();
-    const items: { id: string; label: string }[] = [];
-    for (const section of data.content.sections) {
-        const label = NAV_LABELS[section.kind];
-        if (!label || seen.has(label)) continue;
-        seen.add(label);
-        items.push({ id: section.id, label });
-    }
-    if (!seen.has("Schedule") && data.events.length > 0) items.unshift({ id: "schedule", label: "Schedule" });
-    return items;
-};
 
 export const Monogram = ({ data, className }: { data: WeddingPageData; className?: string }) => (
     <span className={cx("wedding-display text-charcoal inline-flex items-baseline gap-1", className)}>
@@ -114,7 +89,7 @@ export const SiteHeader = ({ data, links }: { data: WeddingPageData; links: Site
                             <div className="border-sandstone/60 bg-ivory fixed inset-x-0 top-[4.5rem] z-40 border-b px-6 pt-4 pb-8 shadow-lg">
                                 <ul className="flex flex-col">
                                     {items.map((item) => (
-                                        <li key={item.id} className="border-sandstone/40 border-b last:border-0">
+                                        <li key={item.id} className="border-sandstone/40 border-b">
                                             <a
                                                 href={anchor(item.id)}
                                                 onClick={close}
@@ -124,6 +99,17 @@ export const SiteHeader = ({ data, links }: { data: WeddingPageData; links: Site
                                             </a>
                                         </li>
                                     ))}
+                                    {links.rsvp && (
+                                        <li>
+                                            <a
+                                                {...rsvpLinkProps(links)}
+                                                onClick={close}
+                                                className="wedding-display text-forest flex min-h-14 items-center text-[1.625rem] outline-focus-ring focus-visible:outline-2"
+                                            >
+                                                RSVP
+                                            </a>
+                                        </li>
+                                    )}
                                 </ul>
                                 <EucalyptusBranch className="text-eucalypt mx-auto mt-6 w-40" />
                             </div>
@@ -183,7 +169,7 @@ export const MobileRsvpBar = ({ data, links }: { data: WeddingPageData; links: S
 };
 
 export const SiteFooter = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => (
-    <footer className="border-sandstone/70 bg-paper border-t px-4 pt-20 pb-28 sm:px-6 sm:pb-20 lg:px-10">
+    <footer className="border-sandstone/70 bg-paper border-t px-4 pt-18 pb-28 sm:px-6 sm:pb-18 lg:px-10 lg:py-28">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
             <a href={links.home} className="rounded-sm text-[3.5rem] leading-none outline-focus-ring focus-visible:outline-2" aria-label="Back to the top">
                 <Monogram data={data} />

@@ -87,18 +87,20 @@ test("core portal workflows expose labelled controls and keyboard focus", async 
         await page.goto(path);
         await expect(screen(page)).toBeVisible();
         await expect(at(page).getByRole("heading", { level: 1 })).toHaveCount(1);
-        const unlabelled = await at(page).locator("button, input:not([type=hidden]), select, textarea").evaluateAll((elements) =>
-            elements
-                .filter((element) => {
-                    const labelled = element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title");
-                    const nativeLabel =
-                        element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
-                            ? element.labels?.length
-                            : false;
-                    return !labelled && !nativeLabel && !element.textContent?.trim();
-                })
-                .map((element) => element.outerHTML.slice(0, 160)),
-        );
+        const unlabelled = await at(page)
+            .locator("button, input:not([type=hidden]), select, textarea")
+            .evaluateAll((elements) =>
+                elements
+                    .filter((element) => {
+                        const labelled = element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title");
+                        const nativeLabel =
+                            element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
+                                ? element.labels?.length
+                                : false;
+                        return !labelled && !nativeLabel && !element.textContent?.trim();
+                    })
+                    .map((element) => element.outerHTML.slice(0, 160)),
+            );
         expect(unlabelled, path).toEqual([]);
         await page.keyboard.press("Tab");
         expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
@@ -124,7 +126,9 @@ test("Invitation Studio exposes the shared native stationery template", async ({
 test("builds an RSVP question with Untitled UI controls", async ({ page }, info) => {
     const question = `Which song will get you dancing? ${info.project.name}`;
     await page.goto("/admin/wedding/rsvps");
-    await at(page).getByRole("tab", { name: /Questions/ }).click();
+    await at(page)
+        .getByRole("tab", { name: /Questions/ })
+        .click();
     await at(page).getByRole("button", { name: "Add question" }).click();
     const dialog = at(page).getByRole("dialog", { name: "Add RSVP question" });
     await dialog.getByLabel("Question").fill(question);
@@ -167,14 +171,24 @@ test("connects RSVP attendance to seating and catering", async ({ page, request 
     await panel.getByLabel("Seats").fill("8");
     await panel.getByRole("button", { name: "Add table" }).click();
     await expect(at(page).getByText("Table added")).toBeVisible();
-    await at(page).getByRole("button", { name: `Move Seat ${suffix}` }).click();
-    await at(page).getByRole("menuitem", { name: `Move to Table ${suffix}` }).click();
-    await expect(at(page).getByRole("region", { name: `Table ${suffix}` }).getByText(`Seat ${suffix}`, { exact: true })).toBeVisible();
+    await at(page)
+        .getByRole("button", { name: `Move Seat ${suffix}` })
+        .click();
+    await at(page)
+        .getByRole("menuitem", { name: `Move to Table ${suffix}` })
+        .click();
+    await expect(
+        at(page)
+            .getByRole("region", { name: `Table ${suffix}` })
+            .getByText(`Seat ${suffix}`, { exact: true }),
+    ).toBeVisible();
     await expect(at(page).getByText("1 / 1")).toBeVisible();
 
     await page.goto("/admin/wedding/catering");
     await expect(at(page).getByRole("row", { name: new RegExp(`Seat ${suffix}`) })).toBeVisible();
-    await at(page).getByRole("button", { name: new RegExp(`Meal for Seat ${suffix}$`) }).click();
+    await at(page)
+        .getByRole("button", { name: new RegExp(`Meal for Seat ${suffix}$`) })
+        .click();
     await at(page).getByRole("option", { name: "No meal" }).click();
     await expect(at(page).getByText("Meal updated")).toBeVisible();
 });
@@ -321,11 +335,17 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/admin/wedding/guests");
     await at(page).getByRole("searchbox", { name: "Search guests" }).fill(`Taylor ${suffix}`);
-    await expect(at(page).getByRole("row", { name: new RegExp(`Taylor ${suffix}`) }).getByText("Attending")).toBeVisible();
+    await expect(
+        at(page)
+            .getByRole("row", { name: new RegExp(`Taylor ${suffix}`) })
+            .getByText("Attending"),
+    ).toBeVisible();
 
     // …and on the planner's private transport overview, never on the public site.
     await page.goto("/admin/wedding/rsvps");
-    await at(page).getByRole("tab", { name: /Transport/ }).click();
+    await at(page)
+        .getByRole("tab", { name: /Transport/ })
+        .click();
     await at(page).getByRole("searchbox", { name: "Search households or accommodation" }).fill(`Motel ${suffix}`);
     await expect(
         page
@@ -367,25 +387,38 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
 
     await page.goto("/portal/wedding/website/preview");
     await expect(at(page).getByRole("heading", { level: 1 })).toContainText("Amelia & Aidan");
+    // The note, the key facts and the countdown sit beside the invitation card; the old note section and countdown strip are gone.
+    await expect(at(page).getByText("A note from us")).toHaveCount(0);
+    await expect(at(page).getByTestId("countdown")).toHaveCount(1);
+    const cardBox = await at(page).getByTestId("hero-card").boundingBox();
+    const copyBox = await at(page).getByTestId("hero-copy").boundingBox();
+    // Old addresses from sent invitations and emails still land on the merged sections.
+    for (const [hash, section] of [
+        ["#schedule", "the-day"],
+        ["#venue", "the-day"],
+        ["#stay", "stay-and-travel"],
+        ["#transport", "stay-and-travel"],
+    ] as const)
+        expect(await page.evaluate(([h, id]) => !!document.querySelector(h)?.closest(`#${id}`), [hash, section]), hash).toBe(true);
+    expect(await page.evaluate(() => !!document.querySelector("#welcome")?.closest("#hero"))).toBe(true);
     if (isMobile) {
-        await expect(at(page).getByTestId("hero-editorial-image")).toBeHidden();
-        const heroBox = await at(page).getByTestId("wedding-hero").boundingBox();
-        expect(heroBox && heroBox.height > heroBox.width).toBe(true);
+        // Below 900px the hero stacks: the card, then the text.
+        expect(cardBox && copyBox && cardBox.y + cardBox.height <= copyBox.y).toBe(true);
         // The sticky RSVP bar appears once the hero has scrolled away, and the menu works without a page load.
         const bar = at(page).getByText("Will you join us?");
         await expect(bar).toBeHidden();
-        await page.mouse.wheel(0, 1400);
+        await page.evaluate(() => document.getElementById("faq")?.scrollIntoView());
         await expect(bar).toBeVisible();
         await page.evaluate(() => window.scrollTo(0, 0));
         await at(page).getByLabel("Menu").click();
-        await at(page).getByRole("link", { name: "Venue" }).click();
-        await expect(at(page).getByRole("heading", { name: "Rhino Lodge", level: 2 })).toBeInViewport();
+        await at(page).getByRole("link", { name: "Stay & travel" }).click();
+        await expect(at(page).getByRole("heading", { name: "Stay at Rhino Lodge", level: 3 })).toBeInViewport();
     } else {
-        const imageBox = await at(page).getByTestId("hero-editorial-image").boundingBox();
-        const copyBox = await at(page).getByTestId("hero-editorial-copy").boundingBox();
-        expect(imageBox && copyBox && imageBox.x < copyBox.x && Math.abs(imageBox.y - copyBox.y) < 2).toBe(true);
-        await at(page).getByRole("link", { name: "Explore our wedding" }).click();
-        await expect(at(page).getByText("We are excited to be getting married and even more excited to share the day with you.")).toBeInViewport();
+        // Two columns, card on the left, vertically centred.
+        expect(cardBox && copyBox && cardBox.x + cardBox.width < copyBox.x).toBe(true);
+        expect(Math.abs(cardBox!.y + cardBox!.height / 2 - (copyBox!.y + copyBox!.height / 2))).toBeLessThan(4);
+        await at(page).getByRole("link", { name: "The day", exact: true }).last().click();
+        await expect(at(page).getByRole("heading", { name: "Rhino Lodge", level: 3, exact: true })).toBeInViewport();
     }
     expect(errors).toEqual([]);
 });
@@ -396,7 +429,9 @@ test("deletes a guest, restores it, then erases it with typed confirmation", asy
 
     await page.goto("/admin/wedding/guests");
     await at(page).getByRole("searchbox", { name: "Search guests" }).fill(name);
-    await at(page).getByRole("rowheader", { name: new RegExp(name) }).click();
+    await at(page)
+        .getByRole("rowheader", { name: new RegExp(name) })
+        .click();
     await at(page).getByRole("dialog").getByRole("button", { name: "Delete" }).click();
     await at(page).getByRole("button", { name: "Delete guest" }).click();
     await expect(at(page).getByText("Guest deleted")).toBeVisible();
