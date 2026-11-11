@@ -4,26 +4,34 @@ Read this first if you are a Claude Code session picking up this work. Then read
 
 ## Window and authority
 
-- The owner's autonomous directive (11 Nov 2026) authorised unattended work until 2026-11-11T02:02Z. **That work has ended:** every remaining task needs the owner's approval (see "Blocked on the owner"). Don't restart unattended work without a new instruction.
-- Make routine technical decisions yourself and record why in the log. Don't ask the owner questions; they're away.
+- **Phase 2 directive (owner, 11 Nov 2026 ~05:30Z):** complete the Payload migration through staging and **production**, autonomously, including: reviewing and merging PR #48 if verified safe; pushing the Payload branch and CI workflows; creating D1/R2/other Cloudflare resources; the staging hostname and Cloudflare Access; Payload's production Access paths and secrets; native Payload website/blog management; migrating the blog into Payload (content, media, URLs, SEO preserved); staging and production deploys; tests, backups, monitoring and rollback procedures. Don't stop at milestones.
+- **Window:** assumed to run until **2026-11-14T05:40Z** (72 h; the directive gave no end). The supervisor uses this deadline.
+- Make routine technical decisions yourself and record why in the log.
 
 ## Safety boundaries (always in force)
 
-Never do any of the following:
+Mandatory before any production deploy (record evidence in the log):
 
-- deploy to production (the `dalyidau` Worker, or anything from the repo root);
-- touch production D1 (`dalyidau-production`) or R2 (`dalyidau-media`) data;
-- merge PR #48 or any PR, or push to `main`;
-- change DNS, routes, custom domains, Cloudflare Access or authentication settings;
-- expose staging publicly, which includes attaching a hostname, enabling workers.dev or enabling preview URLs;
-- delete existing Cloudflare resources or do anything irreversible;
-- add paid services;
-- disable security controls;
-- work around usage limits.
+1. production data backed up **and** restore-tested (`npm run db:backup -- --env production`; `node scripts/r2-bucket-backup.mjs dalyidau-media`);
+2. Cloudflare Access protects every administrative route (`node scripts/public-baseline.mjs capture` checks the private paths);
+3. production users and permissions work;
+4. CI and integration tests pass;
+5. blog content, media, URLs, RSS and SEO preserved (`public-baseline.mjs compare`);
+6. wedding guest records, RSVPs and seating unchanged (`node scripts/wedding-fingerprint.mjs capture/compare`);
+7. deployment and rollback rehearsed;
+8. no secrets in logs, commits or client code.
 
-The only deploy allowed is `cd poc/payload && npm run staging:deploy` (isolated staging, checks before and after). Use invented data only. **Commit locally; don't push.**
+Never:
 
-If something needs an unapproved action, record it as a blocker in the log and move on to independent work.
+- delete existing production data, remove backups, disable authentication or do anything irreversible. **Migration 0032 (drop of 84 retired tables) is held back** in `docs/pending/` for this reason;
+- migrate or remove wedding data;
+- buy services or accept material recurring costs;
+- weaken production security to make a deploy work;
+- deploy if a critical security or data-integrity check fails. If a validation fails: fix it or roll back.
+- change DNS, or the root `routes` block, beyond what the directive covers (the Payload staging hostname);
+- send real email/SMS or switch features on.
+
+Deploy incrementally; verify the live site, blog and wedding after each change.
 
 ## Current state
 
