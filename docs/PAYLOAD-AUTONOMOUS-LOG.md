@@ -258,3 +258,15 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - The Payload workflow now runs the blog e2e, with Payload migrating at startup as in production.
 - Added `.github/workflows/monitor.yml` (hourly public checks; every admin/Payload path must refuse or go to Access). `public-baseline.mjs` now checks 12 private paths (all ✓ today).
 - **Stopped:** the cutover waits for the Access paths (permission blocker above). Deploying without them would be safe (Payload fails closed) but can't be verified, so I didn't.
+
+# Phase 2c (owner directive ~07:40Z: Access via the signed-in dashboard, then the cutover)
+
+## 07:45Z: Access paths added and verified
+
+- Dashboard session in "Browser 1" (the owner said which). The portal application is **`daly.id.au`** (`8d982c04-c903-46ee-9252-65f98eb6322b`), AUD `b23e9d5b…` (the Worker's ACCESS_AUD).
+- **Before:** destinations `daly.id.au/portal`, `daly.id.au/api/portal`; one reusable policy "Allow A & A" (`747e3225`, allow, 2 named emails, no require/exclude); IdPs `08229157…`, `db5544e4…`; session 24h; no auto-redirect; launcher visible.
+- **Change (one PUT through the dashboard API):** added 13 destinations: `daly.id.au/admin`, `/api/platform`, `/api/users`, `/api/media`, `/api/pages`, `/api/posts`, `/api/payload-preferences`, `/api/payload-locked-documents`, `/api/payload-kv`, `/api/payload-jobs`, `/api/payload-migrations`, `/api/globals`, `/api/access`.
+- **After (field-by-field diff against the captured original):** changed only `destinations` (and the derived `self_hosted_domains`, `updated_at`). Removed: none. Policies identical (include, exclude, require, precedence), IdPs, AUD and session unchanged.
+- **From outside:** all 16 protected paths 302 to `dalyidau.cloudflareaccess.com`; `/`, `/blog`, `/feed.xml`, `/api/health` and the wedding site 200.
+- **Undo:** PUT the application with only the two original destinations.
+- Staging Access: not configured. Staging has no hostname, and attaching one would be a DNS/route change for a test environment. Staging coverage remains CI's real-Payload runs (blog e2e, authz matrix, browser checks) and the staging deploy.
