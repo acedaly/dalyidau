@@ -63,7 +63,9 @@ jobs:
                   for i in $(seq 1 90); do grep -q "Ready on" authz-dev.log && break; sleep 2; done
                   node e2e-platform/blog.mjs
                   node e2e-platform/authz.mjs
-                  kill $DEV
+                  # Stop the whole server (npx, wrangler and workerd), and wait until the port is free.
+                  kill $DEV; pkill -f "wrangler dev" || true; pkill -f workerd || true
+                  for i in $(seq 1 30); do curl -s -o /dev/null localhost:8790 || break; sleep 1; done
             - name: Chromium for the browser checks (the repository root's Playwright, which the checks import)
               run: npx playwright install --with-deps chromium
             - name: Browser checks (all wedding screens inside Payload, isolation, CSP, roles)
