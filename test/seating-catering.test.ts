@@ -236,7 +236,7 @@ describe("website draft and publishing", () => {
         expect(preview).not.toContain("UNUSED PHOTO");
         expect(preview).not.toContain(unused.id);
         // Venue, accommodation, transport and FAQ sections ship visible.
-        for (const text of ["14L Camp Rd, Dubbo NSW 2830", "Get directions", "Frequently asked questions", "We hope you&#x27;ll celebrate with us."])
+        for (const text of ["14L Camp Rd, Dubbo NSW 2830", "Directions", "Frequently asked questions", "We hope you&#x27;ll celebrate with us."])
             expect(preview).toContain(text);
         // **bold** in plain text becomes emphasis, never raw HTML.
         expect(preview).toMatch(/<strong[^>]*>first-in, first-served basis<\/strong>/);

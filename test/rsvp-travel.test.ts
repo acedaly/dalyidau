@@ -308,7 +308,7 @@ describe("suggested website wording", () => {
         expect(before).toEqual({ n: 0 });
         const page = await (await call("/", { host: "wedding.daly.id.au" })).text();
         expect(page).toContain("Stay at Rhino Lodge");
-        expect(page).toContain("Limited · first in, first served");
+        expect(page).toContain("On site · limited");
         expect(page).toContain("Getting to the wedding");
         expect(page).toContain("subject to the bus driver&#x27;s availability");
     });

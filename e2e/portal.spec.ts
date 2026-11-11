@@ -367,25 +367,38 @@ test("the wedding website is accessible and fits every screen", async ({ page, r
 
     await page.goto("/portal/wedding/website/preview");
     await expect(at(page).getByRole("heading", { level: 1 })).toContainText("Amelia & Aidan");
+    // The note, the key facts and the countdown sit beside the invitation card; the old note section and countdown strip are gone.
+    await expect(at(page).getByText("A note from us")).toHaveCount(0);
+    await expect(at(page).getByTestId("countdown")).toHaveCount(1);
+    const cardBox = await at(page).getByTestId("hero-card").boundingBox();
+    const copyBox = await at(page).getByTestId("hero-copy").boundingBox();
+    // Old addresses from sent invitations and emails still land on the merged sections.
+    for (const [hash, section] of [
+        ["#schedule", "the-day"],
+        ["#venue", "the-day"],
+        ["#stay", "stay-and-travel"],
+        ["#transport", "stay-and-travel"],
+    ] as const)
+        expect(await page.evaluate(([h, id]) => !!document.querySelector(h)?.closest(`#${id}`), [hash, section]), hash).toBe(true);
+    expect(await page.evaluate(() => !!document.querySelector("#welcome")?.closest("#hero"))).toBe(true);
     if (isMobile) {
-        await expect(at(page).getByTestId("hero-editorial-image")).toBeHidden();
-        const heroBox = await at(page).getByTestId("wedding-hero").boundingBox();
-        expect(heroBox && heroBox.height > heroBox.width).toBe(true);
+        // Below 900px the hero stacks: the card, then the text.
+        expect(cardBox && copyBox && cardBox.y + cardBox.height <= copyBox.y).toBe(true);
         // The sticky RSVP bar appears once the hero has scrolled away, and the menu works without a page load.
         const bar = at(page).getByText("Will you join us?");
         await expect(bar).toBeHidden();
-        await page.mouse.wheel(0, 1400);
+        await page.evaluate(() => document.getElementById("faq")?.scrollIntoView());
         await expect(bar).toBeVisible();
         await page.evaluate(() => window.scrollTo(0, 0));
         await at(page).getByLabel("Menu").click();
-        await at(page).getByRole("link", { name: "Venue" }).click();
-        await expect(at(page).getByRole("heading", { name: "Rhino Lodge", level: 2 })).toBeInViewport();
+        await at(page).getByRole("link", { name: "Stay & travel" }).click();
+        await expect(at(page).getByRole("heading", { name: "Stay at Rhino Lodge", level: 3 })).toBeInViewport();
     } else {
-        const imageBox = await at(page).getByTestId("hero-editorial-image").boundingBox();
-        const copyBox = await at(page).getByTestId("hero-editorial-copy").boundingBox();
-        expect(imageBox && copyBox && imageBox.x < copyBox.x && Math.abs(imageBox.y - copyBox.y) < 2).toBe(true);
-        await at(page).getByRole("link", { name: "Explore our wedding" }).click();
-        await expect(at(page).getByText("We are excited to be getting married and even more excited to share the day with you.")).toBeInViewport();
+        // Two columns, card on the left, vertically centred.
+        expect(cardBox && copyBox && cardBox.x + cardBox.width < copyBox.x).toBe(true);
+        expect(Math.abs(cardBox!.y + cardBox!.height / 2 - (copyBox!.y + copyBox!.height / 2))).toBeLessThan(4);
+        await at(page).getByRole("link", { name: "The day", exact: true }).last().click();
+        await expect(at(page).getByRole("heading", { name: "Rhino Lodge", level: 3, exact: true })).toBeInViewport();
     }
     expect(errors).toEqual([]);
 });

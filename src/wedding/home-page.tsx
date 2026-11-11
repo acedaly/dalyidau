@@ -1,18 +1,23 @@
-// The wedding homepage. Every section kind has its own composition so the page reads like a
-// designed invitation rather than a stack of identical blocks. All copy comes from the portal
-// (Website editor) and event details from the Wedding Planner; nothing here invents facts.
-import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUpRight, Building07, Bus, Heart, Mail01, Moon02 } from "@untitledui/icons";
+// The wedding homepage. All copy comes from the portal (Website editor) and event details from the
+// wedding events; nothing here invents facts. The page reads: an invitation hero (the card beside our
+// note, the key facts, the countdown and the RSVP), "The day" (schedule and venue), "Stay & travel"
+// (accommodation and the courtesy bus), any other sections in the portal's order, the FAQ, the
+// gallery and the RSVP finale. How sections are grouped lives in home-sections.ts.
+import { type ReactNode, useEffect, useState } from "react";
+import { ArrowUpRight, Bus, Mail01, Moon02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { formatDate, formatTime } from "@/portal/lib/format";
-import type { PublicEvent, WebsiteItem, WebsiteMedia, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
+import type { PublicEvent, WebsiteItem, WebsiteSection, WeddingPageData } from "@/shared/portal/types";
 import { isOnSite } from "@/shared/portal/website-suggestions";
 import { cx } from "@/utils/cx";
-import { EucalyptusBranch, SignatureBotanicals, Sprig, Stamp } from "@/wedding/components/ornament";
-import { Eyebrow, Photo, Prose, SectionHeading, longDate, paragraphs, weddingButton } from "@/wedding/components/ui";
+import { EucalyptusBranch, SignatureBotanicals, Sprig } from "@/wedding/components/ornament";
+import { Eyebrow, Photo, Prose, SectionHeading, longDate, paragraphs, shortDate, weddingButton } from "@/wedding/components/ui";
+import { DAY_ID, type HomeLayout, STAY_ID, homeLayout, isMerged } from "@/wedding/home-sections";
 import { type SiteLinks, rsvpLinkProps } from "@/wedding/site-chrome";
 
 const container = "mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10";
+/** Section spacing: 72px on phones, 112px on desktop. */
+const sectionPad = "py-18 lg:py-28";
 
 /** Eyebrow labels by section kind. Custom sections have none. */
 const EYEBROWS: Partial<Record<WebsiteSection["kind"], string>> = {
@@ -30,7 +35,7 @@ const EYEBROWS: Partial<Record<WebsiteSection["kind"], string>> = {
 
 const external = { target: "_blank", rel: "noreferrer noopener" } as const;
 
-const ItemLink = ({ item, label }: { item: WebsiteItem; label: string }) =>
+const ItemLink = ({ item, label, className }: { item: WebsiteItem; label: string; className?: string }) =>
     item.url ? (
         <a
             href={item.url}
@@ -38,6 +43,7 @@ const ItemLink = ({ item, label }: { item: WebsiteItem; label: string }) =>
             className={cx(
                 weddingButton.link,
                 "inline-flex items-center gap-1.5 self-start outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
+                className,
             )}
         >
             {label}
@@ -45,6 +51,23 @@ const ItemLink = ({ item, label }: { item: WebsiteItem; label: string }) =>
             <span className="sr-only">(opens in a new tab)</span>
         </a>
     ) : null;
+
+/** Empty anchors for the ids a merged section used to have, so old links still land on it. */
+const Anchors = ({ ids }: { ids: string[] }) => (
+    <>
+        {ids.map((id) => (
+            <span key={id} id={id} aria-hidden="true" className="block scroll-mt-20" />
+        ))}
+    </>
+);
+
+/** Eyebrow and a large serif heading on the left, the introduction on the right. */
+const HeadingRow = ({ id, eyebrow, title, children }: { id: string; eyebrow: string; title: string; children?: ReactNode }) => (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-end lg:gap-16">
+        <SectionHeading id={id} eyebrow={eyebrow} title={title} />
+        {children && <div className="flex max-w-xl flex-col gap-4 lg:pb-3">{children}</div>}
+    </div>
+);
 
 // ---------------------------------------------------------------------------------------------
 // Hero
@@ -59,13 +82,13 @@ const coupleNames = (data: WeddingPageData): [string, string] | null => {
 
 /**
  * The watercolour frame's top (banksia, wattle) or bottom (waratah) as a band sized to the card's width, fading into the
- * paper, so the florals frame the invitation on phones and tablets without sitting behind any text or links.
+ * paper, so the florals frame the invitation on phones and tablets without sitting behind any text.
  */
 const FrameBand = ({ edge }: { edge: "top" | "bottom" }) => (
     <div
         aria-hidden="true"
         className={cx(
-            "relative -z-10 shrink-0 overflow-hidden lg:hidden",
+            "relative -z-10 shrink-0 overflow-hidden min-[900px]:hidden",
             edge === "top"
                 ? "aspect-[2/1] [mask-image:linear-gradient(to_bottom,black_62%,transparent)] sm:aspect-[5/2]"
                 : "aspect-[2/1] [mask-image:linear-gradient(to_top,black_62%,transparent)] sm:aspect-[5/2]",
@@ -83,49 +106,93 @@ const FrameBand = ({ edge }: { edge: "top" | "bottom" }) => (
     </div>
 );
 
-const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
-    const { details, content } = data;
+/** The printed invitation: the painted frame with "Together with our families", our names and "We're getting married". */
+const InvitationCard = ({ data }: { data: WeddingPageData }) => {
+    const { content } = data;
     const names = coupleNames(data);
-    const photo = data.heroImage;
-    const [place, ...rest] = details.location.split(/\s*[·,]\s*/);
-    const title = names ? (
-        <>
-            <span className="block pr-[0.35em]">{names[0]}</span> <span className="text-leaf block pl-[0.28em]">&amp; {names[1]}</span>
-        </>
-    ) : (
-        content.heroTitle
-    );
-    const actions = (
-        <div className="mt-6 flex w-full max-w-[18rem] flex-col items-stretch gap-4 sm:mt-8 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-7 lg:mt-6 lg:justify-start lg:gap-6">
-            {links.rsvp && (
-                <Button
-                    {...rsvpLinkProps(links)}
-                    size="xl"
-                    className={cx(weddingButton.primary, "w-full sm:w-auto sm:px-11")}
-                    iconTrailing={links.rsvpExternal ? ArrowUpRight : undefined}
-                >
-                    RSVP
-                </Button>
-            )}
-            <a
-                href="#welcome"
-                aria-label="Explore our wedding"
-                className={cx(
-                    weddingButton.link,
-                    "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
+    return (
+        <article
+            className="border-tan/45 bg-ivory shadow-forest/15 relative isolate mx-auto flex w-full max-w-[28rem] flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] min-[900px]:aspect-[1122/1402] min-[900px]:max-w-none min-[900px]:justify-center"
+            data-testid="hero-card"
+        >
+            {/* Desktop: the whole painted frame, with the wording in its open centre. */}
+            <img
+                src="/wedding/native-invitation-frame.jpg"
+                alt=""
+                aria-hidden="true"
+                width="1122"
+                height="1402"
+                fetchPriority="high"
+                decoding="async"
+                className="absolute inset-0 -z-10 hidden size-full object-cover min-[900px]:block"
+            />
+            <FrameBand edge="top" />
+            <div className="flex flex-col items-center px-6 py-2 text-center min-[900px]:mx-[8%] min-[900px]:bg-[radial-gradient(closest-side,rgb(245_240_231/0.92),rgb(245_240_231/0.6)_70%,transparent)] min-[900px]:px-[6%] min-[900px]:py-10">
+                {content.heroEyebrow && <Eyebrow className="text-forest/80 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
+                <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.25rem,18vw,6rem)] min-[900px]:text-[clamp(3.6rem,5.4vw,5.25rem)]">
+                    {names ? (
+                        <>
+                            <span className="block pr-[0.35em]">{names[0]}</span> <span className="text-leaf block pl-[0.28em]">&amp; {names[1]}</span>
+                        </>
+                    ) : (
+                        content.heroTitle
+                    )}
+                </h1>
+                {content.heroSubtitle && (
+                    <p className="wedding-display text-leaf mt-6 text-[1.25rem] italic min-[900px]:mt-7 sm:text-[1.4rem]">{content.heroSubtitle}</p>
                 )}
-            >
-                Explore the details
-                <ArrowDown className="size-4" aria-hidden="true" />
-            </a>
-        </div>
+            </div>
+            <FrameBand edge="bottom" />
+        </article>
     );
+};
+
+const firstTimedEvent = (data: WeddingPageData) =>
+    data.events.find((e) => e.startsAt && e.startsAt.slice(0, 10) === data.details.date && e.startsAt.length >= 16) ?? null;
+
+/** "Ceremony & reception" from the event names. */
+const joinNames = (names: string[]) =>
+    names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} & ${names.at(-1)!.charAt(0).toLowerCase()}${names.at(-1)!.slice(1)}`;
+
+/** When, where, dress and reply-by, each from the wedding settings, events and RSVP settings. */
+const heroFacts = (data: WeddingPageData, links: SiteLinks, place: string, rest: string[]) => {
+    const { details, events } = data;
+    const facts: { label: string; value: string; note: string }[] = [];
+    if (details.date) {
+        const timed = firstTimedEvent(data);
+        const weekday = formatDate(details.date, { weekday: "long" });
+        facts.push({
+            label: "When",
+            value: shortDate(details.date),
+            note: timed ? `${weekday} · ${timed.name} ${formatTime(timed.startsAt)}` : `${weekday} · Time TBC`,
+        });
+    }
+    if (place) facts.push({ label: "Where", value: place, note: rest.join(", ") });
+    const dressed = events.filter((e) => e.dressCode?.trim());
+    if (dressed.length > 0) {
+        const code = dressed[0].dressCode!.trim();
+        const same = dressed.filter((e) => e.dressCode!.trim().toLowerCase() === code.toLowerCase());
+        facts.push({ label: "Dress", value: code, note: joinNames(same.map((e) => e.name)) });
+    }
+    if (data.rsvp.deadline && links.rsvp) {
+        facts.push({ label: "Reply by", value: shortDate(data.rsvp.deadline), note: `${formatDate(data.rsvp.deadline, { weekday: "long" })} · RSVP online` });
+    }
+    return facts;
+};
+
+const Hero = ({ data, links, dayId }: { data: WeddingPageData; links: SiteLinks; dayId: string | null }) => {
+    const { details, content } = data;
+    const photo = data.heroImage;
+    const [place = "", ...rest] = details.location.split(/\s*[·,]\s*/).filter(Boolean);
+    const [lead, ...more] = paragraphs(content.welcome);
+    const eyebrow = [details.date && longDate(details.date), [place, rest[0]].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+    const facts = heroFacts(data, links, place, rest);
 
     return (
         <section
             id="hero"
             aria-labelledby="names"
-            className="bg-sandstone relative isolate overflow-hidden px-3 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-8"
+            className="bg-sandstone relative isolate overflow-hidden px-4 py-10 min-[900px]:py-16 sm:px-8 sm:py-14 lg:px-10 lg:py-20"
             data-testid="wedding-hero"
         >
             {photo && (
@@ -138,72 +205,65 @@ const Hero = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
                         fetchPriority="high"
                         decoding="async"
                         className="wedding-fade absolute inset-0 -z-20 size-full scale-105 object-cover opacity-25 saturate-[.72]"
+                        style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
                     />
                     <span
                         aria-hidden="true"
-                        className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgb(234_225_211/0.9),rgb(234_225_211/0.72),rgb(234_225_211/0.9))]"
+                        className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgb(234_225_211/0.9),rgb(234_225_211/0.8),rgb(234_225_211/0.9))]"
                     />
                 </>
             )}
-            <span aria-hidden="true" className="bg-tan/20 absolute top-[7%] left-[4%] -z-10 h-2/3 w-[28%] rotate-[-4deg] rounded-[45%] blur-3xl" />
-            <span aria-hidden="true" className="bg-eucalypt/18 absolute right-[4%] bottom-[4%] -z-10 h-2/3 w-[28%] rotate-[5deg] rounded-[45%] blur-3xl" />
 
-            <div className="wedding-rise relative mx-auto w-full max-w-[43rem] lg:max-w-7xl">
-                {/* A tilted paper backing on phones and tablets; on desktop the card sits flat and quiet. */}
-                <span aria-hidden="true" className="bg-forest/8 absolute -inset-x-2 top-4 bottom-0 rotate-[1.2deg] rounded-[2px] sm:-inset-x-4 lg:hidden" />
-                {/* Content sets the height. Below desktop the floral frame sits above and below the text, never behind it.
-                    Desktop is a 55/45 image and text split, about 440–520px tall, so the countdown shows on the first screen. */}
-                <article className="border-tan/45 bg-ivory shadow-forest/15 relative isolate flex flex-col overflow-hidden border shadow-[0_28px_80px_-34px_currentColor] lg:grid lg:min-h-[clamp(27.5rem,34vw,32.5rem)] lg:grid-cols-[55fr_45fr] lg:shadow-[0_12px_32px_-28px_currentColor]">
-                    <FrameBand edge="top" />
-                    <div className="bg-forest relative hidden overflow-hidden lg:block" data-testid="hero-editorial-image">
-                        <img
-                            src={photo?.url ?? "/wedding/native-invitation-frame.jpg"}
-                            alt={photo?.alt ?? ""}
-                            width={photo?.width ?? 1122}
-                            height={photo?.height ?? 1402}
-                            fetchPriority="high"
-                            decoding="async"
-                            className="absolute inset-0 size-full object-cover"
-                            style={{ objectPosition: `${content.heroFocalX}% ${content.heroFocalY}%` }}
-                        />
-                        <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,transparent_70%,rgb(75_52_43/0.16))]" />
-                    </div>
-                    <div
-                        className="relative flex flex-1 flex-col items-center justify-center px-6 py-2 text-center sm:px-20 lg:items-start lg:px-10 lg:py-10 lg:text-left xl:px-14"
-                        data-testid="hero-editorial-copy"
-                    >
-                        {content.heroEyebrow && <Eyebrow className="text-forest/75 text-[0.62rem] sm:text-[0.7rem]">{content.heroEyebrow}</Eyebrow>}
-                        <h1 id="names" className="wedding-names text-forest mt-5 text-[clamp(4.65rem,19vw,7.5rem)] lg:mt-4 lg:text-[clamp(4.5rem,6vw,5.5rem)]">
-                            {title}
-                        </h1>
-                        {content.heroSubtitle && (
-                            <p className="wedding-display text-leaf mt-7 text-[1.25rem] italic sm:mt-9 sm:text-[1.5rem] lg:mt-5 lg:text-[1.375rem]">
-                                {content.heroSubtitle}
+            <div className="wedding-rise mx-auto grid w-full max-w-7xl grid-cols-1 gap-12 min-[900px]:grid-cols-[5fr_6fr] min-[900px]:items-center min-[900px]:gap-12 lg:gap-18">
+                <InvitationCard data={data} />
+
+                <div id="welcome" className="flex scroll-mt-24 flex-col" data-testid="hero-copy">
+                    {eyebrow && <Eyebrow className="text-clay-600 text-[0.66rem] sm:text-[0.72rem]">{eyebrow}</Eyebrow>}
+                    {lead && (
+                        <div className="mt-6 flex flex-col gap-4">
+                            <p className="wedding-display text-forest text-[1.85rem] leading-[1.18] text-pretty sm:text-[2.15rem] lg:text-[2.4rem]">{lead}</p>
+                            {more.length > 0 && <Prose text={more.join("\n\n")} className="text-charcoal max-w-xl" />}
+                            <p className="wedding-display text-leaf text-[1.4rem] italic sm:text-[1.55rem]">
+                                {details.partnerOne} &amp; {details.partnerTwo}
                             </p>
-                        )}
-                        <span aria-hidden="true" className="bg-gold/70 mt-5 h-px w-12 lg:mt-4" />
-                        <div className="text-charcoal mt-5 lg:mt-4">
-                            {details.date && (
-                                <p className="wedding-display text-[1.35rem] leading-tight italic sm:text-[1.7rem] lg:text-[1.5rem]">
-                                    <time dateTime={details.date}>{longDate(details.date)}</time>
-                                </p>
-                            )}
-                            {details.location && (
-                                <p className="wedding-eyebrow text-forest/85 mt-3 text-[0.61rem] sm:text-[0.7rem]">
-                                    {place}
-                                    {rest.length > 0 && (
-                                        <>
-                                            <span aria-hidden="true"> · </span>
-                                            {rest.join(", ")}
-                                        </>
-                                    )}
-                                </p>
-                            )}
                         </div>
-                        {actions}
+                    )}
+
+                    {facts.length > 0 && (
+                        <dl className="border-forest/20 mt-9 grid grid-cols-2 border-b">
+                            {facts.map((fact, i) => (
+                                <div
+                                    key={fact.label}
+                                    className={cx("border-forest/20 flex flex-col gap-1 border-t py-4", i % 2 === 0 ? "pr-4" : "border-l pl-4 sm:pl-6")}
+                                >
+                                    <dt className="wedding-eyebrow text-[0.62rem] text-olive-600">{fact.label}</dt>
+                                    <dd className="wedding-display text-forest text-[1.3rem] leading-tight sm:text-[1.5rem]">{fact.value}</dd>
+                                    {fact.note && <dd className="text-[0.8125rem] leading-snug text-tertiary">{fact.note}</dd>}
+                                </div>
+                            ))}
+                        </dl>
+                    )}
+
+                    <Countdown data={data} />
+
+                    <div className="mt-8 flex flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center sm:gap-4">
+                        {links.rsvp && (
+                            <Button
+                                {...rsvpLinkProps(links)}
+                                size="lg"
+                                className={cx(weddingButton.primary, "justify-center sm:px-9")}
+                                iconTrailing={links.rsvpExternal ? ArrowUpRight : undefined}
+                            >
+                                RSVP now
+                            </Button>
+                        )}
+                        {dayId && (
+                            <Button href={`#${dayId}`} size="lg" className={cx(weddingButton.outline, "justify-center sm:px-9")}>
+                                The day
+                            </Button>
+                        )}
                     </div>
-                    <FrameBand edge="bottom" />
-                </article>
+                </div>
             </div>
             {photo?.caption && <p className="sr-only">{photo.caption}</p>}
         </section>
@@ -247,10 +307,11 @@ const breakdown = (from: number, to: number) => {
 
 const COUNTDOWN_UNITS = ["days", "hours", "minutes", "seconds"] as const;
 
-const CountdownBand = ({ data }: { data: WeddingPageData }) => {
+/** A compact four-column countdown under the hero's facts. It disappears once the moment has passed. */
+const Countdown = ({ data }: { data: WeddingPageData }) => {
     const { date, timeZone } = data.details;
     // The first timed event (the ceremony) is the moment we count down to; otherwise midnight.
-    const start = data.events.find((e) => e.startsAt && e.startsAt.slice(0, 10) === date && e.startsAt.length >= 16)?.startsAt ?? `${date}T00:00`;
+    const start = firstTimedEvent(data)?.startsAt ?? `${date}T00:00`;
     const [left, setLeft] = useState<ReturnType<typeof breakdown> | undefined>(undefined);
     useEffect(() => {
         // Runs only in the browser, so the server render never disagrees with the visitor's clock.
@@ -263,70 +324,26 @@ const CountdownBand = ({ data }: { data: WeddingPageData }) => {
     if (!date || left === null) return null;
     const totalDays = left ? Math.ceil((zonedTime(start.slice(0, 16), timeZone) - Date.now()) / 86_400_000) : null;
     return (
-        <section
-            aria-label="Countdown to the wedding"
-            className="border-sandstone bg-paper relative overflow-hidden border-y px-3 py-9 min-[360px]:px-5 sm:py-11"
-        >
-            {/* Gilt rules either side, at 8% or just outside the 56rem content when that is closer; they slide off-screen when there is no room. */}
-            <span aria-hidden="true" className="bg-gold/65 absolute inset-y-0 left-[min(8%,calc(50%-30rem))] w-px" />
-            <span aria-hidden="true" className="bg-eucalypt/55 absolute inset-y-0 right-[min(8%,calc(50%-30rem))] w-px" />
+        <section aria-label="Countdown to the wedding" className="border-forest/20 border-b py-4" data-testid="countdown">
             {totalDays !== null && <p className="sr-only">{totalDays.toLocaleString("en-AU")} days to go</p>}
-            <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10">
-                <p aria-hidden="true" className="wedding-display text-leaf text-[1.4rem] italic sm:max-w-[8rem] sm:text-[1.6rem]">
-                    Counting down to our day
-                </p>
-                <ol aria-hidden="true" className="grid w-full max-w-2xl grid-cols-4 gap-1 min-[360px]:gap-3 sm:gap-8">
-                    {COUNTDOWN_UNITS.map((unit) => (
-                        <li key={unit} className="flex flex-col items-center gap-1.5 sm:items-start">
-                            <span className="wedding-display text-forest text-[2.8rem] leading-none tabular-nums sm:text-[3.5rem]">
-                                {left ? left[unit] : "–"}
-                            </span>
-                            <span className="wedding-eyebrow text-olive text-[0.58rem] max-[359px]:tracking-[0.12em]! sm:text-[0.66rem]">
-                                {left && left[unit] === 1 ? unit.slice(0, -1) : unit}
-                            </span>
-                        </li>
-                    ))}
-                </ol>
-            </div>
+            <ol aria-hidden="true" className="grid grid-cols-4 gap-2">
+                {COUNTDOWN_UNITS.map((unit) => (
+                    <li key={unit} className="flex flex-col gap-1">
+                        <span className="wedding-display text-forest text-[1.75rem] leading-none lining-nums tabular-nums sm:text-[2rem]" data-unit={unit}>
+                            {left ? left[unit] : "–"}
+                        </span>
+                        <span className="wedding-eyebrow text-[0.56rem] text-olive-600 max-[359px]:tracking-[0.12em]! sm:text-[0.6rem]">
+                            {left && left[unit] === 1 ? unit.slice(0, -1) : unit}
+                        </span>
+                    </li>
+                ))}
+            </ol>
         </section>
     );
 };
 
 // ---------------------------------------------------------------------------------------------
-// Welcome
-
-const Welcome = ({ data }: { data: WeddingPageData }) => {
-    const [lead, ...rest] = paragraphs(data.content.welcome);
-    if (!lead) return <div id="welcome" />;
-    return (
-        <section id="welcome" aria-label="Welcome" className="wedding-reveal relative scroll-mt-20 overflow-hidden px-5 py-24 sm:px-8 sm:py-32 lg:py-40">
-            <EucalyptusBranch className="text-eucalypt/25 absolute top-14 -right-24 w-[30rem] rotate-[-20deg] max-md:hidden" />
-            <p
-                aria-hidden="true"
-                className="wedding-display text-sandstone/55 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[21rem] leading-none font-[350] sm:text-[29rem]"
-            >
-                23
-            </p>
-            <div className="relative mx-auto grid max-w-5xl grid-cols-1 items-center gap-10 lg:grid-cols-[.7fr_1.3fr] lg:gap-20">
-                <div className="flex items-center gap-4 lg:flex-col lg:items-start lg:gap-6">
-                    <span className="wedding-eyebrow text-clay-600">A note from us</span>
-                    <span aria-hidden="true" className="bg-eucalypt h-px w-16 lg:h-20 lg:w-px" />
-                </div>
-                <div className="flex flex-col items-start gap-8">
-                    <p className="wedding-display text-forest text-[2.35rem] leading-[1.12] text-balance sm:text-[3.15rem]">{lead}</p>
-                    {rest.length > 0 && <Prose text={rest.join("\n\n")} className="text-charcoal max-w-xl" />}
-                    <Sprig className="self-start" />
-                    <p className="wedding-display text-clay-700 text-[1.55rem] italic">
-                        {data.details.partnerOne} &amp; {data.details.partnerTwo}
-                    </p>
-                </div>
-            </div>
-        </section>
-    );
-};
-
-// ---------------------------------------------------------------------------------------------
-// The big day: date card, event timeline and dress code
+// The day: the schedule beside the venue
 
 const eventTime = (event: PublicEvent) => {
     if (!event.startsAt || event.startsAt.length < 16) return null;
@@ -334,287 +351,117 @@ const eventTime = (event: PublicEvent) => {
     return `${formatTime(event.startsAt)}${end ? ` – ${end}` : ""}`;
 };
 
-const BigDay = ({ data, section, dress }: { data: WeddingPageData; section: Pick<WebsiteSection, "id" | "title" | "body">; dress: WebsiteSection | null }) => {
+const mapsUrl = (address: string) => `https://maps.google.com/maps?q=${encodeURIComponent(address)}`;
+const isMapLink = (url: string) => /(^|\/\/)(www\.)?(maps\.|goo\.gl\/maps|maps\.app\.goo\.gl)|google\.[a-z.]+\/maps/i.test(url);
+
+const Timeline = ({ data, venueName }: { data: WeddingPageData; venueName: string }) => {
     const { details, events } = data;
+    const row = "border-forest/20 grid grid-cols-[6.25rem_1fr] gap-x-5 border-b py-7 sm:grid-cols-[9rem_1fr] sm:gap-x-8";
+    const time = "wedding-display text-leaf pt-1 text-[1.3rem] leading-tight sm:text-[1.5rem]";
+    if (events.length === 0)
+        return (
+            <div className={cx(row, "border-t")}>
+                <p className={time}>Time TBC</p>
+                <div className="flex flex-col gap-2">
+                    <h3 className="wedding-display text-forest text-[1.75rem] leading-tight">To be confirmed</h3>
+                    <p className="text-tertiary">We'll post the order of the day here once it's set.</p>
+                </div>
+            </div>
+        );
     return (
-        <section
-            id={section.id}
-            aria-labelledby={`${section.id}-heading`}
-            className="wedding-reveal border-sandstone/40 bg-paper scroll-mt-20 border-y py-20 lg:py-28"
-        >
-            <div className={cx(container, "grid grid-cols-1 gap-14 lg:grid-cols-12 lg:gap-10")}>
-                <div className="flex flex-col gap-8 lg:col-span-5">
-                    <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.details} title={section.title} />
-                    {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                    {details.date && (
-                        <div className="border-sandstone relative mt-2 self-center border p-2 lg:self-start">
-                            <div className="border-sandstone/60 flex flex-col items-center gap-1 border px-10 pt-8 pb-9 text-center sm:px-14">
-                                <p className="wedding-eyebrow text-olive-600">{formatDate(details.date, { weekday: "long" })}</p>
-                                <p className="wedding-display text-forest text-[6.5rem] leading-[0.95] font-[350]">
-                                    {formatDate(details.date, { day: "numeric" })}
-                                </p>
-                                <p className="wedding-display text-forest text-[1.625rem]">{formatDate(details.date, { month: "long", year: "numeric" })}</p>
-                                <span aria-hidden="true" className="bg-clay/60 mt-3 h-px w-10" />
+        <ol className="border-forest/20 border-t" data-testid="timeline">
+            {events.map((event) => {
+                const where = event.venueName && event.venueName !== venueName ? event.venueName : "";
+                const meta = [where, event.dressCode && `Dress: ${event.dressCode}`].filter(Boolean).join(" · ");
+                return (
+                    <li key={event.id} className={row}>
+                        <p className={time}>{eventTime(event) ?? "Time TBC"}</p>
+                        <div className="flex flex-col gap-2">
+                            <h3 className="wedding-display text-forest text-[1.75rem] leading-tight sm:text-[2rem]">{event.name}</h3>
+                            {event.startsAt && event.startsAt.slice(0, 10) !== details.date && (
+                                <p className="text-sm text-tertiary">{longDate(event.startsAt.slice(0, 10))}</p>
+                            )}
+                            {event.description && <Prose text={event.description} className="text-charcoal max-w-lg text-[1rem]" />}
+                            {meta && <p className="text-[0.9375rem] text-tertiary">{meta}</p>}
+                        </div>
+                    </li>
+                );
+            })}
+        </ol>
+    );
+};
+
+const VenueCard = ({ data, venue }: { data: WeddingPageData; venue: WebsiteSection }) => {
+    const image = venue.imageId ? data.sectionImages[venue.imageId] : null;
+    const addressItem = venue.items.find((item) => /address/i.test(item.title));
+    const address = addressItem?.body || data.events.find((e) => e.address)?.address || "";
+    const mapItem = venue.items.find((item) => item.url && isMapLink(item.url)) ?? (addressItem?.url ? addressItem : undefined);
+    const directions = mapItem?.url || (address ? mapsUrl(address) : "");
+    const websiteItem = venue.items.find((item) => item !== mapItem && item.url && !isMapLink(item.url));
+    const others = venue.items.filter((item) => item !== addressItem && item !== websiteItem && item !== mapItem);
+    return (
+        <article className="bg-paper border-sandstone flex flex-col overflow-hidden border" data-testid="venue-card">
+            {image && <Photo image={image} shape="none" className="aspect-[4/3] rounded-none" sizes="(min-width: 1024px) 480px, 100vw" />}
+            <div className="flex flex-col gap-5 px-6 py-8 sm:px-9 sm:py-10">
+                <Eyebrow className="text-clay-600">{EYEBROWS.venue}</Eyebrow>
+                <h3 className="wedding-display text-forest -mt-1 text-[2.25rem] leading-[1.05] sm:text-[2.6rem]">{venue.title}</h3>
+                {venue.body && <Prose text={venue.body} className="text-charcoal text-[1rem]" />}
+                {(address || others.length > 0) && (
+                    <dl className="border-sandstone flex flex-col gap-4 border-t pt-5">
+                        {address && (
+                            <div className="flex flex-col gap-1">
+                                <dt className="wedding-eyebrow text-[0.6875rem] text-olive-600">{addressItem?.title || "Address"}</dt>
+                                <dd className="text-charcoal">{address}</dd>
                             </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex flex-col gap-14 lg:col-span-6 lg:col-start-7 lg:pt-24">
-                    {events.length > 0 ? (
-                        <ol className="border-sandstone relative flex flex-col gap-12 border-l pl-8 sm:pl-10">
-                            {events.map((event) => {
-                                const time = eventTime(event);
-                                return (
-                                    <li key={event.id} className="relative flex flex-col gap-2">
-                                        <span
-                                            aria-hidden="true"
-                                            className="bg-paper ring-clay absolute top-2 -left-[calc(2rem+5px)] size-2.5 rounded-full ring-1 sm:-left-[calc(2.5rem+5px)]"
-                                        />
-                                        <p className="wedding-eyebrow text-clay-600">{time ?? "Time to be confirmed"}</p>
-                                        <h3 className="wedding-display text-forest text-[2rem] sm:text-[2.375rem]">{event.name}</h3>
-                                        {(event.venueName || event.address) && (
-                                            <p className="text-charcoal">
-                                                {event.venueName}
-                                                {event.venueName && event.address && <span aria-hidden="true"> · </span>}
-                                                {event.address && <span className="text-tertiary">{event.address}</span>}
-                                            </p>
-                                        )}
-                                        {event.startsAt && event.startsAt.slice(0, 10) !== details.date && (
-                                            <p className="text-sm text-tertiary">{longDate(event.startsAt.slice(0, 10))}</p>
-                                        )}
-                                        {event.description && <Prose text={event.description} className="max-w-lg text-tertiary" />}
-                                        {event.dressCode && (
-                                            <p className="text-charcoal">
-                                                <span className="wedding-eyebrow mr-2 text-[0.6875rem] text-olive-600">Attire</span>
-                                                {event.dressCode}
-                                            </p>
-                                        )}
-                                        {event.address && (
-                                            <a
-                                                href={`https://maps.google.com/maps?q=${encodeURIComponent(event.address)}`}
-                                                {...external}
-                                                className={cx(
-                                                    weddingButton.link,
-                                                    "mt-1 inline-flex items-center gap-1.5 self-start outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
-                                                )}
-                                            >
-                                                Get directions
-                                                <ArrowUpRight className="size-4" aria-hidden="true" />
-                                                <span className="sr-only">(opens in a new tab)</span>
-                                            </a>
-                                        )}
-                                    </li>
-                                );
-                            })}
-                        </ol>
-                    ) : (
-                        <div className="border-sandstone flex flex-col gap-3 border-l pl-8 sm:pl-10">
-                            <p className="wedding-eyebrow text-clay-600">Timings</p>
-                            <p className="wedding-display text-forest text-[1.75rem]">To be confirmed</p>
-                            <p className="max-w-sm text-tertiary">We'll post the order of the day here once it's set.</p>
-                        </div>
-                    )}
-
-                    {dress && (
-                        <div id={dress.id} className="border-sandstone/60 scroll-mt-24 border-t pt-10">
-                            <Eyebrow>{EYEBROWS.dress}</Eyebrow>
-                            <h3 className="wedding-display text-forest mt-3 text-[1.875rem]">{dress.title}</h3>
-                            {dress.body && <Prose text={dress.body} className="text-charcoal mt-4 max-w-lg" />}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </section>
-    );
-};
-
-// ---------------------------------------------------------------------------------------------
-// Venue
-
-const Venue = ({ data, section }: { data: WeddingPageData; section: WebsiteSection }) => {
-    const image = section.imageId ? data.sectionImages[section.imageId] : null;
-    const mapItem = section.items.find((item) => item.url);
-    return (
-        <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal relative isolate scroll-mt-20">
-            {/* On large screens the photo fills the section and the panel sits in normal flow, so long text grows the section instead of spilling out. */}
-            <div className="relative -z-10 aspect-[4/3] sm:aspect-[16/9] lg:absolute lg:inset-0 lg:aspect-auto">
-                <Photo image={image} shape="none" fallback="wide" sizes="100vw" className="absolute inset-0 rounded-none" />
-            </div>
-            <div className={cx(container, "lg:flex lg:items-center lg:py-16", image ? "lg:min-h-[min(88vh,52rem)]" : "lg:min-h-[38rem]")}>
-                <div className="relative -mt-16 sm:-mt-24 lg:mt-0 lg:w-[31rem]">
-                    <div className="bg-paper p-2 shadow-[0_30px_60px_-30px_rgb(36_54_43/0.5)]">
-                        <div className="border-sandstone/70 flex flex-col gap-6 border px-6 py-9 sm:px-10 sm:py-11">
-                            <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.venue} title={section.title} size="md" />
-                            {section.body && <Prose text={section.body} className="text-charcoal" />}
-                            {section.items.length > 0 && (
-                                <dl className="border-sandstone/60 flex flex-col gap-4 border-t pt-6">
-                                    {section.items.map((item, i) => (
-                                        <div key={i} className="flex flex-col gap-1">
-                                            <dt className="wedding-eyebrow text-[0.6875rem] text-olive-600">{item.title}</dt>
-                                            {item.body && (
-                                                <dd className="wedding-prose text-charcoal">
-                                                    {item.url ? (
-                                                        <a
-                                                            href={item.url}
-                                                            {...external}
-                                                            className="decoration-forest/30 hover:decoration-forest rounded-sm underline underline-offset-4 outline-focus-ring focus-visible:outline-2"
-                                                        >
-                                                            {item.body}
-                                                            <span className="sr-only"> (opens in a new tab)</span>
-                                                        </a>
-                                                    ) : (
-                                                        item.body
-                                                    )}
-                                                </dd>
-                                            )}
-                                        </div>
-                                    ))}
-                                </dl>
-                            )}
-                            {mapItem && (
-                                <Button
-                                    href={mapItem.url}
-                                    {...external}
-                                    className={cx(weddingButton.outline, "self-start")}
-                                    iconTrailing={ArrowUpRight}
-                                    aria-label="Get directions (opens in a new tab)"
-                                >
-                                    Get directions
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div className="h-20 lg:hidden" />
-        </section>
-    );
-};
-
-// ---------------------------------------------------------------------------------------------
-// Accommodation: the on-site glamping first, set apart as a framed card, then places in town.
-
-const OnSiteStay = ({ data, item, image }: { data: WeddingPageData; item: WebsiteItem; image: WebsiteMedia | null }) => {
-    const contact = data.content.contactEmail.trim();
-    return (
-        <article className="bg-paper border-forest/15 border p-1.5 shadow-[0_28px_70px_-48px_rgb(82_32_38/0.4)] sm:p-2" data-testid="onsite-stay">
-            <div className="border-sandstone/80 flex flex-col border">
-                {image && <Photo image={image} shape="none" className="aspect-[16/9] rounded-none" sizes="(min-width: 1024px) 720px, 100vw" />}
-                <div className="flex flex-col gap-5 px-5 py-8 sm:px-10 sm:py-10">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                        {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
-                        <span className="wedding-eyebrow ring-leaf/40 text-leaf inline-flex items-center rounded-full px-3 py-1 text-[0.625rem] whitespace-nowrap ring-1 ring-inset max-sm:px-2.5 max-sm:tracking-[0.1em]">
-                            Limited · first in, first served
-                        </span>
-                    </div>
-                    <h3 className="wedding-display text-forest text-[2.4rem] leading-[1.02] sm:text-[3.1rem]">{item.title}</h3>
-                    {item.body && <Prose text={item.body} className="text-charcoal max-w-2xl text-[1.0625rem]" />}
-                    <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-7">
-                        {contact && (
-                            <Button
-                                href={`mailto:${contact}?subject=${encodeURIComponent("Staying at Rhino Lodge")}`}
-                                size="lg"
-                                iconLeading={Mail01}
-                                className={cx(weddingButton.primary, "w-full justify-center sm:w-auto")}
-                            >
-                                Get in touch
+                        )}
+                        {others.map((item, i) => (
+                            <div key={i} className="flex flex-col gap-1">
+                                <dt className="wedding-eyebrow text-[0.6875rem] text-olive-600">{item.title}</dt>
+                                {item.body && <dd className="text-charcoal">{item.body}</dd>}
+                            </div>
+                        ))}
+                    </dl>
+                )}
+                {(directions || websiteItem) && (
+                    <div className="mt-1 flex flex-col gap-3 min-[420px]:flex-row min-[420px]:flex-wrap">
+                        {directions && (
+                            <Button href={directions} {...external} className={cx(weddingButton.primary, "justify-center")} iconTrailing={ArrowUpRight}>
+                                Directions<span className="sr-only"> (opens in a new tab)</span>
                             </Button>
                         )}
-                        <ItemLink item={item} label="About the glamping" />
+                        {websiteItem && (
+                            <Button href={websiteItem.url} {...external} className={cx(weddingButton.outline, "justify-center")} iconTrailing={ArrowUpRight}>
+                                Website<span className="sr-only"> (opens in a new tab)</span>
+                            </Button>
+                        )}
                     </div>
-                </div>
+                )}
             </div>
         </article>
     );
 };
 
-const Accommodation = ({ data, section }: { data: WeddingPageData; section: WebsiteSection }) => {
-    const sectionImage = section.imageId ? data.sectionImages[section.imageId] : null;
-    const couple = `${data.details.partnerOne} & ${data.details.partnerTwo}`;
-    const places = section.items.map((item, i) => ({ item, onSite: isOnSite(item, i, section.items) }));
-    const onSite = places.filter((p) => p.onSite).map((p) => p.item);
-    const inTown = places.filter((p) => !p.onSite).map((p) => p.item);
-    // The section photo belongs to the on-site stay unless it has its own.
-    const imageFor = (item: WebsiteItem, fallback: boolean) => (item.imageId && data.sectionImages[item.imageId]) || (fallback ? sectionImage : null);
+const TheDay = ({ data, day }: { data: WeddingPageData; day: NonNullable<HomeLayout["day"]> }) => {
+    const { details, venue, dress } = day;
     return (
-        <section
-            id={section.id}
-            aria-labelledby={`${section.id}-heading`}
-            className="wedding-reveal bg-sandstone-light scroll-mt-20 overflow-hidden py-24 lg:py-36"
-        >
-            <div className={cx(container, "grid grid-cols-1 gap-14 lg:grid-cols-12 lg:gap-16")}>
-                <div className="relative flex flex-col gap-8 lg:col-span-4">
-                    <SectionHeading id={`${section.id}-heading`} eyebrow="Accommodation & transport" title={section.title} size="md" />
-                    {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                    {onSite.length > 0 && (
-                        <Stamp text="Limited · first in, first served · " className="mt-4 size-32 rotate-[-8deg] max-lg:hidden">
-                            <text
-                                x="60"
-                                y="66"
-                                textAnchor="middle"
-                                fill="currentColor"
-                                fontSize="15"
-                                style={{ fontFamily: "var(--font-wedding-display)", fontStyle: "italic" }}
-                            >
-                                book early
-                            </text>
-                        </Stamp>
-                    )}
-                </div>
-
-                <div className="flex flex-col gap-14 lg:col-span-8 lg:mt-4">
-                    {onSite.map((item, i) => (
-                        <OnSiteStay key={i} data={data} item={item} image={imageFor(item, i === 0)} />
-                    ))}
-
-                    {inTown.length > 0 && (
-                        <div className="flex flex-col gap-2" data-testid="town-stays">
-                            {onSite.length > 0 && (
-                                <div className="flex items-center gap-3">
-                                    <Building07 className="size-5 text-olive-600" aria-hidden="true" />
-                                    <h3 className="wedding-eyebrow text-[0.75rem] text-olive-600">Staying in town</h3>
-                                </div>
-                            )}
-                            <ul className="border-forest/25 flex flex-col border-t">
-                                {inTown.map((item, i) => {
-                                    const image = imageFor(item, onSite.length === 0 && i === 0);
-                                    return (
-                                        <li key={i} className="border-forest/25 border-b py-8 sm:py-10">
-                                            <article
-                                                className={cx(
-                                                    "grid h-full grid-cols-[2.5rem_1fr] gap-x-4 sm:grid-cols-[3.5rem_1fr] sm:gap-x-6",
-                                                    image && "md:grid-cols-[3.5rem_12rem_1fr]",
-                                                )}
-                                            >
-                                                <span aria-hidden="true" className="wedding-display text-clay-700 pt-1 text-[1.1rem] italic">
-                                                    0{i + 1}
-                                                </span>
-                                                {image && (
-                                                    <Photo
-                                                        image={image}
-                                                        shape="none"
-                                                        className="col-start-2 mb-6 aspect-[4/3] rounded-none md:col-start-2 md:mb-0 md:h-full md:min-h-44"
-                                                        sizes="(min-width: 768px) 200px, 100vw"
-                                                    />
-                                                )}
-                                                <div className={cx("col-start-2 flex flex-col gap-3", image && "md:col-start-3 md:pl-4")}>
-                                                    {item.detail && <Eyebrow className="text-clay-600">{item.detail}</Eyebrow>}
-                                                    <h4 className="wedding-display text-forest text-[2rem] leading-tight sm:text-[2.5rem]">{item.title}</h4>
-                                                    <p className="flex items-center gap-1.5 text-[0.82rem] text-olive-600">
-                                                        <Heart className="size-4" aria-hidden="true" />
-                                                        Recommended by {couple}
-                                                    </p>
-                                                    {item.body && <Prose text={item.body} className="text-charcoal max-w-xl text-[1rem]" />}
-                                                    <ItemLink item={item} label="Visit website" />
-                                                </div>
-                                            </article>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
-                    )}
+        <section id={DAY_ID} aria-labelledby={`${DAY_ID}-heading`} className={cx("wedding-reveal scroll-mt-20", sectionPad)}>
+            <Anchors ids={day.anchors} />
+            <div className={container}>
+                <HeadingRow id={`${DAY_ID}-heading`} eyebrow="The day" title={details?.title || "The big day"}>
+                    {details?.body && <Prose text={details.body} className="text-charcoal" />}
+                </HeadingRow>
+                <div className={cx("mt-12 grid grid-cols-1 items-start gap-12 lg:mt-16 lg:gap-16", venue && "lg:grid-cols-[7fr_5fr]")}>
+                    <div className="flex flex-col gap-12">
+                        <Timeline data={data} venueName={venue?.title ?? ""} />
+                        {dress && (
+                            <div>
+                                <Eyebrow>{EYEBROWS.dress}</Eyebrow>
+                                <h3 className="wedding-display text-forest mt-3 text-[1.875rem]">{dress.title}</h3>
+                                {dress.body && <Prose text={dress.body} className="text-charcoal mt-4 max-w-lg" />}
+                            </div>
+                        )}
+                    </div>
+                    {venue && <VenueCard data={data} venue={venue} />}
                 </div>
             </div>
         </section>
@@ -622,108 +469,142 @@ const Accommodation = ({ data, section }: { data: WeddingPageData; section: Webs
 };
 
 // ---------------------------------------------------------------------------------------------
-// Getting there and the courtesy bus
+// Stay & travel: a card for each place to stay, then the courtesy bus in ink
 
-const Travel = ({ data, section, transport }: { data: WeddingPageData; section: WebsiteSection; transport: WebsiteSection | null }) => {
-    const image = section.imageId ? data.sectionImages[section.imageId] : transport?.imageId ? data.sectionImages[transport.imageId] : null;
-    return (
-        <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal scroll-mt-20 py-20 lg:py-28">
-            <div className={cx(container, "grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10")}>
-                <div className="flex flex-col gap-8 lg:col-span-5">
-                    <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS[section.kind]} title={section.title} />
-                    {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                    {section.items.length > 0 && (
-                        <ul className="divide-sandstone/70 border-sandstone/70 flex flex-col divide-y border-t">
-                            {section.items.map((item, i) => (
-                                <li key={i} className="flex flex-col gap-2 py-6">
-                                    <h3 className="wedding-display text-forest text-[1.5rem]">{item.title}</h3>
-                                    {item.body && <Prose text={item.body} className="text-[1rem] text-tertiary" />}
-                                    <ItemLink item={item} label="Open map" />
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </div>
-                <div className="flex flex-col gap-8 lg:col-span-6 lg:col-start-7">
-                    {image && <Photo image={image} ratio="4 / 3" sizes="(min-width: 1024px) 600px, 100vw" />}
-                    {transport && (
-                        <div id={transport.id} className="border-sandstone scroll-mt-24 border p-2">
-                            <div className="border-sandstone/60 flex flex-col gap-4 border px-6 py-8 sm:px-10 sm:py-10">
-                                <Eyebrow className="text-clay-600">Transport</Eyebrow>
-                                <h3 className="wedding-display text-forest text-[2rem]">{transport.title}</h3>
-                                {transport.body && <Prose text={transport.body} className="text-charcoal" />}
-                                {transport.items.map((item, i) => (
-                                    <div key={i} className="border-sandstone/60 flex flex-col gap-1 border-t pt-4">
-                                        <p className="wedding-eyebrow text-[0.6875rem] text-olive-600">{item.title}</p>
-                                        {item.body && <Prose text={item.body} className="text-[1rem] text-tertiary" />}
-                                        <ItemLink item={item} label="More" />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    {!image && !transport && <EucalyptusBranch className="text-eucalypt w-72 self-center lg:mt-16" />}
-                </div>
-            </div>
-        </section>
-    );
+/** "On site · limited" for the on-site stay; "5.2 km · our pick" for places in town. */
+const stayTag = (item: WebsiteItem, onSite: boolean) => {
+    if (onSite) return "On site · limited";
+    const distance = /\d[\d.,]*\s?k?m\b/i.exec(item.detail)?.[0];
+    return distance ? `${distance} · our pick` : item.detail || "Our pick";
 };
 
 /** "Getting home" reads as the evening trip; anything else as the trip out. */
 const busIcon = (title: string) => (/home|return|back/i.test(title) ? Moon02 : Bus);
 
-const TransportFeature = ({ section, links }: { section: WebsiteSection; links: SiteLinks }) => (
-    <section
-        id={section.id}
-        aria-labelledby={`${section.id}-heading`}
-        className="wedding-reveal border-sandstone bg-eucalypt-light relative isolate scroll-mt-20 overflow-hidden border-y px-5 py-24 sm:px-8 lg:py-32"
-    >
-        <EucalyptusBranch className="text-eucalypt/35 absolute -right-32 -bottom-20 -z-10 w-[34rem] rotate-[-24deg] max-md:hidden" />
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 lg:grid-cols-[.72fr_1.28fr] lg:gap-20">
-            <div className="flex flex-col items-start gap-6">
-                <Eyebrow className="text-olive">Accommodation &amp; transport</Eyebrow>
-                <h2 id={`${section.id}-heading`} className="wedding-display text-forest text-[3.5rem] leading-[0.95] sm:text-[4.75rem] lg:text-[5.25rem]">
-                    {section.title}
-                </h2>
-                <span aria-hidden="true" className="bg-gold h-px w-20" />
-                {section.body && <Prose text={section.body} className="text-charcoal max-w-md" />}
-                {/* Say I Do doesn't ask about the bus, so only point to the native RSVP. */}
-                {links.rsvp && !links.rsvpExternal && (
-                    <Button {...rsvpLinkProps(links)} size="lg" className={cx(weddingButton.outline, "mt-2")}>
-                        Let us know in your RSVP
-                    </Button>
-                )}
-            </div>
-            {section.items.length > 0 && (
-                <ul className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:pt-6">
-                    {section.items.map((item, i) => {
-                        const Icon = busIcon(item.title);
+const card = "bg-paper border-forest/15 flex flex-col overflow-hidden border";
+const cardBody = "flex flex-1 flex-col gap-4 px-6 py-7 sm:px-8 sm:py-8";
+const cardTag = "wedding-eyebrow text-clay-600 text-[0.64rem]";
+const cardTitle = "wedding-display text-forest text-[1.9rem] leading-[1.08] sm:text-[2.1rem]";
+
+const StayAndTravel = ({ data, stay, links }: { data: WeddingPageData; stay: NonNullable<HomeLayout["stay"]>; links: SiteLinks }) => {
+    const { accommodation, travel, transport } = stay;
+    const contact = data.content.contactEmail.trim();
+    const sectionImage = accommodation?.imageId ? data.sectionImages[accommodation.imageId] : null;
+    const places = (accommodation?.items ?? []).map((item, i, items) => ({ item, onSite: isOnSite(item, i, items) }));
+    // The section photo belongs to the on-site stay (or the first place when none is on site) unless it has its own.
+    const photoOwner = places.findIndex((p) => p.onSite) === -1 ? 0 : places.findIndex((p) => p.onSite);
+    const imageFor = (item: WebsiteItem, i: number) => (item.imageId && data.sectionImages[item.imageId]) || (i === photoOwner ? sectionImage : null);
+    const lead = accommodation ?? travel ?? transport!;
+    // The transport section's words stay in its own card, so it only gives the heading when it is all there is.
+    const intro = [lead !== transport ? lead.body : "", travel && travel !== lead ? travel.body : ""].filter(Boolean).join("\n\n");
+    const travelImage = travel?.imageId ? data.sectionImages[travel.imageId] : null;
+    const transportImage = transport?.imageId ? data.sectionImages[transport.imageId] : null;
+
+    return (
+        <section id={STAY_ID} aria-labelledby={`${STAY_ID}-heading`} className={cx("wedding-reveal bg-eucalypt-light scroll-mt-20", sectionPad)}>
+            <Anchors ids={stay.anchors} />
+            <div className={container}>
+                <HeadingRow id={`${STAY_ID}-heading`} eyebrow="Stay & travel" title={lead.title}>
+                    {intro && <Prose text={intro} className="text-charcoal" />}
+                </HeadingRow>
+                <ul className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 lg:mt-16 lg:grid-cols-3 lg:gap-6" data-testid="stay-cards">
+                    {places.map(({ item, onSite }, i) => {
+                        const image = imageFor(item, i);
                         return (
-                            <li key={i} className="bg-paper border-olive/20 flex flex-col border p-1.5">
-                                <div className="border-sandstone/70 flex h-full flex-col gap-4 border px-5 py-7 sm:px-7 sm:py-8">
-                                    <span className="bg-eucalypt-light text-leaf flex size-11 items-center justify-center rounded-full" aria-hidden="true">
-                                        <Icon className="size-5" />
-                                    </span>
-                                    <h3 className="wedding-display text-forest text-[1.85rem] leading-tight">{item.title}</h3>
+                            <li key={`stay-${i}`} className={card} data-testid={onSite ? "onsite-stay" : "town-stay"}>
+                                {image && <Photo image={image} shape="none" className="aspect-[16/10] rounded-none" sizes="(min-width: 1024px) 400px, 100vw" />}
+                                <div className={cardBody}>
+                                    <p className={cardTag}>{stayTag(item, onSite)}</p>
+                                    <h3 className={cardTitle}>{item.title}</h3>
                                     {item.body && <Prose text={item.body} className="text-charcoal text-[1rem]" />}
-                                    {item.url && (
-                                        <a
-                                            href={item.url}
-                                            {...external}
-                                            className="wedding-eyebrow text-leaf mt-auto self-start pt-2 underline underline-offset-4"
-                                        >
-                                            More information <span className="sr-only">(opens in a new tab)</span>
-                                        </a>
-                                    )}
+                                    <div className="mt-auto flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+                                        <ItemLink item={item} label="Visit website" />
+                                        {onSite && contact && (
+                                            <a
+                                                href={`mailto:${contact}?subject=${encodeURIComponent(`Staying at ${item.title.replace(/^stay at\s+/i, "")}`)}`}
+                                                className={cx(
+                                                    weddingButton.link,
+                                                    "inline-flex items-center gap-1.5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4",
+                                                )}
+                                            >
+                                                <Mail01 className="size-4" aria-hidden="true" />
+                                                Email us
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
                             </li>
                         );
                     })}
+                    {travel &&
+                        travel.items.map((item, i) => (
+                            <li key={`travel-${i}`} className={card}>
+                                {i === 0 && travelImage && (
+                                    <Photo image={travelImage} shape="none" className="aspect-[16/10] rounded-none" sizes="(min-width: 1024px) 400px, 100vw" />
+                                )}
+                                <div className={cardBody}>
+                                    <p className={cardTag}>{EYEBROWS.travel}</p>
+                                    <h3 className={cardTitle}>{item.title}</h3>
+                                    {item.body && <Prose text={item.body} className="text-charcoal text-[1rem]" />}
+                                    <div className="mt-auto pt-2">
+                                        <ItemLink item={item} label="Open map" />
+                                    </div>
+                                </div>
+                            </li>
+                        ))}
+                    {transport && (
+                        <li className="bg-forest text-ivory [&_strong]:text-ivory flex flex-col overflow-hidden" data-testid="transport-card">
+                            {transportImage && (
+                                <Photo image={transportImage} shape="none" className="aspect-[16/10] rounded-none" sizes="(min-width: 1024px) 400px, 100vw" />
+                            )}
+                            <div className={cardBody}>
+                                <p className="wedding-eyebrow text-ivory/80 text-[0.64rem]">{EYEBROWS.transport}</p>
+                                <h3 className="wedding-display text-ivory text-[1.9rem] leading-[1.08] sm:text-[2.1rem]">{transport.title}</h3>
+                                {transport.body && <Prose text={transport.body} className="text-ivory/90 text-[1rem]" />}
+                                {transport.items.length > 0 && (
+                                    <ul className="border-ivory/20 flex flex-col gap-5 border-t pt-5">
+                                        {transport.items.map((item, i) => {
+                                            const Icon = busIcon(item.title);
+                                            return (
+                                                <li key={i} className="flex gap-3">
+                                                    <Icon className="text-ivory/80 mt-0.5 size-5 shrink-0" aria-hidden="true" />
+                                                    <div className="flex flex-col gap-1">
+                                                        <p className="font-medium">{item.title}</p>
+                                                        {item.body && <Prose text={item.body} className="text-ivory/85 text-[0.9375rem] leading-relaxed" />}
+                                                        {item.url && (
+                                                            <a
+                                                                href={item.url}
+                                                                {...external}
+                                                                className="text-ivory decoration-ivory/40 hover:decoration-ivory outline-ivory self-start rounded-sm text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                            >
+                                                                More information <span className="sr-only">(opens in a new tab)</span>
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                                {/* Say I Do doesn't ask about the bus, so only point to the native RSVP. */}
+                                {links.rsvp && !links.rsvpExternal && (
+                                    <div className="mt-auto pt-2">
+                                        <a
+                                            {...rsvpLinkProps(links)}
+                                            className="text-ivory decoration-ivory/40 hover:decoration-ivory outline-ivory inline-flex rounded-sm text-[0.8125rem] font-medium tracking-[0.18em] uppercase underline underline-offset-[6px] transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-4"
+                                        >
+                                            Let us know in your RSVP
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        </li>
+                    )}
                 </ul>
-            )}
-        </div>
-    </section>
-);
+            </div>
+        </section>
+    );
+};
 
 // ---------------------------------------------------------------------------------------------
 // Story, children and other text-led sections
@@ -734,7 +615,7 @@ const Feature = ({ data, section, tone }: { data: WeddingPageData; section: Webs
         <section
             id={section.id}
             aria-labelledby={`${section.id}-heading`}
-            className={cx("wedding-reveal scroll-mt-20 py-20 lg:py-28", tone === "eucalypt" ? "bg-eucalypt-light" : "border-sandstone/40 border-t")}
+            className={cx("wedding-reveal scroll-mt-20", sectionPad, tone === "eucalypt" ? "bg-eucalypt-light" : "border-sandstone/40 border-t")}
         >
             {image ? (
                 <div className={cx(container, "grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-10")}>
@@ -773,13 +654,12 @@ const SectionItems = ({ items }: { items: WebsiteItem[] }) =>
     ) : null;
 
 // ---------------------------------------------------------------------------------------------
-// FAQ
+// FAQ: every answer open, in two columns
 
 const Faq = ({ data, section }: { data: WeddingPageData; section: WebsiteSection }) => (
-    <section id={section.id} aria-labelledby={`${section.id}-heading`} className="wedding-reveal bg-paper scroll-mt-20 py-24 lg:py-36">
-        <div className={cx(container, "grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10")}>
-            <div className="flex flex-col gap-6 lg:sticky lg:top-28 lg:col-span-5 lg:self-start">
-                <SectionHeading id={`${section.id}-heading`} eyebrow={EYEBROWS.faq} title={section.title} />
+    <section id={section.id} aria-labelledby={`${section.id}-heading`} className={cx("wedding-reveal bg-paper scroll-mt-20", sectionPad)}>
+        <div className={container}>
+            <HeadingRow id={`${section.id}-heading`} eyebrow={EYEBROWS.faq!} title={section.title}>
                 {section.body && <Prose text={section.body} className="text-charcoal" />}
                 {data.content.contactEmail && (
                     <p className="text-tertiary">
@@ -793,31 +673,14 @@ const Faq = ({ data, section }: { data: WeddingPageData; section: WebsiteSection
                         .
                     </p>
                 )}
-            </div>
-            <div className="wedding-faq border-forest/25 border-t lg:col-span-7 lg:col-start-6 lg:mt-3">
+            </HeadingRow>
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 md:gap-x-12 lg:mt-16 lg:gap-x-16" data-testid="faq-list">
                 {section.items.map((item, i) => (
-                    <details key={i} className="group border-forest/25 border-b">
-                        <summary className="flex min-h-20 cursor-pointer items-center justify-between gap-6 py-6 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2">
-                            <div className="flex items-baseline gap-5">
-                                <span aria-hidden="true" className="wedding-display text-clay-700 text-sm italic">
-                                    0{i + 1}
-                                </span>
-                                <h3 className="wedding-display text-charcoal text-[1.5rem] leading-snug sm:text-[1.85rem]">{item.title}</h3>
-                            </div>
-                            <span aria-hidden="true" className="text-forest relative size-5 shrink-0">
-                                <span className="absolute top-1/2 left-0 h-px w-4 -translate-y-1/2 bg-current" />
-                                <span data-plus-vertical className="absolute top-0 left-1/2 h-4 w-px -translate-x-1/2 bg-current" />
-                            </span>
-                        </summary>
-                        <div className="max-w-2xl pb-8 pl-10 sm:pl-12">
-                            {item.body && <Prose text={item.body} className="text-charcoal" />}
-                            {item.url && (
-                                <div className="mt-4">
-                                    <ItemLink item={item} label="More information" />
-                                </div>
-                            )}
-                        </div>
-                    </details>
+                    <article key={i} className="border-forest/20 flex flex-col gap-3 border-t py-7 sm:py-8">
+                        <h3 className="wedding-display text-forest text-[1.5rem] leading-snug sm:text-[1.7rem]">{item.title}</h3>
+                        {item.body && <Prose text={item.body} className="text-charcoal max-w-xl text-[1rem]" />}
+                        <ItemLink item={item} label="More information" />
+                    </article>
                 ))}
             </div>
         </div>
@@ -828,7 +691,7 @@ const Faq = ({ data, section }: { data: WeddingPageData; section: WebsiteSection
 // Gallery
 
 const Gallery = ({ data }: { data: WeddingPageData }) => (
-    <section id="gallery" aria-labelledby="gallery-heading" className="wedding-reveal border-sandstone/40 scroll-mt-20 border-t py-20 lg:py-28">
+    <section id="gallery" aria-labelledby="gallery-heading" className={cx("wedding-reveal border-sandstone/40 scroll-mt-20 border-t", sectionPad)}>
         <div className={cx(container, "flex flex-col gap-12")}>
             <SectionHeading id="gallery-heading" eyebrow="Moments" title="A few of our favourites" align="center" />
             {/* Balanced columns keep each photo's own proportions, whatever the number of photos. */}
@@ -854,13 +717,9 @@ const Gallery = ({ data }: { data: WeddingPageData }) => (
 // RSVP invitation
 
 const RsvpBand = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => (
-    <section
-        id="rsvp"
-        aria-labelledby="rsvp-heading"
-        className="bg-sandstone relative isolate scroll-mt-16 overflow-hidden px-4 py-20 sm:px-8 sm:py-28 lg:py-36"
-    >
+    <section id="rsvp" aria-labelledby="rsvp-heading" className={cx("bg-sandstone relative isolate scroll-mt-16 overflow-hidden px-4 sm:px-8", sectionPad)}>
         <SignatureBotanicals />
-        <div className="border-tan/40 bg-ivory relative z-10 mx-auto max-w-5xl border px-6 py-20 shadow-[0_24px_70px_-45px_rgb(60_42_35/0.35)] sm:px-12 sm:py-24 lg:px-20">
+        <div className="border-tan/40 bg-ivory relative z-10 mx-auto max-w-5xl border px-6 py-16 shadow-[0_24px_70px_-45px_rgb(60_42_35/0.35)] sm:px-12 sm:py-20 lg:px-20">
             <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-7 text-center">
                 <Eyebrow className="text-olive">RSVP</Eyebrow>
                 <h2 id="rsvp-heading" className="wedding-display text-forest text-[3.5rem] leading-[0.98] text-balance sm:text-[4.8rem] lg:text-[5.5rem]">
@@ -896,53 +755,49 @@ const RsvpBand = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) 
 // ---------------------------------------------------------------------------------------------
 
 export const HomePage = ({ data, links }: { data: WeddingPageData; links: SiteLinks }) => {
-    const sections = data.content.sections.filter((s) => s.body.trim() || s.items.length || s.kind === "venue");
-    const has = (kind: WebsiteSection["kind"]) => sections.some((s) => s.kind === kind);
-    // The dress code sits inside "the big day", and the courtesy bus inside "getting there", when both exist.
-    const dress = has("details") ? (sections.find((s) => s.kind === "dress") ?? null) : null;
-    const transport = has("travel") ? (sections.find((s) => s.kind === "transport") ?? null) : null;
-    const absorbed = new Set([dress?.id, transport?.id].filter(Boolean));
-    const noDetails = !has("details") && data.events.length > 0;
-
+    const layout = homeLayout(data);
+    const { day, stay } = layout;
     let feature = 0;
+    let dayDrawn = false;
+    let stayDrawn = false;
     const render = (section: WebsiteSection) => {
-        switch (section.kind) {
-            case "details":
-                return <BigDay key={section.id} data={data} section={section} dress={dress} />;
-            case "venue":
-                return <Venue key={section.id} data={data} section={section} />;
-            case "accommodation":
-                return <Accommodation key={section.id} data={data} section={section} />;
-            case "travel":
-                return <Travel key={section.id} data={data} section={section} transport={transport} />;
-            case "transport":
-                return <TransportFeature key={section.id} section={section} links={links} />;
-            case "faq":
-                return section.items.length > 0 ? (
-                    <Faq key={section.id} data={data} section={section} />
-                ) : (
-                    <Feature key={section.id} data={data} section={section} tone="ivory" />
-                );
-            default:
-                // Children get the soft eucalyptus band; other text sections alternate quietly.
-                return (
-                    <Feature
-                        key={section.id}
-                        data={data}
-                        section={section}
-                        tone={section.kind === "children" || (section.kind !== "dress" && feature++ % 2 === 1) ? "eucalypt" : "ivory"}
-                    />
-                );
+        // "The day" and "Stay & travel" sit where the first of their sections sits in the portal's order.
+        if (isMerged(layout, section)) {
+            if (day && Object.values(day).includes(section)) {
+                if (dayDrawn) return null;
+                dayDrawn = true;
+                return <TheDay key={DAY_ID} data={data} day={day} />;
+            }
+            if (stay && !stayDrawn) {
+                stayDrawn = true;
+                return <StayAndTravel key={STAY_ID} data={data} stay={stay} links={links} />;
+            }
+            return null;
         }
+        if (section.kind === "faq")
+            return section.items.length > 0 ? (
+                <Faq key={section.id} data={data} section={section} />
+            ) : (
+                <Feature key={section.id} data={data} section={section} tone="ivory" />
+            );
+        // Children get the soft eucalyptus band; other text sections alternate quietly.
+        return (
+            <Feature
+                key={section.id}
+                data={data}
+                section={section}
+                tone={section.kind === "children" || (section.kind !== "dress" && feature++ % 2 === 1) ? "eucalypt" : "ivory"}
+            />
+        );
     };
+    // Events without a schedule section: the day still comes first, as before.
+    const dayFirst = day && !day.details && !day.venue && !day.dress;
 
     return (
         <>
-            <Hero data={data} links={links} />
-            <CountdownBand data={data} />
-            <Welcome data={data} />
-            {noDetails && <BigDay data={data} section={{ id: "schedule", title: "The big day", body: "" }} dress={null} />}
-            {sections.filter((s) => !absorbed.has(s.id)).map(render)}
+            <Hero data={data} links={links} dayId={day ? DAY_ID : null} />
+            {dayFirst && <TheDay data={data} day={day} />}
+            {layout.sections.map(render)}
             {data.gallery.length > 0 && <Gallery data={data} />}
             <RsvpBand data={data} links={links} />
         </>

@@ -302,20 +302,6 @@
     opacity: 1;
 }
 
-/* FAQ accordions: the plus turns into a minus. */
-.wedding-faq summary::-webkit-details-marker {
-    display: none;
-}
-.wedding-faq summary {
-    list-style: none;
-}
-.wedding-faq [data-plus-vertical] {
-    transition: transform 200ms ease;
-}
-.wedding-faq details[open] [data-plus-vertical] {
-    transform: scaleY(0);
-}
-
 @media (prefers-reduced-motion: reduce) {
     .wedding-rise,
     .wedding-fade,
