@@ -213,7 +213,7 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
             />
 
             {isEditable && !data.deliveryAvailable && (
-                <Notice color="brand" title="Ready, but not sendable from the portal yet">
+                <Notice color="brand" title="Ready, but not sendable from the admin yet">
                     {sms
                         ? "SMS delivery is off, so this text can't be sent from here. An owner can set up ClickSend and switch on SMS delivery (see docs/COMMUNICATIONS.md)."
                         : "Email delivery is off, so this draft can't be sent from here. Download the mail-merge CSV to send it with your own email account, or ask an owner to set up delivery (see docs/COMMUNICATIONS.md)."}

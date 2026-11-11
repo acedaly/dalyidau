@@ -13,81 +13,12 @@ import { enableShadowDOM } from 'react-stately/private/flags/flags'
 enableShadowDOM()
 
 import type { PortalPageData } from '@/shared/portal/types'
-import { ToastProvider } from '@/portal/components/toast'
-import { BudgetPage } from '@/portal/pages/budget-page'
-import { CateringPage } from '@/portal/pages/catering-page'
-import { CommunicationsPage } from '@/portal/pages/communications-page'
-import { DashboardPage } from '@/portal/pages/dashboard-page'
-import { EventsPage } from '@/portal/pages/events-page'
-import { GuestImportPage } from '@/portal/pages/guest-import-page'
-import { GuestsPage } from '@/portal/pages/guests-page'
-import { HouseholdsPage } from '@/portal/pages/households-page'
-import { InvitationStudioPage } from '@/portal/pages/invitation-studio-page'
-import { MessagePage } from '@/portal/pages/message-page'
-import { ProviderSettingsPage } from '@/portal/pages/provider-settings-page'
-import { RsvpsPage } from '@/portal/pages/rsvps-page'
-import { SeatingPage } from '@/portal/pages/seating-page'
-import { WeddingSettingsPage } from '@/portal/pages/settings-page'
-import { ForbiddenPage, NotFoundPage } from '@/portal/pages/status-pages'
-import { SuppliersPage } from '@/portal/pages/suppliers-page'
-import { TasksPage } from '@/portal/pages/tasks-page'
-import { TextsPage } from '@/portal/pages/texts-page'
-import { TimelinePage } from '@/portal/pages/timeline-page'
-import { WebsitePage } from '@/portal/pages/website-page'
-import { PortalProvider } from '@/portal/portal-context'
+import { AdminScreen } from '@/portal/portal-screen'
 import { useRouter } from 'next/navigation'
 
 import { adminPathForPortalLink } from './wedding-routes'
 
 type Loaded = { data: PortalPageData; styles: string[]; shadowDefaults: string; title: string } | { error: string }
-
-/** The portal's own page for each wedding route (the same mapping as src/portal/portal-app.tsx). */
-const Screen = ({ data }: { data: PortalPageData }) => {
-  switch (data.route) {
-    case 'dashboard':
-      return <DashboardPage data={data} />
-    case 'guests':
-      return <GuestsPage data={data} />
-    case 'guest-import':
-      return <GuestImportPage data={data} />
-    case 'households':
-      return <HouseholdsPage data={data} />
-    case 'events':
-      return <EventsPage data={data} />
-    case 'rsvps':
-      return <RsvpsPage data={data} />
-    case 'communications':
-      return <CommunicationsPage data={data} />
-    case 'invitation-studio':
-      return <InvitationStudioPage data={data} />
-    case 'provider-settings':
-      return <ProviderSettingsPage data={data} />
-    case 'message':
-      return <MessagePage data={data} />
-    case 'texts':
-      return <TextsPage data={data} />
-    case 'tasks':
-      return <TasksPage data={data} />
-    case 'timeline':
-      return <TimelinePage data={data} />
-    case 'seating':
-      return <SeatingPage data={data} />
-    case 'catering':
-      return <CateringPage data={data} />
-    case 'budget':
-      return <BudgetPage data={data} />
-    case 'suppliers':
-      return <SuppliersPage data={data} />
-    case 'website':
-      return <WebsitePage data={data} />
-    case 'wedding-settings':
-      return <WeddingSettingsPage data={data} />
-    case 'forbidden':
-      return <ForbiddenPage message={data.message} />
-    default:
-      return <NotFoundPage />
-  }
-}
 
 export function WeddingScreen({ path }: { path: string }) {
   const host = useRef<HTMLDivElement>(null)
@@ -126,6 +57,17 @@ export function WeddingScreen({ path }: { path: string }) {
     container.className = 'wedding-root bg-primary text-primary font-body'
     container.style.minHeight = '60vh'
     root.append(container)
+    // Overlays (dialogs, menus, toasts) are added to this container next to the screen. React Aria's shadow DOM
+    // mode leaves an open dialog's shadow-root observer running when a second dialog opens on top of it (a
+    // "Delete guest?" confirmation over the guest panel), and that observer made the new dialog inert: it was
+    // visible but couldn't be clicked. React Aria never hides nodes marked as its top layer, so each overlay is
+    // marked as it's added. This observer is registered before React Aria's, so it runs first.
+    const overlays = new MutationObserver((changes) => {
+      for (const change of changes)
+        for (const node of change.addedNodes)
+          if (node instanceof HTMLElement && !node.hasAttribute('data-admin-screen')) node.setAttribute('data-react-aria-top-layer', 'true')
+    })
+    overlays.observe(container, { childList: true })
     // Follow Payload's light/dark choice with the portal's own dark-mode class, inside the boundary only.
     const sync = () => container.classList.toggle('dark-mode', document.documentElement.dataset.theme === 'dark')
     sync()
@@ -145,6 +87,7 @@ export function WeddingScreen({ path }: { path: string }) {
     container.addEventListener('click', onClick)
     setMount(container)
     return () => {
+      overlays.disconnect()
       observer.disconnect()
       container.removeEventListener('click', onClick)
     }
@@ -157,13 +100,7 @@ export function WeddingScreen({ path }: { path: string }) {
       {mount && state && 'data' in state &&
         createPortal(
           <UNSAFE_PortalProvider getContainer={() => mount}>
-            <PortalProvider value={state.data.context}>
-              <ToastProvider>
-                <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8">
-                  <Screen data={state.data} />
-                </div>
-              </ToastProvider>
-            </PortalProvider>
+            <AdminScreen data={state.data} />
           </UNSAFE_PortalProvider>,
           mount,
         )}

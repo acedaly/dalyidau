@@ -2,6 +2,14 @@
 
 Read this first if you are a Claude Code session picking up this work.
 
+## Phase 3: wedding publishing fixed, portal retired (directive 11 Nov 2026 ~09:35Z, current)
+
+- Journal: `docs/PAYLOAD-FRONTEND-LOG.md` ("Phase 3"). Dependency map: `docs/PAYLOAD-PORTAL-RETIREMENT.md`.
+- **Publishing fix live:** #53, production `d982daf3` (rollback `b13e3104`). Verified on both wedding addresses.
+- **Portal retirement:** branch `feature/retire-portal`; PR, deploy and production checks follow (see the log).
+- The wedding and administration screens' browser suite runs inside Payload: `npx playwright test -c playwright.admin.config.ts` (needs `npm run poc:build` in `poc/payload`).
+- Next directive queued by the owner: **Phase 4, projects-first homepage redesign.** Do it on its own branch, publish to staging only, and **stop for the owner's visual approval before the live homepage changes.**
+
 ## Phase 2: the website in Payload (directive 11 Nov 2026, current)
 
 - Plan and audit: `docs/PAYLOAD-FRONTEND-PLAN.md`. Journal: `docs/PAYLOAD-FRONTEND-LOG.md` (read its last entries).

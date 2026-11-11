@@ -3,35 +3,19 @@
 // It is the existing portal page loader, called with the existing sign-in and role checks and the same
 // credential redaction as the server-rendered portal (worker/index.ts portalPage). Nothing is reimplemented.
 
-import type { PortalPageData } from "../../../src/shared/portal/types";
 import type { Env } from "../../../worker/env";
-import { authenticate, can } from "../../../worker/portal/auth";
-import { loadFlags } from "../../../worker/portal/flags";
-import { loadPortalPage } from "../../../worker/portal/pages";
-import { CREDENTIAL_PERMISSION, hideCredentials } from "../../../worker/portal/redact";
-import { getSettings } from "../../../worker/portal/settings";
+import { loadAdminPage } from "../../../worker/portal/admin-page";
 
 const HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 
-/** Only wedding screens are offered to Payload (message pages are /portal/wedding/communications/msg_…). */
-const WEDDING_PAGE = /^\/portal\/wedding(?:\/[a-z0-9_-]+){0,3}$/;
-
 export async function handleBridge(request: Request, env: Env, url: URL): Promise<Response> {
     if (url.pathname !== "/api/platform/wedding-page") return json({ error: "not_found" }, 404);
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
-    const auth = await authenticate(request, env);
-    // As portalApi: the reason is logged by authenticate, never returned.
-    if (!auth.ok) return json({ error: auth.status === 401 ? "unauthenticated" : "forbidden" }, auth.status);
-    const path = url.searchParams.get("path") ?? "";
-    if (!WEDDING_PAGE.test(path)) return json({ error: "not_found" }, 404);
-    const pageUrl = new URL(path, url.origin);
-    const [flags, wedding] = await Promise.all([loadFlags(env.DB), getSettings(env.DB, "wedding")]);
-    const result = await loadPortalPage(path, pageUrl, env, auth.user, flags);
-    const pageData = can(auth.user, CREDENTIAL_PERMISSION) ? result.data : hideCredentials(result.data);
-    const data = { ...pageData, context: { user: auth.user, flags, wedding, environment: env.ENVIRONMENT } } as PortalPageData;
+    const result = await loadAdminPage(request, env, url.searchParams.get("path") ?? "");
+    if (!result.ok) return json({ error: result.error }, result.status);
     const styles = await portalStyles(env);
-    return json({ title: result.title, status: result.status, data, styles, shadowDefaults: await shadowDefaults(env, styles) }, result.status);
+    return json({ title: result.title, status: result.status, data: result.data, styles, shadowDefaults: await shadowDefaults(env, styles) }, result.status);
 }
 
 /** The portal's built stylesheet(s), read from its own HTML shell so hashed file names always match the deploy. */

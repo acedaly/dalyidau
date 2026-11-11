@@ -3,7 +3,7 @@
 // section someone can't see falls back to General rather than rendering empty.
 //
 // Feature switches are stored once (feature_flags, defaults in ./flags) and changed in one place,
-// Portal settings → Features. Other pages only show their state and link there.
+// Administration → Features. Other pages only show their state and link there.
 import { type ApplicationId, applicationById, canAccessApplication } from "./applications";
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey } from "./flags";
 import type { Permission } from "./permissions";
@@ -20,15 +20,15 @@ export interface PortalSettingsSection {
 }
 
 export const PORTAL_SETTINGS_SECTIONS: Record<PortalSettingsTab, PortalSettingsSection> = {
-    general: { label: "General", description: "Who you're signed in as, and how the portal looks on this device." },
-    access: { label: "Household & Access", description: "Roles, what each role can open, and the people who can sign in." },
-    features: { label: "Features", description: "Switches that turn parts of the portal on or off for everyone. Every change is audited." },
+    general: { label: "General", description: "Who you're signed in as." },
+    access: { label: "Users and permissions", description: "Roles, what each role can open, and the people who can sign in." },
+    features: { label: "Features", description: "Switches that turn parts of the site and the wedding admin on or off for everyone. Every change is audited." },
     website: {
-        label: "Website & Blog",
+        label: "Capacities archive",
         description: "The blog's articles from Capacities: whether Capacities sync is on, and the copy of every article kept in Cloudflare.",
         permission: "portal.settings.manage",
     },
-    security: { label: "Integrations & Security", description: "Sign-in, email and SMS providers and the audit log." },
+    security: { label: "Integrations and security", description: "Sign-in, email and SMS providers and the audit log." },
     privacy: { label: "Privacy", description: "Deleted guest records and retention.", permission: "wedding.guests.edit" },
 };
 
@@ -71,13 +71,13 @@ export type FeatureAreaDetails = { label: string; description: string } & ({ app
 
 export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
     wedding: {
-        label: "Wedding Planner",
-        description: "The public website and Save the Date page, native RSVP, guest email and SMS, and which Wedding Planner modules are on.",
+        label: "Wedding",
+        description: "The public website and Save the Date page, native RSVP, guest email and SMS, and which wedding modules are on.",
         application: "wedding",
     },
     website: {
-        label: "Website & Blog",
-        description: "Whether the blog keeps in sync with Capacities. Details in Portal settings → Website & Blog.",
+        label: "Capacities archive",
+        description: "Whether the blog keeps in sync with Capacities. Details in Administration → Capacities archive.",
         permission: "portal.settings.manage",
     },
 };

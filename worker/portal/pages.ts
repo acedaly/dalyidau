@@ -384,11 +384,11 @@ export async function loadPortalPage(path: string, url: URL, env: Env, user: Por
             return { data: { route: "forbidden", message: "You don't have access to this application." }, status: 403, title: "No access" };
         }
         if (page.permission && !can(user, page.permission)) {
-            return { data: { route: "forbidden", message: "Your role doesn't include this part of the portal." }, status: 403, title: "No access" };
+            return { data: { route: "forbidden", message: "Your role doesn't include this part of the admin." }, status: 403, title: "No access" };
         }
         if (page.flag && !flags[page.flag]) {
             return {
-                data: { route: "forbidden", message: "This module is switched off. An owner or admin can turn it on in Portal settings → Features." },
+                data: { route: "forbidden", message: "This module is switched off. An owner or admin can turn it on in Administration → Features." },
                 status: 404,
                 title: page.title,
             };

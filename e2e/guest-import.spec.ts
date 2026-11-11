@@ -1,4 +1,5 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { at } from "./helpers";
 
 // Guest import and the household RSVP, end to end. Desktop and mobile share one database, so
 // every name and Say I Do link carries the project name to keep the two runs independent.
@@ -50,20 +51,20 @@ test("imports a Say I Do guest list after review, and re-importing changes nothi
     const errors = watchErrors(page);
     const file = { name: `guestlist-${tag}.csv`, mimeType: "text/csv", buffer: Buffer.from(sayIDoCsv(tag)) };
 
-    await page.goto("/portal/wedding/guests");
-    await page.getByRole("link", { name: "Import" }).first().click();
-    await expect(page.getByRole("heading", { level: 1, name: "Import guests" })).toBeVisible();
-    await page.locator("input[type=file]").setInputFiles(file);
+    await page.goto("/admin/wedding/guests");
+    await at(page).getByRole("link", { name: "Import" }).first().click();
+    await expect(at(page).getByRole("heading", { level: 1, name: "Import guests" })).toBeVisible();
+    await at(page).locator("input[type=file]").setInputFiles(file);
 
-    await expect(page.getByText(`guestlist-${tag}.csv · Say I Do guest list`)).toBeVisible();
-    const households = page.getByTestId("import-household");
+    await expect(at(page).getByText(`guestlist-${tag}.csv · Say I Do guest list`)).toBeVisible();
+    const households = at(page).getByTestId("import-household");
     await expect(households.filter({ hasText: `Drew & Emery Fictional${tag}` })).toBeVisible();
     await noOverflow(page, "import review");
 
     // Lower-case surname: flagged, then fixed in bulk.
-    const hayden = page.getByTestId("import-guest-5");
+    const hayden = at(page).getByTestId("import-guest-5");
     await expect(hayden.getByText("Check the capitalisation.", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: /Fix capitalisation/ }).click();
+    await at(page).getByRole("button", { name: /Fix capitalisation/ }).click();
     await expect(hayden.getByLabel("Last name")).toHaveValue(`Smith${tag}`);
 
     // Two different addresses in one party: choose the street address.
@@ -73,20 +74,20 @@ test("imports a Say I Do guest list after review, and re-importing changes nothi
     await expect(drew.getByRole("radio", { name: /7 Banksia Road/ })).toBeChecked();
 
     // Only the explicit "Yes" is an RSVP; the empty Attending cells are not.
-    await expect(page.getByTestId("import-guest-7").getByText("Said yes")).toBeVisible();
-    await expect(page.getByTestId("import-guest-8").getByText("No RSVP yet")).toBeVisible();
+    await expect(at(page).getByTestId("import-guest-7").getByText("Said yes")).toBeVisible();
+    await expect(at(page).getByTestId("import-guest-8").getByText("No RSVP yet")).toBeVisible();
 
-    await expect(page.getByRole("button", { name: "Import 6 guests" })).toBeEnabled();
-    await page.getByRole("button", { name: "Import 6 guests" }).click();
-    await expect(page.getByText(`Imported “guestlist-${tag}.csv”`)).toBeVisible();
-    await expect(page.getByRole("link", { name: "Download report (CSV)" })).toBeVisible();
-    await expect(page.getByRole("rowheader", { name: `Hayden Smith${tag}` })).toBeVisible();
+    await expect(at(page).getByRole("button", { name: "Import 6 guests" })).toBeEnabled();
+    await at(page).getByRole("button", { name: "Import 6 guests" }).click();
+    await expect(at(page).getByText(`Imported “guestlist-${tag}.csv”`)).toBeVisible();
+    await expect(at(page).getByRole("link", { name: "Download report (CSV)" })).toBeVisible();
+    await expect(at(page).getByRole("rowheader", { name: `Hayden Smith${tag}` })).toBeVisible();
 
     // The same file again: matched, nothing to do, nothing duplicated.
-    await page.getByRole("button", { name: "Import another file" }).click();
-    await page.locator("input[type=file]").setInputFiles(file);
-    await expect(page.getByText("This exact file was imported before")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Everything is up to date" })).toBeDisabled();
+    await at(page).getByRole("button", { name: "Import another file" }).click();
+    await at(page).locator("input[type=file]").setInputFiles(file);
+    await expect(at(page).getByText("This exact file was imported before")).toBeVisible();
+    await expect(at(page).getByRole("button", { name: "Everything is up to date" })).toBeDisabled();
 
     const { guests } = await api(request, "get", "/api/portal/wedding/guests");
     expect(guests.filter((g: { lastName: string; firstName: string }) => `${g.firstName}${g.lastName}`.includes(tag))).toHaveLength(6);
@@ -110,13 +111,13 @@ test("a household opens its invitation link, replies in part, then finishes; the
 
     try {
         await page.goto(`/wedding/rsvp${new URL(issued.invitationUrl).search}`);
-        await expect(page.getByRole("heading", { name: "Who's coming?" })).toBeVisible();
+        await expect(at(page).getByRole("heading", { name: "Who's coming?" })).toBeVisible();
         // Everyone named on the invitation, by full name.
         for (const name of [`Alex Partial-${tag}`, `Sam Partial-${tag}`, `Jo O'Partial ${tag}`])
-            await expect(page.getByRole("heading", { name })).toBeVisible();
+            await expect(at(page).getByRole("heading", { name })).toBeVisible();
         await noOverflow(page, "attendance");
 
-        const person = (name: string) => page.getByRole("listitem").filter({ has: page.getByRole("heading", { name }) });
+        const person = (name: string) => at(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name }) });
         // Tap the visible label (as a guest would) and check it took.
         const choose = async (name: string, choice: "accept" | "decline") => {
             const label = choice === "accept" ? (isMobile ? "Accepts" : "Joyfully accepts") : isMobile ? "Declines" : "Regretfully declines";
@@ -125,45 +126,45 @@ test("a household opens its invitation link, replies in part, then finishes; the
         };
         await choose(`Alex Partial-${tag}`, "accept");
         await choose(`Sam Partial-${tag}`, "decline");
-        await page.getByRole("button", { name: "Continue" }).click();
-        await expect(page.getByText("We still need an answer for Jo.")).toBeVisible();
-        await page.getByRole("button", { name: "Reply now and answer for Jo later" }).click();
+        await at(page).getByRole("button", { name: "Continue" }).click();
+        await expect(at(page).getByText("We still need an answer for Jo.")).toBeVisible();
+        await at(page).getByRole("button", { name: "Reply now and answer for Jo later" }).click();
         // Details, then the optional transport step: skipped entirely this time.
-        await page.getByRole("button", { name: "Continue" }).click();
-        await expect(page.getByRole("heading", { name: "Getting there and staying" })).toBeVisible();
+        await at(page).getByRole("button", { name: "Continue" }).click();
+        await expect(at(page).getByRole("heading", { name: "Getting there and staying" })).toBeVisible();
         await noOverflow(page, "travel");
-        await page.getByRole("button", { name: "Review my RSVP" }).click();
+        await at(page).getByRole("button", { name: "Review my RSVP" }).click();
 
-        const summary = page.getByRole("region", { name: "Household summary" });
+        const summary = at(page).getByRole("region", { name: "Household summary" });
         await expect(summary.getByRole("listitem").filter({ hasText: "Coming" })).toContainText("1");
         await expect(summary.getByRole("listitem").filter({ hasText: "Can't make it" })).toContainText("1");
         await expect(summary.getByRole("listitem").filter({ hasText: "Not answered" })).toContainText("1");
         await noOverflow(page, "review");
-        await page.getByRole("button", { name: "Send our RSVP" }).click();
-        await expect(page.getByRole("heading", { name: "Thank you" })).toBeVisible();
-        await expect(page.getByText("We still need an answer for Jo.")).toBeVisible();
+        await at(page).getByRole("button", { name: "Send our RSVP" }).click();
+        await expect(at(page).getByRole("heading", { name: "Thank you" })).toBeVisible();
+        await expect(at(page).getByText("We still need an answer for Jo.")).toBeVisible();
 
         let rows = (await api(request, "get", "/api/portal/wedding/households/overview")).households;
         expect(rows.find((h: { id: string }) => h.id === household.id).response).toMatchObject({ status: "partial", answered: 2, invited: 3 });
 
         // Back with the same link to finish.
-        await page.getByRole("button", { name: "Finish our RSVP" }).click();
+        await at(page).getByRole("button", { name: "Finish our RSVP" }).click();
         await choose(`Jo O'Partial ${tag}`, "accept");
-        await page.getByRole("button", { name: "Continue" }).click();
-        await page.getByRole("button", { name: "Continue" }).click();
+        await at(page).getByRole("button", { name: "Continue" }).click();
+        await at(page).getByRole("button", { name: "Continue" }).click();
         // Two of the family are coming: both can go home on the bus, only one needs it there.
-        await page.getByText("Yes — both ways", { exact: true }).click();
-        const outbound = page.getByRole("textbox", { name: "How many of you need the bus to the wedding?" });
+        await at(page).getByText("Yes — both ways", { exact: true }).click();
+        const outbound = at(page).getByRole("textbox", { name: "How many of you need the bus to the wedding?" });
         await expect(outbound).toHaveValue("2");
-        await page.getByRole("button", { name: /^Decrease/ }).first().click();
+        await at(page).getByRole("button", { name: /^Decrease/ }).first().click();
         await expect(outbound).toHaveValue("1");
-        await expect(page.getByRole("button", { name: /^Decrease/ }).first()).toBeDisabled();
-        await expect(page.getByRole("textbox", { name: "How many of you need the bus home after the reception?" })).toHaveValue("2");
+        await expect(at(page).getByRole("button", { name: /^Decrease/ }).first()).toBeDisabled();
+        await expect(at(page).getByRole("textbox", { name: "How many of you need the bus home after the reception?" })).toHaveValue("2");
         await noOverflow(page, "travel counts");
-        await page.getByRole("button", { name: "Review my RSVP" }).click();
-        await expect(page.getByText("1 passenger to the wedding, 2 passengers home")).toBeVisible();
-        await page.getByRole("button", { name: "Send our RSVP" }).click();
-        await expect(page.getByText(`celebrate with Alex and Jo`)).toBeVisible();
+        await at(page).getByRole("button", { name: "Review my RSVP" }).click();
+        await expect(at(page).getByText("1 passenger to the wedding, 2 passengers home")).toBeVisible();
+        await at(page).getByRole("button", { name: "Send our RSVP" }).click();
+        await expect(at(page).getByText(`celebrate with Alex and Jo`)).toBeVisible();
         rows = (await api(request, "get", "/api/portal/wedding/households/overview")).households;
         expect(rows.find((h: { id: string }) => h.id === household.id).response.status).toBe("complete");
         const transport = await api(request, "get", "/api/portal/wedding/travel");
@@ -176,18 +177,18 @@ test("a household opens its invitation link, replies in part, then finishes; the
         expect(errors).toEqual([]);
 
         // The dashboard: completion next to attendance, a copyable link, and generation without sending.
-        await page.goto("/portal/wedding/households");
-        await page.getByRole("searchbox", { name: "Search households or guests" }).fill(`The Partial Family ${tag}`);
-        const row = page.getByRole("row", { name: new RegExp(`The Partial Family ${tag}`) });
+        await page.goto("/admin/wedding/households");
+        await at(page).getByRole("searchbox", { name: "Search households or guests" }).fill(`The Partial Family ${tag}`);
+        const row = at(page).getByRole("row", { name: new RegExp(`The Partial Family ${tag}`) });
         await expect(row.getByText("Complete", { exact: true })).toBeVisible();
         await expect(row.getByRole("button", { name: `Copy invitation link for The Partial Family ${tag}` })).toBeVisible();
         await row.getByRole("checkbox").check({ force: true });
         await expect(row.getByRole("checkbox")).toBeChecked();
-        await page.getByRole("button", { name: "Generate invitations" }).click();
-        await expect(page.getByText("Invitations ready for 1 household")).toBeVisible();
+        await at(page).getByRole("button", { name: "Generate invitations" }).click();
+        await expect(at(page).getByText("Invitations ready for 1 household")).toBeVisible();
         await expect(row.getByText("Ready")).toBeVisible();
         // Sending stays off until it's approved; nothing was sent.
-        await expect(page.getByText("Sending is switched off until it's approved.", { exact: false })).toBeVisible();
+        await expect(at(page).getByText("Sending is switched off until it's approved.", { exact: false })).toBeVisible();
         await noOverflow(page, "households");
     } finally {
         await api(request, "put", "/api/portal/flags/rsvp.native", { enabled: false });

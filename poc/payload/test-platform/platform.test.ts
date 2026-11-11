@@ -68,10 +68,10 @@ describe("experiment 6: guest-facing hosts never reach administration", () => {
                 for (const token of [null, owner]) {
                     for (const method of ["GET", "POST"]) {
                         const response = await call(path, { method, token, host, headers: { Origin: `https://${host}` } });
-                        // The planner host keeps its own wedding API (behind its own Access destination).
-                        if (host === "weddingplanner.daly.id.au" && path.startsWith("/api/portal/")) continue;
-                        // A refusal of any kind (404, 405, or the planner host's own 401 sign-in page), never content.
-                        expect(response.status, `${method} ${host}${path} → ${response.status}`).toBeGreaterThanOrEqual(401);
+                        // A refusal of any kind (404, 405, 401), never content. The retired planner host sends people
+                        // to the wedding admin on daly.id.au (behind Access) instead of showing anything itself.
+                        const toAdmin = host === "weddingplanner.daly.id.au" && response.status === 302 && response.headers.get("Location") === "https://daly.id.au/admin/wedding";
+                        if (!toAdmin) expect(response.status, `${method} ${host}${path} → ${response.status}`).toBeGreaterThanOrEqual(401);
                         expect(response.headers.get("X-Poc-Target")).toBeNull();
                     }
                 }
@@ -178,9 +178,11 @@ describe("experiment 2: the wedding-page bridge reuses the portal's loader and p
     it("refuses strangers and anything that isn't a wedding screen", async () => {
         expect((await bridge("/portal/wedding/guests", null)).status).toBe(401);
         expect((await bridge("/portal/wedding/guests", await accessToken({ email: "stranger@example.com" }))).status).toBe(403);
-        for (const path of ["/portal/finance", "/portal/calendar", "/portal/wedding/../finance", "https://evil.example/portal/wedding", "/portal/wedding/guests?x=1"]) {
+        for (const path of ["/portal/finance", "/portal/calendar", "/portal/wedding/../finance", "https://evil.example/portal/wedding", "/portal/settings/../finance", "/portal/planner"]) {
             expect((await bridge(path, await accessToken())).status, path).toBe(404);
         }
+        // A query is passed to the page's loader (the audit log's filters); the path alone is checked.
+        expect((await bridge("/portal/audit?action=guest.create", await accessToken())).status).toBe(200);
     });
 });
 

@@ -1,7 +1,7 @@
 // Every wedding screen the portal serves is reachable inside Payload, and nothing else is.
 import { describe, expect, it } from "vitest";
 import pagesSource from "../../../worker/portal/pages.ts?raw";
-import { NAV, NAV_GROUPS, WEDDING_SCREEN, adminPathForPortalLink } from "../src/views/wedding-routes";
+import { ADMINISTRATION_NAV, ADMINISTRATION_SCREEN, NAV, NAV_GROUPS, WEDDING_SCREEN, adminPathForPortalLink } from "../src/views/wedding-routes";
 
 /** A concrete example path for each portal pattern (fills the one capture group the patterns use). */
 const examples = (pattern: string) => {
@@ -39,6 +39,16 @@ describe("wedding screens in Payload", () => {
         for (const href of ["/portal/calendar", "/portal/wedding/unknown", "https://evil.example/portal/wedding", "//evil.example/portal/wedding", "/portal/weddingx", "/api/portal/wedding/guests.csv"]) {
             expect(adminPathForPortalLink(href), href).toBeNull();
         }
+    });
+
+    it("turns settings and audit links into Administration views, and every Administration menu entry is a real screen", () => {
+        expect(adminPathForPortalLink("/portal/settings")).toBe("/admin/administration");
+        expect(adminPathForPortalLink("/portal/settings/access")).toBe("/admin/administration/access");
+        expect(adminPathForPortalLink("/portal/settings/features#features-wedding")).toBe("/admin/administration/features#features-wedding");
+        expect(adminPathForPortalLink("/portal/audit?action=x")).toBe("/admin/administration/audit?action=x");
+        expect(adminPathForPortalLink("/portal/settings/nope")).toBeNull();
+        expect(adminPathForPortalLink("/portal/wedding/website/preview")).toBeNull();
+        for (const [, screen] of ADMINISTRATION_NAV) expect(ADMINISTRATION_SCREEN.test(screen), screen).toBe(true);
     });
 
     it("puts every wedding screen in exactly one collapsible menu group", () => {

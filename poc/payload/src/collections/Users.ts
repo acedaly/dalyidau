@@ -10,7 +10,9 @@ const ownersOnly: Access = ({ req }) => (req.user as PortalUserLike)?.portalRole
 
 export const Users: CollectionConfig = {
   slug: 'users',
-  admin: { useAsTitle: 'email' },
+  // A mirror of who has signed in (roles come from Administration → Users and permissions), so it isn't
+  // in the menu: one place to manage people.
+  admin: { useAsTitle: 'email', hidden: true },
   auth: {
     // No Payload passwords, login form, API keys or reset emails: Cloudflare Access is the only way in.
     disableLocalStrategy: true,

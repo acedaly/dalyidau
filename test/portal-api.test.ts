@@ -1,10 +1,7 @@
-import { createElement } from "react";
-import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PortalApp } from "../src/portal/portal-app";
 import type { ImportPlan } from "../src/shared/portal/guest-import";
-import type { Guest, Household, Message, PortalPageData, Task, WeddingEvent } from "../src/shared/portal/types";
-import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
+import type { Guest, Household, Message, Task, WeddingEvent } from "../src/shared/portal/types";
+import { ORIGIN, OWNER, accessToken, adminPage, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 const makeEvent = async (name: string) =>
     (await apiCall<{ item: WeddingEvent }>("POST", "/api/portal/wedding/events", { name, startsAt: "2027-03-20T15:00" })).json.item;
@@ -16,16 +13,6 @@ const makeGuest = async (body: Record<string, unknown>) => {
 };
 
 beforeEach(resetPortal);
-
-/**
- * Portal pages render in the browser (the Worker sends a loading shell and the page data), so the
- * page is rendered here from the exact data the Worker sent, to catch a page that would crash.
- */
-const renderPortalPage = (html: string) => {
-    const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
-    const payload = JSON.parse(json!) as { area: string; data: PortalPageData; path: string };
-    return payload.area === "portal" ? renderToString(createElement(PortalApp, { data: payload.data, path: payload.path })) : html;
-};
 
 describe("guests", () => {
     it("creates, updates and deletes guests, auditing each change", async () => {
@@ -215,7 +202,11 @@ describe("other modules", () => {
     it("hides switched-off modules from the API and pages", async () => {
         await apiCall("PUT", "/api/portal/flags/module.budget", { enabled: false });
         expect((await apiCall("GET", "/api/portal/wedding/budget-items")).status).toBe(404);
-        expect((await call("/portal/wedding/budget", { token: await accessToken() })).status).toBe(404);
+        // The screen in Payload says the module is switched off instead of showing its data.
+        const page = await adminPage("/portal/wedding/budget", { token: await accessToken() });
+        expect(page.status).toBe(404);
+        expect(page.data?.route).toBe("forbidden");
+        expect(page.html).toContain("switched off");
         expect(await auditActions()).toContain("flag.update");
     });
 
@@ -338,9 +329,7 @@ describe("portal pages", () => {
         "/portal/settings/security",
         "/portal/settings/privacy",
         "/portal/audit",
-        "/portal/wedding/website/preview",
-        "/portal/wedding/website/preview/rsvp",
-    ])("renders %s", async (path) => {
+    ])("renders %s as Payload shows it", async (path) => {
         // Some data so tables, charts and lists render rows rather than empty states.
         const event = await makeEvent("Ceremony");
         const household = await makeHousehold("The Smiths");
@@ -348,30 +337,47 @@ describe("portal pages", () => {
         await apiCall("POST", "/api/portal/wedding/tasks", { title: "Book celebrant", dueDate: "2026-11-01" });
         await apiCall("POST", "/api/portal/wedding/budget-items", { category: "Venue", description: "Deposit", estimatedCents: 500000, paidCents: 100000 });
 
+        const page = await adminPage(path, { token: await accessToken({ email: OWNER }) });
+        expect(page.status).toBe(200);
+        expect(page.html).toMatch(/<h1[^>]*>/);
+    });
+
+    it.each(["/portal/wedding/website/preview", "/portal/wedding/website/preview/rsvp"])("still serves the website draft preview at %s", async (path) => {
         const response = await call(path, { token: await accessToken({ email: OWNER }) });
         expect(response.status).toBe(200);
-        const html = await response.text();
-        expect(html).toContain('id="page-data"');
-        expect(renderPortalPage(html)).toMatch(/<h1[^>]*>/);
+        expect(response.headers.get("Cache-Control")).toBe("no-store");
+        expect(await response.text()).toContain('data-theme-lock="light"');
     });
 
-    it("opens on Wedding Planner and 404s unknown pages", async () => {
-        const token = await accessToken();
-        const root = await call("/portal", { token });
-        expect(root.status).toBe(302);
-        expect(root.headers.get("Location")).toBe(`${ORIGIN}/portal/wedding`);
-        const html = renderPortalPage(await (await call("/portal/wedding", { token })).text());
-        expect(html).toContain("Wedding Planner");
-        expect(html).toContain('href="/portal/wedding"');
-        expect((await call("/portal/wedding/nope", { token })).status).toBe(404);
-    });
-
-    it("keeps old settings links working: custom fields in Wedding Planner, features and people in Portal settings", async () => {
+    it("sends the retired portal's pages to Payload, and 404s unknown screens", async () => {
         const token = await accessToken();
         for (const [from, to] of [
-            ["/portal/settings/fields", "/portal/wedding/settings/fields"],
-            ["/portal/wedding/settings/features", "/portal/settings/features#features-wedding"],
-            ["/portal/settings/people", "/portal/settings/access"],
+            ["/portal", "/admin/wedding"],
+            ["/portal/wedding", "/admin/wedding"],
+            ["/portal/wedding/guests?new=1", "/admin/wedding/guests?new=1"],
+            ["/portal/wedding/communications/msg_abc123", "/admin/wedding/communications/msg_abc123"],
+            ["/portal/settings", "/admin/administration"],
+            ["/portal/settings/access", "/admin/administration/access"],
+            ["/portal/audit?action=x", "/admin/administration/audit?action=x"],
+            ["/portal/planner/guests", "/admin/wedding"],
+            ["/portal/something-else", "/admin"],
+        ]) {
+            const response = await call(from, { token });
+            expect(response.status, from).toBe(302);
+            expect(response.headers.get("Location"), from).toBe(`${ORIGIN}${to}`);
+            expect(response.headers.get("Cache-Control")).toBe("no-store");
+        }
+        // Without a sign-in, nothing is redirected or revealed.
+        expect((await call("/portal/wedding/guests", { token: null })).status).toBe(401);
+        expect((await adminPage("/portal/wedding/nope", { token })).status).toBe(404);
+    });
+
+    it("keeps old settings links working: custom fields in Wedding, features and people in Administration", async () => {
+        const token = await accessToken();
+        for (const [from, to] of [
+            ["/portal/settings/fields", "/admin/wedding/settings/fields"],
+            ["/portal/wedding/settings/features", "/admin/administration/features#features-wedding"],
+            ["/portal/settings/people", "/admin/administration/access"],
         ]) {
             const response = await call(from, { token });
             expect(response.status, from).toBe(302);

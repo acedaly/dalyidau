@@ -8,7 +8,6 @@ import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge } from "@/components/base/badges/badges";
 import { Select } from "@/components/base/select/select";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { ThemeToggle } from "@/components/site/theme-toggle";
 import { Notice } from "@/portal/components/notice";
 import { PageHeader } from "@/portal/components/page-header";
 import type { PageData } from "@/portal/lib/page-types";
@@ -20,6 +19,7 @@ import { SettingsCard, type SettingsLink, SettingsLinks, StatusRow } from "@/por
 import { WebsitePanel } from "@/portal/settings/website-panel";
 import { type ApplicationId, applicationById, availableApplications, canAccessApplication } from "@/shared/portal/applications";
 import { ROLES, ROLE_LABELS } from "@/shared/portal/permissions";
+import { adminPathForPortal } from "@/shared/portal/admin-paths";
 import { PORTAL_SETTINGS_SECTIONS, type PortalSettingsTab, portalSettingsPath, visibleSettingsTabs } from "@/shared/portal/settings-sections";
 import type { PortalIntegrations } from "@/shared/portal/types";
 
@@ -70,10 +70,11 @@ const GeneralTab = () => {
                             <h2 id="appearance-heading" className="text-md font-semibold text-primary">
                                 Appearance
                             </h2>
-                            <p className="mt-1 text-sm text-tertiary">Switch the portal between light and dark mode on this device.</p>
+                            <p className="mt-1 text-sm text-tertiary">
+                                Light or dark mode follows the admin&apos;s own setting: your account menu → Account → Theme.
+                            </p>
                         </div>
                     </div>
-                    <ThemeToggle />
                 </div>
             </section>
         </div>
@@ -168,7 +169,7 @@ const SecurityTab = ({ data, tabs }: { data: Data; tabs: PortalSettingsTab[] }) 
                   },
               ]
             : []),
-        ...(can("portal.audit.view") ? [{ label: "Audit log", description: "Every change made in the portal, by whom and when.", href: "/portal/audit" }] : []),
+        ...(can("portal.audit.view") ? [{ label: "Audit log", description: "Every change made in the admin, by whom and when.", href: "/portal/audit" }] : []),
         ...(tabs.includes("privacy") ? [{ label: "Privacy", description: "Deleted guest records and retention.", href: portalSettingsPath("privacy") }] : []),
     ];
 
@@ -178,7 +179,7 @@ const SecurityTab = ({ data, tabs }: { data: Data; tabs: PortalSettingsTab[] }) 
                 id="sign-in"
                 icon={ShieldTick}
                 title="Sign-in"
-                description="Who can reach the portal is decided by Cloudflare Access; what they can do, by their role."
+                description="Who can reach the admin is decided by Cloudflare Access; what they can do, by their role."
             >
                 <dl className="flex flex-col divide-y divide-secondary">
                     <StatusRow label="Cloudflare Access" detail="Verified on every page and API request." value="Required" ok />
@@ -207,16 +208,16 @@ export const PortalSettingsPage = ({ data }: { data: Data }) => {
     const [tab, setTab] = useState<PortalSettingsTab>(tabs.includes(data.tab) ? data.tab : "general");
     const select = (next: PortalSettingsTab) => {
         setTab(next);
-        // Keep the URL shareable without a client router.
-        window.history.replaceState(null, "", portalSettingsPath(next));
+        // Keep the URL shareable without a client router: the section's address in Payload's admin.
+        window.history.replaceState(null, "", adminPathForPortal(portalSettingsPath(next)) ?? "/admin/administration");
     };
 
     return (
         <>
             <PageHeader
-                title="Portal settings"
-                description="Feature switches, people and access, and settings shared by every application. Wedding details stay in Wedding Planner."
-                breadcrumbs={[{ label: "Portal settings" }]}
+                title="Administration"
+                description="Users and permissions, feature switches, integrations, privacy and the audit log. Wedding details are under Wedding → Settings."
+                breadcrumbs={[{ label: "Administration" }]}
             />
             <Tabs selectedKey={tab} onSelectionChange={(key) => select(key as PortalSettingsTab)}>
                 {/* Untitled UI's settings pattern: a select on phones, tabs from tablet width up. */}

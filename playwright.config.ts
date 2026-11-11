@@ -6,6 +6,8 @@ const persist = ".wrangler/e2e-state";
 
 export default defineConfig({
     testDir: "e2e",
+    // The wedding and administration screens run inside Payload: playwright.admin.config.ts.
+    testIgnore: ["portal.spec.ts", "portal-settings.spec.ts", "guest-import.spec.ts", "communications-studio.spec.ts"],
     fullyParallel: false,
     workers: 1,
     retries: process.env.CI ? 1 : 0,

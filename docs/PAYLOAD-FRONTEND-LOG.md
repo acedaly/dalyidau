@@ -33,3 +33,37 @@ Directive: owner, 11 Nov 2026 (one daly.id.au managed in Payload; standing appro
 - Browser checks (wedding screens in Payload) **45/45**. Admin screenshots of Homepage, Navigation, Site settings, Pages: render, no page errors.
 - **Visual:** the old code and the new code on identical local data (production's posts and images from the 07:23Z backup): **24/24 screenshots identical** (one lazy-image timing difference on a re-capture, layout identical). After the Payload seed (real combined Worker): About and Contact **8/8 identical**. Found and fixed on the way: a 16 px gap above the About text (the typography plugin's first-child rule outranked an arbitrary variant by cascade layer; fixed with two plain rules in `article.css`).
 - Found and fixed: creating a second page at an existing address returned 500 (unique index) → now a 400 with a message, for drafts too.
+
+# Phase 3 (owner directive 11 Nov 2026, ~09:35Z: fix wedding publishing, retire the portal)
+
+## 09:35–10:15Z: wedding publishing defect, root cause and fix (#53, production `d982daf3`)
+
+- **Reproduced in production** with the owner's signed-in Chrome on `daly.id.au/admin/wedding/website`. A real mouse click on "Publish changes" opened no dialog and sent no request. The same for "Save draft". Text fields worked, so editing looked fine but nothing ever saved or published.
+- **Ruled out:**
+  - the API (`PUT /api/portal/settings/website_draft` and `POST …/website/publish` both 200 from the same tab, data persisted);
+  - permissions (owner has `wedding.website.edit`);
+  - Access and routing;
+  - caching (the public pages read the published setting on each request);
+  - hostnames (both addresses read the same row).
+- **Root cause:** inside Payload the wedding screens render in a shadow root, for style isolation. React Aria decides a press from pointer events it watches on the document, and across a shadow boundary those events are retargeted to the host element. So every press counted as "released outside the button" and was cancelled. This affected every button in every embedded wedding screen. A synthetic `element.click()` worked (a different code path), which is why the CI browser check never saw it.
+- **Second fault found on the way:** Publish called "save draft" first but ignored a failed save (`useSubmit` swallows errors). It then republished the previous draft and said "Changes published".
+- **Fix:** `enableShadowDOM()` (React Aria's shadow DOM mode, `react-stately/private/flags/flags`) in `poc/payload/src/views/wedding-screen.tsx`; Publish stops if the save fails. New real-click test `e2e-platform/wedding-publish.mjs` (Payload workflow).
+- **Verified in production (10:05–10:12Z), real mouse, non-sensitive test text:**
+  - set the small heading to "Together with our families (publishing test)" → dialog opened, PUT 200, POST publish 200, toast;
+  - `wedding.daly.id.au/` and `daly.id.au/wedding` both served the new text, no sign-in;
+  - saved a draft "(draft only)": absent from both addresses;
+  - restored "Together with our families" and published: both addresses back to the original.
+  - Public baseline 30/30 unchanged. Wedding tables identical except `audit_log` +5 (the test's own saves and publishes).
+
+## 10:15Z onwards: retiring the portal (branch `feature/retire-portal`)
+
+- Dependency map: `docs/PAYLOAD-PORTAL-RETIREMENT.md`.
+- New **Administration** section in Payload (`/admin/administration/*`): General, Users and permissions, Features, Integrations and security, Privacy, Capacities archive, Audit log. The same components and loader as the portal, with the same per-section permission checks.
+- Menu groups: Website · Blog and Media · Wedding · Wedding Planning · Administration. Payload's Users collection is hidden, since people are managed in Users and permissions.
+- `/portal/*` pages redirect to Payload. The draft preview stays. Retired apps keep a plain 410. The planner (phone app and its host) is retired.
+- **Found and fixed a second shadow-root bug:** a dialog opened over another (the "Delete guest?" confirmation over the guest panel) was `inert`, so visible but unclickable. React Aria's shadow DOM mode pauses only the first dialog's document observer, not its shadow-root observer, and that observer inerts the new dialog. Workaround: overlays added to the screen's container are marked `data-react-aria-top-layer` by an observer registered first.
+- Wording updated (Portal settings → Administration, "the portal" → "the admin"). The settings page's own theme toggle was removed (appearance follows Payload). Page headers are no longer `<header>` landmarks (Payload has the banner). Tab URLs point at `/admin/…`.
+- **Tests:**
+  - root 463/463, MCP 18/18, public e2e 24/24;
+  - platform suite (updated: planner host redirect, bridge query, strict link mapping, Administration routes);
+  - the four wedding/administration browser specs moved into Payload (`playwright.admin.config.ts`, desktop and mobile, axe scoped to the screen): 40/40.

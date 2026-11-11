@@ -52,7 +52,7 @@ const GeneralTab = () => {
             }}
         >
             <fieldset disabled={!canEdit} className="flex flex-col gap-8">
-                <FormSection title="The couple" description="Used across the portal (for example, to label each side of the guest list) and on the website.">
+                <FormSection title="The couple" description="Used across the admin (for example, to label each side of the guest list) and on the website.">
                     <FormGrid>
                         <Input
                             label="First partner"
@@ -119,15 +119,15 @@ export const WeddingSettingsPage = ({ data }: { data: PageData<"wedding-settings
     const select = (next: Tab) => {
         setTab(next);
         // Keep the URL shareable without a client router.
-        window.history.replaceState(null, "", next === "general" ? "/portal/wedding/settings" : `/portal/wedding/settings/${next}`);
+        window.history.replaceState(null, "", next === "general" ? "/admin/wedding/settings" : `/admin/wedding/settings/${next}`);
     };
 
     return (
         <>
             <PageHeader
                 title="Wedding settings"
-                description="Wedding details and custom guest fields. Feature switches are in Portal settings → Features."
-                breadcrumbs={[{ label: "Wedding Planner", href: "/portal/wedding" }, { label: "Settings" }]}
+                description="Wedding details and custom guest fields. Feature switches are in Administration → Features."
+                breadcrumbs={[{ label: "Wedding", href: "/portal/wedding" }, { label: "Settings" }]}
             />
             <Tabs selectedKey={tab} onSelectionChange={(k) => select(k as Tab)}>
                 <Tabs.List type="underline" size="sm" className="overflow-x-auto">
@@ -140,7 +140,7 @@ export const WeddingSettingsPage = ({ data }: { data: PageData<"wedding-settings
                     <div className="border-t border-secondary pt-8">
                         <FormSection
                             title="Feature switches"
-                            description="The website, RSVP, sending and modules are switched on or off for the whole portal, in Portal settings → Features."
+                            description="The website, RSVP, sending and modules are switched on or off for everyone, in Administration → Features."
                         >
                             <SwitchSummary area="wedding" />
                         </FormSection>

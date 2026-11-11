@@ -30,9 +30,9 @@ export const PageHeader = ({
     children,
     className,
     homeHref = "/portal/wedding",
-    homeLabel = "Wedding Planner",
+    homeLabel = "Wedding",
 }: PageHeaderProps) => (
-    <header className={cx("flex flex-col gap-5", className)}>
+    <div className={cx("flex flex-col gap-5", className)}>
         {breadcrumbs.length > 0 && (
             <Breadcrumbs type="button" className="max-lg:hidden">
                 {/* The item's aria-label lands on the list item, not the link, so the link carries hidden text. */}
@@ -54,5 +54,5 @@ export const PageHeader = ({
             {actions && <div className="flex min-w-0 flex-wrap items-center gap-3 md:max-w-[70%] md:justify-end">{actions}</div>}
         </div>
         {children}
-    </header>
+    </div>
 );

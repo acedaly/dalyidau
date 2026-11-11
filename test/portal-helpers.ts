@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server.edge";
+import { AdminScreen } from "../src/portal/portal-screen";
+import { loadAdminPage } from "../worker/portal/admin-page";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import type { Env } from "../worker/env";
 import worker from "../worker/index";
@@ -173,3 +177,16 @@ export const auditActions = async () =>
     (await testEnv.DB.prepare("SELECT action FROM audit_log ORDER BY id").all<{ action: string }>()).results.map((r) => r.action);
 
 export const db = () => testEnv.DB;
+
+/**
+ * A wedding or administration screen as Payload's admin loads it (worker/portal/admin-page.ts, the data
+ * behind /api/platform/wedding-page), rendered with the same screen component Payload shows
+ * (src/portal/portal-screen.tsx). `path` is the screen's portal path, e.g. /portal/wedding/guests.
+ */
+export async function adminPage(path: string, init: { token?: string | null; env?: Env } = {}) {
+    const headers = new Headers();
+    if (init.token) headers.set("Cf-Access-Jwt-Assertion", init.token);
+    const result = await loadAdminPage(new Request(`https://daly.id.au/admin`, { headers }), init.env ?? (await portalEnv()), path);
+    if (!result.ok) return { status: result.status, data: undefined, html: "" };
+    return { status: result.status, data: result.data, html: renderToString(createElement(AdminScreen, { data: result.data })) };
+}

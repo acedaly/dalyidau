@@ -7,7 +7,7 @@ export const NotFoundPage = () => (
         <Empty
             icon={SearchLg}
             title="Page not found"
-            description="This part of the portal doesn't exist, or the record was deleted."
+            description="This part of the admin doesn't exist, or the record was deleted."
             actions={
                 <Button href="/portal/wedding" color="secondary" iconLeading={ArrowLeft}>
                     Back to the dashboard

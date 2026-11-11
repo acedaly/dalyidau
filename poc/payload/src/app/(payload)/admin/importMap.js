@@ -24,6 +24,7 @@ import { ItalicFeatureClient as ItalicFeatureClient_e70f5e05f09f93e00b997edb1ef0
 import { NavRowLabel as NavRowLabel_bbeef62f5e5f65ae1b38c7b80bd9c137 } from '../../../site/nav-row-label'
 import { WeddingNav as WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f } from '../../../views/wedding-nav'
 import { WeddingView as WeddingView_89f3776151e178f7bd4678261c83a692 } from '../../../views/wedding-view'
+import { AdministrationView as AdministrationView_31a20551262206fdc11c96539bce98be } from '../../../views/administration-view'
 import { CollectionCards as CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@payloadcms/next/rsc'
 import { R2ClientUploadHandler as R2ClientUploadHandler_85cc02ed84006fcc91d3aff39dda669d } from '@payloadcms/storage-r2/client'
 
@@ -55,6 +56,7 @@ export const importMap = {
   "/site/nav-row-label#NavRowLabel": NavRowLabel_bbeef62f5e5f65ae1b38c7b80bd9c137,
   "/views/wedding-nav#WeddingNav": WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f,
   "/views/wedding-view#WeddingView": WeddingView_89f3776151e178f7bd4678261c83a692,
+  "/views/administration-view#AdministrationView": AdministrationView_31a20551262206fdc11c96539bce98be,
   "@payloadcms/next/rsc#CollectionCards": CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1,
   "@payloadcms/storage-r2/client#R2ClientUploadHandler": R2ClientUploadHandler_85cc02ed84006fcc91d3aff39dda669d
 }

@@ -80,7 +80,7 @@ export const ProviderSettingsPage = ({ data }: { data: PageData<"provider-settin
                 description="Validate delivery infrastructure, sender identity and safeguards without exposing credentials to the browser."
                 breadcrumbs={[{ label: "Communications", href: "/portal/wedding/communications" }, { label: "Providers" }]}
             />
-            <Notice color="brand" title="Secrets stay outside Wedding Planner">
+            <Notice color="brand" title="Secrets stay outside the admin">
                 API tokens and app passwords are provisioned and rotated as Cloudflare Worker secrets. This page receives only provider names and validation
                 outcomes; secret values never enter D1, client code, audit logs or error responses.
             </Notice>

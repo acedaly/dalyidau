@@ -62,11 +62,11 @@ check("Payload admin dashboard renders for an Access-verified owner", (await pag
         await page.locator(".nav-toggler, button[aria-label*='enu']").first().click();
         await page.waitForTimeout(500);
     }
-    const toggle = page.locator("#nav-group-Planning > button.nav-group__toggle");
+    const toggle = page.locator("[id=\"nav-group-Wedding Planning\"] > button.nav-group__toggle");
     // Open: the group's links take up space. Closed: the toggle loses --open and the links' box has no height.
     const state = () =>
         page.evaluate(() => {
-            const group = document.querySelector("#nav-group-Planning");
+            const group = document.querySelector("[id='nav-group-Wedding Planning']");
             const link = group?.querySelector('a[href="/admin/wedding/seating"]');
             const box = link?.closest(".rah-static, [aria-hidden], .nav-group__content") ?? link?.parentElement;
             return { open: !!group?.querySelector(".nav-group__toggle--open"), height: box ? box.getBoundingClientRect().height : -1 };
@@ -79,7 +79,7 @@ check("Payload admin dashboard renders for an Access-verified owner", (await pag
     await page.waitForTimeout(500);
     const reopened = await state();
     check(
-        "the Planning menu group collapses and expands",
+        "the Wedding Planning menu group collapses and expands",
         before.open && before.height > 0 && !closed.open && closed.height === 0 && reopened.open && reopened.height > 0,
         JSON.stringify({ before, closed, reopened }),
     );
