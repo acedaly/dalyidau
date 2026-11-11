@@ -688,6 +688,13 @@
           "autoincrement": false,
           "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "_status": {
           "name": "_status",
           "type": "text",
@@ -730,6 +737,13 @@
           "name": "posts_created_at_idx",
           "columns": [
             "created_at"
+          ],
+          "isUnique": false
+        },
+        "posts_deleted_at_idx": {
+          "name": "posts_deleted_at_idx",
+          "columns": [
+            "deleted_at"
           ],
           "isUnique": false
         },
@@ -1019,6 +1033,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "version_deleted_at": {
+          "name": "version_deleted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "version__status": {
           "name": "version__status",
           "type": "text",
@@ -1091,6 +1112,13 @@
           "name": "_posts_v_version_version_created_at_idx",
           "columns": [
             "version_created_at"
+          ],
+          "isUnique": false
+        },
+        "_posts_v_version_version_deleted_at_idx": {
+          "name": "_posts_v_version_version_deleted_at_idx",
+          "columns": [
+            "version_deleted_at"
           ],
           "isUnique": false
         },
@@ -1960,6 +1988,6 @@
   "internal": {
     "indexes": {}
   },
-  "id": "0a13abf1-ad10-4d67-baba-2bf2ef3596b8",
+  "id": "c51acd0b-97a9-4935-9763-aa57bc2c2c0b",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

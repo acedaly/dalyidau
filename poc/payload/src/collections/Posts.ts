@@ -48,6 +48,7 @@ type PostDoc = {
     imageHeight?: number | null
   } | null
   _status?: 'draft' | 'published'
+  deletedAt?: string | null
 }
 
 const idOf = (value: PostDoc['heroImage']) => (value && typeof value === 'object' ? value.id : (value ?? null))
@@ -117,6 +118,7 @@ const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) 
     collection: 'posts',
     id: doc.id,
     draft: false,
+    trash: true,
     depth: 0,
     overrideAccess: true,
     req,
@@ -124,7 +126,8 @@ const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) 
   const env = await publisherEnv()
   const input = toPublisherInput(main)
   try {
-    if (main._status === 'published') {
+    // In Trash (deleted, restorable) counts as unpublished.
+    if (main._status === 'published' && !main.deletedAt) {
       const result = await publishPayloadPost(env, input, {
         loadMedia: async (id) => {
           const media = (await req.payload.findByID({ collection: 'media', id, depth: 0, overrideAccess: true, req }).catch(() => null)) as {
@@ -171,6 +174,8 @@ export const Posts: CollectionConfig = {
     preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/blog/${doc.slug}` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
+  // Deleting moves a post to Trash (restorable); only emptying Trash removes it, and only owners can.
+  trash: true,
   access: {
     // Only owners and admins, even for reading: the public reads the site, never this API.
     read: ({ req }) => contentEditor(req.user as never),

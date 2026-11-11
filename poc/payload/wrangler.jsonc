@@ -11,6 +11,7 @@
     "preview_urls": false,
     "routes": [],
     "minify": true,
+    "keep_vars": false, // as production: vars in this file are the whole set
     "define": { "process.env.NODE_ENV": "\"production\"" },
     "assets": {
         // OpenNext's static files plus the existing site's build (merged by scripts/merge-assets.mjs).
@@ -85,6 +86,53 @@
                 "SMS_DELIVERY": "log",
             },
             "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true } },
+        },
+        // Production: the combined Worker deployed as `dalyidau` (docs/PAYLOAD-CUTOVER-PLAN.md). Everything
+        // but the Payload additions must equal the repository root's wrangler.jsonc, which stays the source of
+        // truth for the site's own database and migrations; scripts/production-config.mjs --check enforces it.
+        // Deployed only by CI (.github/workflows/deploy.yml), never by hand.
+        "production": {
+            "name": "dalyidau",
+            "main": "platform/entry.ts",
+            "define": { "process.env.NODE_ENV": "\"production\"" },
+            "workers_dev": false,
+            "preview_urls": false,
+            "routes": [
+                { "pattern": "daly.id.au", "custom_domain": true },
+                { "pattern": "www.daly.id.au", "custom_domain": true },
+                { "pattern": "wedding.daly.id.au", "custom_domain": true },
+                { "pattern": "weddingplanner.daly.id.au", "custom_domain": true },
+            ],
+            "d1_databases": [
+                { "binding": "D1", "database_name": "dalyidau-payload", "database_id": "857fc770-666f-473b-8078-754c3cfb3ed3" },
+                { "binding": "DB", "database_name": "dalyidau-production", "database_id": "a003fec1-8404-4468-a23f-de5fb202bc57", "migrations_dir": "../../migrations" },
+            ],
+            "r2_buckets": [
+                { "binding": "R2", "bucket_name": "dalyidau-payload-media" },
+                { "binding": "MEDIA", "bucket_name": "dalyidau-media" },
+            ],
+            "triggers": { "crons": ["*/15 * * * *"] },
+            "vars": {
+                "ENVIRONMENT": "production",
+                "SITE_URL": "https://daly.id.au",
+                "WEDDING_URL": "https://wedding.daly.id.au",
+                "PLANNER_URL": "https://weddingplanner.daly.id.au",
+                "CAPACITIES_API_BASE": "https://api.capacities.io",
+                "CAPACITIES_STRUCTURE_NAME": "Blog Post",
+                "SYNC_MAX_REQUESTS": "40",
+                "SYNC_REQUEST_SPACING_MS": "2100",
+                "IMAGE_TRANSFORMS": "off",
+                "EMAIL_DELIVERY": "fastmail",
+                "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
+                "EMAIL_REPLY_TO": "wedding@daly.id.au",
+                "SMS_DELIVERY": "clicksend",
+            },
+            "observability": {
+                "enabled": true,
+                "redact_query_string": true,
+                "logs": { "enabled": true },
+                "traces": { "enabled": true, "head_sampling_rate": 0.1 },
+            },
         },
     },
 }
