@@ -23,7 +23,7 @@ import { isRetiredPublicPath, retiredPageMessage, retiredPublicResponse } from "
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
-import { listPages, loadPage, loadSite, loadSiteAndHome } from "./site/content";
+import { listPages, loadPage, loadProject, loadProjects, loadProjectsHome, loadSite, loadSiteAndHome } from "./site/content";
 import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
@@ -97,8 +97,9 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path.startsWith("/media/")) return media(request, env, ctx, path.slice(7));
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
     if (path === "/sitemap.xml") {
-        const [posts, pages] = await Promise.all([store.sitemapEntries(), listPages(env.DB)]);
-        return text(sitemapXml(env.SITE_URL, posts, pages), "application/xml", HTML_EDGE_TTL);
+        const [posts, pages, flags] = await Promise.all([store.sitemapEntries(), listPages(env.DB), loadFlags(env.DB)]);
+        const projects = flags["website.projects_home"] ? await loadProjects(env.DB) : [];
+        return text(sitemapXml(env.SITE_URL, posts, pages, projects), "application/xml", HTML_EDGE_TTL);
     }
     if (path === "/feed.xml" || path === "/rss.xml") {
         const [posts, site] = await Promise.all([store.all(), loadSite(env.DB)]);
@@ -117,17 +118,25 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     const publicFlags = await loadFlags(env.DB);
     const weddingPublished = publicFlags["wedding.site.public"];
-    return cachedPage(request, env, ctx, indexable, weddingPublished ? "wedding-public" : "wedding-private", async () => {
-        const result = await route(path, url, store, env.DB);
+    // The projects-first design (Phase 4) is public only once switched on in Administration → Features.
+    const projects = publicFlags["website.projects_home"];
+    const variant = `${weddingPublished ? "wedding-public" : "wedding-private"}-${projects ? "projects" : "classic"}`;
+    return cachedPage(request, env, ctx, indexable, variant, async () => {
+        const result = await route(path, url, store, env.DB, projects);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
         const site = result.site ?? (await loadSite(env.DB));
-        return renderPage(env, { ...result.data, context: { weddingPublished, site } }, path, result.status, !indexable);
+        const context = { weddingPublished, site, ...(projects ? { design: "projects" as const } : {}) };
+        return renderPage(env, { ...result.data, context }, path, result.status, !indexable);
     });
 }
 
 type RouteResult = { data: PageRoute; status: number; site?: SiteSettings } | { redirect: string };
 
-async function route(path: string, url: URL, store: PostStore, db: D1Database): Promise<RouteResult> {
+async function route(path: string, url: URL, store: PostStore, db: D1Database, projects = false): Promise<RouteResult> {
+    if (projects) {
+        const routed = await projectRoute(path, store, db);
+        if (routed) return routed;
+    }
     if (path === "/") {
         const { site, home } = await loadSiteAndHome(db);
         return { data: { route: "home", latest: home.latestCount ? await store.latest(home.latestCount) : [], home }, status: 200, site };
@@ -187,6 +196,28 @@ async function route(path: string, url: URL, store: PostStore, db: D1Database): 
 }
 
 const notFound = (path: string): RouteResult => ({ data: { route: "not-found", path }, status: 404 });
+
+/** The projects-first pages: /, /projects and /projects/<slug> (null for anything else). `base` prefixes redirects in the preview. */
+async function projectRoute(path: string, store: PostStore, db: D1Database, base = ""): Promise<RouteResult | null> {
+    if (path === "/") {
+        const { site, content, projects } = await loadProjectsHome(db);
+        const latest = content.showWriting && content.writingCount ? await store.latest(content.writingCount) : [];
+        return { data: { route: "projects-home", content, projects, latest }, status: 200, site };
+    }
+    if (path === "/projects") {
+        const [{ site, content, projects }] = await Promise.all([loadProjectsHome(db)]);
+        return { data: { route: "projects", projects, intro: content.projectsIntro }, status: 200, site };
+    }
+    const match = /^\/projects\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(path);
+    if (match) {
+        const found = await loadProject(db, match[1]);
+        if (found && "project" in found) return { data: { route: "project", project: found.project, related: found.related }, status: 200 };
+        if (found) return { redirect: `${base}/projects/${found.redirect}` };
+        return notFound(path);
+    }
+    if (path.startsWith("/projects/")) return notFound(path);
+    return null;
+}
 
 const readFilters = (url: URL): BlogFilters => {
     const page = Number.parseInt(url.searchParams.get("page") ?? "1", 10);
@@ -250,7 +281,7 @@ async function renderDocument(env: Env, input: DocumentInput): Promise<Response>
     return new Response(html, { status: input.status, headers: { "Content-Type": "text/html; charset=utf-8", ...input.headers } });
 }
 
-async function renderPage(env: Env, data: PageData, path: string, status: number, noindex: boolean): Promise<Response> {
+async function renderPage(env: Env, data: PageData, path: string, status: number, noindex: boolean, headers: Record<string, string> = {}): Promise<Response> {
     const body = render(data, path);
     const head = buildHead({ data, siteUrl: env.SITE_URL, path, noindex });
     // The article body is already in the markup; the client reads it back from the DOM instead of duplicating it here.
@@ -265,7 +296,10 @@ async function renderPage(env: Env, data: PageData, path: string, status: number
         headers: {
             "Cache-Control": status === 200 ? "public, max-age=0, must-revalidate" : "no-store",
             ...(noindex ? { "X-Robots-Tag": "noindex" } : {}),
+            ...headers,
         },
+        // The projects-first design's palette and type (src/styles/globals.css .site-v2).
+        htmlAttributes: data.context.design === "projects" ? 'class="site-v2"' : undefined,
     });
 }
 
@@ -294,10 +328,25 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
         const data = await loadWeddingPage(env.DB, preview[1] ? "rsvp" : "home", true);
         return renderWeddingDocument(env, data, path, 200, true, PRIVATE_HEADERS);
     }
+    // The projects-first design before it's switched on (Phase 4): owners and admins only, never cached or indexed.
+    const preview2 = /^\/portal\/preview(\/.*)?$/.exec(path);
+    if (preview2) return previewSite(env, auth.user.role, preview2[1] ?? "/");
     // Applications retired earlier keep their own message (worker/portal/retired.ts) rather than a redirect.
     const retired = retiredPageMessage(path);
     if (retired) return retiredPage(retired);
     return privateRedirect(`${url.origin}${adminPathForPortal(`${path}${url.search}`) ?? "/admin"}`);
+}
+
+/** The redesigned public pages at /portal/preview, /portal/preview/projects and /portal/preview/projects/<slug>. */
+async function previewSite(env: Env, role: string, rest: string): Promise<Response> {
+    if (role !== "owner" && role !== "admin") return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    const base = "/portal/preview";
+    const store = new PostStore(env.DB, env.IMAGE_TRANSFORMS === "on");
+    const result = (await projectRoute(rest, store, env.DB, base)) ?? notFound(`${base}${rest}`);
+    if ("redirect" in result) return privateRedirect(`${new URL(env.SITE_URL).origin}${result.redirect}`);
+    const [site, flags] = await Promise.all([result.site ?? loadSite(env.DB), loadFlags(env.DB)]);
+    const context = { weddingPublished: flags["wedding.site.public"], site, design: "projects" as const, base };
+    return renderPage(env, { ...result.data, context }, `${base}${rest === "/" ? "" : rest}`, result.status, true, PRIVATE_HEADERS);
 }
 
 /** Plain HTML, no app bundle: an application that has been retired, and where things are now. */

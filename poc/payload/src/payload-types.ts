@@ -70,6 +70,7 @@ export interface Config {
     users: User;
     media: Media;
     pages: Page;
+    projects: Project;
     posts: Post;
     'payload-kv': PayloadKv;
     'payload-jobs': PayloadJob;
@@ -82,6 +83,7 @@ export interface Config {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     pages: PagesSelect<false> | PagesSelect<true>;
+    projects: ProjectsSelect<false> | ProjectsSelect<true>;
     posts: PostsSelect<false> | PostsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
@@ -219,6 +221,92 @@ export interface Page {
      */
     description?: string | null;
   };
+  updatedAt: string;
+  createdAt: string;
+  deletedAt?: string | null;
+  _status?: ('draft' | 'published') | null;
+}
+/**
+ * Projects at daly.id.au/projects. Featured projects lead the homepage; Display order sorts the rest (lower first). Nothing is public until you publish, and only while "Show on the public site" is ticked.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "projects".
+ */
+export interface Project {
+  id: number;
+  title: string;
+  /**
+   * daly.id.au/projects/<address>. Changing it keeps the old address redirecting.
+   */
+  slug: string;
+  /**
+   * One or two sentences, shown on cards and in search results.
+   */
+  summary: string;
+  /**
+   * A screenshot or picture of the project (16:10 looks best). Without one, the card shows a quiet panel with its initials.
+   */
+  heroImage?: (number | null) | Media;
+  content?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  gallery?:
+    | {
+        image: number | Media;
+        caption?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  websiteUrl?: string | null;
+  githubUrl?: string | null;
+  links?:
+    | {
+        label: string;
+        url: string;
+        id?: string | null;
+      }[]
+    | null;
+  seo?: {
+    /**
+     * Leave empty to use "<title> — <site name>".
+     */
+    title?: string | null;
+    /**
+     * Leave empty to use the summary.
+     */
+    description?: string | null;
+  };
+  status: 'active' | 'completed' | 'experimental' | 'archived';
+  /**
+   * Untick to keep a published (or archived) project in the CMS but off the site.
+   */
+  listed?: boolean | null;
+  /**
+   * Featured projects lead the homepage.
+   */
+  featured?: boolean | null;
+  /**
+   * Lower comes first.
+   */
+  order?: number | null;
+  tags?:
+    | {
+        tag: string;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
   deletedAt?: string | null;
@@ -447,6 +535,10 @@ export interface PayloadLockedDocument {
         value: number | Page;
       } | null)
     | ({
+        relationTo: 'projects';
+        value: number | Project;
+      } | null)
+    | ({
         relationTo: 'posts';
         value: number | Post;
       } | null);
@@ -535,6 +627,53 @@ export interface PagesSelect<T extends boolean = true> {
     | {
         title?: T;
         description?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  deletedAt?: T;
+  _status?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "projects_select".
+ */
+export interface ProjectsSelect<T extends boolean = true> {
+  title?: T;
+  slug?: T;
+  summary?: T;
+  heroImage?: T;
+  content?: T;
+  gallery?:
+    | T
+    | {
+        image?: T;
+        caption?: T;
+        id?: T;
+      };
+  websiteUrl?: T;
+  githubUrl?: T;
+  links?:
+    | T
+    | {
+        label?: T;
+        url?: T;
+        id?: T;
+      };
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+      };
+  status?: T;
+  listed?: T;
+  featured?: T;
+  order?: T;
+  tags?:
+    | T
+    | {
+        tag?: T;
+        id?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -655,7 +794,7 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   createdAt?: T;
 }
 /**
- * The words on daly.id.au. The latest posts are added automatically from the blog. Publish changes to update the site.
+ * The words on daly.id.au. "Projects homepage" is the redesigned, projects-first homepage: it shows once switched on in Administration → Features (preview it at /portal/preview). Publish changes to update the site.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "homepage".
@@ -679,6 +818,29 @@ export interface Homepage {
       }[]
     | null;
   showContactLine?: boolean | null;
+  /**
+   * The projects-first homepage. Its projects come from Projects (featured first, then by display order) and its articles from the blog.
+   */
+  projectsHome: {
+    heroTitle: string;
+    heroIntro: string;
+    /**
+     * The button goes to /projects.
+     */
+    heroCtaLabel: string;
+    projectsHeading: string;
+    /**
+     * Also the introduction on /projects.
+     */
+    projectsIntro?: string | null;
+    showMoreProjects?: boolean | null;
+    showWriting?: boolean | null;
+    writingHeading: string;
+    writingCount: number;
+    showAbout?: boolean | null;
+    aboutHeading: string;
+    aboutText: string;
+  };
   /**
    * Leave empty to use the homepage title from Site settings.
    */
@@ -788,6 +950,22 @@ export interface HomepageSelect<T extends boolean = true> {
         id?: T;
       };
   showContactLine?: T;
+  projectsHome?:
+    | T
+    | {
+        heroTitle?: T;
+        heroIntro?: T;
+        heroCtaLabel?: T;
+        projectsHeading?: T;
+        projectsIntro?: T;
+        showMoreProjects?: T;
+        showWriting?: T;
+        writingHeading?: T;
+        writingCount?: T;
+        showAbout?: T;
+        aboutHeading?: T;
+        aboutText?: T;
+      };
   seoTitle?: T;
   seoDescription?: T;
   _status?: T;

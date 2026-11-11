@@ -38,6 +38,13 @@ export const FLAG_DEFINITIONS = {
         default: false,
         group: "Communications",
     },
+    "website.projects_home": {
+        label: "Projects-first homepage",
+        description:
+            "Show the redesigned, projects-first homepage and the public Projects pages (/projects). Off: the current homepage stays and /projects isn't public. Owners and admins can always preview the redesign at /portal/preview.",
+        default: false,
+        group: "Homepage",
+    },
     "website.capacities.sync": {
         label: "Capacities sync",
         description:

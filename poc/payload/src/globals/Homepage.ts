@@ -1,9 +1,9 @@
 import type { GlobalConfig } from 'payload'
 
-import { DEFAULT_HOME } from '../../../../src/shared/site-content'
-import { homeSnapshot } from '../../../../worker/site/publisher'
+import { DEFAULT_HOME, DEFAULT_PROJECTS_HOME } from '../../../../src/shared/site-content'
+import { homeSnapshot, projectsHomeSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
-import { asEditorError, homeInput, republishHome } from '../site/publishing'
+import { asEditorError, homeInput, republishHome, republishProjectsHome } from '../site/publishing'
 
 // The homepage's words. "Save draft" keeps changes here; "Publish changes" puts them on the site.
 export const Homepage: GlobalConfig = {
@@ -11,7 +11,8 @@ export const Homepage: GlobalConfig = {
   label: 'Homepage',
   admin: {
     group: 'Website',
-    description: 'The words on daly.id.au. The latest posts are added automatically from the blog. Publish changes to update the site.',
+    description:
+      'The words on daly.id.au. "Projects homepage" is the redesigned, projects-first homepage: it shows once switched on in Administration → Features (preview it at /portal/preview). Publish changes to update the site.',
     preview: () => '/',
   },
   versions: { drafts: true, max: 50 },
@@ -23,13 +24,19 @@ export const Homepage: GlobalConfig = {
   hooks: {
     beforeChange: [
       async ({ data }) => {
-        if (data._status === 'published') await asEditorError(async () => homeSnapshot(homeInput(data)))
+        if (data._status === 'published') {
+          await asEditorError(async () => homeSnapshot(homeInput(data)))
+          await asEditorError(async () => projectsHomeSnapshot({ ...DEFAULT_PROJECTS_HOME, ...((data.projectsHome ?? {}) as object) }))
+        }
         return data
       },
     ],
     afterChange: [
       async ({ doc, req, context }) => {
-        if (!context?.skipPublicSync && doc._status === 'published') await republishHome(req, doc)
+        if (!context?.skipPublicSync && doc._status === 'published') {
+          await republishHome(req, doc)
+          await republishProjectsHome(req, { projectsHome: { ...DEFAULT_PROJECTS_HOME, ...((doc.projectsHome ?? {}) as object) } })
+        }
         return doc
       },
     ],
@@ -85,6 +92,41 @@ export const Homepage: GlobalConfig = {
           fields: [{ name: 'text', type: 'textarea', required: true }],
         },
         { name: 'showContactLine', label: 'End with "Have a thought to share? Say hello" (when there is a public email)', type: 'checkbox', defaultValue: true },
+      ],
+    },
+    {
+      name: 'projectsHome',
+      label: 'Projects homepage',
+      type: 'group',
+      admin: { description: 'The projects-first homepage. Its projects come from Projects (featured first, then by display order) and its articles from the blog.' },
+      fields: [
+        { name: 'heroTitle', label: 'Hero title', type: 'text', required: true, defaultValue: DEFAULT_PROJECTS_HOME.heroTitle },
+        { name: 'heroIntro', label: 'Hero introduction', type: 'textarea', required: true, defaultValue: DEFAULT_PROJECTS_HOME.heroIntro },
+        { name: 'heroCtaLabel', label: 'Hero button text', type: 'text', required: true, defaultValue: DEFAULT_PROJECTS_HOME.heroCtaLabel, admin: { description: 'The button goes to /projects.' } },
+        {
+          type: 'row',
+          fields: [
+            { name: 'projectsHeading', label: 'Projects heading', type: 'text', required: true, defaultValue: DEFAULT_PROJECTS_HOME.projectsHeading, admin: { width: '40%' } },
+            { name: 'projectsIntro', label: 'Projects introduction', type: 'text', defaultValue: DEFAULT_PROJECTS_HOME.projectsIntro, admin: { width: '60%', description: 'Also the introduction on /projects.' } },
+          ],
+        },
+        { name: 'showMoreProjects', label: 'Show the "All projects" links', type: 'checkbox', defaultValue: true },
+        {
+          type: 'row',
+          fields: [
+            { name: 'showWriting', label: 'Show latest writing', type: 'checkbox', defaultValue: true, admin: { width: '30%' } },
+            { name: 'writingHeading', label: 'Writing heading', type: 'text', required: true, defaultValue: DEFAULT_PROJECTS_HOME.writingHeading, admin: { width: '45%' } },
+            { name: 'writingCount', label: 'How many articles', type: 'number', required: true, min: 0, max: 6, defaultValue: DEFAULT_PROJECTS_HOME.writingCount, admin: { width: '25%', step: 1 } },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            { name: 'showAbout', label: 'Show the About section', type: 'checkbox', defaultValue: true, admin: { width: '30%' } },
+            { name: 'aboutHeading', label: 'About heading', type: 'text', required: true, defaultValue: DEFAULT_PROJECTS_HOME.aboutHeading, admin: { width: '70%' } },
+          ],
+        },
+        { name: 'aboutText', label: 'About text', type: 'textarea', required: true, defaultValue: DEFAULT_PROJECTS_HOME.aboutText },
       ],
     },
     {

@@ -56,6 +56,8 @@ const MATRIX = [
     ["create page", "POST", "/api/pages", () => ({ title: "x", slug: `x-${Date.now()}-${Math.random().toString(36).slice(2)}` }), writers],
     ["update page", "PATCH", `/api/pages/${pageId}`, { title: "changed" }, writers],
     ["delete page", "DELETE", `/api/pages/${pageId}?dry=1`, null, ["owner"]],
+    ["read projects", "GET", "/api/projects", null, writers],
+    ["create project", "POST", "/api/projects", () => ({ title: "x", summary: "x", slug: `x-${Date.now()}-${Math.random().toString(36).slice(2)}` }), writers],
     // The website's globals (docs/PAYLOAD-FRONTEND-PLAN.md): owners and admins only.
     ["read site settings", "GET", "/api/globals/site-settings", null, writers],
     ["update site settings", "POST", "/api/globals/site-settings", { footerText: "" }, writers],

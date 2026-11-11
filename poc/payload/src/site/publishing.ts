@@ -6,6 +6,10 @@ import {
   PublishError,
   publishHome,
   publishPage,
+  publishProject,
+  publishProjectsHome,
+  unpublishProject,
+  type ProjectInput,
   publishSiteSettings,
   publishedSlugs,
   resolveNavigation,
@@ -146,4 +150,69 @@ export async function syncPage(req: PayloadRequest, id: string | number) {
     req.payload.logger.info({ msg: 'page published', slug: page.slug })
   } else if (await unpublishPage(env, id)) req.payload.logger.info({ msg: 'page unpublished', id })
   await republishSettings(req).catch((error) => req.payload.logger.error({ msg: 'menu refresh failed', message: (error as Error).message }))
+}
+
+// --- Projects (Phase 4) ---------------------------------------------------------------------------------
+
+type ProjectDoc = {
+  id: string | number
+  title?: string
+  slug?: string
+  summary?: string | null
+  content?: ProjectInput['content']
+  heroImage?: unknown
+  gallery?: Array<{ image?: unknown; caption?: string | null }> | null
+  status?: string | null
+  tags?: Array<{ tag?: string | null }> | null
+  featured?: boolean | null
+  order?: number | null
+  websiteUrl?: string | null
+  githubUrl?: string | null
+  links?: Array<{ label?: string | null; url?: string | null }> | null
+  listed?: boolean | null
+  seo?: { title?: string | null; description?: string | null } | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  _status?: 'draft' | 'published'
+  deletedAt?: string | null
+}
+
+export const projectInput = (doc: ProjectDoc): ProjectInput => ({
+  id: doc.id,
+  slug: doc.slug ?? '',
+  title: doc.title ?? '',
+  summary: doc.summary,
+  content: doc.content ?? null,
+  heroMediaId: idOf(doc.heroImage),
+  gallery: (doc.gallery ?? []).map((g) => ({ mediaId: idOf(g.image), caption: g.caption })),
+  status: doc.status,
+  tags: (doc.tags ?? []).map((t) => t.tag ?? '').filter(Boolean),
+  featured: doc.featured,
+  order: doc.order,
+  websiteUrl: doc.websiteUrl,
+  githubUrl: doc.githubUrl,
+  links: doc.links,
+  seoTitle: doc.seo?.title,
+  seoDescription: doc.seo?.description,
+  publishedAt: doc.createdAt ?? null,
+  updatedAt: doc.updatedAt ?? null,
+})
+
+/** Makes the public site match a project's main (published) document. */
+export async function syncProject(req: PayloadRequest, id: string | number) {
+  const env = await publisherEnv()
+  const main = (await req.payload
+    .findByID({ collection: 'projects', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
+    .catch(() => null)) as ProjectDoc | null
+  if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
+    const project = await asEditorError(() => publishProject(env, projectInput(main), mediaLoader(req, env)))
+    req.payload.logger.info({ msg: 'project published', slug: project.slug })
+  } else if (await unpublishProject(env, id)) req.payload.logger.info({ msg: 'project unpublished', id })
+}
+
+export async function republishProjectsHome(req: PayloadRequest, doc: Record<string, unknown>) {
+  const env = await publisherEnv()
+  const projectsHome = (doc.projectsHome ?? {}) as Record<string, unknown>
+  await asEditorError(() => publishProjectsHome(env, projectsHome))
+  req.payload.logger.info({ msg: 'projects homepage published' })
 }

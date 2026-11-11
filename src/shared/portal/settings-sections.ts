@@ -76,8 +76,8 @@ export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
         application: "wedding",
     },
     website: {
-        label: "Capacities archive",
-        description: "Whether the blog keeps in sync with Capacities. Details in Administration → Capacities archive.",
+        label: "Website",
+        description: "The projects-first homepage, and whether the blog keeps in sync with Capacities (details in Administration → Capacities archive).",
         permission: "portal.settings.manage",
     },
 };
@@ -101,6 +101,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "module.planning": "wedding",
     "module.budget": "wedding",
     "website.capacities.sync": "website",
+    "website.projects_home": "website",
 };
 
 export const flagsInArea = (area: FeatureArea): FlagKey[] => FLAG_KEYS.filter((key) => FLAG_AREAS[key] === area);

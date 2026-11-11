@@ -4,6 +4,7 @@ import * as migration_20261110_105640_job_schedule from './20261110_105640_job_s
 import * as migration_20261111_060845_blog_posts from './20261111_060845_blog_posts';
 import * as migration_20261111_070000_blog_import from './20261111_070000_blog_import';
 import * as migration_20261111_084356_site_content from './20261111_084356_site_content';
+import * as migration_20261111_085000_projects from './20261111_085000_projects';
 import * as migration_20261111_090000_site_seed from './20261111_090000_site_seed';
 
 export const migrations = [
@@ -36,6 +37,12 @@ export const migrations = [
     up: migration_20261111_084356_site_content.up,
     down: migration_20261111_084356_site_content.down,
     name: '20261111_084356_site_content',
+  },
+  {
+    // Before the seed: the seed writes the Homepage global with today's config, which has these columns.
+    up: migration_20261111_085000_projects.up,
+    down: migration_20261111_085000_projects.down,
+    name: '20261111_085000_projects',
   },
   {
     up: migration_20261111_090000_site_seed.up,

@@ -29,6 +29,12 @@ export const pageTitle = (data: PageData) => {
             return `${data.post.title} — ${site.name}`;
         case "page":
             return data.page.seoTitle ?? `${data.page.title} — ${site.name}`;
+        case "projects-home":
+            return site.title;
+        case "projects":
+            return `Projects — ${site.name}`;
+        case "project":
+            return data.project.seoTitle ?? `${data.project.title} — ${site.name}`;
         case "contact":
             return `Contact — ${site.name}`;
         case "not-found":
@@ -47,6 +53,12 @@ const pageDescription = (data: PageData) => {
             return data.home.seoDescription ?? site.description;
         case "page":
             return data.page.seoDescription ?? data.page.lede ?? site.description;
+        case "projects-home":
+            return data.content.heroIntro || site.description;
+        case "projects":
+            return data.intro || `Projects by ${site.name}.`;
+        case "project":
+            return data.project.seoDescription ?? (data.project.summary || site.description);
         case "contact":
             return `How to get in touch with ${site.name}.`;
         default:
@@ -65,6 +77,10 @@ export const canonicalPath = (data: PageData, path: string) => {
         return `/blog${query ? `?${query}` : ""}`;
     }
     if (data.route === "post") return `/blog/${data.post.slug}`;
+    // The private preview (/portal/preview…) canonicalises to the public address it previews.
+    if (data.route === "projects-home") return "/";
+    if (data.route === "projects") return "/projects";
+    if (data.route === "project") return `/projects/${data.project.slug}`;
     return path;
 };
 
@@ -79,7 +95,9 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
             ? absolute(siteUrl, data.post.image.src)
             : data.route === "page" && data.page.image
               ? absolute(siteUrl, data.page.image.src)
-              : absolute(siteUrl, site.seoImage ?? DEFAULT_IMAGE);
+              : data.route === "project" && data.project.image
+                ? absolute(siteUrl, data.project.image.src)
+                : absolute(siteUrl, site.seoImage ?? DEFAULT_IMAGE);
     const searchNoindex = data.route === "blog" && !!data.filters.q;
 
     const tags = [
@@ -155,6 +173,22 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
     if (data.route === "page" && data.page.slug === "about") {
         return { "@context": "https://schema.org", "@type": "ProfilePage", url: canonical, mainEntity: { ...person(site, siteUrl), description } };
     }
+    if (data.route === "project") {
+        const p = data.project;
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            name: p.title,
+            url: canonical,
+            description,
+            image: p.image ? [image] : undefined,
+            keywords: p.tags.length ? p.tags.join(", ") : undefined,
+            dateModified: p.updatedAt ?? undefined,
+            creativeWorkStatus: p.status,
+            author: person(site, siteUrl),
+            inLanguage: site.language,
+        };
+    }
     if (data.route === "page") {
         return { "@context": "https://schema.org", "@type": "WebPage", name: data.page.title, url: canonical, description, inLanguage: site.language, author: person(site, siteUrl) };
     }
@@ -171,7 +205,13 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
 
 const xml = (value: string) => escapeHtml(value);
 
-export const sitemapXml = (siteUrl: string, posts: { slug: string; lastmod: string }[], pages: { slug: string; lastmod: string | null }[]) => {
+export const sitemapXml = (
+    siteUrl: string,
+    posts: { slug: string; lastmod: string }[],
+    pages: { slug: string; lastmod: string | null }[],
+    /** Public projects, only once the projects-first site is switched on. */
+    projects: { slug: string; updatedAt: string | null }[] = [],
+) => {
     const latest = posts[0]?.lastmod;
     const urls: { loc: string; lastmod?: string }[] = [
         { loc: "/", lastmod: latest },
@@ -179,6 +219,7 @@ export const sitemapXml = (siteUrl: string, posts: { slug: string; lastmod: stri
         // No lastmod for pages: a page's own edits are rare, and the sitemap stays stable across republishing.
         ...pages.map((p) => ({ loc: `/${p.slug}` })),
         { loc: "/contact" },
+        ...(projects.length ? [{ loc: "/projects" }, ...projects.map((p) => ({ loc: `/projects/${p.slug}`, lastmod: p.updatedAt ?? undefined }))] : []),
         ...posts.map((p) => ({ loc: `/blog/${p.slug}`, lastmod: p.lastmod })),
     ];
     const body = urls
