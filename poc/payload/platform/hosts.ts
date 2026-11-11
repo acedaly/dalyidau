@@ -41,7 +41,7 @@ export const LEGACY_API_PREFIXES = [
 ];
 
 /** Payload's REST API: /api/<collection>[/...] and /api/<global>... for the slugs Payload is configured with. */
-export const PAYLOAD_API_SLUGS = ["users", "media", "pages", "posts", "payload-preferences", "payload-locked-documents", "payload-migrations", "payload-kv", "payload-jobs", "globals", "access"];
+export const PAYLOAD_API_SLUGS = ["users", "media", "pages", "projects", "posts", "payload-preferences", "payload-locked-documents", "payload-migrations", "payload-kv", "payload-jobs", "globals", "access"];
 
 /** Static files the guest-facing hosts may load: the existing site's own build output, never Next.js or Payload's. */
 const GUEST_STATIC = [/^\/assets\/[A-Za-z0-9._-]+$/, /^\/wedding\/[A-Za-z0-9._/-]+\.(?:jpg|jpeg|png|webp|svg|woff2)$/, /^\/(?:favicon\.(?:ico|svg)|apple-touch-icon\.png|theme-init\.js)$/, /^\/icons\/[A-Za-z0-9._-]+$/];

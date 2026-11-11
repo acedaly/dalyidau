@@ -150,6 +150,34 @@ expect("…drops it from the menu", !(await page("/")).text.includes('href="/lat
 const clash = await call("POST", "/api/pages", people.admin, { title: "Another about", slug: "about", _status: "published" });
 expect("another page can't take /about", clash.status === 400, `${clash.status}`);
 
+// 8. Projects (Phase 4): drafts private, publish shows in the preview, the public pages wait for the switch.
+for (const role of ["editor", "viewer"]) {
+    const r = await call("POST", "/api/projects", people[role], { title: "Nope", slug: "nope", summary: "x", _status: "published" });
+    expect(`${role} can't create projects`, r.status === 403, `${r.status}`);
+}
+const proj = await call("POST", "/api/projects?draft=true", people.admin, { title: "A <b>lamp</b>", slug: "lamp", summary: "It glows.", status: "experimental", content: lexical("Made <by> hand."), _status: "draft" });
+const projId = proj.json?.doc?.id;
+expect("admin creates a project draft", proj.status === 201 && projId, proj.text);
+expect("a draft project isn't in the preview", (await call("GET", "/portal/preview/projects/lamp", OWNER)).status === 404);
+const projPub = await call("PATCH", `/api/projects/${projId}?draft=false`, people.admin, { _status: "published" });
+expect("admin publishes the project", projPub.status === 200, projPub.text);
+const prev = await call("GET", "/portal/preview/projects/lamp", OWNER);
+expect("published: the preview shows it, escaped", prev.status === 200 && prev.text.includes("A &lt;b&gt;lamp&lt;/b&gt;") && prev.text.includes("Made &lt;by&gt; hand."), prev.status);
+expect("…but /projects isn't public while the switch is off", (await page("/projects/lamp")).status === 404 && (await page("/projects")).status === 404);
+expect("…and the live homepage is unchanged", (await page("/")).text.includes("writing down."));
+const dup = await call("POST", "/api/projects", people.admin, { title: "Another", slug: "lamp", summary: "x", _status: "published" });
+expect("a duplicate project address is refused", dup.status === 400, `${dup.status}`);
+const badLink = await call("PATCH", `/api/projects/${projId}?draft=false`, people.admin, { websiteUrl: "javascript:alert(1)", _status: "published" });
+expect("an unsafe project link is refused", badLink.status === 400, `${badLink.status}`);
+const hidden = await call("PATCH", `/api/projects/${projId}?draft=false`, people.admin, { listed: false, _status: "published" });
+expect("unticking 'Show on the public site' takes it off", hidden.status === 200 && (await call("GET", "/portal/preview/projects/lamp", OWNER)).status === 404, hidden.status);
+const homeV2 = await call("POST", "/api/globals/homepage?draft=false", OWNER, { projectsHome: { heroTitle: "Things I <make>." }, _status: "published" });
+expect("the projects homepage text publishes", homeV2.status === 200 && (await call("GET", "/portal/preview", OWNER)).text.includes("Things I &lt;make&gt;."), homeV2.text);
+expect("…without touching the live homepage", (await page("/")).text.includes("writing down.") && !(await page("/")).text.includes("Things I"));
+const delProj = await call("DELETE", `/api/projects/${projId}`, OWNER);
+expect("the owner deletes the test project", delProj.status === 200, delProj.status);
+await call("POST", "/api/globals/homepage?draft=false", OWNER, { projectsHome: { heroTitle: "Building things that interest me." }, _status: "published" });
+
 // 8. Admin view of the wedding module still there.
 expect("wedding admin still opens", (await call("GET", "/admin/wedding", OWNER)).status === 200);
 

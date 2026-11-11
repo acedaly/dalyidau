@@ -83,3 +83,88 @@
     color: #9b674a;
     gap: 0.8rem;
 }
+
+/*
+ * The projects-first design (Phase 4), only on pages rendered with <html class="site-v2"> (the switched-on
+ * site, or the private preview). It redefines Untitled UI's base scales, so every semantic token (bg-primary,
+ * text-tertiary, border-secondary, brand…) and every component follows: warm off-white and stone neutrals,
+ * charcoal type, a muted sage accent, and a warm charcoal dark mode. The wedding site never gets this class.
+ */
+.site-v2 {
+    --color-white: rgb(250 249 246);
+    --color-neutral-25: rgb(252 251 248);
+    --color-neutral-50: rgb(244 242 236);
+    --color-neutral-100: rgb(236 233 226);
+    --color-neutral-200: rgb(225 221 211);
+    --color-neutral-300: rgb(208 203 191);
+    --color-neutral-400: rgb(168 163 151);
+    --color-neutral-500: rgb(110 105 95);
+    --color-neutral-600: rgb(101 97 88);
+    --color-neutral-700: rgb(74 71 64);
+    --color-neutral-800: rgb(50 48 44);
+    --color-neutral-900: rgb(33 32 29);
+    --color-neutral-950: rgb(21 21 19);
+    --color-brand-25: rgb(248 250 246);
+    --color-brand-50: rgb(240 244 237);
+    --color-brand-100: rgb(225 233 220);
+    --color-brand-200: rgb(201 215 193);
+    --color-brand-300: rgb(170 192 160);
+    --color-brand-400: rgb(137 163 125);
+    --color-brand-500: rgb(108 136 97);
+    --color-brand-600: rgb(84 111 75);
+    --color-brand-700: rgb(68 90 61);
+    --color-brand-800: rgb(56 73 51);
+    --color-brand-900: rgb(46 60 43);
+    --color-brand-950: rgb(26 34 25);
+    background-color: var(--color-white);
+}
+.site-v2.dark-mode {
+    --color-brand-300: rgb(180 202 170);
+    --color-brand-400: rgb(156 182 145);
+    --color-brand-500: rgb(134 161 122);
+    background-color: var(--color-neutral-950);
+}
+.site-v2 body {
+    font-feature-settings: "ss01", "cv11";
+}
+/* Headings in the projects-first design: tight, confident sans. */
+.v2-display {
+    letter-spacing: -0.032em;
+    font-weight: 600;
+    text-wrap: balance;
+}
+.v2-eyebrow {
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+/* A project without a cover image: a quiet, textured panel with its initials, never a stock picture. */
+.v2-cover-fallback {
+    background-color: var(--color-brand-50);
+    background-image:
+        linear-gradient(var(--color-brand-100) 1px, transparent 1px),
+        linear-gradient(90deg, var(--color-brand-100) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
+}
+.dark-mode .v2-cover-fallback {
+    background-color: rgb(30 33 28);
+    background-image:
+        linear-gradient(rgb(40 45 38) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(40 45 38) 1px, transparent 1px);
+}
+.v2-card-image {
+    transition: transform 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.group:hover .v2-card-image,
+.group:focus-visible .v2-card-image {
+    transform: scale(1.015);
+}
+@media (prefers-reduced-motion: reduce) {
+    .v2-card-image {
+        transition: none;
+    }
+    .group:hover .v2-card-image,
+    .group:focus-visible .v2-card-image {
+        transform: none;
+    }
+}

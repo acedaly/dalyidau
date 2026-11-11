@@ -87,3 +87,28 @@ Directive: owner, 11 Nov 2026 (one daly.id.au managed in Payload; standing appro
 - **Public RSVP** lookup with an invalid code: 404 with the friendly message on both wedding addresses. An invalid invitation link: 404.
 - Not done in production on purpose: a real RSVP submission (it would change a real guest's response). The full RSVP flow is covered by the e2e suite and the root tests in CI.
 - Cosmetic: the Administration view's tab title read "Not Found". Fixed in #55.
+
+# Phase 4 (owner directive 11 Nov 2026, ~11:00Z: projects-first redesign; stop for visual approval)
+
+## 11:35–12:35Z: design, build, tests (branch `feature/projects-redesign`, PR #56)
+
+- Design and content model: `docs/PAYLOAD-FRONTEND-PLAN.md` §11. Built behind the switch `website.projects_home` (default off). Private preview at `/portal/preview` for owners and admins.
+- **Design review:**
+  - Rounds of real-browser screenshots (desktop 1440 / phone 390, light and dark) on a local database: production's posts and images from the backup, plus clearly labelled sample projects (local only).
+  - Fixed on the way: light-mode contrast of the quietest text (axe), lazy images in the capture script.
+  - Final axe (WCAG 2.2 AA) on home, index and two project pages × both themes × both widths: **0 violations, no sideways scroll**.
+- **Found and fixed:** on a fresh database the site seed (`20261111_090000`) ran before the Projects schema migration and failed (it writes the Homepage global with today's columns). The Projects migration is now `20261111_085000`. Production already has the seed, so it just applies the new migration.
+- **Tests (local):**
+  - root 470/470 (new `test/projects.test.ts`); MCP 18/18; public e2e 24/24; platform 499/499;
+  - real Payload: site (now with Projects: drafts private, publish → preview, unlist, duplicate and unsafe-link refusal, roles, homepage text) all passed; blog all passed; authz (now with projects) all passed;
+  - browser checks 45/45; wedding-publish all passed; admin browser suite 40/40.
+  - CI on #56: green.
+- **Performance:** the client bundle is +0.9 KB JS and +1.0 KB CSS gzipped against production (139.3 / 24.9 KB). No new fonts or libraries. Public pages still never start Payload: one indexed D1 read on a cache miss, as before.
+
+## 12:25–12:40Z: deploys
+
+- **Production:** before merging, I took backups. The D1 main backup was "No problems". Payload export `backups/payload-production-2026-11-11T12-26-36Z.sql`.
+- **The plain restore of that export failed:** D1 exports a child table's rows (`homepage_about_paragraphs`) before the parent table exists, and D1 refuses them even with foreign keys off. New `scripts/d1-export-reorder.py` puts every CREATE TABLE first, then rows, then indexes. With it the restore reproduces production exactly (posts 3, pages 2, paragraphs 2, migrations 7). **Use it for any Payload restore.**
+- **Merging #56 was refused** by the session's auto-mode classifier ("Production Deploy"). Not worked around. #56 waits for the owner: merging deploys the code with the switch off (live site unchanged) and adds Projects to the admin and the preview.
+- **Staging:** `npm run staging:deploy` deployed the redesign build to the isolated `dalyidau-payload-staging`. The isolation checks passed before and after. Staging has no address by design, so the functional checks are the local and CI runs of the same build.
+- **For approval:** screenshots on a private review page, https://claude.ai/artifact/6S3ymU2DQiQK1tY14HGuye.

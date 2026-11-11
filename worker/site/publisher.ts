@@ -10,13 +10,21 @@ import type { D1Database } from "@cloudflare/workers-types";
 import {
     type HomeContent,
     type NavItem,
+    PAGE_SLUG,
+    PROJECT_STATUSES,
+    type Project,
+    type ProjectsHomeContent,
     type PublicPage,
     type SiteSettings,
     normaliseHome,
     normalisePage,
+    normaliseProject,
+    normaliseProjectSummary,
+    normaliseProjectsHome,
     normaliseSite,
     pageSlugProblem,
     safeLink,
+    sortProjects,
 } from "../../src/shared/site-content";
 import { type LexicalNode, type MediaFile, PublishError, type PublisherEnv, lexicalHasContent, renderLexical, storePublicImage, uploadIds } from "../blog/payload-publisher";
 import { mediaUrls } from "../lib/image";
@@ -274,4 +282,204 @@ export async function unpublishPage(env: PublisherEnv, id: string | number, now 
 export async function publishedSlugs(db: D1Database): Promise<Set<string>> {
     const { results } = await db.prepare("SELECT value FROM meta WHERE key LIKE 'page-id:%'").all<{ value: string }>();
     return new Set(results.map((r) => JSON.parse(r.value) as string));
+}
+
+// --- Projects (Phase 4) ---------------------------------------------------------------------------------
+
+export interface ProjectInput {
+    /** Payload's id: it tracks the project's address across renames. */
+    id: string | number;
+    slug: string;
+    title: string;
+    summary?: string | null;
+    content?: { root?: LexicalNode } | null;
+    heroMediaId?: string | number | null;
+    gallery?: Array<{ mediaId: string | number | null; caption?: string | null }> | null;
+    status?: string | null;
+    tags?: string[] | null;
+    featured?: boolean | null;
+    order?: number | null;
+    websiteUrl?: string | null;
+    githubUrl?: string | null;
+    links?: Array<{ label?: string | null; url?: string | null }> | null;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+    publishedAt?: string | null;
+    updatedAt?: string | null;
+}
+
+const projectKey = (slug: string) => `project:${slug}`;
+const projectIdKey = (id: string | number) => `project-id:${id}`;
+export const projectRedirectKey = (slug: string) => `project-redirect:${slug}`;
+
+/** Why this project can't be published, or null. Pure: used before saving too. */
+export function projectProblem(input: Pick<ProjectInput, "slug" | "title" | "status" | "websiteUrl" | "githubUrl" | "links">): string | null {
+    if (!input.title?.trim()) return "A published project needs a title.";
+    if (!PAGE_SLUG.test(input.slug ?? "") || (input.slug ?? "").length > 80) return "Give the project an address made of lower-case letters, numbers and single hyphens.";
+    if (input.status && !PROJECT_STATUSES.some((s) => s.value === input.status)) return "Choose a status: Active, Completed, Experimental or Archived.";
+    for (const [label, url] of [
+        ["Website", input.websiteUrl],
+        ["GitHub", input.githubUrl],
+    ] as const)
+        if (url && !/^https?:\/\//.test(safeLink(url) ?? "")) return `The ${label} link needs a full https:// address.`;
+    for (const [i, link] of (input.links ?? []).entries()) {
+        if (!link.label?.trim()) return `Link ${i + 1} needs a label.`;
+        if (!/^https?:\/\//.test(safeLink(link.url) ?? "")) return `Link "${link.label}" needs a full https:// address.`;
+    }
+    return null;
+}
+
+/** Rebuilds the list of public projects (cards, the index, the sitemap) from the published snapshots. */
+async function rebuildProjectIndex(db: D1Database) {
+    const { results } = await db.prepare("SELECT value FROM meta WHERE key LIKE 'project:%'").all<{ value: string }>();
+    const summaries = sortProjects(
+        results
+            .map((r) => {
+                try {
+                    return normaliseProjectSummary(JSON.parse(r.value));
+                } catch {
+                    return null;
+                }
+            })
+            .filter((p): p is NonNullable<typeof p> => Boolean(p)),
+    );
+    return put(db, SNAPSHOT.projects, summaries);
+}
+
+/** Publishes a project at daly.id.au/projects/<slug>. A renamed project's old address redirects. */
+export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx: MediaLoader): Promise<Project> {
+    const now = (ctx.now?.() ?? new Date()).toISOString();
+    const problem = projectProblem(input);
+    if (problem) throw new PublishError(problem);
+    const slug = input.slug;
+    const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectKey(slug)).first<{ value: string }>();
+    const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
+    if (owner && ownerId !== undefined && String(ownerId) !== String(input.id)) throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
+
+    const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
+    const copy = async (id: string | number) => {
+        const key = String(id);
+        if (stored.has(key)) return stored.get(key)!;
+        const file = await ctx.loadMedia(id);
+        if (!file) return null;
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now);
+        if (image) stored.set(key, { ...image, caption: file.caption ?? null });
+        return image;
+    };
+    const asImage = (img: { key: string; alt: string; width: number | null; height: number | null }) => ({
+        src: `/media/${img.key}`,
+        alt: img.alt,
+        width: img.width ?? undefined,
+        height: img.height ?? undefined,
+    });
+
+    let image: Project["image"] = null;
+    if (input.heroMediaId !== undefined && input.heroMediaId !== null) {
+        const hero = await copy(input.heroMediaId);
+        if (!hero) throw new PublishError("The cover image couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.");
+        image = asImage(hero);
+    }
+    const gallery: Project["gallery"] = [];
+    for (const [i, item] of (input.gallery ?? []).entries()) {
+        if (item.mediaId === null || item.mediaId === undefined) continue;
+        const shot = await copy(item.mediaId);
+        if (!shot) throw new PublishError(`Screenshot ${i + 1} couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.`);
+        gallery.push({ ...asImage(shot), caption: item.caption?.trim() || null });
+    }
+    const root = input.content?.root;
+    let bodyHtml = "";
+    if (lexicalHasContent(root)) {
+        for (const id of uploadIds(root)) await copy(id);
+        bodyHtml = renderLexical(root, {
+            siteUrl: env.SITE_URL,
+            image: (id) => {
+                const img = stored.get(String(id));
+                return img ? { ...img, ...mediaUrls(img.key, img.width, !!ctx.transforms) } : null;
+            },
+        }).html;
+    }
+    const snapshot = {
+        id: input.id,
+        slug,
+        title: input.title.trim(),
+        summary: input.summary?.trim() ?? "",
+        status: input.status || "active",
+        tags: [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))],
+        featured: !!input.featured,
+        order: typeof input.order === "number" && Number.isFinite(input.order) ? input.order : 0,
+        image,
+        websiteUrl: input.websiteUrl ? safeLink(input.websiteUrl) : null,
+        githubUrl: input.githubUrl ? safeLink(input.githubUrl) : null,
+        bodyHtml,
+        gallery,
+        links: (input.links ?? []).map((l) => ({ label: l.label!.trim(), url: safeLink(l.url)! })),
+        seoTitle: input.seoTitle?.trim() || null,
+        seoDescription: input.seoDescription?.trim() || null,
+        publishedAt: input.publishedAt ?? now,
+        updatedAt: input.updatedAt ?? now,
+    };
+    const project = normaliseProject(snapshot);
+    if (!project) throw new PublishError("This project can't be published as it is.");
+
+    const previous = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectIdKey(input.id)).first<{ value: string }>())?.value;
+    const previousSlug = previous ? (JSON.parse(previous) as string) : null;
+    const statements = [
+        put(env.DB, projectKey(slug), snapshot),
+        put(env.DB, projectIdKey(input.id), slug),
+        del(env.DB, projectRedirectKey(slug)),
+    ];
+    if (previousSlug && previousSlug !== slug) {
+        statements.push(del(env.DB, projectKey(previousSlug)), put(env.DB, projectRedirectKey(previousSlug), slug));
+        statements.push(
+            env.DB.prepare("UPDATE meta SET value = ? WHERE key LIKE 'project-redirect:%' AND value = ?").bind(JSON.stringify(slug), JSON.stringify(previousSlug)),
+        );
+    }
+    await env.DB.batch(statements);
+    await env.DB.batch([await rebuildProjectIndex(env.DB), bump(env.DB, now)]);
+    return project;
+}
+
+/** Takes a project off the site (unpublished, hidden, in Trash or deleted). Its old addresses stop redirecting. */
+export async function unpublishProject(env: PublisherEnv, id: string | number, now = new Date()): Promise<boolean> {
+    const current = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectIdKey(id)).first<{ value: string }>())?.value;
+    const slug = current ? (JSON.parse(current) as string) : null;
+    if (slug)
+        await env.DB.batch([
+            del(env.DB, projectKey(slug)),
+            env.DB.prepare("DELETE FROM meta WHERE key LIKE 'project-redirect:%' AND value = ?").bind(JSON.stringify(slug)),
+            del(env.DB, projectIdKey(id)),
+        ]);
+    await env.DB.batch([await rebuildProjectIndex(env.DB), bump(env.DB, now.toISOString())]);
+    return Boolean(slug);
+}
+
+/** The projects-first homepage's words, validated. Pure. */
+export function projectsHomeSnapshot(input: Partial<Record<keyof ProjectsHomeContent, unknown>>) {
+    const count = input.writingCount;
+    const snapshot = {
+        heroTitle: strict(input.heroTitle, "Hero title", 160),
+        heroIntro: strict(input.heroIntro, "Hero introduction", 600),
+        heroCtaLabel: strict(input.heroCtaLabel, "Hero link text", 60),
+        projectsHeading: strict(input.projectsHeading, "Projects heading", 120),
+        projectsIntro: typeof input.projectsIntro === "string" ? input.projectsIntro.trim() : "",
+        showMoreProjects: input.showMoreProjects !== false,
+        showWriting: input.showWriting !== false,
+        writingHeading: strict(input.writingHeading, "Writing heading", 120),
+        writingCount:
+            typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 6
+                ? count
+                : (() => {
+                      throw new PublishError("Show between 0 and 6 articles.");
+                  })(),
+        showAbout: input.showAbout !== false,
+        aboutHeading: strict(input.aboutHeading, "About heading", 120),
+        aboutText: strict(input.aboutText, "About text", 1200),
+    };
+    return snapshot;
+}
+
+export async function publishProjectsHome(env: PublisherEnv, input: Partial<Record<keyof ProjectsHomeContent, unknown>>, now = new Date()): Promise<ProjectsHomeContent> {
+    const snapshot = projectsHomeSnapshot(input);
+    await env.DB.batch([put(env.DB, SNAPSHOT.projectsHome, snapshot), bump(env.DB, now.toISOString())]);
+    return normaliseProjectsHome(snapshot);
 }

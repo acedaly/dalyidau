@@ -1,5 +1,5 @@
 // Data shapes shared by the worker (server render) and the browser (hydration).
-import type { HomeContent, PublicPage, SiteSettings } from "./site-content";
+import type { HomeContent, Project, ProjectSummary, ProjectsHomeContent, PublicPage, SiteSettings } from "./site-content";
 
 export interface TocEntry {
     id: string;
@@ -55,6 +55,9 @@ export type PageRoute =
       }
     | { route: "post"; post: Post; related: PostSummary[]; url: string }
     | { route: "page"; page: PublicPage }
+    | { route: "projects-home"; content: ProjectsHomeContent; projects: ProjectSummary[]; latest: PostSummary[] }
+    | { route: "projects"; projects: ProjectSummary[]; intro: string }
+    | { route: "project"; project: Project; related: ProjectSummary[] }
     | { route: "contact" }
     | { route: "not-found"; path: string };
 
@@ -63,6 +66,10 @@ export interface PublicSiteContext {
     weddingPublished: boolean;
     /** Site settings and navigation, as published from Payload (defaults when nothing is). */
     site: SiteSettings;
+    /** "projects": the projects-first design (switched on, or the private preview). Absent: today's design. */
+    design?: "projects";
+    /** The private preview's address prefix ("/portal/preview"); links to the redesigned pages keep it. */
+    base?: string;
 }
 
 export type PageData = PageRoute & { context: PublicSiteContext };

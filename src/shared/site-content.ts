@@ -159,6 +159,7 @@ export const RESERVED_SLUGS = new Set([
     "planner",
     "poc",
     "portal",
+    "projects",
     "robots.txt",
     "rss.xml",
     "rsvp",
@@ -304,3 +305,174 @@ export function normalisePage(input: unknown): PublicPage | null {
         updatedAt: optStr(o.updatedAt, 40),
     };
 }
+
+// --- Projects and the projects-first homepage (Phase 4) ----------------------------------------------
+
+export type ProjectStatus = "active" | "completed" | "experimental" | "archived";
+export const PROJECT_STATUSES: { value: ProjectStatus; label: string }[] = [
+    { value: "active", label: "Active" },
+    { value: "completed", label: "Completed" },
+    { value: "experimental", label: "Experimental" },
+    { value: "archived", label: "Archived" },
+];
+export const projectStatusLabel = (status: ProjectStatus) => PROJECT_STATUSES.find((s) => s.value === status)?.label ?? "Active";
+
+export interface SiteImage {
+    src: string;
+    alt: string;
+    width?: number;
+    height?: number;
+}
+
+/** A published, listed project as cards and the index show it. */
+export interface ProjectSummary {
+    slug: string;
+    title: string;
+    summary: string;
+    status: ProjectStatus;
+    tags: string[];
+    featured: boolean;
+    order: number;
+    image: SiteImage | null;
+    websiteUrl: string | null;
+    githubUrl: string | null;
+    updatedAt: string | null;
+}
+
+export interface Project extends ProjectSummary {
+    /** Built from Payload's rich text by the escaping renderer when published. */
+    bodyHtml: string;
+    gallery: (SiteImage & { caption?: string | null })[];
+    links: { label: string; url: string }[];
+    seoTitle: string | null;
+    seoDescription: string | null;
+    publishedAt: string | null;
+}
+
+/** The projects-first homepage's own words (separate from today's homepage until it's switched on). */
+export interface ProjectsHomeContent {
+    heroTitle: string;
+    heroIntro: string;
+    heroCtaLabel: string;
+    projectsHeading: string;
+    projectsIntro: string;
+    showMoreProjects: boolean;
+    showWriting: boolean;
+    writingHeading: string;
+    writingCount: number;
+    showAbout: boolean;
+    aboutHeading: string;
+    aboutText: string;
+}
+
+export const DEFAULT_PROJECTS_HOME: ProjectsHomeContent = {
+    heroTitle: "Building things that interest me.",
+    heroIntro: "A collection of personal projects, experiments, ideas and the occasional bit of writing.",
+    heroCtaLabel: "Explore projects",
+    projectsHeading: "Selected projects",
+    projectsIntro: "Things I've built, am building, or am still working out.",
+    showMoreProjects: true,
+    showWriting: true,
+    writingHeading: "Latest writing",
+    writingCount: 3,
+    showAbout: true,
+    aboutHeading: "About",
+    aboutText: "Hi, I'm Aidan. I write about leadership and learning, building useful things, personal projects, and life in general.",
+};
+
+export function normaliseProjectsHome(input: unknown): ProjectsHomeContent {
+    if (!input || typeof input !== "object") return DEFAULT_PROJECTS_HOME;
+    const o = input as Record<string, unknown>;
+    const d = DEFAULT_PROJECTS_HOME;
+    const bool = (v: unknown, fallback: boolean) => (typeof v === "boolean" ? v : fallback);
+    const count = typeof o.writingCount === "number" && Number.isInteger(o.writingCount) ? Math.min(Math.max(o.writingCount, 0), 6) : d.writingCount;
+    return {
+        heroTitle: str(o.heroTitle, d.heroTitle, 160),
+        heroIntro: str(o.heroIntro, d.heroIntro, 600),
+        heroCtaLabel: str(o.heroCtaLabel, d.heroCtaLabel, 60),
+        projectsHeading: str(o.projectsHeading, d.projectsHeading, 120),
+        projectsIntro: typeof o.projectsIntro === "string" ? o.projectsIntro.trim().slice(0, 400) : d.projectsIntro,
+        showMoreProjects: bool(o.showMoreProjects, d.showMoreProjects),
+        showWriting: bool(o.showWriting, d.showWriting),
+        writingHeading: str(o.writingHeading, d.writingHeading, 120),
+        writingCount: count,
+        showAbout: bool(o.showAbout, d.showAbout),
+        aboutHeading: str(o.aboutHeading, d.aboutHeading, 120),
+        aboutText: str(o.aboutText, d.aboutText, 1200),
+    };
+}
+
+const STATUS_VALUES = new Set(PROJECT_STATUSES.map((s) => s.value));
+const httpsLink = (value: unknown): string | null => {
+    const link = safeLink(value);
+    return link && /^https?:\/\//.test(link) ? link : null;
+};
+const siteImage = (value: unknown): SiteImage | null => {
+    if (!value || typeof value !== "object") return null;
+    const i = value as Record<string, unknown>;
+    const src = safeLink(i.src);
+    if (!src || !src.startsWith("/media/")) return null;
+    return {
+        src,
+        alt: typeof i.alt === "string" ? i.alt.slice(0, 300) : "",
+        width: typeof i.width === "number" ? i.width : undefined,
+        height: typeof i.height === "number" ? i.height : undefined,
+    };
+};
+
+export function normaliseProjectSummary(input: unknown): ProjectSummary | null {
+    if (!input || typeof input !== "object") return null;
+    const o = input as Record<string, unknown>;
+    if (typeof o.slug !== "string" || !PAGE_SLUG.test(o.slug) || typeof o.title !== "string" || !o.title.trim()) return null;
+    return {
+        slug: o.slug,
+        title: o.title.trim().slice(0, 160),
+        summary: typeof o.summary === "string" ? o.summary.trim().slice(0, 600) : "",
+        status: STATUS_VALUES.has(o.status as ProjectStatus) ? (o.status as ProjectStatus) : "active",
+        tags: Array.isArray(o.tags) ? (o.tags as unknown[]).filter((t): t is string => typeof t === "string" && !!t.trim()).map((t) => t.trim().slice(0, 40)).slice(0, 12) : [],
+        featured: o.featured === true,
+        order: typeof o.order === "number" && Number.isFinite(o.order) ? o.order : 0,
+        image: siteImage(o.image),
+        websiteUrl: httpsLink(o.websiteUrl),
+        githubUrl: httpsLink(o.githubUrl),
+        updatedAt: optStr(o.updatedAt, 40),
+    };
+}
+
+export function normaliseProject(input: unknown): Project | null {
+    const summary = normaliseProjectSummary(input);
+    if (!summary) return null;
+    const o = input as Record<string, unknown>;
+    return {
+        ...summary,
+        bodyHtml: typeof o.bodyHtml === "string" ? o.bodyHtml : "",
+        gallery: Array.isArray(o.gallery)
+            ? (o.gallery as unknown[])
+                  .map((g) => {
+                      const image = siteImage(g);
+                      const caption = g && typeof g === "object" ? optStr((g as Record<string, unknown>).caption, 300) : null;
+                      return image ? { ...image, caption } : null;
+                  })
+                  .filter((g): g is SiteImage & { caption: string | null } => Boolean(g))
+                  .slice(0, 24)
+            : [],
+        links: Array.isArray(o.links)
+            ? (o.links as unknown[])
+                  .map((l) => {
+                      const r = (l ?? {}) as Record<string, unknown>;
+                      const url = httpsLink(r.url);
+                      const label = optStr(r.label, 60);
+                      return url && label ? { label, url } : null;
+                  })
+                  .filter((l): l is { label: string; url: string } => Boolean(l))
+                  .slice(0, 8)
+            : [],
+        seoTitle: optStr(o.seoTitle, 120),
+        seoDescription: optStr(o.seoDescription, 300),
+        publishedAt: optStr(o.publishedAt, 40),
+    };
+}
+
+/** Featured first, then by display order (lower first), then title. */
+export const sortProjects = <T extends { featured: boolean; order: number; title: string }>(projects: T[]) =>
+    [...projects].sort((a, b) => Number(b.featured) - Number(a.featured) || a.order - b.order || a.title.localeCompare(b.title));

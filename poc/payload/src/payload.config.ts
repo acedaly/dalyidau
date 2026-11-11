@@ -12,6 +12,7 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
+import { Projects } from './collections/Projects'
 import { Homepage } from './globals/Homepage'
 import { Navigation } from './globals/Navigation'
 import { SiteSettings } from './globals/SiteSettings'
@@ -83,7 +84,7 @@ export default buildConfig({
       afterNavLinks: ['/views/wedding-nav#WeddingNav'],
     },
   },
-  collections: [Users, Media, Pages, Posts],
+  collections: [Users, Media, Pages, Projects, Posts],
   // The website (docs/PAYLOAD-FRONTEND-PLAN.md): published straight to the public site by their hooks.
   globals: [Homepage, Navigation, SiteSettings],
   // Not used; switched off so there is one less API surface to secure.

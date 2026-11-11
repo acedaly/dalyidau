@@ -112,3 +112,43 @@ The site content code (`src/shared/site-content.ts`, `worker/site/`, the Website
 | Unused secrets (`CAPACITIES_*` etc.) | Kept on purpose | Only with the owner's approval |
 
 Nothing in this table deletes content, data, backups or secrets.
+
+## 11. Phase 4: projects-first redesign (owner directive 11 Nov 2026, ~11:00Z)
+
+**Audit:**
+- The homepage is server-rendered React (Untitled UI, Tailwind 4) with editorial classes (`personal-*`, Cormorant display face) on Untitled UI's purple tokens.
+- Content comes from Payload snapshots (Homepage, Site settings, Navigation, Pages, Posts).
+- Public rendering never starts Payload. That stays.
+
+**Design:**
+- **Palette:** warm off-white (`#FAF9F6`), stone neutrals, charcoal type, a muted sage accent, and a warm charcoal dark mode. Implemented by redefining Untitled UI's base scales under `<html class="site-v2">` (`src/styles/globals.css`), so every semantic token and component follows, and nothing changes on pages without the class. The wedding site never gets it.
+- **Type:** Inter only (no new font files), tight tracking for headings (`.v2-display`).
+- **Effects:** restrained. Cards lift their image 1.5% on hover, and nothing moves with `prefers-reduced-motion`.
+- **Covers:** projects without a cover show a textured sage panel with their initials (no stock imagery).
+- **Header:** an "AD." wordmark with a sage full stop. In this design the menu always offers Projects and drops a "Home" item (the wordmark is home); everything else comes from Navigation.
+- **Homepage:** a compact hero, then the selected projects (one large, then up to three in a grid, with a path to all of them), a quiet list of recent writing, a short About, and a footer with menu, email, RSS, socials and copyright.
+- **Pages:** `/projects` (featured first, then display order) and `/projects/<slug>` (status, title, summary, links, large cover, write-up, "Built with", screenshots with captions, related projects).
+
+**Content model (Payload):**
+- **Projects** collection (group Website): title, address, summary, cover, rich-text description, screenshots (images plus captions), status (Active, Completed, Experimental, Archived), technologies, featured, display order, website, GitHub, more links, SEO title and description, "Show on the public site", drafts, versions and Trash. Owners and admins write; owners delete permanently.
+- Publishing writes `project:<slug>` and the sorted `site:projects` index (`worker/site/publisher.ts`). Renames redirect. Unpublishing, unlisting or Trash remove it.
+- Images go through the existing Media library and its public copy.
+- **Homepage → "Projects homepage"** group: hero title, introduction and button text, projects heading and introduction, writing on/off with heading and count, About on/off with heading and text, "All projects" links on/off. Published to `site:projects-home`.
+
+**Switch and preview:**
+- Administration → Features → Website → **Projects-first homepage** (`website.projects_home`, default **off**).
+- **Off:** today's homepage and design, `/projects` answers 404 and isn't in the sitemap.
+- **On:** `/`, `/projects` and `/projects/<slug>` use the new design, and every public page gets the new palette.
+- Owners and admins can always preview at **`daly.id.au/portal/preview`** (`/projects`, `/projects/<slug>`): behind Access, `no-store`, `noindex`, canonical to the public address.
+
+**Privacy:**
+- No projects were created in production. The repository's other apps (wedding, the former portal, Cloudflare OS, the AI chief of staff's private infrastructure) are private or family-related, so none were seeded.
+- "daly.id.au" (this site) is a suitable first project; its facts are public in the repository and on the site.
+- The screenshots used for review use sample content in a local database only.
+
+**Go-live steps (after the owner's approval):**
+1. In `/admin` → Website → Projects, add projects (cover, summary, status, technologies, featured, order) and publish them. Check each at `/portal/preview/projects/<slug>`.
+2. Homepage → Projects homepage: adjust the words, then Publish changes. Check `/portal/preview`.
+3. Navigation: add Writing (/blog) and remove Home (the wordmark is home); Projects is added automatically. Rename Blog to Writing if wanted.
+4. Administration → Features → Website → switch on **Projects-first homepage**. It's live on the next request; no deploy.
+5. Rollback of the design: switch it off (instant). Rollback of the code: `wrangler rollback` to the previous version. Projects stay in Payload either way.
