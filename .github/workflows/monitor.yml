@@ -1,0 +1,32 @@
+name: Monitor
+
+# Hourly, from outside: the public site and blog answer, the wedding site answers, and no admin path
+# answers without an identity (each must redirect to Cloudflare Access or refuse). Public requests
+# only: no credentials, no data. A failure shows as a failed run (GitHub emails the repository owner).
+
+on:
+    schedule:
+        - cron: "17 * * * *"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - name: Public site, feeds and wedding site answer
+              run: |
+                  fail=0
+                  for u in https://daly.id.au/ https://daly.id.au/blog https://daly.id.au/feed.xml https://daly.id.au/rss.xml https://daly.id.au/sitemap.xml https://daly.id.au/robots.txt https://wedding.daly.id.au/; do
+                    code=$(curl -s -o /dev/null -w "%{http_code}" "$u"); echo "$u $code"; [ "$code" = 200 ] || fail=1
+                  done
+                  exit $fail
+            - name: Admin and private paths never answer without an identity
+              run: node scripts/public-baseline.mjs capture /tmp/monitor
