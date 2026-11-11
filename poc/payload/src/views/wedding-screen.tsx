@@ -5,6 +5,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { UNSAFE_PortalProvider } from 'react-aria'
+// React Aria tracks presses with listeners on the document. Across a shadow root the browser retargets those
+// events to the host element, so without this every press looked like "released outside the button" and was
+// cancelled: no button in a wedding screen responded to a mouse (text fields did). This makes React Aria
+// follow events into shadow roots (composedPath). Payload's own UI doesn't use React Aria.
+import { enableShadowDOM } from 'react-stately/private/flags/flags'
+enableShadowDOM()
 
 import type { PortalPageData } from '@/shared/portal/types'
 import { ToastProvider } from '@/portal/components/toast'

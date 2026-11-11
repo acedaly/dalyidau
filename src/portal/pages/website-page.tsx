@@ -225,7 +225,9 @@ export const WebsitePage = ({ data }: { data: PageData<"website"> }) => {
     const act = async () => {
         try {
             if (confirm === "publish") {
-                if (unsaved) await saveDraft.submit();
+                // Publishing copies the saved draft: if saving the edits failed (its own toast says why), stop
+                // here rather than republishing the previous draft and reporting success.
+                if (unsaved && (await saveDraft.submit()) === undefined) return;
                 const result = await api<{ published: WebsiteContent }>("POST", "/api/portal/wedding/website/publish", {});
                 setPublished(result.published);
                 toast.success("Changes published", siteOn ? "They're live on /wedding." : "They'll show when the website is made visible.");

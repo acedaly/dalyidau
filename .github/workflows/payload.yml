@@ -76,6 +76,7 @@ jobs:
                   for i in $(seq 1 90); do grep -q "Ready on" dev.log && break; sleep 2; done
                   node scripts/seed-invented.mjs
                   node e2e-platform/custom-view.mjs
+                  node e2e-platform/wedding-publish.mjs
             - uses: actions/upload-artifact@v4
               if: failure()
               with:
