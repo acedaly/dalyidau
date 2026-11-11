@@ -44,6 +44,8 @@ async function call(method, p, email, body) {
     } catch {}
     return { status: response.status, text, json, location: response.headers.get("location") };
 }
+/** The article itself, without the lists of other posts around it. */
+const body = (html) => /data-article-body[^>]*>([\s\S]*?)<\/div><footer/.exec(html)?.[1] ?? null;
 const page = async (p) => {
     const r = await call("GET", p, null);
     return { ...r, text: r.text.replace(/nonce-[^'"]+|nonce="[^"]+"/g, "") };
@@ -126,7 +128,8 @@ expect("a draft save changes nothing public", live.status === 200 && !live.text.
 
 const clash = await call("PATCH", `/api/posts/${id}?draft=false`, people.admin, { slug: LEGACY_SLUG, _status: "published" });
 expect("a slug another post uses is refused", clash.status === 400, `${clash.status} ${clash.text}`);
-expect("…and the imported post is untouched", (await page(`/blog/${LEGACY_SLUG}`)).text === before.page.text);
+const untouched = await page(`/blog/${LEGACY_SLUG}`);
+expect("…and the imported post is untouched", untouched.status === 200 && body(untouched.text) === body(before.page.text) && body(untouched.text) !== null);
 
 const renamed = `${draftBody.slug}-renamed`;
 const moved = await call("PATCH", `/api/posts/${id}?draft=false`, people.admin, { slug: renamed, title: "Invented new post", _status: "published" });
@@ -138,22 +141,27 @@ const unpublished = await call("PATCH", `/api/posts/${id}?draft=false`, people.a
 expect("unpublishing", unpublished.status === 200, unpublished.text);
 expect("unpublished: gone from the site", (await page(`/blog/${renamed}`)).status === 404);
 
-const adminTrash = await call("DELETE", `/api/posts/${id}?trash=true`, people.admin);
-expect("admins can't delete or trash posts", adminTrash.status === 403, `${adminTrash.status} ${adminTrash.text}`);
-const ownerTrash = await call("DELETE", `/api/posts/${id}?trash=true`, OWNER);
-expect("the owner moves it to Trash", ownerTrash.status === 200, `${ownerTrash.status} ${ownerTrash.text}`);
+const adminDelete = await call("DELETE", `/api/posts/${id}`, people.admin);
+expect("admins can't delete posts permanently", adminDelete.status === 403, `${adminDelete.status} ${adminDelete.text}`);
+await call("PATCH", `/api/posts/${id}?draft=false`, people.admin, { _status: "published" });
+expect("republished", (await page(`/blog/${renamed}`)).status === 200);
+const adminTrash = await call("PATCH", `/api/posts/${id}?draft=false`, people.admin, { deletedAt: new Date().toISOString() });
+expect("admins can't move posts to Trash (Payload treats it as deleting)", adminTrash.status === 403, `${adminTrash.status}`);
+const trashed = await call("PATCH", `/api/posts/${id}?draft=false`, OWNER, { deletedAt: new Date().toISOString() });
+expect("the owner moves it to Trash", trashed.status === 200, `${trashed.status} ${trashed.text}`);
+expect("in Trash: not on the site", (await page(`/blog/${renamed}`)).status === 404);
 const inTrash = await call("GET", `/api/posts/${id}?trash=true&depth=0`, OWNER);
-expect("…where it's kept, restorable", inTrash.status === 200 && !!inTrash.json?.deletedAt, inTrash.text);
-await call("PATCH", `/api/posts/${id}?trash=true&draft=false`, OWNER, { deletedAt: null, _status: "published" });
-expect("restored and republished, it's back on the site", (await page(`/blog/${renamed}`)).status === 200);
-await call("DELETE", `/api/posts/${id}?trash=true`, OWNER);
-expect("trashed: gone from the site", (await page(`/blog/${renamed}`)).status === 404);
+expect("…but kept, restorable", inTrash.status === 200 && !!inTrash.json?.deletedAt, inTrash.text);
+const restored = await call("PATCH", `/api/posts/${id}?trash=true&draft=false`, OWNER, { deletedAt: null, _status: "published" });
+expect("restored and republished, it's back on the site", restored.status === 200 && (await page(`/blog/${renamed}`)).status === 200, restored.text);
+const ownerDelete = await call("DELETE", `/api/posts/${id}`, OWNER);
+expect("the owner deletes it permanently, and it leaves the site", ownerDelete.status === 200 && (await page(`/blog/${renamed}`)).status === 404, ownerDelete.status);
 
 // 5. Editing the imported post's content replaces its stored HTML; the address stays.
 const edit = await call("PATCH", `/api/posts/${imported?.id}?draft=false`, OWNER, { content: lexical("Rewritten in Payload."), _status: "published" });
 expect("the imported post can be rewritten in Payload", edit.status === 200, edit.text);
 live = await page(`/blog/${LEGACY_SLUG}`);
-expect("…and its page shows the new content at the same address", live.status === 200 && live.text.includes("Rewritten in Payload.") && !live.text.includes("Written before Payload"));
+expect("…and its page shows the new content at the same address", live.status === 200 && body(live.text)?.includes("Rewritten in Payload.") && !body(live.text)?.includes("Written before Payload"));
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

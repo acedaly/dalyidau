@@ -8,7 +8,7 @@ Payload is where blog posts are written, edited and kept (`/admin/collections/po
 - **Save draft**: nothing public changes. The hook re-reads the main document, which a draft save doesn't touch.
 - **Unpublish**: the post leaves the site and its old addresses stop redirecting. It stays in Payload.
 - **Change the slug**: the old address redirects (301) to the new one.
-- **Delete** (owners only): the post moves to Payload's Trash, where it can be restored; it leaves the site as on unpublish. Only emptying Trash removes it.
+- **Move to Trash** (owners only): the post leaves the site, as on unpublish, and can be restored from Trash. **Delete permanently** is for owners only.
 - **Fails closed**: a missing title or content, an invalid slug, a slug another post uses, an unreadable featured image, or a row owned by another publisher refuses the save with a message. Nothing is half-written.
 
 The rich text (Lexical) is rendered node by node, and **every string is escaped**: headings (with ids and the table of contents), paragraphs, bold/italic/underline/strike/code/sub/sup, links (http(s), mailto and site paths only; `javascript:`, `data:` and protocol-relative links are dropped, external links open in a new tab with `noopener`), lists and checklists, quotes, code blocks, horizontal rules and images. An unknown node contributes only its escaped text. The markup uses the classes in `src/styles/article.css` (`worker/lib/article-html.ts`).
@@ -27,7 +27,7 @@ Data migration `poc/payload/src/migrations/20261111_070000_blog_import.ts` (`src
 
 ## Access
 
-Only Cloudflare Access identities reach Payload (`docs/PAYLOAD-CUTOVER-PLAN.md`). Owners and admins can read, create and edit posts; only owners can delete them; editors, viewers and anyone without an identity are refused. Payload media can be uploaded by owners and admins only.
+Only Cloudflare Access identities reach Payload (`docs/PAYLOAD-CUTOVER-PLAN.md`). Owners and admins can read, create, edit, publish and unpublish posts; only owners can move them to Trash or delete them permanently; editors, viewers and anyone without an identity are refused. Payload media can be uploaded by owners and admins only.
 
 ## Tests
 

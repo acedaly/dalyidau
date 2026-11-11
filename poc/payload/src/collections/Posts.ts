@@ -174,7 +174,7 @@ export const Posts: CollectionConfig = {
     preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/blog/${doc.slug}` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
-  // Deleting moves a post to Trash (restorable); only emptying Trash removes it, and only owners can.
+  // Trash: moving a post there (an update) takes it off the site and keeps it restorable. Deleting permanently is owners only.
   trash: true,
   access: {
     // Only owners and admins, even for reading: the public reads the site, never this API.
