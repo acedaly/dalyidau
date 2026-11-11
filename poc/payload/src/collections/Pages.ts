@@ -1,21 +1,92 @@
 import type { CollectionConfig } from 'payload'
+import { APIError } from 'payload'
 
+import { pageProblem } from '../../../../worker/site/publisher'
+import { slugify } from '../../../../worker/lib/html'
+import { publisherEnv, syncPage } from '../site/publishing'
 import { contentEditor } from './Users'
 
-/** Website pages managed in Payload (Phase 0: just enough to measure the bundle and prove access rules). */
+// Pages on daly.id.au/<address> (the About page is one). Publishing puts a page on the site straight
+// away, Unpublish or Trash take it down, and a renamed page's old address redirects to the new one.
 export const Pages: CollectionConfig = {
   slug: 'pages',
-  admin: { useAsTitle: 'title' },
-  versions: { drafts: true },
+  labels: { singular: 'Page', plural: 'Pages' },
+  admin: {
+    useAsTitle: 'title',
+    group: 'Website',
+    defaultColumns: ['title', 'slug', '_status', 'updatedAt'],
+    description: 'Pages at daly.id.au/<address>. Publishing puts a page on the site straight away; add it to Navigation to show it in the menu.',
+    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/${doc.slug}` : null),
+  },
+  versions: { drafts: true, maxPerDoc: 50 },
+  trash: true,
   access: {
-    read: ({ req }) => (contentEditor(req.user as never) ? true : { _status: { equals: 'published' } }),
+    // Only owners and admins, even for reading: the public reads the site, never this API.
+    read: ({ req }) => contentEditor(req.user as never),
     create: ({ req }) => contentEditor(req.user as never),
     update: ({ req }) => contentEditor(req.user as never),
-    delete: ({ req }) => contentEditor(req.user as never),
+    delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
+    readVersions: ({ req }) => contentEditor(req.user as never),
+  },
+  hooks: {
+    beforeChange: [
+      async ({ data, originalDoc, req }) => {
+        const slug = slugify(String(data.slug ?? originalDoc?.slug ?? data.title ?? ''))
+        if (slug) data.slug = slug
+        // Another page (published or not, Trash included) already has this address: say so, rather than
+        // letting the database's unique index fail with a 500.
+        if (slug) {
+          const others = await req.payload.find({
+            collection: 'pages',
+            where: { slug: { equals: slug }, ...(originalDoc?.id !== undefined ? { id: { not_equals: originalDoc.id } } : {}) },
+            trash: true,
+            limit: 1,
+            depth: 0,
+            overrideAccess: true,
+            req,
+          })
+          if (others.totalDocs) throw new APIError(`daly.id.au/${slug} is already used by another page.`, 400, undefined, true)
+        }
+        if (data._status !== 'published') return data
+        const problem = pageProblem({ slug, title: String(data.title ?? originalDoc?.title ?? '') })
+        if (problem) throw new APIError(problem, 400, undefined, true)
+        const env = await publisherEnv()
+        const owner = await env.DB.prepare('SELECT value FROM meta WHERE key = ?').bind(`page:${slug}`).first<{ value: string }>()
+        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined
+        if (ownerId !== undefined && String(ownerId) !== String(originalDoc?.id))
+          throw new APIError(`daly.id.au/${slug} is already used by another page.`, 400, undefined, true)
+        return data
+      },
+    ],
+    afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await syncPage(req, doc.id), doc))],
+    afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncPage(req, doc.id))],
   },
   fields: [
     { name: 'title', type: 'text', required: true },
-    { name: 'slug', type: 'text', required: true, unique: true, index: true },
+    {
+      name: 'slug',
+      label: 'Address',
+      type: 'text',
+      required: true,
+      unique: true,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description: 'daly.id.au/<address>: lower-case letters, numbers and hyphens. Changing it keeps the old address redirecting. Addresses the site uses itself (blog, wedding, contact, admin…) are refused.',
+      },
+    },
+    { name: 'lede', label: 'Introduction', type: 'textarea', admin: { description: 'Shown under the title, and in search results unless a description is set below.' } },
+    { name: 'heroImage', label: 'Featured image', type: 'upload', relationTo: 'media', admin: { description: 'Optional, shown above the text (JPEG, PNG, GIF, WebP or AVIF, up to 15 MB).' } },
     { name: 'content', type: 'richText' },
+    { name: 'showButtons', label: 'End with "Read the blog" and "Say hello" buttons', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
+    {
+      name: 'seo',
+      label: 'Search and link previews',
+      type: 'group',
+      fields: [
+        { name: 'title', type: 'text', admin: { description: 'Leave empty to use "<title> — <site name>".' } },
+        { name: 'description', type: 'textarea', admin: { description: 'Leave empty to use the introduction.' } },
+      ],
+    },
   ],
 }

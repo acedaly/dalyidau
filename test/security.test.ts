@@ -218,12 +218,15 @@ describe("signed invitation links", () => {
             expect(response.headers.get("X-Robots-Tag"), path).toContain("noindex");
             expect(await response.text(), path).toContain('<meta name="referrer" content="no-referrer">');
         }
-        // Old links on the main site redirect without being cached or passed on.
-        const legacy = await call(`/wedding/rsvp?invite=${f.a.token}`);
-        expect(legacy.status).toBe(301);
-        expect(legacy.headers.get("Location")).toBe(`https://${WEDDING_HOST}/rsvp?invite=${f.a.token}`);
-        expect(legacy.headers.get("Cache-Control")).toBe("no-store");
-        expect(legacy.headers.get("Referrer-Policy")).toBe("no-referrer");
+        // The same pages at daly.id.au/wedding (by path) follow the same rules.
+        for (const path of [`/wedding/rsvp?invite=${f.a.token}`, `/wedding/invitation?invite=${f.a.token}`]) {
+            const response = await call(path);
+            expect(response.status, path).toBe(200);
+            expect(response.headers.get("Cache-Control"), path).toBe("no-store");
+            expect(response.headers.get("Referrer-Policy"), path).toBe("no-referrer");
+            expect(response.headers.get("X-Robots-Tag"), path).toContain("noindex");
+            expect(await response.text(), path).toContain('<meta name="referrer" content="no-referrer">');
+        }
         const pdf = await call(`/invitation.pdf?invite=${f.a.token}`, { host: WEDDING_HOST });
         expect(pdf.headers.get("Cache-Control")).toBe("no-store");
         expect(pdf.headers.get("Referrer-Policy")).toBe("no-referrer");

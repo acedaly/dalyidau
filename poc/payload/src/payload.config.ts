@@ -12,6 +12,9 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
+import { Homepage } from './globals/Homepage'
+import { Navigation } from './globals/Navigation'
+import { SiteSettings } from './globals/SiteSettings'
 import { migrations } from './migrations'
 
 const filename = fileURLToPath(import.meta.url)
@@ -79,6 +82,8 @@ export default buildConfig({
     },
   },
   collections: [Users, Media, Pages, Posts],
+  // The website (docs/PAYLOAD-FRONTEND-PLAN.md): published straight to the public site by their hooks.
+  globals: [Homepage, Navigation, SiteSettings],
   // Not used; switched off so there is one less API surface to secure.
   graphQL: { disable: true },
   jobs: {

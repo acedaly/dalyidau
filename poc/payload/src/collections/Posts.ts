@@ -169,6 +169,7 @@ export const Posts: CollectionConfig = {
   labels: { singular: 'Blog post', plural: 'Blog posts' },
   admin: {
     useAsTitle: 'title',
+    group: 'Website',
     defaultColumns: ['title', 'slug', '_status', 'publishedAt'],
     description: 'Posts on daly.id.au/blog. Publishing puts a post on the site straight away; Unpublish takes it down.',
     preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/blog/${doc.slug}` : null),

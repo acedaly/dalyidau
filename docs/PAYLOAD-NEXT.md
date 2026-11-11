@@ -1,6 +1,19 @@
 # Payload migration: how to resume
 
-Read this first if you are a Claude Code session picking up this work. Then read the last entries of `docs/PAYLOAD-AUTONOMOUS-LOG.md`.
+Read this first if you are a Claude Code session picking up this work.
+
+## Phase 2: the website in Payload (directive 11 Nov 2026, current)
+
+- Plan and audit: `docs/PAYLOAD-FRONTEND-PLAN.md`. Journal: `docs/PAYLOAD-FRONTEND-LOG.md` (read its last entries).
+- Branch `feature/payload-website` (from `origin/main` `417d9f7`). Window: six hours from ~08:20Z.
+- Authority: standing approval for reversible, verified deploys. Not approved: destructive migrations (0032/0033 stay in `docs/pending`), irreversible data changes, weaker security, paid services, redirecting `wedding.daly.id.au`.
+- Design: Payload publishes snapshots into D1 `meta`; the public renderer reads them (`worker/site/`). Public pages never start Payload.
+- Verify around every production change: `node scripts/public-baseline.mjs compare`, `node scripts/wedding-fingerprint.mjs compare`, `node scripts/visual-baseline.mjs capture output/visual/<name>` then `compare output/visual/prod-before output/visual/<name>`.
+- Local real-Payload checks (CI order): fresh `--persist-to` state, `wrangler d1 migrations apply DB --local`, `blog.mjs --seed`, `wrangler dev --local --port 8790 --env-file .dev.vars.authz`, then `site.mjs`, `blog.mjs`, `authz.mjs`.
+
+## Earlier phases
+
+The rest of this file is Phase 0/1 and the cutover; its journal is `docs/PAYLOAD-AUTONOMOUS-LOG.md`.
 
 ## Window and authority
 

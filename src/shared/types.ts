@@ -1,4 +1,5 @@
 // Data shapes shared by the worker (server render) and the browser (hydration).
+import type { HomeContent, PublicPage, SiteSettings } from "./site-content";
 
 export interface TocEntry {
     id: string;
@@ -42,7 +43,7 @@ export interface BlogFilters {
 }
 
 export type PageRoute =
-    | { route: "home"; latest: PostSummary[] }
+    | { route: "home"; latest: PostSummary[]; home: HomeContent }
     | {
           route: "blog";
           featured: PostSummary | null;
@@ -53,13 +54,15 @@ export type PageRoute =
           totalPosts: number;
       }
     | { route: "post"; post: Post; related: PostSummary[]; url: string }
-    | { route: "about" }
+    | { route: "page"; page: PublicPage }
     | { route: "contact" }
     | { route: "not-found"; path: string };
 
 export interface PublicSiteContext {
     /** The Wedding navigation item is public only while the wedding website is published. */
     weddingPublished: boolean;
+    /** Site settings and navigation, as published from Payload (defaults when nothing is). */
+    site: SiteSettings;
 }
 
 export type PageData = PageRoute & { context: PublicSiteContext };

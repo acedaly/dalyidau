@@ -93,8 +93,16 @@ export interface Config {
     defaultIDType: number;
   };
   fallbackLocale: null;
-  globals: {};
-  globalsSelect: {};
+  globals: {
+    homepage: Homepage;
+    navigation: Navigation;
+    'site-settings': SiteSetting;
+  };
+  globalsSelect: {
+    homepage: HomepageSelect<false> | HomepageSelect<true>;
+    navigation: NavigationSelect<false> | NavigationSelect<true>;
+    'site-settings': SiteSettingsSelect<false> | SiteSettingsSelect<true>;
+  };
   locale: null;
   widgets: {
     collections: CollectionsWidget;
@@ -145,6 +153,8 @@ export interface User {
   collection: 'users';
 }
 /**
+ * Images for pages, blog posts and site settings. Only what a published page uses is copied to the public site.
+ *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
  */
@@ -163,13 +173,26 @@ export interface Media {
   height?: number | null;
 }
 /**
+ * Pages at daly.id.au/<address>. Publishing puts a page on the site straight away; add it to Navigation to show it in the menu.
+ *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "pages".
  */
 export interface Page {
   id: number;
   title: string;
+  /**
+   * daly.id.au/<address>: lower-case letters, numbers and hyphens. Changing it keeps the old address redirecting. Addresses the site uses itself (blog, wedding, contact, admin…) are refused.
+   */
   slug: string;
+  /**
+   * Shown under the title, and in search results unless a description is set below.
+   */
+  lede?: string | null;
+  /**
+   * Optional, shown above the text (JPEG, PNG, GIF, WebP or AVIF, up to 15 MB).
+   */
+  heroImage?: (number | null) | Media;
   content?: {
     root: {
       type: string;
@@ -185,8 +208,20 @@ export interface Page {
     };
     [k: string]: unknown;
   } | null;
+  showButtons?: boolean | null;
+  seo?: {
+    /**
+     * Leave empty to use "<title> — <site name>".
+     */
+    title?: string | null;
+    /**
+     * Leave empty to use the introduction.
+     */
+    description?: string | null;
+  };
   updatedAt: string;
   createdAt: string;
+  deletedAt?: string | null;
   _status?: ('draft' | 'published') | null;
 }
 /**
@@ -280,6 +315,7 @@ export interface Post {
   };
   updatedAt: string;
   createdAt: string;
+  deletedAt?: string | null;
   _status?: ('draft' | 'published') | null;
 }
 /**
@@ -490,9 +526,19 @@ export interface MediaSelect<T extends boolean = true> {
 export interface PagesSelect<T extends boolean = true> {
   title?: T;
   slug?: T;
+  lede?: T;
+  heroImage?: T;
   content?: T;
+  showButtons?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
+  deletedAt?: T;
   _status?: T;
 }
 /**
@@ -534,6 +580,7 @@ export interface PostsSelect<T extends boolean = true> {
       };
   updatedAt?: T;
   createdAt?: T;
+  deletedAt?: T;
   _status?: T;
 }
 /**
@@ -606,6 +653,199 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * The words on daly.id.au. The latest posts are added automatically from the blog. Publish changes to update the site.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "homepage".
+ */
+export interface Homepage {
+  id: number;
+  eyebrow: string;
+  heading: string;
+  headingEmphasis?: string | null;
+  intro: string;
+  ctaLabel: string;
+  ctaHref: string;
+  latestEyebrow: string;
+  latestHeading: string;
+  latestCount: number;
+  aboutHeading: string;
+  aboutParagraphs?:
+    | {
+        text: string;
+        id?: string | null;
+      }[]
+    | null;
+  showContactLine?: boolean | null;
+  /**
+   * Leave empty to use the homepage title from Site settings.
+   */
+  seoTitle?: string | null;
+  /**
+   * Leave empty to use the site description.
+   */
+  seoDescription?: string | null;
+  _status?: ('draft' | 'published') | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * The menu in the header and footer, in this order (drag to reorder). A link to a page appears only while that page is published. The Wedding link is added automatically while the wedding website is public.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "navigation".
+ */
+export interface Navigation {
+  id: number;
+  items?:
+    | {
+        label: string;
+        type: 'page' | 'url';
+        page?: (number | null) | Page;
+        /**
+         * A path on this site (/, /blog, /contact) or a full https:// address.
+         */
+        url?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * Names, descriptions, contact details and social links used across daly.id.au. Saving updates the site straight away.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-settings".
+ */
+export interface SiteSetting {
+  id: number;
+  name: string;
+  shortName: string;
+  /**
+   * The browser tab and search result title of the homepage.
+   */
+  title: string;
+  /**
+   * Used by search engines and link previews when a page has no description of its own.
+   */
+  description: string;
+  blogTitle: string;
+  blogDescription: string;
+  /**
+   * Shown in the menu, on the homepage and the contact page. Leave empty to hide it everywhere.
+   */
+  email?: string | null;
+  /**
+   * Shown as icons in the footer and as cards on the contact page.
+   */
+  socials?:
+    | {
+        kind: 'linkedin' | 'github' | 'x' | 'instagram' | 'youtube';
+        label: string;
+        url: string;
+        id?: string | null;
+      }[]
+    | null;
+  contact: {
+    eyebrow: string;
+    heading: string;
+    intro: string;
+    emailDescription: string;
+  };
+  /**
+   * Used in link previews for pages without their own image. Leave empty for the built-in one. Best at 1200 × 630.
+   */
+  seoImage?: (number | null) | Media;
+  /**
+   * After "© year" in the footer. Leave empty to use the site name.
+   */
+  footerText?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "homepage_select".
+ */
+export interface HomepageSelect<T extends boolean = true> {
+  eyebrow?: T;
+  heading?: T;
+  headingEmphasis?: T;
+  intro?: T;
+  ctaLabel?: T;
+  ctaHref?: T;
+  latestEyebrow?: T;
+  latestHeading?: T;
+  latestCount?: T;
+  aboutHeading?: T;
+  aboutParagraphs?:
+    | T
+    | {
+        text?: T;
+        id?: T;
+      };
+  showContactLine?: T;
+  seoTitle?: T;
+  seoDescription?: T;
+  _status?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "navigation_select".
+ */
+export interface NavigationSelect<T extends boolean = true> {
+  items?:
+    | T
+    | {
+        label?: T;
+        type?: T;
+        page?: T;
+        url?: T;
+        id?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-settings_select".
+ */
+export interface SiteSettingsSelect<T extends boolean = true> {
+  name?: T;
+  shortName?: T;
+  title?: T;
+  description?: T;
+  blogTitle?: T;
+  blogDescription?: T;
+  email?: T;
+  socials?:
+    | T
+    | {
+        kind?: T;
+        label?: T;
+        url?: T;
+        id?: T;
+      };
+  contact?:
+    | T
+    | {
+        eyebrow?: T;
+        heading?: T;
+        intro?: T;
+        emailDescription?: T;
+      };
+  seoImage?: T;
+  footerText?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

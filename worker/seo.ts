@@ -1,5 +1,4 @@
-import { about } from "../src/content/about";
-import { site } from "../src/content/site";
+import type { SiteSettings } from "../src/shared/site-content";
 import type { PageData, PostSummary } from "../src/shared/types";
 import { escapeHtml, jsonForScript } from "./lib/html";
 
@@ -15,9 +14,10 @@ const absolute = (siteUrl: string, path: string) => new URL(path, siteUrl).toStr
 const DEFAULT_IMAGE = "/og-default.png";
 
 export const pageTitle = (data: PageData) => {
+    const site = data.context.site;
     switch (data.route) {
         case "home":
-            return site.title;
+            return data.home.seoTitle ?? site.title;
         case "blog": {
             const parts = [site.blogTitle];
             if (data.filters.category) parts.unshift(data.filters.category);
@@ -27,8 +27,8 @@ export const pageTitle = (data: PageData) => {
         }
         case "post":
             return `${data.post.title} — ${site.name}`;
-        case "about":
-            return `About — ${site.name}`;
+        case "page":
+            return data.page.seoTitle ?? `${data.page.title} — ${site.name}`;
         case "contact":
             return `Contact — ${site.name}`;
         case "not-found":
@@ -37,13 +37,16 @@ export const pageTitle = (data: PageData) => {
 };
 
 const pageDescription = (data: PageData) => {
+    const site = data.context.site;
     switch (data.route) {
         case "post":
             return data.post.summary ?? data.post.subtitle ?? site.description;
         case "blog":
             return site.blogDescription;
-        case "about":
-            return about.short;
+        case "home":
+            return data.home.seoDescription ?? site.description;
+        case "page":
+            return data.page.seoDescription ?? data.page.lede ?? site.description;
         case "contact":
             return `How to get in touch with ${site.name}.`;
         default:
@@ -66,11 +69,17 @@ export const canonicalPath = (data: PageData, path: string) => {
 };
 
 export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
+    const site = data.context.site;
     const title = pageTitle(data);
     const description = pageDescription(data);
     const canonical = absolute(siteUrl, canonicalPath(data, path));
     const isPost = data.route === "post";
-    const image = isPost && data.post.image ? absolute(siteUrl, data.post.image.src) : absolute(siteUrl, DEFAULT_IMAGE);
+    const image =
+        isPost && data.post.image
+            ? absolute(siteUrl, data.post.image.src)
+            : data.route === "page" && data.page.image
+              ? absolute(siteUrl, data.page.image.src)
+              : absolute(siteUrl, site.seoImage ?? DEFAULT_IMAGE);
     const searchNoindex = data.route === "blog" && !!data.filters.q;
 
     const tags = [
@@ -109,9 +118,10 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
     return tags.filter(Boolean).join("\n        ");
 };
 
-const person = (siteUrl: string) => ({ "@type": "Person", name: site.name, url: absolute(siteUrl, "/about") });
+const person = (site: SiteSettings, siteUrl: string) => ({ "@type": "Person", name: site.name, url: absolute(siteUrl, "/about") });
 
 const structuredData = (data: PageData, siteUrl: string, canonical: string, image: string, description: string) => {
+    const site = data.context.site;
     if (data.route === "post") {
         const post = data.post;
         return {
@@ -124,8 +134,8 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
             image: [image],
             datePublished: post.publishedAt,
             dateModified: post.updatedAt ?? post.publishedAt,
-            author: person(siteUrl),
-            publisher: person(siteUrl),
+            author: person(site, siteUrl),
+            publisher: person(site, siteUrl),
             articleSection: post.category ?? undefined,
             keywords: post.tags.length ? post.tags.join(", ") : undefined,
             inLanguage: site.language,
@@ -138,12 +148,15 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
             name: `${site.name} — ${site.blogTitle}`,
             url: canonical,
             description: site.blogDescription,
-            author: person(siteUrl),
+            author: person(site, siteUrl),
             inLanguage: site.language,
         };
     }
-    if (data.route === "about") {
-        return { "@context": "https://schema.org", "@type": "ProfilePage", url: canonical, mainEntity: { ...person(siteUrl), description: about.short } };
+    if (data.route === "page" && data.page.slug === "about") {
+        return { "@context": "https://schema.org", "@type": "ProfilePage", url: canonical, mainEntity: { ...person(site, siteUrl), description } };
+    }
+    if (data.route === "page") {
+        return { "@context": "https://schema.org", "@type": "WebPage", name: data.page.title, url: canonical, description, inLanguage: site.language, author: person(site, siteUrl) };
     }
     return {
         "@context": "https://schema.org",
@@ -152,18 +165,19 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
         url: absolute(siteUrl, "/"),
         description: site.description,
         inLanguage: site.language,
-        author: person(siteUrl),
+        author: person(site, siteUrl),
     };
 };
 
 const xml = (value: string) => escapeHtml(value);
 
-export const sitemapXml = (siteUrl: string, posts: { slug: string; lastmod: string }[]) => {
+export const sitemapXml = (siteUrl: string, posts: { slug: string; lastmod: string }[], pages: { slug: string; lastmod: string | null }[]) => {
     const latest = posts[0]?.lastmod;
-    const urls = [
+    const urls: { loc: string; lastmod?: string }[] = [
         { loc: "/", lastmod: latest },
         { loc: "/blog", lastmod: latest },
-        { loc: "/about" },
+        // No lastmod for pages: a page's own edits are rare, and the sitemap stays stable across republishing.
+        ...pages.map((p) => ({ loc: `/${p.slug}` })),
         { loc: "/contact" },
         ...posts.map((p) => ({ loc: `/blog/${p.slug}`, lastmod: p.lastmod })),
     ];
@@ -175,7 +189,7 @@ export const sitemapXml = (siteUrl: string, posts: { slug: string; lastmod: stri
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
 };
 
-export const rssXml = (siteUrl: string, posts: (PostSummary & { bodyHtml: string })[]) => {
+export const rssXml = (siteUrl: string, posts: (PostSummary & { bodyHtml: string })[], site: SiteSettings) => {
     const items = posts
         .slice(0, 30)
         .map((post) => {

@@ -4,7 +4,7 @@ import { Input } from "@/components/base/input/input";
 import { EmptyPosts } from "@/components/site/empty-posts";
 import { LinkPagination } from "@/components/site/link-pagination";
 import { FeaturedPostCard, PostCard } from "@/components/site/post-card";
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 import type { PageData } from "@/shared/types";
 import { cx } from "@/utils/cx";
 import { blogHref } from "@/utils/format";
@@ -27,6 +27,7 @@ const FilterLink = ({ href, active, children }: { href: string; active: boolean;
 export const BlogIndexPage = ({ data }: { data: BlogData }) => {
     const { filters, posts, featured, categories } = data;
     const filtered = !!(filters.q || filters.category || filters.tag);
+    const site = useSite();
 
     return (
         <div className="mx-auto max-w-container px-4 pt-12 pb-16 md:px-8 md:pt-20 md:pb-24">

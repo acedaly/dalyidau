@@ -36,7 +36,7 @@ import { NavItemBase } from "@/components/application/app-navigation/base-compon
 import { AvatarLabelGroup } from "@/components/base/avatar/avatar-label-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ThemeToggle } from "@/components/site/theme-toggle";
-import { site } from "@/content/site";
+import { DEFAULT_SITE as site } from "@/shared/site-content";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
 import { type ApplicationIcon, type NavigationIcon, applicationById, applicationForPath } from "@/shared/portal/applications";

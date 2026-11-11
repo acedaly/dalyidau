@@ -60,9 +60,9 @@ describe("wedding website", () => {
     it("is indistinguishable from a missing page until published", async () => {
         await setup();
         expect(await (await call("/")).text()).not.toContain('href="https://wedding.daly.id.au"');
-        const response = await call("/wedding");
-        expect(response.status).toBe(301);
-        expect(response.headers.get("Location")).toBe("https://wedding.daly.id.au/");
+        // daly.id.au/wedding is the same website by path: missing until published there too.
+        expect((await call("/wedding")).status).toBe(404);
+        expect((await call("/wedding/rsvp")).status).toBe(404);
         expect((await call("/", { host: "wedding.daly.id.au" })).status).toBe(404);
         expect((await call("/rsvp", { host: "wedding.daly.id.au" })).status).toBe(404);
     });
