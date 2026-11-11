@@ -33,26 +33,22 @@ Never:
 
 Deploy incrementally; verify the live site, blog and wedding after each change.
 
-## Current state (11 Nov 2026, 06:30Z)
+## Current state (11 Nov 2026, ~07:30Z)
 
-- **Branch** `feature/payload-phase1`, pushed; draft **PR #49**. Rebased on PR #48 (`origin/retire-portal`, `4ed0a0e`, with migration 0032 held back in `docs/pending/`).
-- **Production:** unchanged code (7a1a1c4). New versions only from adding Payload's two secrets. **Rollback target: `8c82618c-18bf-456b-9d09-8e3d1315a368`** (today's code plus the secrets; earlier `de231899`).
-- **Created:** D1 `dalyidau-payload` (`857fc770-…`), R2 `dalyidau-payload-media` (both empty); secrets PAYLOAD_SECRET and PAYLOAD_JOBS_SECRET on `dalyidau`.
-- **Staging** `dalyidau-payload-staging` runs `f2be3f6` (version `3750d5bf`), with no routes; isolation checks pass.
-- **Backups (11 Nov 05:40Z):** `backups/production-2026-11-11T05-40-22-671Z.sql` (restore-tested), `backups/r2-bucket-dalyidau-media-2026-11-11T05-41-06-514Z` (95 objects verified). Baseline and fingerprint are in the scratchpad; re-capture before the cutover.
+- **PR #48 merged** (`0695744`). Production version **`dd843586-a981-41b1-a3eb-a78ef10a3c2c`**, verified: public 22/22 unchanged, wedding 24/24 identical, 188 tables (nothing dropped). 0032/0033 stay in `docs/pending/`.
+- **PR #49** (draft, `feature/payload-phase1`) is rebased on main. CI and Payload workflows are green (suite, build/size, blog e2e, authz matrix, browser checks).
+- **Ready in production:** D1 `dalyidau-payload`, R2 `dalyidau-payload-media` (both empty), PAYLOAD_SECRET and PAYLOAD_JOBS_SECRET. `production-config.mjs` passes.
+- **Rollback target** for the cutover: `dd843586-a981-41b1-a3eb-a78ef10a3c2c`.
+- **Blocked, permission:** Cloudflare Access. Chrome isn't signed in to the dashboard, and Wrangler's token can't see Access applications (lists 0). The owner must either sign in to the dashboard in Chrome or provide an API token with "Access: Apps and Policies Edit" (set it as `CLOUDFLARE_ACCESS_TOKEN` in the shell; never commit it).
 
-## Next steps, in order (each blocked item needs the owner)
+## Next steps
 
-1. 🔒 **Merge PR #48.** The session classifier refused `gh pr merge` because it deploys. CI then deploys it. Verify with `node scripts/public-baseline.mjs capture`/`compare` and `node scripts/wedding-fingerprint.mjs`.
-2. Rebase #49 on main (`git rebase --onto origin/main origin/retire-portal`), then push.
-3. 🔒 **Access paths** on the portal application (needs a signed-in dashboard; Wrangler can't do it): `admin`, `api/users`, `api/media`, `api/pages`, `api/posts`, `api/payload-preferences`, `api/payload-locked-documents`, `api/payload-kv`, `api/payload-jobs`, `api/payload-migrations`, `api/globals`, `api/access`. The Worker reads only the `Cf-Access-Jwt-Assertion` header, so every Payload path must be covered.
-4. Fresh backups, baseline and fingerprint.
-5. 🔒 **Merge #49** (the cutover: CI deploys the combined Worker). Smoke checks, then baseline/fingerprint compare, then `/admin` sign-in, `/admin/wedding`, `/admin/collections/posts`. The two imported posts must stay byte-identical. Roll back on any failure.
-6. Optional: the staging hostname behind Access (plan A); Pages content in Payload; monitoring workflow.
+1. 🔒 **Access** (needs the above). On the existing portal application, keep every existing destination and policy and **add** the destinations `daly.id.au/admin`, `/api/users`, `/api/media`, `/api/pages`, `/api/posts`, `/api/payload-preferences`, `/api/payload-locked-documents`, `/api/payload-kv`, `/api/payload-jobs`, `/api/payload-migrations`, `/api/globals`, `/api/access`. Save the application JSON before and after.
+2. Fresh backups (`npm run db:backup -- --env production`, `node scripts/r2-bucket-backup.mjs dalyidau-media`), public baseline and wedding fingerprint.
+3. Mark #49 ready and merge. CI deploys the combined Worker and smoke-checks it.
+4. Verify: baseline compare (`/admin` and `/api/*` now redirect to Access, which is expected), wedding compare, `/admin` sign-in as the owner, `/admin/wedding`, `/admin/collections/posts`. The two imported posts must stay byte-identical. Then a draft, publish, slug change and unpublish on a test post; media upload.
+5. On any critical failure: `npx wrangler rollback dd843586-a981-41b1-a3eb-a78ef10a3c2c --name dalyidau -y`, then re-verify.
 
-## Results so far
-
-- Root 463/463 + 18/18; platform 489/490 (PDF-preview timeout under load, 13/13 alone); blog e2e 36/36 on fresh state; authz matrix all passed; `test:backup` passed with nothing dropped.
 ## Resume commands
 
 ```bash

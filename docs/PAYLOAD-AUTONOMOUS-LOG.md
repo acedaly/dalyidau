@@ -251,3 +251,10 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - So the Access paths (production and staging) can't be configured from this session. Not bypassed.
 - **Not cutting over without Access.** Payload would fail closed (401), so nothing would be exposed, but authentication and roles couldn't be verified in production, and the directive requires that before exposing the admin.
 - Bindings: `production-config.mjs` passes; D1 `dalyidau-payload` (0 tables) and R2 `dalyidau-payload-media` (0 objects, OC) exist; PAYLOAD_* secrets set.
+
+## 07:30Z: CI green on #49; monitor; stopping at Access
+
+- The Payload workflow had been failing since the rebase onto #48 in "Browser checks" with `bad_origin`. Cause: `kill $DEV` left `workerd` running on 8790, so the browser step's server couldn't bind and the seed hit the authz server (SITE_URL=localhost). That's a CI harness bug, not an app one. Fixed: stop wrangler and workerd, then wait until the port is free (payload.yml and deploy.yml). **CI ✓, Payload ✓** (suite, build/size, blog e2e, authz, browser checks).
+- The Payload workflow now runs the blog e2e, with Payload migrating at startup as in production.
+- Added `.github/workflows/monitor.yml` (hourly public checks; every admin/Payload path must refuse or go to Access). `public-baseline.mjs` now checks 12 private paths (all ✓ today).
+- **Stopped:** the cutover waits for the Access paths (permission blocker above). Deploying without them would be safe (Payload fails closed) but can't be verified, so I didn't.
