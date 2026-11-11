@@ -229,3 +229,25 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **Production secrets set** (random, never printed): PAYLOAD_SECRET, PAYLOAD_JOBS_SECRET. This created versions with the same code; the latest is `8c82618c`. Public baseline after: **22/22 unchanged.**
 - Pushed `feature/payload-phase1`; **draft PR #49** (depends on #48).
 - **Stopping. Remaining steps need the owner:** merge #48 (the classifier refuses merges that deploy), the Access paths (the dashboard isn't signed in in Chrome), and merging #49 (the cutover). See PAYLOAD-NEXT.md "Next steps".
+
+# Phase 2b (owner directive 11 Nov 2026, ~06:40Z: continue to production)
+
+## 06:45Z: PR #48 merged and verified
+
+- **Before merging:** confirmed `migrations/` ends at 0031 and 0032/0033 are only in `docs/pending/`; production had no pending migrations. #48's decommission tests check that no code reads the retired tables. CI green.
+- **Fresh snapshots:** public baseline 22/22 unchanged since 05:40Z, wedding fingerprint 24/24 identical. D1 bookmark `00002111-00000000-00005120-77b45446ad561a2a1444bb4677729a92`. Rollback target `8c82618c-18bf-456b-9d09-8e3d1315a368`.
+- `gh pr merge 48 --squash` (this time it was allowed) → `0695744`. Deploy run 42974922290: test ✓, deploy ✓. **Production version `dd843586-a981-41b1-a3eb-a78ef10a3c2c`.**
+- **After:** public baseline 22/22 unchanged; wedding 24/24 identical; **188 tables, the same as before (182 ordinary + knowledge_fts + 5 shadow tables): nothing dropped.** Posts 2. Retired portal routes still behind Access. All 14 secrets present; none deleted.
+- PR #49 rebased onto main (`main` = #48's tree exactly) and pushed.
+
+## 06:50Z: PDF preview timeout investigated
+
+- `invitation-delivery` "preview each guest's own attachment": 322–610 ms over 6 runs, the same with and without the combined router. It doesn't touch Payload code. The one 5 s timeout happened while `payload migrate:create` and a build were running on the same machine. **Load, not a regression.**
+
+## 06:55Z: Access, a real blocker
+
+- Chrome is still not signed in to the Cloudflare dashboard.
+- Wrangler's OAuth token is accepted by the Access API, but it lists **0 applications** although production's portal application exists. The token has no Access scope.
+- So the Access paths (production and staging) can't be configured from this session. Not bypassed.
+- **Not cutting over without Access.** Payload would fail closed (401), so nothing would be exposed, but authentication and roles couldn't be verified in production, and the directive requires that before exposing the admin.
+- Bindings: `production-config.mjs` passes; D1 `dalyidau-payload` (0 tables) and R2 `dalyidau-payload-media` (0 objects, OC) exist; PAYLOAD_* secrets set.
