@@ -77,9 +77,9 @@ export default buildConfig({
     components: {
       // Phase 0, experiment 2: the existing wedding screens as native admin views.
       views: {
-        wedding: { Component: '/views/wedding-view#WeddingView', path: '/wedding/:segments*' },
+        wedding: { Component: '/views/wedding-view#WeddingView', path: '/wedding/:segments*', meta: { title: 'Wedding' } },
         // The former portal settings and audit log (Phase 3: Payload is the only admin).
-        administration: { Component: '/views/administration-view#AdministrationView', path: '/administration/:segments*' },
+        administration: { Component: '/views/administration-view#AdministrationView', path: '/administration/:segments*', meta: { title: 'Administration' } },
       },
       afterNavLinks: ['/views/wedding-nav#WeddingNav'],
     },
