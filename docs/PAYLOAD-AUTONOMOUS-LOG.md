@@ -220,3 +220,12 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - Created (additive, empty): D1 **`dalyidau-payload`** (`857fc770-666f-473b-8078-754c3cfb3ed3`, OC) and R2 **`dalyidau-payload-media`** (OC).
 - `poc/payload/wrangler.jsonc` `env.production` (= root config + D1/R2 + flags + run_worker_first); `scripts/production-config.mjs` now fails on any other difference: passes.
 - `.github/workflows/deploy.yml` rewritten for the combined Worker: test + platform (suite, authz matrix, blog e2e) jobs, then deploy with config checks, a secrets-present gate (PAYLOAD_SECRET, PAYLOAD_JOBS_SECRET, ACCESS_*), restore point + rollback target, migrations from the root config, `OPEN_NEXT_DEPLOY=true wrangler deploy --env production`, and smoke checks.
+
+## 06:20–06:35Z: e2e, staging, secrets, PR #49; stopping at the owner's gates
+
+- **Blog e2e** (`e2e-platform/blog.mjs`, real Payload, `wrangler dev` on 8791 because 8790 was held by an older dev server started 05:33Z that I didn't stop): **36/36 on fresh state**, and again on repeat. Covers the import (public page, feed and sitemap byte-identical; no repeat), roles (editor/viewer/none refused), escaping, drafts, slug clash (400), slug redirect, unpublish, Trash (owners only; Payload treats trashing as deleting), restore, permanent delete, and rewriting an imported post. The authz matrix passed in full.
+- Found and fixed: trashing is an update setting `deletedAt` (DELETE is always permanent), so the publisher treats a trashed post as unpublished.
+- **Staging deployed** (`f2be3f6`, version `3750d5bf`); isolation checks before and after ✓.
+- **Production secrets set** (random, never printed): PAYLOAD_SECRET, PAYLOAD_JOBS_SECRET. This created versions with the same code; the latest is `8c82618c`. Public baseline after: **22/22 unchanged.**
+- Pushed `feature/payload-phase1`; **draft PR #49** (depends on #48).
+- **Stopping. Remaining steps need the owner:** merge #48 (the classifier refuses merges that deploy), the Access paths (the dashboard isn't signed in in Chrome), and merging #49 (the cutover). See PAYLOAD-NEXT.md "Next steps".
