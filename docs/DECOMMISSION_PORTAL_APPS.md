@@ -47,9 +47,11 @@ With no portal tools, gateway 4.0.0 built from this branch advertises **no tools
 
 ## Database
 
-### Migration 0032 (in this release): the earlier retirements' tables
+### Pending 0032 (held back): the earlier retirements' tables
 
-Approved by the owner. Drops **84 tables**, which no code has read or written since their applications were retired: every `task_*` (31), `finance_*` (9), `knowledge_*` but `knowledge_spaces` (15, including the `knowledge_fts` virtual table, whose FTS5 shadow tables go with it) and `asset_*` but `asset_locations` (19) table, and `dalyhub_import_items`, `dalyhub_import_runs`, `daily_reviews`, `ai_captures`, `ai_exclusions`, `ai_semantic_index`, `ai_suggestions`, `ai_transcript_parts`, `ai_transcripts` and `calendar_event_links`. Their indexes and triggers go with them; no view or other table's trigger refers to them.
+> **Held back on 11 Nov 2026.** Moved from `migrations/` to [docs/pending/0032_drop_retired_tables.sql](pending/0032_drop_retired_tables.sql) before merging, because the owner's Payload deployment instruction of 11 Nov forbids deleting existing production data. Nothing below has been applied; every table is still there and still backed up. Applying it needs the owner's fresh written approval (copy it back into `migrations/` with the next free number, after a backup).
+
+Approved by the owner on 9 Nov. Drops **84 tables**, which no code has read or written since their applications were retired: every `task_*` (31), `finance_*` (9), `knowledge_*` but `knowledge_spaces` (15, including the `knowledge_fts` virtual table, whose FTS5 shadow tables go with it) and `asset_*` but `asset_locations` (19) table, and `dalyhub_import_items`, `dalyhub_import_runs`, `daily_reviews`, `ai_captures`, `ai_exclusions`, `ai_semantic_index`, `ai_suggestions`, `ai_transcript_parts`, `ai_transcripts` and `calendar_event_links`. Their indexes and triggers go with them; no view or other table's trigger refers to them.
 
 Not dropped:
 
@@ -57,7 +59,7 @@ Not dropped:
 - `assets` and `attachments` (not in the approved list).
 - **`asset_locations` and `knowledge_spaces`**, although approved: `assets.location_id` and `attachments.space_id` still declare foreign keys to them, and D1 enforces foreign keys. With either parent gone, every insert into the child fails with "no such table" (so a backup holding those rows could no longer be restored), and `PRAGMA foreign_key_check` (the first check of `npm run db:verify`, which CI runs after migrating) refuses the whole database. `npm run test:backup` caught this. They're in the pending cleanup, after `assets` and `attachments`.
 
-`npm run test:backup` applies 0032 to a database holding rows in every table: exactly those 84 tables go, every other row stays, foreign keys stay sound, and a backup of the result restores.
+`test/decommission.test.ts` applies the pending 0032 (with 0033) to a test database: exactly those tables go, foreign keys stay sound and everything kept still works. `npm run test:backup` backs up and restores the database with every table still present.
 
 ### Pending: docs/pending/0033 (owner approval needed)
 
@@ -81,14 +83,14 @@ Development-only settings that are gone too: `AI_PROVIDER`, `CENTRE_FEED_BASE`, 
 
 ## Deployment order
 
-1. **Back up**: `npm run db:backup -- --env production` (0032 drops tables).
-2. **Merge and deploy the portal Worker** (CI applies `0032` and runs `db:verify`). Retired addresses answer 410; the gateway that's live keeps working: its Cloudflare OS tools are unaffected, and its retired portal tools are refused by the portal.
+1. **Back up**: `npm run db:backup -- --env production`.
+2. **Merge and deploy the portal Worker** (no table is dropped; CI runs `db:verify`). Retired addresses answer 410; the gateway that's live keeps working: its Cloudflare OS tools are unaffected, and its retired portal tools are refused by the portal.
 3. **Gateway, when convenient**: merge this change with `mcp-cloudflare-os-r003399`, then deploy by hand (`npm run mcp:deploy:dry-run`, then `npx wrangler deploy --config mcp/wrangler.jsonc --env production`). Reconnect or refresh Claude and ChatGPT so they drop the retired tools.
 4. **Delete the secrets** listed above.
-5. **Later, with approval**: [docs/pending/0033](pending/0033_drop_retired_portal_app_tables.sql).
+5. **Later, with fresh approval**: [docs/pending/0032](pending/0032_drop_retired_tables.sql), then [docs/pending/0033](pending/0033_drop_retired_portal_app_tables.sql).
 
 ## Rollback
 
 - **Code:** redeploy the previous Worker version. Calendar, Today, Intelligence, the Centre and Amplenote come back with their data (it's untouched until 0033), except that their crons resume and `workers_dev` is whatever that version declares. The secrets must still be set for Amplenote and the Centre's keyed sources.
-- **Migration 0032 can't be undone by redeploying.** The dropped tables (all retired, and empty or unused in production) come back only from the backup in step 1 or D1 Time Travel (`npx wrangler d1 time-travel restore DB --timestamp <before the deploy>`, which also undoes everything else written since).
+- **No data step:** 0032 was held back, so nothing was dropped. If it's ever applied, it can't be undone by redeploying: The dropped tables (all retired, and empty or unused in production) come back only from the backup in step 1 or D1 Time Travel (`npx wrangler d1 time-travel restore DB --timestamp <before the deploy>`, which also undoes everything else written since).
 - **Staging** can't be rolled back: its resources are gone.

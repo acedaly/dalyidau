@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
 import pending0033 from "../docs/pending/0033_drop_retired_portal_app_tables.sql?raw";
-import migration0032 from "../migrations/0032_drop_retired_tables.sql?raw";
+import migration0032 from "../docs/pending/0032_drop_retired_tables.sql?raw";
 import { PortalApp } from "../src/portal/portal-app";
 import { APPLICATIONS } from "../src/shared/portal/applications";
 import { FLAG_KEYS } from "../src/shared/portal/flags";
@@ -359,7 +359,7 @@ describe("the database", () => {
     const DROPPED = droppedBy(migration0032);
     const PENDING = droppedBy(pending0033);
 
-    it("migration 0032 dropped exactly the approved tables of the earlier retirements, and nothing else", async () => {
+    it("the held-back drop (docs/pending/0032) names exactly the approved tables of the earlier retirements, and nothing is dropped yet", async () => {
         expect(DROPPED).toHaveLength(84);
         // Every asset_ and knowledge_ table but the two that kept tables still name in foreign keys.
         expect(DROPPED.filter((t) => t.startsWith("asset_"))).toHaveLength(19);
@@ -381,17 +381,18 @@ describe("the database", () => {
             "dalyhub_import_runs",
         ]);
         expect(statements(migration0032).every((s) => /^(DROP TABLE IF EXISTS \w+|PRAGMA defer_foreign_keys = ON)$/.test(s))).toBe(true);
+        // Held back (no deleting production data without fresh approval): every table is still there.
+        expect(Object.keys(import.meta.glob("../migrations/*.sql")).filter((m) => /drop/i.test(m))).toEqual([]);
         const tables = await tableNames();
-        for (const table of DROPPED) expect(tables.has(table), table).toBe(false);
-        expect([...tables].filter((t) => t.startsWith("knowledge_fts"))).toEqual([]);
-        // The wedding's tasks, and what 0032 deliberately kept, are still there.
+        for (const table of DROPPED) expect(tables.has(table), table).toBe(true);
+        // The wedding's tasks, and what 0032 would deliberately keep, are still there.
         for (const table of ["tasks", "dashboard_layouts", "capacities_archive", "entity_cache", "posts", "guests", ...PENDING])
             expect(tables.has(table), table).toBe(true);
     });
 
-    it("keeps foreign keys sound: no kept table names a dropped one, so the database check and restores still work", async () => {
+    it("keeps foreign keys sound: no table 0032 would keep names one it would drop, so the database check and restores would still work", async () => {
         expect((await db().prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
-        const tables = [...(await tableNames())].filter((t) => !t.startsWith("_cf_") && !t.startsWith("sqlite_"));
+        const tables = [...(await tableNames())].filter((t) => !t.startsWith("_cf_") && !t.startsWith("sqlite_") && !DROPPED.includes(t) && !t.startsWith("knowledge_fts"));
         for (const table of tables) {
             const parents = (await db().prepare(`SELECT "table" AS parent FROM pragma_foreign_key_list(?)`).bind(table).all<{ parent: string }>()).results;
             for (const { parent } of parents) expect(DROPPED, `${table} → ${parent}`).not.toContain(parent);
@@ -411,7 +412,7 @@ describe("the database", () => {
     it("the pending cleanup (docs/pending/0033) drops only unused tables: everything kept still works afterwards", async () => {
         expect(statements(pending0033).every((s) => /^(DROP TABLE IF EXISTS \w+|PRAGMA defer_foreign_keys = ON)$/.test(s))).toBe(true);
         expect(PENDING.filter((t) => DROPPED.includes(t))).toEqual([]);
-        await db().batch(statements(pending0033).map((sql) => db().prepare(sql)));
+        await db().batch([...statements(migration0032), ...statements(pending0033)].map((sql) => db().prepare(sql)));
         const tables = await tableNames();
         for (const table of PENDING) expect(tables.has(table), table).toBe(false);
         for (const table of [

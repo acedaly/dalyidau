@@ -1,3 +1,7 @@
+-- HELD BACK (11 Nov 2026): not a migration. Kept out of migrations/ because the owner's Payload
+-- deployment instruction of 11 Nov forbids deleting existing production data. Apply only with the
+-- owner's fresh written approval (copy it back into migrations/ with the next free number).
+--
 -- Drops the tables of applications retired earlier, approved by the owner (9 Nov 2026):
 -- Daly Knowledge and Daly Tasks (docs/DECOMMISSION_KNOWLEDGE_TASKS.md) and what existed only to serve
 -- them, Home & Assets and Household Finance (docs/DECOMMISSION_ASSETS_FINANCE.md). No code reads or

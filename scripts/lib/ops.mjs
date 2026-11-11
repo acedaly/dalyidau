@@ -260,7 +260,7 @@ export const TABLES = [
     "budget_items",
     // From here on, the tables of the applications retired on 9 Nov 2026 (docs/DECOMMISSION_PORTAL_APPS.md),
     // still backed up and counted until the owner approves dropping them (docs/pending/0033), and the
-    // retired Home & Assets' `assets` and Knowledge's `attachments` (their other tables went in 0032).
+    // retired Home & Assets' `assets` and Knowledge's `attachments` (their other tables are in the held-back docs/pending/0032).
     "assets",
     // Amplenote publishing (0028) and the MCP gateway's write ledger (0018).
     "amplenote_articles",

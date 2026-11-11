@@ -2,7 +2,7 @@
 // they're removed: the files Daly Intelligence kept permanently (Knowledge attachments, `attachments`)
 // and the Intelligence Centre's situation reports (`ic_reports`). Both tables are kept until the
 // owner approves docs/pending/0033_drop_retired_portal_app_tables.sql; once a table is gone its files
-// are skipped. Home & Assets' file index (asset_files) was dropped by migration 0032; it was empty in
+// are skipped. Home & Assets' file index (asset_files) would go with docs/pending/0032 (held back); it was empty in
 // production. D1 backups (db-backup.mjs) hold the rows; this holds the files they point at.
 //
 //   node scripts/r2-backup.mjs --env production                # download and verify

@@ -8,9 +8,9 @@
 //    every table they create: Knowledge Milestone 3, Daly Tasks, Home & Assets, Household Finance, the
 //    MCP write ledger, the DalyHub import, Daly Intelligence, Daly Calendar and the Leave Planner, the
 //    Daily Planner, Today and the Intelligence Centre.
-// 3. Applies 0032 (the approved drop of the earlier retired applications' tables, docs/DECOMMISSION_PORTAL_APPS.md)
-//    to that populated database: exactly those tables go, every other row stays, and nothing is left
-//    pointing at a row that's gone.
+// 3. Nothing is dropped: the approved drop of the earlier retired applications' tables is held back
+//    (docs/pending/0032_drop_retired_tables.sql), so the backup must still carry every table, including
+//    the Knowledge search index.
 // 4. Runs the real backup script against it (`db-backup.mjs --local`), which exports, restores into
 //    a throwaway database and checks row counts, schema objects and integrity.
 // 5. Restores that backup once more and checks the wedding, blog and kept rows and their rules.
@@ -431,9 +431,6 @@ const M3_TABLES = [
     "knowledge_saved_views",
     "knowledge_templates",
 ];
-// The approved drop (migration 0032) and the tables it names.
-const DROP_MIGRATION = "0032_drop_retired_tables.sql";
-const DROPPED = [...readFileSync(join(ROOT, "migrations", DROP_MIGRATION), "utf8").matchAll(/^DROP TABLE IF EXISTS (\w+);/gm)].map((m) => m[1]);
 
 const count = (table, persistTo = state) => query(`SELECT COUNT(*) AS n FROM ${table}`, persistTo)[0].n;
 const searchHits = (term, persistTo) =>
@@ -458,7 +455,7 @@ try {
 
     // 2. 0014–0031 on top of existing data, then rows in every table they create.
     const objectsBefore = query("SELECT id, title, body_text, version, updated_at FROM knowledge_objects ORDER BY id");
-    copy(all.filter((m) => m >= "0014" && m < DROP_MIGRATION));
+    copy(all.filter((m) => m >= "0014"));
     migrate();
     const objectsAfter = query("SELECT id, title, body_text, version, updated_at FROM knowledge_objects ORDER BY id");
     report.check(
@@ -484,39 +481,15 @@ try {
     const empty = filled.filter((t) => count(t) === 0);
     report.check(empty.length === 0, `Every table up to 0031 has rows (${filled.length} checked)`, `Empty tables: ${empty.join(", ")}`);
 
-    // 3. The approved drop (0032) on that populated database.
+    // 3. Every table as production has it (nothing dropped; docs/pending/0032 is held back).
     const tablesNow = () =>
         query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").map((r) => r.name);
-    const before = new Set(tablesNow());
-    const dropped = DROPPED.filter((t) => before.has(t));
-    report.check(
-        dropped.length === DROPPED.length,
-        `All ${DROPPED.length} tables 0032 drops exist beforehand`,
-        `Missing before 0032: ${DROPPED.filter((t) => !before.has(t)).join(", ")}`,
-    );
-    const kept = [...before].filter((t) => !DROPPED.includes(t) && !/^knowledge_fts_/.test(t) && t !== "d1_migrations");
+    const kept = tablesNow().filter((t) => !/^knowledge_fts/.test(t) && t !== "d1_migrations");
     const keptCounts = Object.fromEntries(kept.map((t) => [t, count(t)]));
-    copy([DROP_MIGRATION]);
-    migrate();
-    const after = new Set(tablesNow());
-    const left = DROPPED.filter((t) => after.has(t)).concat([...after].filter((t) => /^knowledge_fts/.test(t)));
-    report.check(
-        left.length === 0,
-        `0032 dropped all ${DROPPED.length} tables, and the search index's shadow tables with them`,
-        `Still there: ${left.join(", ")}`,
-    );
-    const lost = kept.filter((t) => !after.has(t) || count(t) !== keptCounts[t]);
-    report.check(lost.length === 0, `Every other table (${kept.length}) is still there with every row`, `Changed by 0032: ${lost.join(", ")}`);
-    report.check(
-        query("SELECT location_id FROM assets WHERE id = 'ast_backuptest0001'")[0]?.location_id === "alo_backuptest0001" &&
-            query("SELECT space_id FROM attachments WHERE id = 'att_backuptest0001'")[0]?.space_id === "ksp_backuptest0001",
-        "assets and attachments keep their rows and the place and space they name (kept until docs/pending/0033)",
-        "assets or attachments lost a row or a reference",
-    );
     report.check(
         query("PRAGMA foreign_key_check").length === 0,
-        "No foreign key points at a missing row or table after 0032",
-        "Foreign key problems after 0032",
+        "No foreign key points at a missing row or table",
+        "Foreign key problems",
     );
 
     // 4. The real backup script.
@@ -570,8 +543,11 @@ try {
             "Wedding and blog rows restore intact",
             "Wedding or blog rows were lost",
         );
-        const gone = DROPPED.filter((t) => query(`SELECT name FROM sqlite_master WHERE name = '${t}'`, restored).length > 0);
-        report.check(gone.length === 0, "No dropped table comes back from the backup", `Back again: ${gone.join(", ")}`);
+        report.check(
+            searchHits("hydrant", restored).join() === "kob_backuptest0001",
+            "The retired Knowledge search index is rebuilt after restoring",
+            "The Knowledge search index doesn't work after restoring",
+        );
     }
 } catch (error) {
     report.fail(error.message);
