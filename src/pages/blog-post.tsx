@@ -5,7 +5,7 @@ import { PostCard } from "@/components/site/post-card";
 import { PostImage } from "@/components/site/post-image";
 import { ShareLinks } from "@/components/site/share-links";
 import { TableOfContents } from "@/components/site/table-of-contents";
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 import type { PageData } from "@/shared/types";
 import { blogHref, formatDate, sameDay } from "@/utils/format";
 
@@ -13,6 +13,7 @@ type PostData = Extract<PageData, { route: "post" }>;
 
 export const BlogPostPage = ({ data }: { data: PostData }) => {
     const { post, related } = data;
+    const site = useSite();
     const showToc = post.toc.length >= 3;
     const shareUrl = `${site.url}${data.url}`;
     const showUpdated = post.updatedAt && !sameDay(post.updatedAt, post.publishedAt);

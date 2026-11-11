@@ -3,7 +3,7 @@ import { Button as AriaButton, Dialog as AriaDialog, DialogTrigger as AriaDialog
 import { Button } from "@/components/base/buttons/button";
 import { SiteLogo } from "@/components/site/site-logo";
 import { ThemeToggle } from "@/components/site/theme-toggle";
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 import { cx } from "@/utils/cx";
 
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
@@ -11,6 +11,7 @@ const isActive = (href: string, path: string) => (href === "/" ? path === "/" : 
 // Adapted from the Untitled UI marketing header navigation.
 export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPublished: boolean }) => {
     const headerRef = useRef<HTMLElement>(null);
+    const site = useSite();
     const navigation = weddingPublished ? [...site.nav, { label: "Wedding", href: "https://wedding.daly.id.au" }] : site.nav;
 
     return (

@@ -8,15 +8,23 @@ import { cx } from "@/utils/cx";
 
 // Untitled UI PRO "blog-section-simple-left-aligned-01", fed with the latest published posts.
 // A lone post gets the wide featured layout so the section never looks half-empty.
-export const BlogSectionSimpleLeftAligned01 = ({ posts }: { posts: PostSummary[] }) => {
+export const BlogSectionSimpleLeftAligned01 = ({
+    posts,
+    eyebrow = "From the notebook",
+    heading = "Recent writing",
+}: {
+    posts: PostSummary[];
+    eyebrow?: string;
+    heading?: string;
+}) => {
     return (
         <section aria-labelledby="latest-heading" className="bg-primary py-16 md:py-24">
             <div className="mx-auto max-w-container px-4 md:px-8">
                 <div className="flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
                     <div className="max-w-3xl">
-                        <p className="text-sm font-semibold text-brand-secondary md:text-md">From the notebook</p>
+                        <p className="text-sm font-semibold text-brand-secondary md:text-md">{eyebrow}</p>
                         <h2 id="latest-heading" className="personal-display mt-3 text-display-md font-medium text-primary md:text-display-lg">
-                            Recent writing
+                            {heading}
                         </h2>
                     </div>
 

@@ -1,7 +1,9 @@
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 import { cx } from "@/utils/cx";
 
-export const SiteLogo = ({ className }: { className?: string }) => (
+export const SiteLogo = ({ className }: { className?: string }) => {
+    const site = useSite();
+    return (
     <a
         href="/"
         className={cx("group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4", className)}
@@ -14,4 +16,5 @@ export const SiteLogo = ({ className }: { className?: string }) => (
         </span>
         <span className="text-md font-semibold text-primary">{site.name}</span>
     </a>
-);
+    );
+};

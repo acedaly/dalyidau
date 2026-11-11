@@ -2,12 +2,13 @@ import { Rss01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { GitHub, Instagram, LinkedIn, X, YouTube } from "@/components/foundations/social-icons";
 import { SiteLogo } from "@/components/site/site-logo";
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 
 const SOCIAL_ICONS = { github: GitHub, linkedin: LinkedIn, x: X, instagram: Instagram, youtube: YouTube } as const;
 
 // Untitled UI PRO "footer-small-01": logo, a single row of links and the copyright line.
 export const FooterSmall01 = () => {
+    const site = useSite();
     return (
         <footer className="border-t border-secondary bg-primary py-10 md:py-12">
             <div className="mx-auto max-w-container px-4 md:px-8">
@@ -48,7 +49,7 @@ export const FooterSmall01 = () => {
                         </ul>
                     </nav>
                     <p className="text-sm text-quaternary lg:w-48 lg:text-right">
-                        © {new Date().getFullYear()} {site.name}
+                        © {new Date().getFullYear()} {site.footerText ?? site.name}
                     </p>
                 </div>
             </div>

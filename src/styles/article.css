@@ -486,3 +486,12 @@
         margin: calc(var(--spacing) * 8) 0;
     }
 }
+
+/* Pages from Payload (src/pages/about.tsx): the body sits in a `display: contents` wrapper, so the
+   prose rules for the first and last child need repeating one level down. */
+.prose > [data-page-body] > :first-child {
+    margin-top: 0;
+}
+.prose > [data-page-body] > :last-child {
+    margin-bottom: 0;
+}

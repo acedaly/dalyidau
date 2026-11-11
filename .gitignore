@@ -35,3 +35,7 @@ backups/
 
 # DalyHub migration plans and exports hold real data; this repository is public.
 /migration-work/
+
+# Local screenshots and throwaway measurement scripts (scripts/visual-baseline.mjs)
+output/visual/
+output/*.mjs

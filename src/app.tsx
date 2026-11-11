@@ -1,11 +1,12 @@
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
-import { AboutPage } from "@/pages/about";
+import { CmsPage } from "@/pages/about";
 import { BlogIndexPage } from "@/pages/blog-index";
 import { BlogPostPage } from "@/pages/blog-post";
 import { ContactPage } from "@/pages/contact";
 import { HomePage } from "@/pages/home";
 import { NotFoundPage } from "@/pages/not-found";
+import { SiteContentProvider } from "@/providers/site-content";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PageProps } from "@/shared/types";
 
@@ -17,8 +18,8 @@ const Page = ({ data }: PageProps) => {
             return <BlogIndexPage data={data} />;
         case "post":
             return <BlogPostPage data={data} />;
-        case "about":
-            return <AboutPage />;
+        case "page":
+            return <CmsPage page={data.page} />;
         case "contact":
             return <ContactPage />;
         default:
@@ -27,6 +28,7 @@ const Page = ({ data }: PageProps) => {
 };
 
 export const App = ({ data, path }: PageProps) => (
+    <SiteContentProvider value={data.context.site}>
     <ThemeProvider>
         <a
             href="#main"
@@ -42,4 +44,5 @@ export const App = ({ data, path }: PageProps) => (
             <SiteFooter />
         </div>
     </ThemeProvider>
+    </SiteContentProvider>
 );

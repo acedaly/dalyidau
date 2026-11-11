@@ -61,6 +61,7 @@ jobs:
                   npx wrangler dev --local --port 8790 --env-file .dev.vars.authz > authz-dev.log 2>&1 &
                   DEV=$!
                   for i in $(seq 1 90); do grep -q "Ready on" authz-dev.log && break; sleep 2; done
+                  node e2e-platform/site.mjs
                   node e2e-platform/blog.mjs
                   node e2e-platform/authz.mjs
                   # Stop the whole server (npx, wrangler and workerd), and wait until the port is free.

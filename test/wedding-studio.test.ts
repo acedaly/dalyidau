@@ -48,9 +48,16 @@ describe("wedding hostname", () => {
         expect(rsvp.status).toBe(200);
         expect(rsvp.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
 
+        // The same website at daly.id.au/wedding, by path: old links keep their query, the canonical address
+        // stays on the wedding host, and its links stay under /wedding.
         const legacy = await call("/wedding/rsvp?invite=signed.token&guest=highlight", { redirect: "manual" });
-        expect(legacy.status).toBe(301);
-        expect(legacy.headers.get("Location")).toBe("https://wedding.daly.id.au/rsvp?invite=signed.token&guest=highlight");
+        expect(legacy.status).toBe(200);
+        const legacyHtml = await legacy.text();
+        expect(legacyHtml).toContain('<link rel="canonical" href="https://wedding.daly.id.au/rsvp">');
+        expect(legacyHtml).toContain('href="/wedding"');
+        const byPath = await call("/wedding");
+        expect(byPath.status).toBe(200);
+        expect(await byPath.text()).toContain('<link rel="canonical" href="https://wedding.daly.id.au/">');
 
         expect((await call("/portal/wedding", { host: WEDDING_HOST })).status).toBe(404);
         expect((await call("/api/portal/wedding/guests", { host: WEDDING_HOST })).status).toBe(404);

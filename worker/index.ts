@@ -1,4 +1,4 @@
-import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
+import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
 import { render, renderWedding } from "../src/entry-server";
 import { plannerBootMarkup } from "../src/planner/shell-markup";
@@ -8,6 +8,7 @@ import { applicationById, canAccessApplication } from "../src/shared/portal/appl
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
 import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
 import type { GuestInvitationPageData, PortalPageData, PortalUser, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
+import { RESERVED_SLUGS, type SiteSettings } from "../src/shared/site-content";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
@@ -27,6 +28,7 @@ import { isRetiredPublicPath, retiredPublicResponse } from "./portal/retired";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
+import { listPages, loadPage, loadSite, loadSiteAndHome } from "./site/content";
 import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
@@ -80,16 +82,9 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     const path = url.pathname;
 
-    // Keep old invitations working, including their signed query credential. Media stays in place
-    // for authenticated portal previews and previously cached pages.
-    if (weddingHasOwnHost && url.hostname === siteUrl.hostname && (path === "/wedding" || path === "/wedding/rsvp")) {
-        const target = path === "/wedding" ? "/" : "/rsvp";
-        // The query can be a signed invitation link: never cache the redirect or pass the URL on.
-        return new Response(null, {
-            status: 301,
-            headers: { Location: `${weddingUrl.origin}${target}${url.search}`, ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" },
-        });
-    }
+    // daly.id.au/wedding is the same wedding website as the wedding host, served by path (weddingPage
+    // below, `legacyPaths`), including old invitation links with their signed query credential. Its
+    // canonical address stays on the wedding host, so nothing is indexed twice.
 
     if (path.startsWith("/api/portal/")) return portalApi(request, env);
     // Retired addresses that never sat behind Cloudflare Access (calendar feeds, wallboard displays,
@@ -106,8 +101,14 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     if (path.startsWith("/media/")) return media(request, env, ctx, path.slice(7));
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
-    if (path === "/sitemap.xml") return text(sitemapXml(env.SITE_URL, await store.sitemapEntries()), "application/xml", HTML_EDGE_TTL);
-    if (path === "/feed.xml" || path === "/rss.xml") return text(rssXml(env.SITE_URL, await store.all()), "application/rss+xml", HTML_EDGE_TTL);
+    if (path === "/sitemap.xml") {
+        const [posts, pages] = await Promise.all([store.sitemapEntries(), listPages(env.DB)]);
+        return text(sitemapXml(env.SITE_URL, posts, pages), "application/xml", HTML_EDGE_TTL);
+    }
+    if (path === "/feed.xml" || path === "/rss.xml") {
+        const [posts, site] = await Promise.all([store.all(), loadSite(env.DB)]);
+        return text(rssXml(env.SITE_URL, posts, site), "application/rss+xml", HTML_EDGE_TTL);
+    }
 
     // Canonical paths: no trailing slash, lower-case slugs.
     if (path.length > 1 && path.endsWith("/")) return Response.redirect(`${url.origin}${path.replace(/\/+$/, "")}${url.search}`, 301);
@@ -122,17 +123,20 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     const publicFlags = await loadFlags(env.DB);
     const weddingPublished = publicFlags["wedding.site.public"];
     return cachedPage(request, env, ctx, indexable, weddingPublished ? "wedding-public" : "wedding-private", async () => {
-        const result = await route(path, url, store);
+        const result = await route(path, url, store, env.DB);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
-        return renderPage(env, { ...result.data, context: { weddingPublished } }, path, result.status, !indexable);
+        const site = result.site ?? (await loadSite(env.DB));
+        return renderPage(env, { ...result.data, context: { weddingPublished, site } }, path, result.status, !indexable);
     });
 }
 
-type RouteResult = { data: PageRoute; status: number } | { redirect: string };
+type RouteResult = { data: PageRoute; status: number; site?: SiteSettings } | { redirect: string };
 
-async function route(path: string, url: URL, store: PostStore): Promise<RouteResult> {
-    if (path === "/") return { data: { route: "home", latest: await store.latest(3) }, status: 200 };
-    if (path === "/about") return { data: { route: "about" }, status: 200 };
+async function route(path: string, url: URL, store: PostStore, db: D1Database): Promise<RouteResult> {
+    if (path === "/") {
+        const { site, home } = await loadSiteAndHome(db);
+        return { data: { route: "home", latest: home.latestCount ? await store.latest(home.latestCount) : [], home }, status: 200, site };
+    }
     if (path === "/contact") return { data: { route: "contact" }, status: 200 };
 
     if (path === "/blog") {
@@ -173,6 +177,15 @@ async function route(path: string, url: URL, store: PostStore): Promise<RouteRes
         }
         const moved = await store.redirectFor(slug);
         if (moved) return { redirect: `/blog/${moved}` };
+    }
+
+    // Pages managed in Payload, at daly.id.au/<slug>. Every application route above wins, and the
+    // publisher refuses reserved addresses, so a page can never take over one of them.
+    const page = /^\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(path);
+    if (page && !RESERVED_SLUGS.has(page[1])) {
+        const found = await loadPage(db, page[1]);
+        if (found && "page" in found) return { data: { route: "page", page: found.page }, status: 200 };
+        if (found) return { redirect: `/${found.redirect}` };
     }
 
     return notFound(path);
@@ -414,6 +427,9 @@ function accessDenied(auth: Extract<AuthResult, { ok: false }>): Response {
 
 // --- Wedding website ------------------------------------------------------------------------------
 
+/** The wedding host's path for a /wedding/... path on the site host (the canonical address). */
+const weddingHostPath = (path: string) => (path === "/wedding" ? "/" : path.slice("/wedding".length));
+
 async function weddingPage(request: Request, env: Env, url: URL, indexable: boolean): Promise<Response> {
     const guest = GUEST_PATHS.has(url.pathname.slice("/wedding".length)) ? url.pathname.slice("/wedding".length) : null;
     if (guest) return guestPage(request, env, url, guest);
@@ -421,7 +437,7 @@ async function weddingPage(request: Request, env: Env, url: URL, indexable: bool
     const flags = await loadFlags(env.DB);
     // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
     if (!route || !flags["wedding.site.public"])
-        return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false } }, url.pathname, 404, true);
+        return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false, site: await loadSite(env.DB) } }, url.pathname, 404, true);
     const data = { ...(await loadWeddingPage(env.DB, route, false)), legacyPaths: true };
     const noindex = data.content.noindex || !indexable || route === "rsvp";
     return renderWeddingDocument(env, data, url.pathname, 200, noindex, weddingPageHeaders(route, noindex));
@@ -496,7 +512,8 @@ function renderWeddingDocument(env: Env, data: WeddingPageData, path: string, st
             `<meta name="description" content="${escapeHtml(description)}">`,
             `<meta name="robots" content="${noindex ? "noindex, nofollow" : "index, follow"}">`,
             ...(data.route === "rsvp" ? [`<meta name="referrer" content="no-referrer">`] : []),
-            ...(data.preview ? [] : [`<link rel="canonical" href="${escapeHtml(`${site}${path}`)}">`]),
+            // Under daly.id.au/wedding (path mode) the canonical address is still the wedding host's.
+            ...(data.preview ? [] : [`<link rel="canonical" href="${escapeHtml(`${site}${data.legacyPaths ? weddingHostPath(path) : path}`)}">`]),
             `<meta property="og:title" content="${escapeHtml(title)}">`,
             `<meta property="og:description" content="${escapeHtml(description)}">`,
             `<meta property="og:type" content="website">`,

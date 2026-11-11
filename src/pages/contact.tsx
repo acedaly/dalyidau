@@ -1,13 +1,14 @@
 import { Mail01, Rss01 } from "@untitledui/icons";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { site } from "@/content/site";
+import { useSite } from "@/providers/site-content";
 
 export const ContactPage = () => {
+    const site = useSite();
     const channels = [
         site.email && {
             icon: Mail01,
             title: "Email",
-            description: "The best way to reach me. I read everything, though replies can take a little while.",
+            description: site.contact.emailDescription,
             href: `mailto:${site.email}`,
             label: site.email,
         },
@@ -30,9 +31,9 @@ export const ContactPage = () => {
     return (
         <div className="mx-auto max-w-container px-4 pt-12 pb-16 md:px-8 md:pt-20 md:pb-24">
             <div className="mx-auto max-w-3xl text-center">
-                <p className="text-sm font-semibold text-brand-secondary md:text-md">Contact</p>
-                <h1 className="mt-3 text-display-md font-semibold text-primary md:text-display-lg">Get in touch</h1>
-                <p className="mt-4 text-lg text-tertiary md:mt-6 md:text-xl">Questions, ideas or just saying hello. Here's where to find me.</p>
+                <p className="text-sm font-semibold text-brand-secondary md:text-md">{site.contact.eyebrow}</p>
+                <h1 className="mt-3 text-display-md font-semibold text-primary md:text-display-lg">{site.contact.heading}</h1>
+                <p className="mt-4 text-lg text-tertiary md:mt-6 md:text-xl">{site.contact.intro}</p>
             </div>
             <ul className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-6 md:mt-16 md:grid-cols-2 md:gap-8">
                 {channels.map((channel) => (
