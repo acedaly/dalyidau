@@ -251,7 +251,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
             const missing = source.missing_count + 1;
             if (missing >= MISSING_THRESHOLD) {
                 if (posts.has(source.id)) {
-                    statements.push(db.prepare("DELETE FROM posts WHERE id = ?").bind(source.id));
+                    statements.push(db.prepare("DELETE FROM posts WHERE id = ? AND source = 'capacities'").bind(source.id));
                     statements.push(db.prepare("DELETE FROM slug_redirects WHERE post_id = ?").bind(source.id));
                     summary.unpublished++;
                     log(`Unpublished /blog/${posts.get(source.id)!.slug}: object no longer exists in Capacities`);
@@ -384,7 +384,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
             // The object has been moved to another type: it is no longer a Blog Post.
             if (existing) {
                 await db.batch([
-                    db.prepare("DELETE FROM posts WHERE id = ?").bind(id),
+                    db.prepare("DELETE FROM posts WHERE id = ? AND source = 'capacities'").bind(id),
                     db.prepare("DELETE FROM slug_redirects WHERE post_id = ?").bind(id),
                     markChecked(id, "not a blog post"),
                 ]);
@@ -402,7 +402,7 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
         if (status.kind === "not-published") {
             if (existing) {
                 await db.batch([
-                    db.prepare("DELETE FROM posts WHERE id = ?").bind(id),
+                    db.prepare("DELETE FROM posts WHERE id = ? AND source = 'capacities'").bind(id),
                     db.prepare("DELETE FROM slug_redirects WHERE post_id = ?").bind(id),
                     markChecked(id, status.label),
                 ]);
@@ -460,7 +460,8 @@ export const runSync = async (env: Env, options: SyncOptions): Promise<SyncSumma
                         image_width = excluded.image_width, image_height = excluded.image_height, body_html = excluded.body_html, toc = excluded.toc,
                         search_text = excluded.search_text, word_count = excluded.word_count, reading_minutes = excluded.reading_minutes,
                         published_at = excluded.published_at, updated_at = excluded.updated_at, source_updated_at = excluded.source_updated_at,
-                        content_hash = excluded.content_hash, render_context = excluded.render_context, synced_at = excluded.synced_at`,
+                        content_hash = excluded.content_hash, render_context = excluded.render_context, synced_at = excluded.synced_at
+                     WHERE posts.source = 'capacities'`,
                 )
                 .bind(
                     id,

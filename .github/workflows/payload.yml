@@ -1,0 +1,85 @@
+name: Payload
+
+# The combined Worker (Payload + today's Worker, poc/payload): security, isolation and regression checks.
+# Tests only: nothing here deploys or needs Cloudflare credentials. Invented data and a local Worker only.
+
+on:
+    pull_request:
+        paths: ["poc/payload/**", "worker/**", "src/**", "migrations/**", ".github/workflows/payload.yml"]
+    push:
+        branches: ["feature/payload-*"]
+
+concurrency:
+    group: payload-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    platform:
+        runs-on: ubuntu-latest
+        timeout-minutes: 40
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24 # Payload needs >= 24.22.1
+                  cache: npm
+            - run: npm ci
+            - run: npm ci --prefix poc/payload
+            - name: Client build (the existing site and portal)
+              run: npm run build:client
+            - name: Whole existing suite through the combined router, plus platform and security tests
+              run: npx vitest run --config poc/payload/test-platform/vitest.platform.config.ts
+            - name: Supervisor tests
+              run: node --test poc/payload/supervisor/supervisor.test.mjs
+            - name: Staging isolation (config only)
+              working-directory: poc/payload
+              run: node scripts/check-staging.mjs
+            - name: Typecheck (Worker side)
+              working-directory: poc/payload
+              run: npx tsc -p tsconfig.platform.json --noEmit
+            - name: Combined Worker build and size (limit 10 MiB gzip; fail above 9)
+              working-directory: poc/payload
+              run: |
+                  npx opennextjs-cloudflare build --skipWranglerConfigCheck
+                  node scripts/merge-assets.mjs
+                  OPEN_NEXT_DEPLOY=true npx wrangler deploy --dry-run --env staging --outdir .poc-dist | tee dry-run.log
+                  node -e 'const m=/gzip: ([\d.]+) KiB/.exec(require("fs").readFileSync("dry-run.log","utf8")); if(!m||+m[1]>9*1024){console.error("bundle too large or unreadable", m&&m[1]); process.exit(1)} console.log("gzip KiB", m[1])'
+            - name: Local Worker with invented identities
+              working-directory: poc/payload
+              run: |
+                  node scripts/test-identity.mjs init
+                  { grep -v "^ENVIRONMENT\|^SITE_URL\|^ACCESS_DEV" .dev.vars; echo "ENVIRONMENT='development'"; echo "SITE_URL='http://localhost:8790'"; } > .dev.vars.authz
+                  # Payload's own migrations (and the blog import) run when it first starts, as in production.
+                  npx wrangler d1 migrations apply DB --local
+                  node e2e-platform/blog.mjs --seed
+            - name: The blog end to end, then Payload's authorisation matrix (real Payload, every endpoint × role)
+              working-directory: poc/payload
+              run: |
+                  npx wrangler dev --local --port 8790 --env-file .dev.vars.authz > authz-dev.log 2>&1 &
+                  DEV=$!
+                  for i in $(seq 1 90); do grep -q "Ready on" authz-dev.log && break; sleep 2; done
+                  node e2e-platform/blog.mjs
+                  node e2e-platform/authz.mjs
+                  # Stop the whole server (npx, wrangler and workerd), and wait until the port is free.
+                  kill $DEV; pkill -f "wrangler dev" || true; pkill -f workerd || true
+                  for i in $(seq 1 30); do curl -s -o /dev/null localhost:8790 || break; sleep 1; done
+            - name: Chromium for the browser checks (the repository root's Playwright, which the checks import)
+              run: npx playwright install --with-deps chromium
+            - name: Browser checks (all wedding screens inside Payload, isolation, CSP, roles)
+              working-directory: poc/payload
+              run: |
+                  npx wrangler dev --local --port 8790 > dev.log 2>&1 &
+                  for i in $(seq 1 90); do grep -q "Ready on" dev.log && break; sleep 2; done
+                  node scripts/seed-invented.mjs
+                  node e2e-platform/custom-view.mjs
+            - uses: actions/upload-artifact@v4
+              if: failure()
+              with:
+                  name: payload-results
+                  path: |
+                      poc/payload/.poc-results
+                      poc/payload/*.log
+                  retention-days: 7

@@ -1,8 +1,10 @@
 name: Deploy
 
 # Production deploys on every push to main once tests pass, or on demand. Production is the only
-# environment (the staging environment was removed).
+# environment. Since the Payload cutover (docs/PAYLOAD-CUTOVER-PLAN.md) the Worker `dalyidau` is the
+# combined Worker: Payload (poc/payload, built by OpenNext) plus the site's own Worker.
 # Requires repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see docs/DEPLOYMENT.md).
+# Rollback: `npx wrangler rollback <version> --name dalyidau -y` (docs/PAYLOAD-CUTOVER-PLAN.md#d-rollback).
 
 on:
     push:
@@ -12,6 +14,9 @@ on:
 concurrency:
     group: deploy-production
     cancel-in-progress: false
+
+permissions:
+    contents: read
 
 jobs:
     test:
@@ -30,10 +35,62 @@ jobs:
             - run: npx playwright install --with-deps chromium
             - run: npm run test:e2e
 
-    deploy:
-        needs: test
+    platform:
+        # The combined Worker: the whole suite through its router, Payload's authorisation matrix and
+        # the blog end to end, against a local Worker with invented data.
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 40
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24 # Payload needs >= 24.22.1
+                  cache: npm
+            - run: npm ci
+            - run: npm ci --prefix poc/payload
+            - run: npm run build:client
+            - name: Whole existing suite through the combined router, plus platform and security tests
+              run: npx vitest run --config poc/payload/test-platform/vitest.platform.config.ts
+            - name: Production config changes nothing but Payload's additions
+              working-directory: poc/payload
+              run: node scripts/production-config.mjs
+            - name: Typecheck (Worker side)
+              working-directory: poc/payload
+              run: npx tsc -p tsconfig.platform.json --noEmit
+            - name: Build
+              working-directory: poc/payload
+              run: |
+                  npx opennextjs-cloudflare build --skipWranglerConfigCheck
+                  node scripts/merge-assets.mjs
+            - name: Local Worker with invented identities, and an invented legacy post to import
+              working-directory: poc/payload
+              run: |
+                  node scripts/test-identity.mjs init
+                  { grep -v "^ENVIRONMENT\|^SITE_URL\|^ACCESS_DEV" .dev.vars; echo "ENVIRONMENT='development'"; echo "SITE_URL='http://localhost:8790'"; } > .dev.vars.authz
+                  npx wrangler d1 migrations apply DB --local
+                  node e2e-platform/blog.mjs --seed
+            - name: Payload authorisation matrix and the blog, end to end (real Payload)
+              working-directory: poc/payload
+              run: |
+                  npx wrangler dev --local --port 8790 --env-file .dev.vars.authz > authz-dev.log 2>&1 &
+                  DEV=$!
+                  for i in $(seq 1 90); do grep -q "Ready on" authz-dev.log && break; sleep 2; done
+                  node e2e-platform/blog.mjs
+                  node e2e-platform/authz.mjs
+                  # Stop the whole server (npx, wrangler and workerd), and wait until the port is free.
+                  kill $DEV; pkill -f "wrangler dev" || true; pkill -f workerd || true
+                  for i in $(seq 1 30); do curl -s -o /dev/null localhost:8790 || break; sleep 1; done
+            - uses: actions/upload-artifact@v4
+              if: failure()
+              with:
+                  name: platform-results
+                  path: poc/payload/*.log
+                  retention-days: 7
+
+    deploy:
+        needs: [test, platform]
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
         environment: production
         env:
             CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -42,26 +99,55 @@ jobs:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
               with:
-                  node-version: 22
+                  node-version: 24
                   cache: npm
             - run: npm ci
+            - run: npm ci --prefix poc/payload
             - name: Check Cloudflare credentials
               run: |
                   if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
                     echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/DEPLOYMENT.md)."
                     exit 1
                   fi
-            - run: npm run build:client
+            - name: No local env files can redirect the deploy
+              run: |
+                  if ls poc/payload/.dev.vars* poc/payload/.env 2>/dev/null; then echo "::error::A .dev.vars/.env file is in the checkout"; exit 1; fi
             - name: Configuration safety
-              run: node scripts/check-config.mjs --env production --offline
+              run: |
+                  node scripts/check-config.mjs --env production --offline
+                  node poc/payload/scripts/production-config.mjs
+            - name: Payload's secrets are set (Payload refuses to sign anything without them)
+              run: |
+                  names=$(npx wrangler secret list --name dalyidau --format json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).map(x=>x.name).join(" ")))')
+                  for s in PAYLOAD_SECRET PAYLOAD_JOBS_SECRET ACCESS_TEAM_DOMAIN ACCESS_AUD; do
+                    case " $names " in *" $s "*) ;; *) echo "::error::Secret $s is not set on dalyidau"; exit 1;; esac
+                  done
+            - name: Build (client, OpenNext, merged assets)
+              working-directory: poc/payload
+              run: npm run poc:build
             # D1 Time Travel can restore the database to any minute in the last 30 days. Logging the
             # bookmark here records exactly where to go back to if this deploy's migrations go wrong
             # (docs/DATABASE.md). It contains no data.
-            - name: Record database restore point
-              run: npx wrangler d1 time-travel info DB --env=""
-            - name: Apply D1 migrations
+            - name: Record database restore point and the rollback target
+              run: |
+                  npx wrangler d1 time-travel info DB --env=""
+                  npx wrangler deployments list --name dalyidau | tail -8
+            - name: Apply D1 migrations (the site's database, from the root config)
               run: npx wrangler d1 migrations apply DB --remote --env=""
             - name: Verify database after migrating (read-only)
               run: node scripts/db-verify.mjs --env production
-            - name: Deploy Worker
-              run: npx wrangler deploy --env="" --message "${{ github.sha }}"
+            - name: Deploy the combined Worker
+              working-directory: poc/payload
+              # OPEN_NEXT_DEPLOY=true: Wrangler deploys directly, not through OpenNext's wrapper (which loads .dev.vars).
+              run: OPEN_NEXT_DEPLOY=true npx wrangler deploy --env production --message "${{ github.sha }}"
+            - name: Smoke checks (public pages answer, admin paths refuse or go to Access)
+              run: |
+                  for p in / /blog /feed.xml /sitemap.xml /robots.txt; do
+                    code=$(curl -s -o /dev/null -w "%{http_code}" "https://daly.id.au$p"); echo "$p $code"; [ "$code" = 200 ] || exit 1
+                  done
+                  code=$(curl -s -o /dev/null -w "%{http_code}" https://wedding.daly.id.au/); echo "wedding $code"; [ "$code" = 200 ] || exit 1
+                  code=$(curl -s -o /dev/null -w "%{http_code}" https://wedding.daly.id.au/admin); echo "wedding /admin $code"; [ "$code" = 404 ] || exit 1
+                  for p in /admin /api/posts /api/users /api/media; do
+                    code=$(curl -s -o /dev/null -w "%{http_code}" "https://daly.id.au$p"); echo "$p $code"
+                    case $code in 302|401|403|404) ;; *) echo "::error::$p answered $code without an identity"; exit 1;; esac
+                  done
