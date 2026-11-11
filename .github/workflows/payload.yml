@@ -52,13 +52,16 @@ jobs:
               run: |
                   node scripts/test-identity.mjs init
                   { grep -v "^ENVIRONMENT\|^SITE_URL\|^ACCESS_DEV" .dev.vars; echo "ENVIRONMENT='development'"; echo "SITE_URL='http://localhost:8790'"; } > .dev.vars.authz
-                  npm run poc:migrate
-            - name: Payload authorisation matrix (real Payload, every endpoint × role)
+                  # Payload's own migrations (and the blog import) run when it first starts, as in production.
+                  npx wrangler d1 migrations apply DB --local
+                  node e2e-platform/blog.mjs --seed
+            - name: The blog end to end, then Payload's authorisation matrix (real Payload, every endpoint × role)
               working-directory: poc/payload
               run: |
                   npx wrangler dev --local --port 8790 --env-file .dev.vars.authz > authz-dev.log 2>&1 &
                   DEV=$!
                   for i in $(seq 1 90); do grep -q "Ready on" authz-dev.log && break; sleep 2; done
+                  node e2e-platform/blog.mjs
                   node e2e-platform/authz.mjs
                   kill $DEV
             - name: Chromium for the browser checks (the repository root's Playwright, which the checks import)
