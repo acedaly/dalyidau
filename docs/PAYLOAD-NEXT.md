@@ -1,5 +1,24 @@
 # Payload migration: how to resume
 
+## Phase 2: the website in Payload (directive 11 Nov 2026): live and verified
+
+- Plan and audit: `docs/PAYLOAD-FRONTEND-PLAN.md`. Journal: `docs/PAYLOAD-FRONTEND-LOG.md`.
+- **Production `b13e3104-5275-48ca-a2ce-146879903a64`** (#51, `67d2f47`), verified 09:55Z. Previous version `e50ef215-da68-4544-8ad3-c9a3e902f5fd`. Rollback: `npx wrangler rollback e50ef215-da68-4544-8ad3-c9a3e902f5fd --name dalyidau -y` (rehearsed: 4 s; the old code ignores the snapshots and Payload's new tables).
+- Design: Payload publishes snapshots into D1 `meta` (`worker/site/publisher.ts`); the public renderer reads them (`worker/site/content.ts`), falling back to the built-in text. Public pages never start Payload.
+- Manage at `daly.id.au/admin` → Website: Homepage, Pages, Blog posts, Media, Navigation, Site settings. Wedding admin: `/admin/wedding`. Wedding site: `wedding.daly.id.au` and `daly.id.au/wedding` (canonical on the wedding host).
+- Authority: standing approval for reversible, verified deploys. Not approved: destructive migrations (0032/0033 stay in `docs/pending`), irreversible data changes, weaker security, paid services, redirecting `wedding.daly.id.au`.
+- Verify around every production change: `node scripts/public-baseline.mjs capture|compare <dir>`, `node scripts/wedding-fingerprint.mjs capture|compare <file>`, `node scripts/visual-baseline.mjs capture output/visual/<name>` then `compare`.
+- Local real-Payload checks (CI order): fresh `--persist-to` state, `wrangler d1 migrations apply DB --local`, `blog.mjs --seed`, `wrangler dev --local --port 8790 --env-file .dev.vars.authz`, then `site.mjs`, `blog.mjs`, `authz.mjs`.
+- Open items:
+  - delete the Trash test page "Payload live check" (owners);
+  - the cleanup plan (PLAN §10);
+  - optionally retire `/portal/wedding` in favour of `/admin/wedding`;
+  - the `weddingplanner.daly.id.au` Access destination (pre-existing);
+  - live checks of the admin/editor/viewer roles when they next sign in.
+
+## Earlier phases (0, 1 and the cutover; journal `docs/PAYLOAD-AUTONOMOUS-LOG.md`)
+
+
 Read this first if you are a Claude Code session picking up this work. Then read the last entries of `docs/PAYLOAD-AUTONOMOUS-LOG.md`.
 
 ## Window and authority
