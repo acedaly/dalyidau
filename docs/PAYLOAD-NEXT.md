@@ -33,21 +33,18 @@ Never:
 
 Deploy incrementally; verify the live site, blog and wedding after each change.
 
-## Current state (11 Nov 2026, ~07:30Z)
+## Current state (11 Nov 2026, 08:05Z): Payload is in production
 
-- **PR #48 merged** (`0695744`). Production version **`dd843586-a981-41b1-a3eb-a78ef10a3c2c`**, verified: public 22/22 unchanged, wedding 24/24 identical, 188 tables (nothing dropped). 0032/0033 stay in `docs/pending/`.
-- **PR #49** (draft, `feature/payload-phase1`) is rebased on main. CI and Payload workflows are green (suite, build/size, blog e2e, authz matrix, browser checks).
-- **Ready in production:** D1 `dalyidau-payload`, R2 `dalyidau-payload-media` (both empty), PAYLOAD_SECRET and PAYLOAD_JOBS_SECRET. `production-config.mjs` passes.
-- **Rollback target** for the cutover: `dd843586-a981-41b1-a3eb-a78ef10a3c2c`.
-- **Blocked, permission:** Cloudflare Access. Chrome isn't signed in to the dashboard, and Wrangler's token can't see Access applications (lists 0). The owner must either sign in to the dashboard in Chrome or provide an API token with "Access: Apps and Policies Edit" (set it as `CLOUDFLARE_ACCESS_TOKEN` in the shell; never commit it).
+- **Production:** `924ecbf2-92e4-4a21-884b-f5e944ab4063` (#49, `209757c`), verified (see the log's "CUTOVER" entry). The blog has been imported into Payload.
+- **Rollback:** `npx wrangler rollback dd843586-a981-41b1-a3eb-a78ef10a3c2c --name dalyidau -y` (code only, ~3 s; no wedding data step). Undoing the blog import is optional: Payload's migration `down` (or set `posts.source` back from `legacy.originalRow`). The old code renders the posts as they are either way.
+- **Access:** application `daly.id.au` (`8d982c04…`) now has 15 destinations (the 2 originals plus 13 Payload paths). The policy is unchanged.
+- **Held back (never apply without the owner's fresh written approval):** `docs/pending/0032`, `0033`; unused secrets kept.
 
-## Next steps
+## Outstanding
 
-1. 🔒 **Access** (needs the above). On the existing portal application, keep every existing destination and policy and **add** the destinations `daly.id.au/admin`, `/api/users`, `/api/media`, `/api/pages`, `/api/posts`, `/api/payload-preferences`, `/api/payload-locked-documents`, `/api/payload-kv`, `/api/payload-jobs`, `/api/payload-migrations`, `/api/globals`, `/api/access`. Save the application JSON before and after.
-2. Fresh backups (`npm run db:backup -- --env production`, `node scripts/r2-bucket-backup.mjs dalyidau-media`), public baseline and wedding fingerprint.
-3. Mark #49 ready and merge. CI deploys the combined Worker and smoke-checks it.
-4. Verify: baseline compare (`/admin` and `/api/*` now redirect to Access, which is expected), wedding compare, `/admin` sign-in as the owner, `/admin/wedding`, `/admin/collections/posts`. The two imported posts must stay byte-identical. Then a draft, publish, slug change and unpublish on a test post; media upload.
-5. On any critical failure: `npx wrangler rollback dd843586-a981-41b1-a3eb-a78ef10a3c2c --name dalyidau -y`, then re-verify.
+- `weddingplanner.daly.id.au` needs its own Access destination (pre-existing).
+- Verify the admin, editor and viewer roles live when those people next sign in (CI covers them).
+- Optional: website pages (about/contact) in Payload; retire `/portal/wedding` once the Payload admin is preferred; the `message-page.tsx` typing quirk.
 
 ## Resume commands
 

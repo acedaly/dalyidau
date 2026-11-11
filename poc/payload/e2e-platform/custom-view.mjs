@@ -55,6 +55,37 @@ const before = await payloadStyle();
 await page.screenshot({ path: `${out}/payload-dashboard.png` });
 check("Payload admin dashboard renders for an Access-verified owner", (await page.locator("text=Wedding").count()) > 0, "Wedding links in Payload's nav");
 
+// The wedding menu is in collapsible groups (Payload's NavGroup): clicking a label closes and reopens it.
+{
+    // Payload's sidebar starts closed for a new user: open it with the menu button first.
+    if (!(await page.evaluate(() => !!document.querySelector(".template-default--nav-open")))) {
+        await page.locator(".nav-toggler, button[aria-label*='enu']").first().click();
+        await page.waitForTimeout(500);
+    }
+    const toggle = page.locator("#nav-group-Planning > button.nav-group__toggle");
+    // Open: the group's links take up space. Closed: the toggle loses --open and the links' box has no height.
+    const state = () =>
+        page.evaluate(() => {
+            const group = document.querySelector("#nav-group-Planning");
+            const link = group?.querySelector('a[href="/admin/wedding/seating"]');
+            const box = link?.closest(".rah-static, [aria-hidden], .nav-group__content") ?? link?.parentElement;
+            return { open: !!group?.querySelector(".nav-group__toggle--open"), height: box ? box.getBoundingClientRect().height : -1 };
+        });
+    const before = await state();
+    await toggle.click();
+    await page.waitForTimeout(500);
+    const closed = await state();
+    await toggle.click();
+    await page.waitForTimeout(500);
+    const reopened = await state();
+    check(
+        "the Planning menu group collapses and expands",
+        before.open && before.height > 0 && !closed.open && closed.height === 0 && reopened.open && reopened.height > 0,
+        JSON.stringify({ before, closed, reopened }),
+    );
+    check("the Wedding menu group has its own toggle", (await page.locator("#nav-group-Wedding > button.nav-group__toggle").count()) === 1);
+}
+
 // 2. The existing households screen as a Payload view.
 for (const [screen, expectText] of [["households", "The Fictionals"], ["guests", "Fern"], ["rsvps", "RSVP"], ["seating", "Seating"], ["", "Welcome back"]]) {
     await page.goto(`http://daly.id.au/admin/wedding${screen ? `/${screen}` : ""}`, { waitUntil: "networkidle" });

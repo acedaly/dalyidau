@@ -270,3 +270,27 @@ Newest entries at the bottom. Each entry records what was done, the evidence, an
 - **From outside:** all 16 protected paths 302 to `dalyidau.cloudflareaccess.com`; `/`, `/blog`, `/feed.xml`, `/api/health` and the wedding site 200.
 - **Undo:** PUT the application with only the two original destinations.
 - Staging Access: not configured. Staging has no hostname, and attaching one would be a DNS/route change for a test environment. Staging coverage remains CI's real-Payload runs (blog e2e, authz matrix, browser checks) and the staging deploy.
+
+## 07:35–08:05Z: CUTOVER, Payload in production
+
+- **Before:**
+  - Backups `backups/production-2026-11-11T07-23-05-510Z.sql` (restore-tested) and `r2-bucket-dalyidau-media-2026-11-11T07-25-57-247Z` (96 objects verified).
+  - Public baseline 27 URLs; wedding fingerprint 24 tables; article HTML of both posts saved.
+  - D1 bookmark `00002119-00000000-00005120-3b241be075c63153ad0b0c7c3ac9b6bf`. Rollback target `dd843586`. 0 scheduled messages.
+  - #49 CI ✓ and Payload ✓.
+- Merged **#49** (`209757c`). Deploy run 42980828691: platform ✓, test ✓, deploy ✓ (smoke checks inside). **Production version `924ecbf2-92e4-4a21-884b-f5e944ab4063`.**
+- **First verification:** public 27/27 unchanged, wedding 24/24, both articles byte-identical, wedding `/admin` 404. Owner opened `/admin`, which ran Payload's migrations and the **blog import: 2 posts, published, stored HTML lengths 23,984 and 24,518 (unchanged); `posts.source` = payload**; 188 tables.
+- **Automatic rollback fired (07:48Z):** the second verification saw `portal_users` changed. Cause: `last_seen_at`, which the portal's own sign-in code (`worker/portal/auth.ts`, unchanged, also in the old version) updates at most every 10 minutes. The owner's `/admin` sign-in did it. No guest, RSVP or seating data changed (the other 23 tables identical). The rollback to `dd843586` worked (~3 s).
+- **Fix:** `wedding-fingerprint.mjs` leaves `portal_users.last_seen_at` out. Re-snapshotted, then redeployed the same CI-built version **`924ecbf2`** (`wrangler rollback` to it). **All critical checks passed** (27/27, 24/24, articles identical, wedding `/admin` 404).
+- **Functional checks as the owner** (Access identity, role `owner`, strategy `cloudflare-access`):
+  - Payload dashboard; all 15 wedding screens 200 inside Payload (guests: 73 across 29 households); `/portal/wedding` and the wedding API still work.
+  - Blog: list, edit, media and Trash views 200. Media upload ✓ (Payload's private bucket). A draft post (with image) is saved but not public (404, not in the feed). "Publish changes" on an imported post leaves the article byte-identical. The draft moved to Trash (restorable).
+  - RSS, feed, sitemap, `/media/…` 200; title/description/canonical/OG/Twitter tags present.
+- **Cron:** first run on the new Worker ok, 23 ms CPU, 0 exceptions; 40 other requests in the tail all ok. Monitor workflow run ✓.
+- **Not verified live:** other roles (admin, editor, viewer). Only the owner could sign in; those roles are covered by the real-Payload authz matrix and blog e2e in CI.
+- `weddingplanner.daly.id.au` answers its designed 401 ("Sign-in isn't set up for this address yet"); its Access destination was never added (pre-existing, not part of this change).
+- **Test artefacts left in production (clearly named, harmless):** media "payload-verification-pixel.png" in Payload's private bucket; draft post "Payload verification draft (safe to delete)" in Trash.
+
+## 08:05Z: collapsible menus (owner request)
+
+- The wedding menu in Payload's sidebar is now two collapsible groups, **Wedding** and **Planning**, built from Payload's own `NavGroup` (as "Collections"). Each person's open/closed choice is saved in their preferences. Browser checks 45/45 (new: collapse 150 px → 0 → 150 px; Wedding toggle). Platform route test: every screen in exactly one group.
