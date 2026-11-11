@@ -1,7 +1,8 @@
 // The gateway speaks MCP the way it did when it lived in DalyHub-V2 (same agents/mcp/server handler
-// and SDK versions), now serving only Daly Portal tools. Every identity is fictional.
+// and SDK versions). Since docs/DECOMMISSION_PORTAL_APPS.md Daly Portal serves no tools through it:
+// it answers retired ones itself. Every identity is fictional.
 import { beforeEach, describe, expect, it } from "vitest";
-import { PORTAL_TOOL_NAMES, RETIRED_TOOL_NAMES } from "../../mcp/src/portal-tools";
+import { PORTAL_TOOL_NAMES, RETIRED_TOOL_GROUPS, RETIRED_TOOL_NAMES } from "../../mcp/src/portal-tools";
 import { OWNER, accessToken, resetPortal } from "../portal-helpers";
 import { HOST, MCP_AUD, PROTOCOL_VERSION, gatewayEnv, guardOutbound, post, rpcBody, session } from "./helpers";
 
@@ -49,7 +50,7 @@ const LEGACY_DALYHUB_TOOLS = [
 ];
 
 describe("MCP protocol", () => {
-    it("initializes with the working instructions and lists exactly the 56 Daly Portal tools with their annotations", async () => {
+    it("initializes with instructions that explain the retirements, and advertises no Daly Portal tools", async () => {
         const s = await session(OWNER);
         expect(s.init.status).toBe(200);
         const init = s.init.body.result as {
@@ -58,69 +59,50 @@ describe("MCP protocol", () => {
             capabilities: Record<string, unknown>;
             instructions?: string;
         };
-        expect(init.serverInfo).toMatchObject({ name: "daly-portal", version: "3.2.0" });
-        expect(init.instructions).toMatch(/Daly Tasks and Daly Knowledge have been retired/);
-        expect(init.instructions).toMatch(/Home & Assets and Household Finance have been retired/);
-        expect(init.instructions).not.toMatch(/tasks_|knowledge_|planner_|intelligence_capture/);
+        expect(init.serverInfo).toMatchObject({ name: "daly-portal", version: "4.0.0" });
+        expect(init.instructions).toMatch(/Daly Calendar and the Leave Planner, Today and the Chief of Staff context/);
+        expect(init.instructions).toMatch(/Home & Assets, Daly Tasks and Daly Knowledge/);
         expect(init.instructions).toMatch(/Never invent an id/);
         expect(init.protocolVersion).toBe(PROTOCOL_VERSION);
-        expect(init.capabilities.tools).toBeDefined();
-
+        expect(PORTAL_TOOL_NAMES).toHaveLength(0);
+        // With no tools registered the server offers no tools capability, so tools/list isn't a method.
+        expect(init.capabilities.tools).toBeUndefined();
         const listed = await s.rpc("tools/list");
-        const tools = (listed.body.result as { tools: { name: string; inputSchema: { type: string }; annotations?: { readOnlyHint?: boolean } }[] }).tools;
-        expect(tools.map((t) => t.name).sort()).toEqual([...PORTAL_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(56);
-        for (const t of tools) expect(t.inputSchema.type).toBe("object");
-        expect(tools.find((t) => t.name === "calendar_list_calendars")?.annotations?.readOnlyHint).toBe(true);
-        expect(tools.find((t) => t.name === "calendar_create_event")?.annotations?.readOnlyHint).toBe(false);
+        expect(listed.status).toBe(200);
+        expect((listed.body.error as { code: number }).code).toBe(-32601);
     });
 
-    it("answers a retired tool with a clear retired error, without reaching the portal", async () => {
+    it("answers every retired tool with a clear retired error naming its retirement, without reaching the portal", async () => {
         const binding = { calls: [] as string[] };
         const s = await session(OWNER, {
             env: gatewayEnv({ PORTAL: { invoke: async (r) => (binding.calls.push(r.tool), { ok: true as const, data: {} }) } }),
         });
-        const names = ((await s.rpc("tools/list")).body.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-        for (const retired of RETIRED_TOOL_NAMES) {
-            expect(names).not.toContain(retired);
-            const answer = await s.tool(retired, { title: "x" });
-            expect(answer.isError, retired).toBe(true);
-            expect(answer.data.error?.code, retired).toBe("retired");
-            expect(answer.data.error?.message).toMatch(
-                /^assets_(?!link_knowledge|create_task)/.test(retired) ? /retired with Home & Assets/ : /retired with Daly Knowledge and Daly Tasks/,
-            );
-        }
+        expect(RETIRED_TOOL_NAMES).toHaveLength(121);
+        for (const group of RETIRED_TOOL_GROUPS)
+            for (const retired of group.tools) {
+                const answer = await s.tool(retired, { title: "x" });
+                expect(answer.isError, retired).toBe(true);
+                expect(answer.data.error, retired).toEqual({ code: "retired", message: group.message });
+            }
         expect(binding.calls).toEqual([]);
         // Without a valid assertion, a retired tool is refused like everything else: 401, no answer.
         expect(
-            (await post({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "tasks_today", arguments: {} } }, { token: "not-a-jwt" })).status,
+            (await post({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "calendar_list_calendars", arguments: {} } }, { token: "not-a-jwt" }))
+                .status,
         ).toBe(401);
     });
 
-    it("no longer offers or runs any of the 34 DalyHub tools", async () => {
-        const s = await session(OWNER);
-        const names = ((await s.rpc("tools/list")).body.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-        for (const legacy of LEGACY_DALYHUB_TOOLS) expect(names).not.toContain(legacy);
-        for (const legacy of ["get_today", "create_person", "search_dalyhub"]) {
+    it("no longer offers or runs any of the 34 DalyHub tools, or any other unknown tool", async () => {
+        const binding = { calls: [] as string[] };
+        const s = await session(OWNER, {
+            env: gatewayEnv({ PORTAL: { invoke: async (r) => (binding.calls.push(r.tool), { ok: true as const, data: {} }) } }),
+        });
+        for (const legacy of [...LEGACY_DALYHUB_TOOLS, "wedding_list_guests"]) {
             const answer = await s.tool(legacy, {});
             // Either a JSON-RPC error or a tool error, never a result.
-            expect(answer.rpcError ?? answer.isError).toBeTruthy();
+            expect(answer.rpcError ?? answer.isError, legacy).toBeTruthy();
         }
-    });
-
-    it("answers a tool call with source: daly-portal and structured content", async () => {
-        const s = await session(OWNER);
-        const calendars = await s.ok<{ source: string; calendars: unknown[] }>("calendar_list_calendars");
-        expect(calendars.source).toBe("daly-portal");
-        expect(Array.isArray(calendars.calendars)).toBe(true);
-    });
-
-    it("rejects input the advertised schema doesn't allow before it reaches the portal", async () => {
-        const binding = { calls: [] as string[], invoke: async () => ({ ok: true as const, data: {} }) };
-        const s = await session(OWNER, { env: gatewayEnv({ PORTAL: { invoke: async (r) => (binding.calls.push(r.tool), binding.invoke()) } }) });
-        const answer = await s.tool("calendar_create_event", { title: "x", startDate: "2030-03-01", email: "someone@example.com" });
-        expect(answer.rpcError ?? answer.isError).toBeTruthy();
-        expect(binding.calls).not.toContain("calendar_create_event");
+        expect(binding.calls).toEqual([]);
     });
 });
 

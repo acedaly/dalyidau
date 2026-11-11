@@ -1,9 +1,13 @@
-# Retiring Capacities
+# The Capacities sync switch and archive
 
-Amplenote is the only publishing source ([AMPLENOTE.md](AMPLENOTE.md)). This page covers how the
-articles first published from Capacities stay online without it, when it's safe to remove the API token
-and cancel the subscription, how to move an old article to Amplenote at the same address, and how to undo
-each step.
+Capacities is the blog's publisher ([CAPACITIES.md](CAPACITIES.md)). This page covers how its articles
+stay online from Cloudflare whether or not the sync runs, the archive, and when it would be safe to remove
+the API token and cancel the subscription.
+
+> **9 Nov 2026:** Amplenote, which replaced Capacities as the publisher for a while, was retired
+> ([DECOMMISSION_PORTAL_APPS.md](DECOMMISSION_PORTAL_APPS.md)). The articles it published stay online
+> as stored, including any that took over a Capacities article's address (below): the Capacities sync
+> still never republishes those. Moving an article to Amplenote, and undoing a move, are gone with it.
 
 ## Why nothing is lost
 
@@ -43,8 +47,8 @@ Even with the switch on, two new protections hold:
 - A missing or revoked token, or Capacities being unreachable, fails the run and changes nothing (as
   before).
 
-Portal settings → **Website & Blog** shows the source of each article (Amplenote active, Capacities
-archived or syncing) and the Capacities archive card. There are no Capacities connection controls in
+Portal settings → **Website & Blog** shows the Capacities archive card: the switch, every Capacities
+article and its archive copy, and any article an Amplenote note took over before Amplenote was retired. There are no Capacities connection controls in
 the portal: the only one was the manual sync endpoint, which now refuses while sync is off.
 
 ## Retiring Capacities, step by step
@@ -85,60 +89,21 @@ and cancel the subscription. `npm run check:config` warns that the token is miss
 expected from now on. Nothing on the site changes.
 
 Keep `worker/sync.ts`, `worker/capacities/` and `fixtures/capacities/` until no `source = 'capacities'`
-post remains (every article moved to Amplenote, below). Even then, removing them is optional: they
-do nothing while the switch is off.
+post remains. Even then, removing them is optional: they do nothing while the switch is off.
 
-## Moving an article to Amplenote at the same address
+## Articles an Amplenote note took over
 
-You may want to edit an old article in Amplenote. Importing it as an ordinary note would publish a
-**second** copy at another address, so the publisher refuses: a note whose title or address matches a
-Capacities article waits, with the reason shown in Portal settings → Website & Blog.
-
-To move it instead:
-
-1. Copy the article into an Amplenote note. Tag it `website/blog` and publish it in Amplenote.
-2. In the note's Website section, name the article it replaces (its slug, `/blog/<slug>` or the full
-   address all work):
-    ```
-    # Website
-    replaces: building-my-ai-chief-of-staff
-    ```
-3. Wait for the plugin to run. In Portal settings → Website & Blog the note shows
-   "Replaces the Capacities article … at /blog/<slug>" with **Approve move**. Approval needs Capacities
-   sync switched off, and only an owner or admin can give it (audited, `website.capacities.replace`).
-
-On approval, one atomic batch:
-
-- copies the Capacities article into `capacities_archive`, marked as replaced by the note;
-- removes it from `posts` (the archived copy keeps every column);
-- points its old addresses (`slug_redirects`) at the note;
-- publishes the note at the **same address**.
-
-What the note doesn't set is kept from the original: its **published date** (so RSS order and dates
-don't jump), category, tags, subtitle, summary and featured image. The note's own `website/category/…`,
-`website/tag/…`, `subtitle:`, `summary:`, `published:` and `image:` override them. `slug:` is ignored
-while `replaces:` is there. If the note was already published at another address, that address
-redirects. A Capacities sync switched back on later never republishes a moved article.
-
-Until it's approved, a note that was already live keeps its current version, and one that wasn't stays
-unpublished. It is never published at a different address. `replaces:` naming something that isn't a
-published Capacities article holds the note too, so a typo can't publish a duplicate.
-
-### Undoing a move
-
-Portal settings → Website & Blog → the note → **Restore Capacities version** (audited,
-`website.capacities.restore`). In one batch, the archived copy goes back into `posts` exactly as it
-was, its own old addresses point at it again, the note's post is removed, and the note goes back to
-waiting for approval while it still says `replaces:`. Remove that line from the note to publish it at
-an address of its own instead.
+While Amplenote published the blog, an owner could approve an Amplenote note taking over a Capacities
+article's address (`replaces:` in the note). The Capacities article was copied into `capacities_archive`,
+marked `replaced_by` the note, and the note's article was published at the same address. Since
+Amplenote was retired, those addresses keep serving the note's article as stored, and the Capacities
+sync never republishes the original. There's no longer a button to undo a move; the original is still in
+`capacities_archive` if it's ever wanted back.
 
 ## Rollback of this change
 
-- **Turn Capacities back on:** switch it on in Features. Moved articles stay with Amplenote; undo each
-  move first if you want Capacities to own it again.
-- **Revert the code:** the previous code ignores `capacities_archive` and the new columns. Undo any
-  moves first: the old sync doesn't know about them and would publish a moved article's Capacities
-  object again at a second address. The old code also syncs whenever a token is set, without the
-  empty-listing protection, so delete the token first if Capacities is no longer reachable.
-- **Drop the migration** (only after undoing every move): `DROP TABLE capacities_archive;` and drop
-  `amplenote_articles.replace_slug`, `replace_approved_by` and `replace_approved_at`.
+- **Turn Capacities back on:** switch it on in Features. Articles an Amplenote note took over stay with
+  the note's article.
+- **Revert the code:** code older than the archive ignores `capacities_archive`, so it would publish a
+  moved article's Capacities object again at a second address. It also syncs whenever a token is set,
+  without the empty-listing protection, so delete the token first if Capacities is no longer reachable.

@@ -1,7 +1,9 @@
-// Backs up the files Daly Intelligence kept permanently (Knowledge attachments, retired with Daly
-// Knowledge but kept until the approved cleanup: docs/DECOMMISSION_KNOWLEDGE_TASKS.md) and every stored
-// Home & Assets photo and document from R2 to this computer, so there's a copy outside Cloudflare. D1
-// backups (db-backup.mjs) hold the attachment rows; this holds the files they point at.
+// Backs up the files retired applications left in R2, so there's a copy outside Cloudflare before
+// they're removed: the files Daly Intelligence kept permanently (Knowledge attachments, `attachments`)
+// and the Intelligence Centre's situation reports (`ic_reports`). Both tables are kept until the
+// owner approves docs/pending/0033_drop_retired_portal_app_tables.sql; once a table is gone its files
+// are skipped. Home & Assets' file index (asset_files) would go with docs/pending/0032 (held back); it was empty in
+// production. D1 backups (db-backup.mjs) hold the rows; this holds the files they point at.
 //
 //   node scripts/r2-backup.mjs --env production                # download and verify
 //   BACKUP_PASSPHRASE=… node scripts/r2-backup.mjs --env production --encrypt
@@ -75,8 +77,7 @@ const local = !!args.local;
 const env = local ? "local" : (args.env ?? "production");
 const source = local ? { remote: false, persistTo: args["persist-to"] } : { remote: true };
 const config = readWranglerConfig();
-const block = env === "production" || env === "local" ? config : config.env?.[env];
-const bucket = (block?.r2_buckets ?? config.r2_buckets ?? []).find((b) => b.binding === "MEDIA")?.bucket_name;
+const bucket = (config.r2_buckets ?? []).find((b) => b.binding === "MEDIA")?.bucket_name;
 if (!bucket) {
     console.error("No MEDIA bucket in wrangler.jsonc for that environment");
     process.exit(1);
@@ -84,22 +85,19 @@ if (!bucket) {
 const encrypt = !!args.encrypt;
 if (encrypt) keyFor(randomBytes(16)); // fail early without a passphrase
 
-const rows = d1Query(
-    env,
-    `SELECT id, owner_email, object_id, r2_key, bytes, content_type FROM attachments WHERE status <> 'deleted' AND status <> 'uploading' AND (retention = 'permanent' OR keep = 1)
-     UNION ALL SELECT id, owner_email, asset_id AS object_id, r2_key, bytes, content_type FROM asset_files WHERE status = 'stored'
-     UNION ALL SELECT id, email AS owner_email, id AS object_id, object_key AS r2_key, NULL AS bytes, 'application/json' AS content_type FROM ic_reports
-     ORDER BY id`,
-    source,
-)[0];
+const present = new Set(d1Query(env, "SELECT name FROM sqlite_master WHERE type = 'table'", source)[0].map((r) => r.name));
+const selects = [
+    present.has("attachments") &&
+        "SELECT id, owner_email, object_id, r2_key, bytes, content_type FROM attachments WHERE status <> 'deleted' AND status <> 'uploading' AND (retention = 'permanent' OR keep = 1)",
+    present.has("ic_reports") &&
+        "SELECT id, email AS owner_email, id AS object_id, object_key AS r2_key, NULL AS bytes, 'application/json' AS content_type FROM ic_reports",
+].filter(Boolean);
+const rows = selects.length ? d1Query(env, `${selects.join(" UNION ALL ")} ORDER BY id`, source)[0] : [];
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const out = join(ROOT, "backups", `r2-${env}-${stamp}`);
 mkdirSync(out, { recursive: true, mode: 0o700 });
 chmodSync(join(ROOT, "backups"), 0o700);
-// Photo previews (thumb_key) aren't copied: they're made from the photo and can be made again.
-console.log(
-    `Backing up ${rows.length} permanent attachment(s), asset file(s) and situation report(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`,
-);
+console.log(`Backing up ${rows.length} permanent attachment(s) and situation report(s) from ${bucket} to ${out}${encrypt ? " (encrypted)" : ""}\n`);
 
 const files = [];
 for (const row of rows) {

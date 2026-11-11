@@ -1,22 +1,15 @@
 // Wedding Planner, the installable phone app (docs/PLANNER.md), at /portal/planner and on its own
-// address (PLANNER_URL), and the portal listing only Wedding Planner while Portal settings → Features
-// → "Other applications" is off (the default). Hiding is navigation only: the other applications'
-// pages, API and MCP tools keep working.
+// address (PLANNER_URL), and the portal opening on Wedding Planner, its only application since the
+// others were retired (docs/DECOMMISSION_PORTAL_APPS.md).
 import { createElement } from "react";
 import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PortalApp } from "../src/portal/portal-app";
 import type { PlannerPageData } from "../src/shared/planner/types";
-import { isApplicationListed, listedApplications } from "../src/shared/portal/applications";
-import { FLAG_DEFINITIONS, defaultFlags } from "../src/shared/portal/flags";
-import { FLAG_AREAS } from "../src/shared/portal/settings-sections";
 import type { PortalPageData } from "../src/shared/portal/types";
-import { type PortalMcpResponse, handleMcpCall } from "../worker/mcp/entrypoint";
 import { offlineDocument, plannerView, serviceWorkerScript, shellStylesheets } from "../worker/planner/pwa";
-import { accessToken, apiCall, auditActions, portalEnv, call as rawCall, resetPortal } from "./portal-helpers";
+import { accessToken, auditActions, portalEnv, call as rawCall, resetPortal } from "./portal-helpers";
 
-const MCP_AUD = "aud-mcp-gateway-0123456789abcdef";
-const OTHER_APPS = ["calendar", "intelligence", "intelligence-centre"];
 const PLANNER_HOST = "weddingplanner.daly.id.au";
 
 const pageData = <T>(html: string) => {
@@ -28,57 +21,30 @@ const renderPage = (html: string) => {
     return { data: payload.data, html: renderToString(createElement(PortalApp, { data: payload.data, path: payload.path })) };
 };
 const page = async (path: string) => renderPage(await (await rawCall(path, { token: await accessToken() })).text());
-const setOtherApplications = async (enabled: boolean) =>
-    expect((await apiCall("PUT", "/api/portal/flags/portal.other_applications", { enabled })).status).toBe(200);
 /** A request to Wedding Planner's own address. */
 const onHost = async (path: string, init: RequestInit & { token?: string | null } = {}) =>
     rawCall(path, { token: await accessToken(), ...init, host: PLANNER_HOST, env: await portalEnv({ PLANNER_URL: `https://${PLANNER_HOST}` }) });
 
 beforeEach(resetPortal);
 
-describe("only Wedding Planner in the portal's navigation", () => {
-    it("is a reversible switch that defaults off and lives in Portal settings → Features", () => {
-        expect(FLAG_DEFINITIONS["portal.other_applications"].default).toBe(false);
-        expect(FLAG_AREAS["portal.other_applications"]).toBe("portal");
-        const owner = { permissions: ["wedding.view", "calendar.use", "intelligence.use", "centre.use"] as const };
-        expect(listedApplications(owner, defaultFlags()).map((a) => a.id)).toEqual(["wedding"]);
-        expect(listedApplications(owner, { "portal.other_applications": true }).map((a) => a.id)).toEqual(["wedding", ...OTHER_APPS]);
-        expect(isApplicationListed("today", defaultFlags())).toBe(false);
+describe("the portal opens on Wedding Planner", () => {
+    it("sends /portal to Wedding Planner's dashboard, after sign-in", async () => {
+        const response = await rawCall("/portal", { token: await accessToken() });
+        expect(response.status).toBe(302);
+        expect(response.headers.get("Location")).toBe("https://daly.id.au/portal/wedding");
+        expect(response.headers.get("Cache-Control")).toBe("no-store");
+        expect((await rawCall("/portal", { token: null })).status).toBe(401);
     });
 
-    it("lists only Wedding Planner on the launcher and in the sidebar until switched on, then everything again", async () => {
-        const home = await page("/portal");
-        expect(home.data).toMatchObject({ route: "portal-home", applications: ["wedding"] });
-        expect(home.html).toContain('data-application="wedding"');
-        for (const app of OTHER_APPS) expect(home.html).not.toContain(`data-application="${app}"`);
-        expect(home.html).not.toContain('data-portal-link="today"');
-        expect(home.html).not.toContain('href="/portal/today"');
+    it("lists only Wedding Planner's own pages and the portal's, with the phone app one tap away", async () => {
         const wedding = await page("/portal/wedding");
-        expect(wedding.html).not.toContain('href="/portal/today"');
+        expect(wedding.data.route).toBe("dashboard");
         expect(wedding.html).toContain('href="/portal/wedding/guests"');
-        // The phone app is one tap away from the full portal.
         expect(wedding.html).toContain('href="/portal/planner"');
-
-        await setOtherApplications(true);
-        expect(await auditActions()).toContain("flag.update");
-        const all = await page("/portal");
-        for (const app of ["wedding", ...OTHER_APPS]) expect(all.html).toContain(`data-application="${app}"`);
-        expect(all.html).toContain('data-portal-link="today"');
-        expect((await page("/portal/wedding")).html).toContain('href="/portal/today"');
-    });
-
-    it("keeps the hidden applications' pages, API and MCP tools working", async () => {
-        const token = await accessToken();
-        for (const path of ["/portal/today", "/portal/calendar", "/portal/intelligence", "/portal/intelligence-centre"])
-            expect((await rawCall(path, { token })).status, path).toBe(200);
-        expect((await page("/portal/calendar")).html).toContain('href="/portal/calendar/leave"');
-        expect((await apiCall("GET", "/api/portal/calendar/calendars")).status).toBe(200);
-        const mcp = (await handleMcpCall(await portalEnv({ MCP_ACCESS_AUD: MCP_AUD }), {
-            assertion: await accessToken({ aud: [MCP_AUD] }),
-            tool: "calendar_list_calendars",
-            input: {},
-        })) as PortalMcpResponse;
-        expect(mcp.ok).toBe(true);
+        expect(wedding.html).toContain('href="/portal/settings"');
+        expect(wedding.html).not.toMatch(/href="\/portal\/(today|calendar|intelligence|intelligence-centre)["/?]|href="\/portal"/);
+        // Portal settings keeps Wedding Planner's navigation, so there's always a way back.
+        expect((await page("/portal/settings")).html).toContain('href="/portal/wedding/guests"');
     });
 });
 

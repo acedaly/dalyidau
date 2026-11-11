@@ -6,9 +6,9 @@
 // image in R2), keeps a second copy of each article in capacities_archive, and says when it's safe
 // to remove the API token and cancel. It never deletes a post, an image or a redirect.
 //
-// An article's address can be handed to an Amplenote note ("replaces:" in the note's Website
-// section, approved in the portal). That move happens in amplenote/publisher.ts; undoing it, which
-// puts the archived Capacities copy back exactly as it was, happens here.
+// Before Amplenote publishing was retired (docs/DECOMMISSION_PORTAL_APPS.md), an article's address
+// could be handed to an Amplenote note. Such articles are marked replaced_by in the archive; the
+// note's post keeps their address, and the Capacities sync never publishes them again.
 import type { CapacitiesStatus } from "../../src/shared/website";
 import type { Env } from "../env";
 import { auditStatement, nowIso } from "../portal/db";
@@ -73,11 +73,8 @@ const MEDIA_KEY = /\/media\/([a-f0-9]{24}\.(?:jpg|png|gif|webp|avif))/g;
 export const mediaKeys = (row: Pick<CapacitiesPostRow, "image_key" | "body_html">) =>
     [...new Set([...(row.image_key ? [row.image_key] : []), ...[...row.body_html.matchAll(MEDIA_KEY)].map((m) => m[1])])].sort();
 
-/**
- * Copies a live Capacities article into the archive. `replacedBy` marks it as handed to an Amplenote
- * note. A statement, so callers can make it part of a larger atomic batch.
- */
-export const archiveStatement = (env: Env, row: CapacitiesPostRow, redirects: string[], actor: string, replacedBy: string | null = null) => {
+/** Copies a live Capacities article into the archive. A statement, so callers can make it part of a larger atomic batch. */
+const archiveStatement = (env: Env, row: CapacitiesPostRow, redirects: string[], actor: string) => {
     const ts = nowIso();
     const columns = POST_COLUMNS.join(", ");
     const updates = [...POST_COLUMNS.filter((c) => c !== "id"), "redirects", "media_keys", "archived_at", "archived_by"]
@@ -85,9 +82,9 @@ export const archiveStatement = (env: Env, row: CapacitiesPostRow, redirects: st
         .join(", ");
     return env.DB.prepare(
         `INSERT INTO capacities_archive (${columns}, redirects, media_keys, archived_at, archived_by, replaced_by, replaced_at)
-         SELECT ${columns}, ?2, ?3, ?4, ?5, ?6, CASE WHEN ?6 IS NULL THEN NULL ELSE ?4 END FROM posts WHERE id = ?1 AND source = 'capacities'
-         ON CONFLICT(id) DO UPDATE SET ${updates}, replaced_by = excluded.replaced_by, replaced_at = excluded.replaced_at`,
-    ).bind(row.id, JSON.stringify(redirects), JSON.stringify(mediaKeys(row)), ts, actor, replacedBy);
+         SELECT ${columns}, ?2, ?3, ?4, ?5, NULL, NULL FROM posts WHERE id = ?1 AND source = 'capacities'
+         ON CONFLICT(id) DO UPDATE SET ${updates}, replaced_by = NULL, replaced_at = NULL`,
+    ).bind(row.id, JSON.stringify(redirects), JSON.stringify(mediaKeys(row)), ts, actor);
 };
 
 const livePosts = async (env: Env) =>
@@ -209,48 +206,4 @@ export async function archiveCapacities(env: Env, actor: string): Promise<Capaci
         summary: `Archived ${statements.length} Capacities article(s); ${status.totals.images} image(s) checked, ${status.totals.missingImages ?? 0} missing from R2`,
     }).run();
     return status;
-}
-
-/**
- * Puts a Capacities article back at its address after it was handed to an Amplenote note: the
- * archived copy becomes the live post again (as it was), its own old addresses redirect to it, and
- * the note goes back to waiting for approval. One atomic batch.
- */
-export async function undoReplacement(env: Env, uuid: string, actor: string, amplenotePostId: string) {
-    const row = await env.DB.prepare("SELECT id, slug, title, redirects FROM capacities_archive WHERE replaced_by = ?")
-        .bind(uuid)
-        .first<{ id: string; slug: string; title: string; redirects: string }>();
-    if (!row) return false;
-    const ownRedirects = JSON.parse(row.redirects) as string[];
-    const columns = POST_COLUMNS.join(", ");
-    const ts = nowIso();
-    const marks = ownRedirects.map(() => "?").join(", ");
-    await env.DB.batch([
-        env.DB.prepare("DELETE FROM posts WHERE id = ? AND source = 'amplenote'").bind(amplenotePostId),
-        env.DB.prepare(`INSERT INTO posts (${columns}, source) SELECT ${columns}, 'capacities' FROM capacities_archive WHERE id = ?`).bind(row.id),
-        // The note's own old addresses go with it; the article's own come back to it.
-        env.DB.prepare(`DELETE FROM slug_redirects WHERE post_id = ?${ownRedirects.length ? ` AND from_slug NOT IN (${marks})` : ""}`).bind(
-            amplenotePostId,
-            ...ownRedirects,
-        ),
-        env.DB.prepare("UPDATE slug_redirects SET post_id = ? WHERE post_id = ?").bind(row.id, amplenotePostId),
-        env.DB.prepare("UPDATE capacities_archive SET replaced_by = NULL, replaced_at = NULL WHERE id = ?").bind(row.id),
-        env.DB.prepare(
-            `UPDATE amplenote_articles SET replace_slug = NULL, replace_approved_by = NULL, replace_approved_at = NULL, slug = NULL, content_hash = NULL,
-                state = CASE WHEN state = 'published' THEN 'withdrawn' ELSE state END,
-                reason = 'Replacement undone: the Capacities article is back at its address', updated_at = ?
-             WHERE uuid = ?`,
-        ).bind(ts, uuid),
-        env.DB.prepare("INSERT INTO meta (key, value) VALUES ('content_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(
-            String(Date.now()),
-        ),
-        auditStatement(env.DB, {
-            actor,
-            action: "website.capacities.restore",
-            entityType: "website",
-            entityId: row.id,
-            summary: `Restored the Capacities article at /blog/${row.slug} (undid its replacement by an Amplenote note)`,
-        }),
-    ]);
-    return true;
 }

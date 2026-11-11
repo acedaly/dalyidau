@@ -1,4 +1,4 @@
-// Shared helpers for the operations scripts (config checks, backups, verification, staging seed).
+// Shared helpers for the operations scripts (config checks, backups, verification).
 // They shell out to Wrangler, which uses your own Cloudflare login. Nothing here prints secret values.
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
@@ -146,99 +146,9 @@ export const INTEGRITY_CHECKS = [
         sql: "SELECT rsvp_code FROM households WHERE length(rsvp_code) < 6 OR rsvp_code GLOB '*[^A-Z0-9]*' LIMIT 20",
         level: "fail",
     },
-    // Daly Knowledge and Daly Tasks are retired, but their records stay until the owner approves the
-    // cleanup (docs/DECOMMISSION_KNOWLEDGE_TASKS.md). Nothing writes to them any more, so these checks
-    // now confirm they're still as they were left.
-    {
-        name: "Knowledge documents and properties are valid JSON",
-        sql: "SELECT id FROM knowledge_objects WHERE json_valid(content_json) = 0 OR json_valid(properties_json) = 0 LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Every knowledge space has an owner",
-        sql: "SELECT s.id FROM knowledge_spaces s WHERE NOT EXISTS (SELECT 1 FROM knowledge_memberships m WHERE m.space_id = s.id AND m.role = 'owner') LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Rebuild with VIRTUAL_TABLE_REBUILDS (scripts/lib/virtual-tables.mjs) if this ever fails.
-        name: "The knowledge search index covers every object",
-        sql: "SELECT o.id FROM knowledge_objects o LEFT JOIN knowledge_fts f ON f.rowid = o.search_rowid WHERE f.rowid IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        name: "Knowledge templates and saved views are valid JSON",
-        sql: "SELECT id FROM knowledge_templates WHERE json_valid(content_json) = 0 OR json_valid(properties_json) = 0 UNION ALL SELECT id FROM knowledge_saved_views WHERE json_valid(definition_json) = 0 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Never shown (every read joins membership), and removed with the membership; any left are stale.
-        name: "Knowledge favourites belong to current members",
-        sql: "SELECT f.object_id FROM knowledge_favourites f LEFT JOIN knowledge_memberships m ON m.space_id = f.space_id AND m.email = f.email WHERE m.email IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        name: "Every Tasks project has an owner, and personal projects only their owner",
-        sql: "SELECT p.id FROM task_projects p WHERE NOT EXISTS (SELECT 1 FROM task_project_members m WHERE m.project_id = p.id AND m.role = 'owner') OR (p.kind = 'personal' AND (SELECT COUNT(*) FROM task_project_members m WHERE m.project_id = p.id) <> 1) LIMIT 20",
-        level: "fail",
-    },
-    {
-        // depth is maintained by the Worker; a subtask is always one level below its parent, in the same project.
-        name: "Subtasks sit one level below a parent in the same project",
-        sql: "SELECT c.id FROM task_items c JOIN task_items p ON p.id = c.parent_id WHERE c.depth <> p.depth + 1 OR c.project_id <> p.project_id OR c.section_id IS NOT p.section_id LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Repeating tasks have a valid rule and a date",
-        sql: "SELECT id FROM task_items WHERE recurrence_json IS NOT NULL AND (json_valid(recurrence_json) = 0 OR json_extract(recurrence_json, '$.anchor') IS NULL OR due_date IS NULL) LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Never shown (every read joins membership); removing a member deletes them. Any left are stale.
-        name: "Task reminders belong to current project members",
-        sql: "SELECT r.id FROM task_reminders r JOIN task_items t ON t.id = r.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = r.owner_email WHERE m.email IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        // Only shared projects share templates (Daly Tasks checked this on every write while it ran).
-        name: "Shared task templates belong to shared projects",
-        sql: "SELECT t.id FROM task_templates t JOIN task_projects p ON p.id = t.shared_project_id WHERE p.kind <> 'shared' LIMIT 20",
-        level: "warn",
-    },
-    {
-        // Exceptions are later occurrences of a repeat; one left on a task that no longer repeats is harmless but stale.
-        name: "Repeat exceptions belong to repeating tasks",
-        sql: "SELECT e.task_id FROM task_recurrence_exceptions e JOIN task_items t ON t.id = e.task_id WHERE t.recurrence_json IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        // A claim older than an hour means a delivery run died part-way; the next run takes it over.
-        name: "No reminder emails stuck mid-delivery",
-        sql: "SELECT id FROM task_reminders WHERE delivery_status = 'pending' AND claimed_at IS NOT NULL AND claimed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') LIMIT 20",
-        level: "warn",
-    },
-    {
-        // Milestone 3: a goal is reached only through its members, so it must always have an owner.
-        name: "Every goal has an owner, and personal goals only their owner",
-        sql: "SELECT g.id FROM task_goals g WHERE NOT EXISTS (SELECT 1 FROM task_goal_members m WHERE m.goal_id = g.id AND m.role = 'owner') OR (g.kind = 'personal' AND (SELECT COUNT(*) FROM task_goal_members m WHERE m.goal_id = g.id) <> 1) LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Triggers refuse these on insert; a project made personal since would be removed from shared goals by the Worker.
-        name: "Shared goals draw only on shared projects",
-        sql: "SELECT l.id FROM task_goal_links l JOIN task_goals g ON g.id = l.goal_id AND g.kind = 'shared' LEFT JOIN task_projects p ON p.id = l.project_id LEFT JOIN task_items t ON t.id = l.task_id LEFT JOIN task_projects tp ON tp.id = t.project_id WHERE p.kind = 'personal' OR tp.kind = 'personal' LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Routines are built on repeating top-level tasks",
-        sql: "SELECT r.id FROM task_routines r JOIN task_items t ON t.id = r.task_id WHERE t.recurrence_json IS NULL OR t.parent_id IS NOT NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        // Leaving a project, or being made a viewer, removes someone from its routines' turns in the same batch.
-        name: "People taking turns can be assigned in the routine's project",
-        sql: "SELECT rp.routine_id FROM task_routine_participants rp JOIN task_routines r ON r.id = rp.routine_id JOIN task_items t ON t.id = r.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = rp.email AND m.role <> 'viewer' WHERE m.email IS NULL LIMIT 20",
-        level: "warn",
-    },
+    // The applications retired on 9 Nov 2026 (docs/DECOMMISSION_PORTAL_APPS.md): nothing writes their
+    // tables any more, so these confirm they're still as they were left, until the owner approves
+    // dropping them (docs/pending/0033_drop_retired_portal_app_tables.sql).
     {
         // Daly Calendar (0022): every calendar reachable by its owner, subscriptions only on subscription calendars.
         name: "Every calendar has an owner member, and each subscription has a subscription calendar",
@@ -258,8 +168,8 @@ export const INTEGRITY_CHECKS = [
     },
     {
         // Today (0024): preferences and reviews are JSON the Worker validates; a damaged one falls back to defaults.
-        name: "Today preferences and reviews are valid JSON",
-        sql: "SELECT email FROM today_preferences WHERE json_valid(value) = 0 UNION ALL SELECT email FROM daily_reviews WHERE json_valid(priorities) = 0 OR json_valid(summary) = 0 LIMIT 20",
+        name: "Today preferences are valid JSON",
+        sql: "SELECT email FROM today_preferences WHERE json_valid(value) = 0 LIMIT 20",
         level: "fail",
     },
     {
@@ -286,15 +196,8 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
-        // Daily Planner (0023): triggers remove blocks when someone leaves a project or a task moves.
-        // A row here is a block whose owner was since made a viewer (the planner already hides those).
-        name: "Time blocks belong to people who can still work on their task",
-        sql: "SELECT b.id FROM task_time_blocks b JOIN task_items t ON t.id = b.task_id LEFT JOIN task_project_members m ON m.project_id = t.project_id AND m.email = b.owner_email AND m.role <> 'viewer' WHERE b.status = 'scheduled' AND m.email IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
         name: "Intelligence settings and preferences are valid JSON",
-        sql: "SELECT key FROM ai_config WHERE json_valid(value) = 0 UNION ALL SELECT email FROM ai_preferences WHERE json_valid(value) = 0 UNION ALL SELECT id FROM ai_suggestions WHERE json_valid(payload) = 0 LIMIT 20",
+        sql: "SELECT key FROM ai_config WHERE json_valid(value) = 0 UNION ALL SELECT email FROM ai_preferences WHERE json_valid(value) = 0 LIMIT 20",
         level: "fail",
     },
     {
@@ -304,76 +207,9 @@ export const INTEGRITY_CHECKS = [
         level: "fail",
     },
     {
-        name: "Knowledge attachments point at objects that still exist",
-        sql: "SELECT a.id FROM attachments a LEFT JOIN knowledge_objects o ON o.id = a.object_id WHERE a.purpose = 'knowledge' AND a.status <> 'deleted' AND o.id IS NULL LIMIT 20",
-        level: "warn",
-    },
-    {
-        // A claim this old belongs to a runner that died; the next cron run takes it over.
-        name: "No Intelligence jobs stuck mid-run",
-        sql: "SELECT id FROM ai_jobs WHERE status = 'running' AND claimed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') LIMIT 20",
-        level: "warn",
-    },
-    {
         name: "Budget amounts are not negative",
         sql: "SELECT id FROM budget_items WHERE estimated_cents < 0 OR paid_cents < 0 OR COALESCE(actual_cents, 0) < 0 LIMIT 20",
         level: "fail",
-    },
-    {
-        // Kept in step by the Worker: a private asset has no shares, a household one has the household row.
-        name: "Home & Assets sharing matches each asset's visibility",
-        sql: "SELECT a.id FROM assets a WHERE (a.visibility = 'private' AND EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id)) OR (a.visibility = 'household' AND NOT EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id AND s.email = '*')) OR (a.visibility = 'selected' AND EXISTS (SELECT 1 FROM asset_shares s WHERE s.asset_id = a.id AND s.email = '*')) LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Nobody holds a share of an asset they own",
-        sql: "SELECT s.asset_id FROM asset_shares s JOIN assets a ON a.id = s.asset_id WHERE lower(s.email) = lower(a.owner_email) LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Home & Assets files are under private/assets/ and belong to at most one record",
-        sql: "SELECT id FROM asset_files WHERE r2_key NOT LIKE 'private/assets/%' OR ((asset_id IS NOT NULL) + (location_id IS NOT NULL) + (policy_id IS NOT NULL)) > 1 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Worked out from the schedule's own rule (src/shared/assets/engine.ts, retired with Home & Assets); stale only if a write was interrupted.
-        name: "Maintenance schedules have an interval",
-        sql: "SELECT id FROM asset_schedules WHERE interval_count IS NULL AND interval_km IS NULL LIMIT 20",
-        level: "fail",
-    },
-    {
-        name: "Each maintenance schedule has at most one open record",
-        sql: "SELECT schedule_id FROM asset_maintenance WHERE schedule_id IS NOT NULL AND status IN ('open', 'requested', 'scheduled', 'in_progress') GROUP BY schedule_id HAVING COUNT(*) > 1 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // A claim left by an interrupted request; the next attempt clears it after two minutes.
-        name: "No stale Home & Assets task claims",
-        sql: "SELECT id FROM asset_task_links WHERE task_id LIKE 'pending_%' AND created_at < datetime('now', '-1 hour') LIMIT 20",
-        level: "warn",
-    },
-    {
-        name: "Home & Assets JSON columns are valid",
-        sql: "SELECT id FROM assets WHERE json_valid(tags) = 0 OR json_valid(custom) = 0 OR json_valid(depreciation) = 0 UNION ALL SELECT asset_id FROM asset_vehicles WHERE json_valid(specs) = 0 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // The unique index already refuses these; a hit means the index itself was lost.
-        name: "No transaction is in the ledger twice (Household Finance)",
-        sql: "SELECT account_id FROM finance_transactions WHERE deleted_at IS NULL GROUP BY account_id, fingerprint HAVING COUNT(*) > 1 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Both sides of a transfer point at it, are live and are marked as transfers.
-        name: "Household Finance transfers link two live transactions",
-        sql: "SELECT tr.id FROM finance_transfers tr WHERE (SELECT COUNT(*) FROM finance_transactions t WHERE t.transfer_id = tr.id AND t.is_transfer = 1 AND t.deleted_at IS NULL AND t.id IN (tr.out_transaction_id, tr.in_transaction_id)) <> 2 LIMIT 20",
-        level: "fail",
-    },
-    {
-        // Set while a commit runs, for the length of one D1 batch; left behind only if a Worker died mid-commit.
-        name: "No Household Finance import is stuck mid-commit",
-        sql: "SELECT id FROM finance_imports WHERE status = 'committing' LIMIT 20",
-        level: "warn",
     },
 ];
 
@@ -400,8 +236,7 @@ export const TABLES = [
     "media",
     "entity_cache",
     "sync_runs",
-    // Blog publishing from Amplenote (0028) and the Capacities archive (0029).
-    "amplenote_articles",
+    // The Capacities archive (0029).
     "capacities_archive",
     "meta",
     "portal_users",
@@ -423,58 +258,19 @@ export const TABLES = [
     "timeline_items",
     "suppliers",
     "budget_items",
-    "knowledge_spaces",
-    "knowledge_memberships",
-    "knowledge_object_types",
-    "knowledge_objects",
-    "knowledge_revisions",
-    "knowledge_relations",
-    "knowledge_tags",
-    "knowledge_object_tags",
-    "knowledge_audit",
-    "knowledge_collections",
-    "knowledge_collection_items",
-    "knowledge_pins",
-    "knowledge_favourites",
-    "knowledge_saved_views",
-    "knowledge_templates",
-    // Daly Tasks (0015–0017): counted before the export and compared after the test restore.
-    "task_projects",
-    "task_project_members",
-    "task_sections",
-    "task_items",
-    "task_completions",
-    "task_comments",
-    "task_knowledge_links",
-    "task_reminders",
-    "task_templates",
-    "task_project_reviews",
-    "task_project_knowledge_links",
-    "task_goals",
-    "task_goal_members",
-    "task_goal_links",
-    "task_goal_milestones",
-    "task_goal_progress",
-    "task_routines",
-    "task_routine_participants",
-    // The MCP gateway's write ledger (0018).
+    // From here on, the tables of the applications retired on 9 Nov 2026 (docs/DECOMMISSION_PORTAL_APPS.md),
+    // still backed up and counted until the owner approves dropping them (docs/pending/0033), and the
+    // retired Home & Assets' `assets` and Knowledge's `attachments` (their other tables are in the held-back docs/pending/0032).
+    "assets",
+    // Amplenote publishing (0028) and the MCP gateway's write ledger (0018).
+    "amplenote_articles",
     "mcp_writes",
-    // DalyHub migration provenance (0019).
-    "dalyhub_import_runs",
-    "dalyhub_import_items",
-    // Daly Intelligence (0021). ai_semantic_index is derived (Vectorize is rebuilt from Knowledge)
-    // but is an ordinary table, so it's backed up and counted like the rest.
+    // Daly Intelligence (0021).
     "ai_config",
     "ai_preferences",
-    "ai_exclusions",
     "ai_usage",
     "ai_alerts",
     "ai_jobs",
-    "ai_semantic_index",
-    "ai_captures",
-    "ai_transcripts",
-    "ai_transcript_parts",
-    "ai_suggestions",
     "ai_briefings",
     "attachments",
     // Daly Calendar and the Leave Planner (0022).
@@ -483,7 +279,6 @@ export const TABLES = [
     "calendar_members",
     "calendar_events",
     "calendar_event_overrides",
-    "calendar_event_links",
     "calendar_reminders",
     "calendar_notifications",
     "calendar_subscriptions",
@@ -496,13 +291,9 @@ export const TABLES = [
     "leave_scenarios",
     "leave_bookings",
     "leave_shares",
-    // The Daily Planner (0023).
+    // The Daily Planner's planning hours (0023) and Today (0024).
     "planner_preferences",
-    "task_estimates",
-    "task_time_blocks",
-    // Today (0024).
     "today_preferences",
-    "daily_reviews",
     // Intelligence Centre (0025). Public records can be collected again; watch areas, alerts,
     // preferences, wallboards and display credentials (hashes only) can't.
     "ic_sources",
@@ -530,15 +321,4 @@ export const TABLES = [
     "ic_wallboard_views",
     "ic_event_links",
     "ic_cache",
-    // Household Finance (0031). Exists only in D1: accounts, the ledger, imports and their rows,
-    // transfers, reconciliations, categories and history can't be rebuilt from anywhere else.
-    "finance_accounts",
-    "finance_categories",
-    "finance_imports",
-    "finance_import_rows",
-    "finance_transfers",
-    "finance_transactions",
-    "finance_transfer_dismissals",
-    "finance_reconciliations",
-    "finance_activity",
 ];

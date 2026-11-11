@@ -8,7 +8,7 @@ import { type ApplicationId, applicationById, canAccessApplication } from "./app
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "calendar", "intelligence", "website", "security", "privacy"] as const;
+export const PORTAL_SETTINGS_TABS = ["general", "access", "features", "website", "security", "privacy"] as const;
 export type PortalSettingsTab = (typeof PORTAL_SETTINGS_TABS)[number];
 
 export interface PortalSettingsSection {
@@ -23,23 +23,12 @@ export const PORTAL_SETTINGS_SECTIONS: Record<PortalSettingsTab, PortalSettingsS
     general: { label: "General", description: "Who you're signed in as, and how the portal looks on this device." },
     access: { label: "Household & Access", description: "Roles, what each role can open, and the people who can sign in." },
     features: { label: "Features", description: "Switches that turn parts of the portal on or off for everyone. Every change is audited." },
-    calendar: {
-        label: "Calendar & Subscriptions",
-        description: "Private subscription addresses, reminder emails, and where each person's calendar settings live.",
-        applications: ["calendar"],
-    },
-    intelligence: {
-        label: "Intelligence",
-        description: "Where Daly Intelligence's AI settings, budget and briefing preferences live.",
-        applications: ["intelligence"],
-    },
     website: {
         label: "Website & Blog",
-        description:
-            "Publishing blog articles from Amplenote (the plugin, the Amplenote API connection and what each tagged note is doing) and the archived Capacities articles.",
+        description: "The blog's articles from Capacities: whether Capacities sync is on, and the copy of every article kept in Cloudflare.",
         permission: "portal.settings.manage",
     },
-    security: { label: "Integrations & Security", description: "Sign-in, email and SMS providers, AI assistant access and the audit log." },
+    security: { label: "Integrations & Security", description: "Sign-in, email and SMS providers and the audit log." },
     privacy: { label: "Privacy", description: "Deleted guest records and retention.", permission: "wedding.guests.edit" },
 };
 
@@ -65,45 +54,30 @@ export const SETTINGS_REDIRECTS: Record<string, string> = {
     "/portal/settings/people": "/portal/settings/access",
     "/portal/settings/fields": "/portal/wedding/settings/fields",
     "/portal/wedding/settings/features": "/portal/settings/features#features-wedding",
-    // Daly Knowledge and Daly Tasks were retired; their sections went with them.
-    "/portal/settings/knowledge": "/portal/settings/intelligence",
+    // Retired applications' sections went with them (docs/DECOMMISSION_KNOWLEDGE_TASKS.md, DECOMMISSION_PORTAL_APPS.md).
+    "/portal/settings/knowledge": "/portal/settings",
     "/portal/settings/tasks": "/portal/settings",
+    "/portal/settings/calendar": "/portal/settings",
+    "/portal/settings/intelligence": "/portal/settings",
 };
 
 // --- Feature switches by area ----------------------------------------------------------------------
 
-export const FEATURE_AREAS = ["portal", "wedding", "calendar", "centre", "website"] as const;
+export const FEATURE_AREAS = ["wedding", "website"] as const;
 export type FeatureArea = (typeof FEATURE_AREAS)[number];
 
-/** An area belongs to an application, or (for the portal as a whole and the public website, which aren't one) needs a permission. */
+/** An area belongs to an application, or (for the public website, which isn't one) needs a permission. */
 export type FeatureAreaDetails = { label: string; description: string } & ({ application: ApplicationId } | { permission: Permission });
 
 export const FEATURE_AREA_DETAILS: Record<FeatureArea, FeatureAreaDetails> = {
-    portal: {
-        label: "Portal",
-        description: "Which applications the sidebar and the application launcher list. Hidden applications keep their addresses, data and AI assistant tools.",
-        permission: "portal.settings.manage",
-    },
     wedding: {
         label: "Wedding Planner",
         description: "The public website and Save the Date page, native RSVP, guest email and SMS, and which Wedding Planner modules are on.",
         application: "wedding",
     },
-    calendar: {
-        label: "Calendar & Subscriptions",
-        description: "Private subscription addresses and reminder emails. Each person still chooses their own notifications in Calendar → Settings.",
-        application: "calendar",
-    },
-    centre: {
-        label: "Intelligence Centre",
-        description:
-            "Collecting public hazard data, alert emails and wallboard displays. Which sources are collected is chosen in Intelligence Centre → Sources.",
-        application: "intelligence-centre",
-    },
     website: {
         label: "Website & Blog",
-        description:
-            "Where blog articles come from. Amplenote is the publishing source; Capacities can only be kept in sync or archived. Details in Portal settings → Website & Blog.",
+        description: "Whether the blog keeps in sync with Capacities. Details in Portal settings → Website & Blog.",
         permission: "portal.settings.manage",
     },
 };
@@ -126,18 +100,7 @@ export const FLAG_AREAS: Record<FlagKey, FeatureArea> = {
     "module.communications": "wedding",
     "module.planning": "wedding",
     "module.budget": "wedding",
-    "portal.other_applications": "portal",
-    "calendar.feeds": "calendar",
-    "calendar.reminders.email": "calendar",
-    "intelligence_centre.ingestion": "centre",
-    "intelligence_centre.alerts.email": "centre",
-    "intelligence_centre.wallboard": "centre",
-    "intelligence_centre.history": "centre",
-    "intelligence_centre.rules": "centre",
-    "intelligence_centre.reports": "centre",
-    "intelligence_centre.assistant": "centre",
     "website.capacities.sync": "website",
-    "website.amplenote.assistant": "website",
 };
 
 export const flagsInArea = (area: FeatureArea): FlagKey[] => FLAG_KEYS.filter((key) => FLAG_AREAS[key] === area);

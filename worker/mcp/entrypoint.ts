@@ -8,31 +8,25 @@
 // The gateway's word is not taken for who is calling. It hands over the caller's Cloudflare Access
 // token as it received it, and this side verifies that token again (signature, issuer, the MCP
 // application's audience, expiry, email) and then applies the portal's own rules: the person's
-// portal role and permissions, then calendar or watch-area access on every record. A service binding
+// portal role and permissions on every record. A service binding
 // can't be reached from the internet, but any Worker on the account could bind to it, so nothing
 // here trusts the caller beyond what the token proves.
 //
 // Results come back as { ok, data } or { ok: false, error }, never as thrown exceptions, so the
 // gateway can tell "not found" from "the portal is down" and never reports a failure as an empty
 // list.
+//
+// Since Daly Calendar, Today, Daly Intelligence, the Intelligence Centre and Amplenote were retired
+// (docs/DECOMMISSION_PORTAL_APPS.md) the portal serves no tools: every call is refused, as
+// "retired" for a tool that used to exist and "unknown_tool" otherwise, after the caller is verified.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZodError } from "zod";
-import { AmplenoteUncertain, AmplenoteUnsupported } from "../amplenote/assistant";
-import { EventConflict } from "../calendar/events";
 import type { Env } from "../env";
 import { verifyMcpAssertion } from "../portal/access";
 import { can, userForEmail } from "../portal/auth";
 import { HttpError } from "../portal/http";
-import { AMPLENOTE_TOOLS } from "./amplenote";
-import { CALENDAR_TOOLS } from "./calendar";
-import { CENTRE_TOOLS } from "./centre";
-import { CENTRE_HISTORY_TOOLS } from "./centre-history";
-import { CHIEF_TOOLS } from "./chief";
-import { INTELLIGENCE_TOOLS } from "./intelligence";
-import { claimWrite, failWrite, holdWrite, settleWrite } from "./ledger";
 import { RETIRED_MCP_TOOLS, retiredMcpMessage } from "./retired";
 import type { ToolContext, ToolDef } from "./shared";
-import { TODAY_TOOLS } from "./today";
 
 export interface PortalMcpRequest {
     /** The Cf-Access-Jwt-Assertion the gateway received from Cloudflare Access, unchanged. */
@@ -42,30 +36,13 @@ export interface PortalMcpRequest {
 }
 
 export type PortalMcpErrorCode =
-    | "unauthenticated"
-    | "forbidden"
-    | "not_found"
-    | "validation"
-    | "conflict"
-    | "in_progress"
-    | "request_id_reused"
-    | "unknown_tool"
-    | "retired"
-    | "too_large"
-    | "unavailable";
+    "unauthenticated" | "forbidden" | "not_found" | "validation" | "conflict" | "unknown_tool" | "retired" | "too_large" | "unavailable";
 
 export type PortalMcpResponse =
     { ok: true; data: Record<string, unknown> } | { ok: false; error: { code: PortalMcpErrorCode; message: string; details?: Record<string, unknown> } };
 
-export const PORTAL_MCP_TOOLS: ToolDef[] = [
-    ...CHIEF_TOOLS,
-    ...INTELLIGENCE_TOOLS,
-    ...CALENDAR_TOOLS,
-    ...TODAY_TOOLS,
-    ...CENTRE_TOOLS,
-    ...CENTRE_HISTORY_TOOLS,
-    ...AMPLENOTE_TOOLS,
-];
+/** The tools the portal serves: none since docs/DECOMMISSION_PORTAL_APPS.md. Every one is a read. */
+export const PORTAL_MCP_TOOLS: ToolDef[] = [];
 const TOOLS = new Map(PORTAL_MCP_TOOLS.map((t) => [t.name, t]));
 /** Tool arguments are small; anything bigger than this is refused before it is parsed. */
 const MAX_INPUT_BYTES = 64_000;
@@ -77,11 +54,6 @@ const fail = (code: PortalMcpErrorCode, message: string, details?: Record<string
 
 /** Turns whatever a tool threw into an answer the AI client can act on, without leaking internals. */
 export function toFailure(error: unknown): PortalMcpResponse {
-    if (error instanceof EventConflict)
-        return fail("conflict", error.message, { current: { version: error.current.version, updatedAt: error.current.updatedAt } });
-    if (error instanceof AmplenoteUnsupported) return fail("validation", error.message, { unsupported: error.unsupported });
-    // Amplenote may have carried the write out: say so, rather than the generic "nothing was assumed".
-    if (error instanceof AmplenoteUncertain) return fail("unavailable", error.message, { outcome: "unknown" });
     if (error instanceof ZodError) {
         const issues = error.issues.slice(0, 5).map((i) => ({ path: i.path.join("."), message: i.message }));
         return fail("validation", issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; "), { issues });
@@ -91,18 +63,12 @@ export function toFailure(error: unknown): PortalMcpResponse {
         // record's existence can't be probed from here either.
         if (error.status === 404) return fail("not_found", "Not found, or you don't have access to it.");
         if (error.status === 403) return fail("forbidden", error.message);
-        if (error.status === 409 && (error.code === "in_progress" || error.code === "request_id_reused")) return fail(error.code, error.message);
         if (error.status === 409) return fail("conflict", error.message);
         if (error.status === 413) return fail("too_large", error.message);
         if (error.status >= 400 && error.status < 500) return fail("validation", error.message);
     }
     return fail("unavailable", "Daly Portal couldn't complete that request. Nothing was assumed: try again, or check the portal.");
 }
-
-const requestKey = (input: unknown): string | null => {
-    const value = input && typeof input === "object" ? (input as { requestId?: unknown }).requestId : undefined;
-    return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value) ? value : null;
-};
 
 /**
  * Local development only, mirroring the portal's own dev sign-in (worker/portal/auth.ts): with
@@ -168,42 +134,13 @@ export async function handleMcpCall(env: Env, request: PortalMcpRequest): Promis
         return respond(toFailure(error));
     }
 
-    // 3. Reads run directly. Writes are claimed in the ledger first, for the audit trail and so a
-    //    retried request id returns the first result instead of writing twice.
-    if (!def.write) {
-        try {
-            return respond({ ok: true, data: (await def.run(ctx, input)).data });
-        } catch (error) {
-            if (!(error instanceof HttpError || error instanceof ZodError))
-                console.error(JSON.stringify({ event: "mcp_tool_error", tool: toolName, error: (error as Error)?.name }));
-            return respond(toFailure(error));
-        }
-    }
-
-    let claimId: string;
+    // 3. Run it. Every tool is a read.
     try {
-        const claim = await claimWrite(env.DB, user.email, def.name, requestKey(input));
-        if (claim.kind === "replay") {
-            const replay = def.replay ? await def.replay(ctx, claim.outcome) : { data: { replayed: true, ...claim.outcome } };
-            return respond({ ok: true, data: replay.data });
-        }
-        claimId = claim.id;
+        return respond({ ok: true, data: (await def.run(ctx, input)).data });
     } catch (error) {
-        return respond(toFailure(error));
-    }
-    try {
-        const result = await def.run(ctx, input);
-        if (result.outcome) await settleWrite(env.DB, claimId, result.outcome);
-        else await failWrite(env.DB, claimId, "no_outcome");
-        return respond({ ok: true, data: result.data });
-    } catch (error) {
-        const failure = toFailure(error);
-        if (!(error instanceof HttpError || error instanceof ZodError || failure.ok)) {
+        if (!(error instanceof HttpError || error instanceof ZodError))
             console.error(JSON.stringify({ event: "mcp_tool_error", tool: toolName, error: (error as Error)?.name }));
-        }
-        if (error instanceof AmplenoteUncertain) await holdWrite(env.DB, claimId).catch(() => undefined);
-        else await failWrite(env.DB, claimId, failure.ok ? "unknown" : failure.error.code).catch(() => undefined);
-        return respond(failure);
+        return respond(toFailure(error));
     }
 }
 

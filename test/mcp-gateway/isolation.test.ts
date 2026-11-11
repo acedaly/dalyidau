@@ -1,7 +1,8 @@
 // The gateway has no runtime dependency on DalyHub V2: not its Worker, its D1 database, its
 // ChiefOfStaffEntrypoint or any service binding. Proven three ways: the deployable configuration,
 // the source, and a full session run with every outbound request refused and nothing but the
-// PORTAL binding available. Also: rate limits, outages and logs. Every identity is fictional.
+// PORTAL binding available (which, since docs/DECOMMISSION_PORTAL_APPS.md, it no longer needs).
+// Also: rate limits and logs. Every identity is fictional.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import wranglerSource from "../../mcp/wrangler.jsonc?raw";
 import { OWNER, SECOND_OWNER, resetPortal } from "../portal-helpers";
@@ -43,7 +44,8 @@ describe("deployable configuration (mcp/wrangler.jsonc)", () => {
 
     it("binds only Daly Portal's PortalMcpEntrypoint, in every environment", () => {
         expect(environments.production.services).toEqual([{ binding: "PORTAL", service: "dalyidau", entrypoint: "PortalMcpEntrypoint" }]);
-        expect(environments.development.services).toEqual([{ binding: "PORTAL", service: "dalyidau-staging", entrypoint: "PortalMcpEntrypoint" }]);
+        // Locally, the portal's own Worker name (the staging Worker no longer exists).
+        expect(environments.development.services).toEqual([{ binding: "PORTAL", service: "dalyidau", entrypoint: "PortalMcpEntrypoint" }]);
     });
 
     it("has no database, storage, queue, Durable Object or other data binding", () => {
@@ -91,45 +93,24 @@ describe("source (mcp/src)", () => {
 });
 
 describe("running with DalyHub V2 and its database completely unavailable", () => {
-    it("serves a whole session (reads, writes, retries, briefings) with nothing but the PORTAL binding", async () => {
+    it("serves a whole session with nothing but the PORTAL binding", async () => {
         const env = gatewayEnv({ PORTAL: portalBinding() });
         // What the gateway is given is exactly its configuration: no DB, no DalyHub, nothing else.
         expect(Object.keys(env).sort()).toEqual(["AUTH_MODE", "ENVIRONMENT", "POLICY_AUD", "PORTAL", "TEAM_DOMAIN"]);
 
         const s = await session(OWNER, { env });
         expect(s.init.status).toBe(200);
-        expect(((await s.rpc("tools/list")).body.result as { tools: unknown[] }).tools).toHaveLength(56);
-        const event = (
-            await s.ok<{ event: { id: string } }>("calendar_create_event", { title: "Renew passport", startDate: "2030-03-01", requestId: "isolation-0001" })
-        ).event;
-        const again = await s.ok<{ event: { id: string } }>("calendar_create_event", {
-            title: "Renew passport",
-            startDate: "2030-03-01",
-            requestId: "isolation-0001",
-        });
-        expect(again.event.id).toBe(event.id);
-        await s.ok("today_get_summary");
-        await s.ok("chief_of_staff_daily_context");
-        await s.ok("chief_of_staff_weekly_context");
+        for (const tool of ["calendar_create_event", "today_get_summary", "chief_of_staff_daily_context"])
+            expect((await s.tool(tool, { title: "x", startDate: "2030-03-01" })).data.error?.code, tool).toBe("retired");
 
         // The only network request was for the Access signing keys.
         expect(new Set(outbound)).toEqual(new Set([CERTS_URL]));
     });
 
-    it("reports the portal being unreachable as unavailable, never as an empty result", async () => {
-        const env = gatewayEnv({ PORTAL: { invoke: () => Promise.reject(new Error("service binding failed")) } });
-        const s = await session(OWNER, { env });
-        for (const tool of ["calendar_list_calendars", "chief_of_staff_daily_context", "calendar_create_event"]) {
-            const answer = await s.tool(tool, tool === "calendar_create_event" ? { title: "x", startDate: "2030-03-01" } : {});
-            expect(answer.isError, tool).toBe(true);
-            expect(answer.data.error?.code, tool).toBe("unavailable");
-            expect(answer.data.error?.message).toContain("Do not treat this as an empty result");
-        }
-    });
-
-    it("treats a missing PORTAL binding (a misconfigured deploy) the same way", async () => {
+    it("doesn't need the PORTAL binding any more: without it (a misconfigured deploy) it still works", async () => {
         const s = await session(OWNER, { env: gatewayEnv({ PORTAL: undefined }) });
-        expect((await s.tool("calendar_list_calendars")).data.error?.code).toBe("unavailable");
+        expect(s.init.status).toBe(200);
+        expect((await s.tool("calendar_list_calendars")).data.error?.code).toBe("retired");
     });
 });
 
@@ -138,25 +119,12 @@ describe("rate limits, per person", () => {
         const MCP_CALLS = rateLimit(4);
         const env = gatewayEnv({ MCP_CALLS });
         const a = await session(OWNER, { env, sub: "subject-a" }); // initialize + initialized = 2
-        await a.ok("calendar_list_calendars"); // 3
-        await a.ok("calendar_list_calendars"); // 4
+        expect((await a.tool("calendar_list_calendars")).status).toBe(200); // 3
+        expect((await a.tool("calendar_list_calendars")).status).toBe(200); // 4
         expect((await a.tool("calendar_list_calendars")).status).toBe(429);
         const b = await session(SECOND_OWNER, { env, sub: "subject-b" });
         expect(b.init.status).toBe(200);
         expect((await b.tool("calendar_list_calendars")).status).toBe(200);
-    });
-
-    it("limits writes separately, refusing them as a tool error while reads continue", async () => {
-        const MCP_WRITES = rateLimit(2);
-        const binding = portalBinding();
-        const s = await session(OWNER, { env: gatewayEnv({ MCP_WRITES, PORTAL: binding }) });
-        await s.ok("calendar_create_event", { title: "One", startDate: "2030-03-01" });
-        await s.ok("calendar_create_event", { title: "Two", startDate: "2030-03-01" });
-        const third = await s.tool("calendar_create_event", { title: "Three", startDate: "2030-03-01" });
-        expect(third.isError).toBe(true);
-        expect(third.data.error?.code).toBe("rate_limited");
-        expect(binding.calls.filter((t) => t === "calendar_create_event")).toHaveLength(2);
-        await s.ok("calendar_list_calendars");
     });
 });
 
@@ -166,13 +134,12 @@ describe("logs", () => {
         for (const method of ["log", "info", "warn", "error"] as const)
             vi.spyOn(console, method).mockImplementation((...args) => void lines.push(args.map(String).join(" ")));
         const s = await session(OWNER);
-        await s.ok("calendar_create_event", { title: "Secret-surprise-party", description: "confidential-details", startDate: "2030-03-01" });
-        await s.ok("calendar_search_events", { query: "Secret-surprise-party" });
-        await s.tool("calendar_get_agenda", { date: "2030-03-01" });
+        await s.tool("calendar_create_event", { title: "Secret-surprise-party", description: "confidential-details", startDate: "2030-03-01" });
+        await s.tool("calendar_search_events", { query: "Secret-surprise-party" });
         await s.tool("tasks_get", { taskId: "tsk_aaaaaaaaaaaaaa" });
         await (await import("./helpers")).post({}, { token: "not-a-jwt" });
         const all = lines.join("\n");
         for (const secret of [OWNER, s.token, "Secret-surprise-party", "confidential-details"]) expect(all).not.toContain(secret);
-        expect(all).toContain("mcp_call");
+        expect(all).toContain("mcp_gateway_retired_tool");
     });
 });

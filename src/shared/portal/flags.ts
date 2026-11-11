@@ -1,5 +1,6 @@
 // Feature switches. Definitions live here so the worker and the browser agree on keys and
-// defaults; the feature_flags table only stores overrides. Defaults are chosen to fail closed:
+// defaults; the feature_flags table only stores overrides. Rows stored for a switch that no longer
+// exists (those of retired applications) are ignored when read. Defaults are chosen to fail closed:
 // anything public-facing or anything that contacts guests starts switched off.
 
 export const FLAG_DEFINITIONS = {
@@ -40,86 +41,9 @@ export const FLAG_DEFINITIONS = {
     "website.capacities.sync": {
         label: "Capacities sync",
         description:
-            "Check Capacities every 15 minutes and publish, update or unpublish its Blog Posts. Off means archived: articles already published from Capacities stay on the site exactly as stored in Cloudflare, nothing is requested from Capacities and nothing can unpublish them. Amplenote is the publishing source either way. Switch off before cancelling Capacities (docs/CAPACITIES_RETIREMENT.md).",
+            "Check Capacities every 15 minutes and publish, update or unpublish its Blog Posts. Off means archived: articles already published stay on the site exactly as stored in Cloudflare, nothing is requested from Capacities and nothing can unpublish them. Switch off before cancelling Capacities (docs/CAPACITIES_RETIREMENT.md).",
         default: false,
         group: "Blog",
-    },
-    "website.amplenote.assistant": {
-        label: "Amplenote for AI assistants",
-        description:
-            "Let the person who connected Amplenote list their note titles and add notes, text and tasks to Amplenote from Claude or ChatGPT (the amplenote_ tools at mcp.daly.id.au). Amplenote's API can't read note content, so assistants never see what's in a note. Reconnect Amplenote in Website & Blog after switching this on, so the connection also asks to add notes and content. While off, the tools refuse and the connection asks only to list notes.",
-        default: false,
-        group: "AI assistants",
-    },
-    "calendar.feeds": {
-        label: "Calendar subscription addresses",
-        description:
-            "Serve the private ICS addresses people create in Calendar → Calendars (for Apple Calendar, Outlook and Google Calendar). Anyone holding an address can read what it publishes, so it starts off. While off, every address answers 404; nothing is deleted.",
-        default: false,
-        group: "Calendar",
-    },
-    "calendar.reminders.email": {
-        label: "Calendar reminder emails",
-        description:
-            "Email Calendar reminders, upcoming leave, school holiday and subscription failure notices to people who turned on email in Calendar → Settings. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). While off, notifications appear only in the app.",
-        default: false,
-        group: "Calendar",
-    },
-    "intelligence_centre.ingestion": {
-        label: "Intelligence Centre collection",
-        description:
-            "Collect the public sources switched on in Intelligence Centre → Sources every 15 minutes (each at its own interval). While off, nothing is fetched from any provider; records already collected stay, marked with their age.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.alerts.email": {
-        label: "Intelligence Centre alert emails",
-        description:
-            "Email watch-area alerts and daily summaries to people who opted in for a watch area. Also needs an email provider configured on the Worker (EMAIL_DELIVERY). Never a replacement for official warnings, and delivery isn't guaranteed. While off, alerts are in the portal only.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.wallboard": {
-        label: "Wallboard displays",
-        description:
-            "Serve wallboards at /display to screens holding a display credential (created in Intelligence Centre → Wallboards). Each credential reads one wallboard and nothing else. While off, /display answers 404 and every credential is refused; nothing is deleted.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.history": {
-        label: "Intelligence Centre history recording",
-        description:
-            "Keep a versioned copy of each record's state at every collection, for incident timelines and historical replay. Records already collected when it's switched on start as a baseline: earlier states weren't kept. While off, nothing new is versioned; timelines show detected changes only and replay covers only the periods recorded.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.rules": {
-        label: "Intelligence Centre monitoring rules",
-        description:
-            "Evaluate everyone's monitoring rules after each collection and notify them of matches (in the portal; by email only with alert emails on too). Rules can be created and tested against history while it's off; nothing is evaluated on a schedule.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.reports": {
-        label: "Scheduled situation reports",
-        description:
-            "Generate scheduled daily and weekly situation reports. Reports can always be generated on demand. A scheduled report isn't regenerated when the facts haven't changed since the last one.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "intelligence_centre.assistant": {
-        label: "Intelligence Centre assistant (AI)",
-        description:
-            "Let the Intelligence Centre's assistant use Daly Intelligence to understand questions and write grounded answers from stored records. Also needs Daly Intelligence switched on. While off, the assistant answers from built-in question types without any model.",
-        default: false,
-        group: "Intelligence Centre",
-    },
-    "portal.other_applications": {
-        label: "Other applications in the portal",
-        description:
-            "List Today, Daly Calendar, Daly Intelligence and the Intelligence Centre in the sidebar and on the application launcher. While off, the portal shows only Wedding Planner; those applications' addresses, data and AI assistant (MCP) tools keep working for anyone who can use them.",
-        default: false,
-        group: "Navigation",
     },
     "module.communications": {
         label: "Communications module",

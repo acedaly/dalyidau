@@ -316,7 +316,6 @@ describe("communications", () => {
 
 describe("portal pages", () => {
     it.each([
-        "/portal",
         "/portal/wedding",
         "/portal/wedding/guests",
         "/portal/wedding/households",
@@ -335,8 +334,7 @@ describe("portal pages", () => {
         "/portal/settings",
         "/portal/settings/access",
         "/portal/settings/features",
-        "/portal/settings/calendar",
-        "/portal/settings/intelligence",
+        "/portal/settings/website",
         "/portal/settings/security",
         "/portal/settings/privacy",
         "/portal/audit",
@@ -357,12 +355,12 @@ describe("portal pages", () => {
         expect(renderPortalPage(html)).toMatch(/<h1[^>]*>/);
     });
 
-    it("serves the application launcher and 404s unknown pages", async () => {
+    it("opens on Wedding Planner and 404s unknown pages", async () => {
         const token = await accessToken();
         const root = await call("/portal", { token });
-        expect(root.status).toBe(200);
-        const html = renderPortalPage(await root.text());
-        expect(html).toContain("Applications");
+        expect(root.status).toBe(302);
+        expect(root.headers.get("Location")).toBe(`${ORIGIN}/portal/wedding`);
+        const html = renderPortalPage(await (await call("/portal/wedding", { token })).text());
         expect(html).toContain("Wedding Planner");
         expect(html).toContain('href="/portal/wedding"');
         expect((await call("/portal/wedding/nope", { token })).status).toBe(404);

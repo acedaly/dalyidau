@@ -9,19 +9,8 @@ import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/c
 import { SETTINGS_REDIRECTS } from "../src/shared/portal/settings-sections";
 import type { GuestInvitationPageData, PortalPageData, PortalUser, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
-import { INGEST_PATH, amplenoteCallback, handleIngest } from "./amplenote/api";
-import { CALLBACK_PATH as AMPLENOTE_CALLBACK_PATH } from "./amplenote/client";
-import { reconcile as reconcileAmplenote } from "./amplenote/publisher";
-import { serveFeed } from "./calendar/feeds";
-import { processCalendarNotifications } from "./calendar/notify";
-import { processDueSubscriptions } from "./calendar/subscriptions";
-import { serveTile, tilePath } from "./centre/basemap";
-import { displayStateKey, wallboardPayloadV2 } from "./centre/display";
-import { runCentreCron } from "./centre/ingest";
-import { DisplayRefused, authenticateDisplay, authenticateDisplayTiles, renewDisplayToken, wallboardPayload } from "./centre/wallboard";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
-import { runIntelligenceCron } from "./intelligence/runner";
 import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
@@ -34,6 +23,7 @@ import { loadFlags } from "./portal/flags";
 import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { loadPortalPage } from "./portal/pages";
 import { CREDENTIAL_PERMISSION, hideCredentials } from "./portal/redact";
+import { isRetiredPublicPath, retiredPublicResponse } from "./portal/retired";
 import { getSettings } from "./portal/settings";
 import { PostStore } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
@@ -66,38 +56,7 @@ export default {
 
     async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
-        // Amplenote publishing: the API's view and link checks. Does nothing until it's set up (docs/AMPLENOTE.md).
-        ctx.waitUntil(
-            reconcileAmplenote(env).then(
-                () => undefined,
-                (error) => console.error(JSON.stringify({ event: "amplenote_cron_error", message: (error as Error).message })),
-            ),
-        );
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
-        // Daly Calendar: subscription refreshes, then reminders and notices. Each failure stays contained.
-        ctx.waitUntil(
-            processDueSubscriptions(env)
-                .catch((error) => console.error(JSON.stringify({ event: "calendar_subscriptions_error", message: (error as Error).message })))
-                .then(() => processCalendarNotifications(env))
-                .then(
-                    () => undefined,
-                    (error) => console.error(JSON.stringify({ event: "calendar_notifications_error", message: (error as Error).message })),
-                ),
-        );
-        // Intelligence Centre: retention always; collecting public sources only with its switch on.
-        ctx.waitUntil(
-            runCentreCron(env).then(
-                () => undefined,
-                (error) => console.error(JSON.stringify({ event: "centre_cron_error", message: (error as Error).message })),
-            ),
-        );
-        // Daly Intelligence: retention always; scheduled briefings only when switched on.
-        ctx.waitUntil(
-            runIntelligenceCron(env).then(
-                () => undefined,
-                (error) => console.error(JSON.stringify({ event: "intelligence_cron_error", message: (error as Error).message })),
-            ),
-        );
     },
 };
 
@@ -117,7 +76,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     const weddingHasOwnHost = weddingUrl.hostname !== siteUrl.hostname;
     if (weddingHasOwnHost && url.hostname === weddingUrl.hostname) return weddingHost(request, env, url, weddingUrl);
     // Wedding Planner's own address (PLANNER_URL): the app and the wedding API, nothing else.
-    if (env.PLANNER_URL && url.hostname === new URL(env.PLANNER_URL).hostname) return plannerHost(request, env, ctx, url);
+    if (env.PLANNER_URL && url.hostname === new URL(env.PLANNER_URL).hostname) return plannerHost(request, env, url);
 
     const path = url.pathname;
 
@@ -132,25 +91,12 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
         });
     }
 
-    if (path.startsWith("/api/portal/")) return portalApi(request, env, ctx);
-    // Private calendar feeds for Apple Calendar, Outlook and Google Calendar: a token in the path,
-    // outside Cloudflare Access (calendar apps can't sign in). See worker/calendar/feeds.ts.
-    const feed = /^\/calendar\/feed\/([A-Za-z0-9_-]{1,64})\.ics$/.exec(path);
-    if (feed)
-        return request.method === "GET" || request.method === "HEAD"
-            ? serveFeed(env, feed[1])
-            : new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    if (path.startsWith("/api/portal/")) return portalApi(request, env);
+    // Retired addresses that never sat behind Cloudflare Access (calendar feeds, wallboard displays,
+    // the Amplenote plugin and its sign-in): a plain 410 that says only that they're retired.
+    if (isRetiredPublicPath(path)) return retiredPublicResponse();
     if (path.startsWith("/api/wedding/")) return weddingApi(request, env, url);
-    // Wallboard displays: a display credential, not Cloudflare Access (worker/centre/wallboard.ts).
-    if (path === "/api/display/wallboard") return displayApi(request, env);
-    if (path === "/api/display/renew") return displayRenew(request, env);
-    if (path.startsWith("/api/display/tiles/")) return displayTiles(request, env, path);
-    if (path === "/display") return displayPage(request, env, path);
     if (path.startsWith("/api/comms/webhooks/")) return handleCommsWebhook(request, env, url);
-    // The Amplenote plugin's reports: a bearer token, not Cloudflare Access (worker/amplenote/api.ts).
-    if (path === INGEST_PATH) return handleIngest(request, env);
-    // Amplenote's OAuth redirect (the address registered with Amplenote). See worker/amplenote/client.ts.
-    if (path === AMPLENOTE_CALLBACK_PATH) return amplenoteCallback(request, env);
     if (path.startsWith("/api/")) return api(request, env, url);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
 
@@ -245,13 +191,12 @@ const readFilters = (url: URL): BlogFilters => {
     };
 };
 
-type Area = "site" | "portal" | "wedding" | "display" | "planner";
+type Area = "site" | "portal" | "wedding" | "planner";
 
 const SHELL_FILES: Record<Area, string> = {
     site: "shell.html",
     portal: "shell-portal.html",
     wedding: "shell-wedding.html",
-    display: "shell-display.html",
     planner: "shell-planner.html",
 };
 const shellCache = new Map<Area, { html: string; version: string }>();
@@ -322,12 +267,17 @@ const PRIVATE_HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex,
 
 // --- Portal ---------------------------------------------------------------------------------------
 
+/** Where /portal goes: Wedding Planner, the portal's only application. */
+const PORTAL_HOME = "/portal/wedding";
+
 async function portalPage(request: Request, env: Env, url: URL): Promise<Response> {
     const auth = await authenticate(request, env);
     if (!auth.ok) return accessDenied(auth);
     const path = url.pathname;
-    // Old settings addresses. Checked after sign-in, so a redirect reveals nothing to strangers.
-    const moved = Object.hasOwn(SETTINGS_REDIRECTS, path) ? SETTINGS_REDIRECTS[path] : null;
+    // The portal opens on Wedding Planner (its application launcher was retired with the other
+    // applications, docs/DECOMMISSION_PORTAL_APPS.md), and old settings addresses move on. Checked
+    // after sign-in, so a redirect reveals nothing to strangers.
+    const moved = path === "/portal" ? PORTAL_HOME : Object.hasOwn(SETTINGS_REDIRECTS, path) ? SETTINGS_REDIRECTS[path] : null;
     if (moved) {
         const response = Response.redirect(`${url.origin}${moved}`, 302);
         const redirected = new Response(response.body, response);
@@ -372,9 +322,9 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
 const PLANNER_API = (path: string) => path.startsWith("/api/portal/wedding/") || path === "/api/portal/dashboard" || path === "/api/portal/me";
 
 /** weddingplanner.daly.id.au: the app at its root, behind its own Cloudflare Access destination. */
-async function plannerHost(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+async function plannerHost(request: Request, env: Env, url: URL): Promise<Response> {
     const path = url.pathname;
-    if (path.startsWith("/api/")) return PLANNER_API(path) ? portalApi(request, env, ctx) : apiJson({ error: "not_found" }, 404);
+    if (path.startsWith("/api/")) return PLANNER_API(path) ? portalApi(request, env) : apiJson({ error: "not_found" }, 404);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     if (path.length > 1 && path.endsWith("/")) return Response.redirect(`${url.origin}${path.replace(/\/+$/, "")}${url.search}`, 301);
     const auth = await authenticate(request, env);
@@ -434,7 +384,7 @@ async function plannerPage(env: Env, user: PortalUser, url: URL, base: string): 
     });
 }
 
-async function portalApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function portalApi(request: Request, env: Env): Promise<Response> {
     const auth = await authenticate(request, env);
     // The reason is logged, not returned: it would tell an attacker which check failed.
     if (!auth.ok) return apiJson({ error: auth.status === 401 ? "unauthenticated" : "forbidden" }, auth.status);
@@ -445,7 +395,7 @@ async function portalApi(request: Request, env: Env, ctx: ExecutionContext): Pro
         if (!auth.user.permissions.includes("wedding.rsvp.edit")) return apiJson({ error: "forbidden", message: "You can't test RSVPs" }, 403);
         return rsvpEndpoint(request, env, test[1] as "lookup" | "submit");
     }
-    return handlePortalApi(request, env, auth.user, ctx);
+    return handlePortalApi(request, env, auth.user);
 }
 
 /** Plain HTML, no app bundle: nothing about the portal is revealed to someone who isn't signed in. */
@@ -461,83 +411,6 @@ function accessDenied(auth: Extract<AuthResult, { ok: false }>): Response {
 <body><h1>Portal</h1><p>${escapeHtml(message)}</p><p><a href="/cdn-cgi/access/logout">Sign out</a> · <a href="/">Go to the homepage</a></p></body></html>`;
     return new Response(html, { status: auth.status, headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
 }
-
-// --- Wallboard displays ---------------------------------------------------------------------------
-
-const DISPLAY_HEADERS = { ...PRIVATE_HEADERS, "Referrer-Policy": "no-referrer" };
-
-/** The display's page: a static shell. The credential stays in the URL fragment, which never reaches the Worker. */
-async function displayPage(request: Request, env: Env, path: string): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-    if (!(await loadFlags(env.DB))["intelligence_centre.wallboard"]) return new Response("Not found", { status: 404, headers: DISPLAY_HEADERS });
-    return renderDocument(env, {
-        area: "display",
-        head: [`<title>Wallboard · ${escapeHtml(site.name)}</title>`, `<meta name="robots" content="noindex, nofollow">`].join("\n        "),
-        body: "",
-        data: null,
-        path,
-        status: 200,
-        headers: DISPLAY_HEADERS,
-    });
-}
-
-async function displayApi(request: Request, env: Env): Promise<Response> {
-    if (request.method !== "GET") return apiJson({ error: "method_not_allowed" }, 405);
-    try {
-        checkCrossSiteDisplay(request);
-        const { board, owner, expiresAt, renewable } = await authenticateDisplay(env, request);
-        // Wallboard 2.0 screens ask for version 2; a screen still running the earlier page keeps the payload it understands.
-        if (new URL(request.url).searchParams.get("v") !== "2")
-            return apiJson({ wallboard: await wallboardPayload(env, board, owner) }, 200, { "Referrer-Policy": "no-referrer" });
-        const stateKey = await displayStateKey(env.DB, board);
-        // Nothing that could change this board has changed since the screen's last refresh.
-        if (request.headers.get("If-None-Match") === `"${stateKey}"`)
-            return new Response(null, { status: 304, headers: { ...DISPLAY_HEADERS, ETag: `"${stateKey}"` } });
-        return apiJson({ wallboard: await wallboardPayloadV2(env, board, owner, { stateKey, expiresAt, renewable }) }, 200, {
-            "Referrer-Policy": "no-referrer",
-            ETag: `"${stateKey}"`,
-        });
-    } catch (error) {
-        // Every refusal looks the same: an unknown, revoked or expired credential, or the switch off.
-        if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
-        return errorResponse(error, "/api/display/wallboard");
-    }
-}
-
-/** A screen swapping its renewable credential for a new one near expiry (the new one is returned once). */
-async function displayRenew(request: Request, env: Env): Promise<Response> {
-    if (request.method !== "POST") return apiJson({ error: "method_not_allowed" }, 405);
-    try {
-        checkCrossSiteDisplay(request);
-        return apiJson(await renewDisplayToken(env, request), 200, { "Referrer-Policy": "no-referrer" });
-    } catch (error) {
-        if (error instanceof DisplayRefused) return apiJson({ error: error.status === 429 ? "rate_limited" : "not_found" }, error.status);
-        return errorResponse(error, "/api/display/renew");
-    }
-}
-
-/** Basemap tiles for a screen: its credential (in the Authorization header), never Cloudflare Access. */
-async function displayTiles(request: Request, env: Env, path: string): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") return apiJson({ error: "method_not_allowed" }, 405);
-    const tile = tilePath(path);
-    if (!tile || path !== `/api/display/tiles/${tile.z}/${tile.x}/${tile.y}.mvt`) return new Response("Not found", { status: 404, headers: DISPLAY_HEADERS });
-    try {
-        checkCrossSiteDisplay(request);
-        await authenticateDisplayTiles(env, request);
-        const response = await serveTile(env, request, tile.z, tile.x, tile.y);
-        response.headers.set("Referrer-Policy", "no-referrer");
-        return response;
-    } catch (error) {
-        if (error instanceof DisplayRefused) return new Response(null, { status: error.status, headers: DISPLAY_HEADERS });
-        return errorResponse(error, "/api/display/tiles");
-    }
-}
-
-/** Display data is only for the display page itself (same origin), never another site. */
-const checkCrossSiteDisplay = (request: Request) => {
-    const fetchSite = request.headers.get("Sec-Fetch-Site");
-    if (fetchSite === "cross-site" || fetchSite === "same-site") throw new DisplayRefused(404);
-};
 
 // --- Wedding website ------------------------------------------------------------------------------
 

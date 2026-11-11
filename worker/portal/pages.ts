@@ -1,24 +1,13 @@
 // Server-side loaders for portal pages. Each returns the data the page needs for its first render;
 // after that the page talks to /api/portal directly.
-import { type ApplicationId, applicationById, canAccessApplication, listedApplications } from "../../src/shared/portal/applications";
+import { type ApplicationId, applicationById, canAccessApplication } from "../../src/shared/portal/applications";
 import type { Flags } from "../../src/shared/portal/flags";
 import type { Permission } from "../../src/shared/portal/permissions";
 import { PORTAL_SETTINGS_TABS, type PortalSettingsTab, canSeeSettingsTab } from "../../src/shared/portal/settings-sections";
 import type { PortalRoute, PortalUser } from "../../src/shared/portal/types";
-import type { TodayDashboard } from "../../src/shared/today/types";
-import { amplenoteStatus } from "../amplenote/api";
-import { preferences as calendarPreferences } from "../calendar/access";
-import { occurrencesInWindow } from "../calendar/events";
-import { overlaysFor } from "../calendar/holidays";
-import { loadLeave } from "../calendar/leave";
-import { type CalendarPage, loadCalendarPage } from "../calendar/pages";
-import { todayCentre } from "../centre/actions";
-import { type CentrePage, loadCentrePage } from "../centre/pages";
+import { capacitiesStatus } from "../capacities/archive";
 import { providerStatus } from "../comms/providers";
 import type { Env } from "../env";
-import { loadIntelligencePage } from "../intelligence/pages";
-import { todayDashboard } from "../today/dashboard";
-import { loadPlanningHours } from "../today/window";
 import { invitationLinksConfigured } from "../wedding/invitations";
 import { listMedia } from "../wedding/media";
 import { can } from "./auth";
@@ -28,7 +17,6 @@ import { getLayout } from "./dashboard";
 import { budgetItemDef, customFieldDef, eventDef, householdDef, listEntities, supplierDef, taskDef, templateDef, timelineDef } from "./entities";
 import { listGuests } from "./guests";
 import { listHouseholdRows } from "./households";
-import { HttpError } from "./http";
 import { listImports } from "./import";
 import { householdAddressing, listStudioHouseholds } from "./invitation-studio";
 import { listDeleted, retentionPreview } from "./privacy";
@@ -57,12 +45,6 @@ interface PageDef {
 }
 
 const PAGES: PageDef[] = [
-    {
-        pattern: /^\/portal$/,
-        title: "Applications",
-        // Only the applications the portal lists (Portal settings → Features → Other applications).
-        load: async ({ user, flags }) => ({ route: "portal-home", applications: listedApplications(user, flags).map((application) => application.id) }),
-    },
     {
         pattern: /^\/portal\/wedding$/,
         title: "Dashboard",
@@ -367,7 +349,7 @@ const PAGES: PageDef[] = [
                 getSettings(env.DB, "privacy"),
                 can(user, "wedding.guests.edit") ? listDeleted(env.DB) : Promise.resolve(null),
                 can(user, "portal.data.erase") ? retentionPreview(env.DB) : Promise.resolve(null),
-                can(user, "portal.settings.manage") ? amplenoteStatus(env) : Promise.resolve(null),
+                can(user, "portal.settings.manage") ? capacitiesStatus(env) : Promise.resolve(null),
             ]);
             // A section this person can't see opens General instead, as before.
             const tab = canSeeSettingsTab(user, requested) ? requested : "general";
@@ -377,120 +359,9 @@ const PAGES: PageDef[] = [
                       email: status.email,
                       sms: status.sms,
                       webhooks: status.webhooks,
-                      mcp: !!env.MCP_ACCESS_AUD,
-                      calendarEncryption: !!env.CALENDAR_ENCRYPTION_KEY,
                   }
                 : null;
             return { route: "portal-settings", tab, users, privacy: deleted ? { settings: privacy, deleted, retention } : null, integrations, website };
-        },
-    },
-    // Daly Calendar. The application's permission is checked here; calendar membership in the loaders.
-    {
-        pattern: /^\/portal\/calendar$/,
-        title: "Calendar",
-        application: "calendar",
-        load: ({ env, user, url, flags }) => loadCalendarPage(env, user, url, "view", flags),
-    },
-    {
-        pattern: /^\/portal\/calendar\/(year|family|leave|calendars|subscriptions|holidays|settings)$/,
-        title: "Calendar",
-        application: "calendar",
-        load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, match[1] as CalendarPage, flags),
-    },
-    {
-        pattern: /^\/portal\/calendar\/leave\/(planner|settings)$/,
-        title: "Leave",
-        application: "calendar",
-        load: ({ env, user, url, match, flags }) => loadCalendarPage(env, user, url, `leave-${match[1]}` as CalendarPage, flags),
-    },
-    // Daly Intelligence. The application's permission is checked here; everything in it is the caller's own.
-    {
-        pattern: /^\/portal\/intelligence$/,
-        title: "Intelligence",
-        application: "intelligence",
-        load: ({ env, user }) => loadIntelligencePage(env, user, "home"),
-    },
-    {
-        pattern: /^\/portal\/intelligence\/settings$/,
-        title: "Intelligence",
-        application: "intelligence",
-        load: ({ env, user }) => loadIntelligencePage(env, user, "settings"),
-    },
-    {
-        pattern: /^\/portal\/intelligence\/briefing(\/weekly)?$/,
-        title: "Briefing",
-        application: "intelligence",
-        load: ({ env, user, match }) => loadIntelligencePage(env, user, match[1] ? "weekly" : "briefing"),
-    },
-    // Intelligence Centre. The application's permission is checked here; ownership of watch areas and wallboards in the loaders.
-    {
-        pattern: /^\/portal\/intelligence-centre$/,
-        title: "Intelligence Centre",
-        application: "intelligence-centre",
-        load: ({ env, user, url }) => loadCentrePage(env, user, url, "overview"),
-    },
-    {
-        pattern:
-            /^\/portal\/intelligence-centre\/(map|records|history|briefings|watches|wallboards|sources|settings|changes|timeline|replay|analytics|correlations|rules|reports|assistant)$/,
-        title: "Intelligence Centre",
-        application: "intelligence-centre",
-        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, match[1] as CentrePage),
-    },
-    {
-        pattern: /^\/portal\/intelligence-centre\/records\/(icr_[a-z0-9]{14})$/,
-        title: "Record",
-        application: "intelligence-centre",
-        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "record", match[1]),
-    },
-    {
-        pattern: /^\/portal\/intelligence-centre\/wallboards\/(icb_[a-z0-9]{14})$/,
-        title: "Wallboard",
-        application: "intelligence-centre",
-        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "wallboard", match[1]),
-    },
-    {
-        pattern: /^\/portal\/intelligence-centre\/reports\/(icp_[a-z0-9]{14})$/,
-        title: "Situation report",
-        application: "intelligence-centre",
-        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "report", match[1]),
-    },
-    {
-        pattern: /^\/portal\/intelligence-centre\/hazards\/(weather|fire-danger|flood|transport|environment|infrastructure)$/,
-        title: "Hazards",
-        application: "intelligence-centre",
-        load: ({ env, user, url, match }) => loadCentrePage(env, user, url, "hazards", match[1]),
-    },
-    // Today: needs Calendar; everything is read through Calendar's own access.
-    {
-        pattern: /^\/portal\/today$/,
-        title: "Today",
-        permission: "calendar.use",
-        load: async ({ env, user, url }) => {
-            const dashboard = (await todayDashboard(env.DB, user, { date: url.searchParams.get("date") }).catch((error: unknown) => {
-                // A malformed or far-off ?date= opens today instead.
-                if (error instanceof HttpError && error.status === 400) return todayDashboard(env.DB, user, {});
-                throw error;
-            })) as TodayDashboard;
-            const [planningHours, calendarPrefs, leave] = await Promise.all([
-                loadPlanningHours(env.DB, user.email),
-                calendarPreferences(env.DB, user.email),
-                loadLeave(env.DB, user),
-            ]);
-            const { date } = dashboard;
-            const [{ occurrences }, overlays] = await Promise.all([
-                occurrencesInWindow(env.DB, user, { from: date, to: date, timeZone: dashboard.timeZone }),
-                overlaysFor(calendarPrefs, leave, date, date),
-            ]);
-            return {
-                route: "today",
-                dashboard,
-                planningHours,
-                occurrences,
-                overlays,
-                workingHoursStart: calendarPrefs.workingHours.start,
-                // A failure here never stops Today from loading.
-                centre: await todayCentre(env, user).catch(() => null),
-            };
         },
     },
     {

@@ -2,7 +2,6 @@
 // integrity rules. Safe to run against production; it never writes.
 //
 //   node scripts/db-verify.mjs --env production      # the live database (remote)
-//   node scripts/db-verify.mjs --env staging
 //   node scripts/db-verify.mjs --local [--persist-to .wrangler/state]
 import { INTEGRITY_CHECKS, Report, countRows, d1Query, migrationFiles, parseArgs } from "./lib/ops.mjs";
 

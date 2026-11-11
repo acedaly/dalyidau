@@ -131,27 +131,10 @@ describe("migration 0020", () => {
             .map((statement: string) => statement.trim())
             .filter(Boolean);
 
-    it("adds a retry key to projects, unique per creator", async () => {
-        const columns = (await db().prepare("PRAGMA table_info(task_projects)").all<{ name: string }>()).results.map((c) => c.name);
-        expect(columns).toContain("client_id");
-        const indexes = await db().prepare("PRAGMA index_list(task_projects)").all<{ name: string; unique: number }>();
-        expect(indexes.results).toContainEqual(expect.objectContaining({ name: "task_projects_client", unique: 1 }));
-        const insert = (id: string, by: string) =>
-            db()
-                .prepare(
-                    "INSERT INTO task_projects (id, name, kind, created_by, updated_by, created_at, updated_at, client_id) VALUES (?, 'P', 'personal', ?, ?, 'now', 'now', 'retry-key-0001')",
-                )
-                .bind(id, by, by)
-                .run();
-        await insert("tpj_aaaaaaaaaaaaaa", "one@example.com");
-        await expect(insert("tpj_bbbbbbbbbbbbbb", "one@example.com")).rejects.toThrow(/UNIQUE/);
-        await expect(insert("tpj_cccccccccccccc", "two@example.com")).resolves.toBeTruthy();
-    });
-
     it("rebuilds mcp_writes with every row, column and index kept, and accepts projects as an outcome", async () => {
         const { default: sql } = await import("../migrations/0020_mcp_projects.sql?raw");
         const all = statementsOf(sql);
-        // Everything but the two ALTER/CREATE INDEX lines for task_projects; the rebuild is what's tested here.
+        // Everything but the two ALTER/CREATE INDEX lines for task_projects (dropped by docs/pending/0032 if it is ever applied); the rebuild is what's tested here.
         const rebuild = all.slice(all.findIndex((s: string) => s.startsWith("CREATE TABLE mcp_writes_next")));
         expect(rebuild.join("\n")).not.toMatch(/\bDELETE\b|\bUPDATE\b/);
 

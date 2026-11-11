@@ -1,6 +1,6 @@
-// Portal settings → Website & Blog: the retired Capacities integration. Shows what's archived in
-// Cloudflare, checks every image in R2 ("Check and archive"), and says when it's safe to remove the
-// Capacities token and cancel (docs/CAPACITIES_RETIREMENT.md). The sync switch itself lives in
+// Portal settings → Website & Blog: the blog's Capacities articles. Shows what's archived in
+// Cloudflare, checks every image in R2 ("Check and archive"), and says what must hold before the
+// Capacities token could be removed (docs/CAPACITIES_RETIREMENT.md). The sync switch itself lives in
 // Portal settings → Features; this card only shows it.
 import { useState } from "react";
 import { Archive } from "@untitledui/icons";
@@ -12,7 +12,7 @@ import { useToast } from "@/portal/components/toast";
 import { api, errorMessage } from "@/portal/lib/api";
 import { SettingsCard, StatusRow } from "@/portal/settings/settings-card";
 import { SwitchSummary } from "@/portal/settings/switch-summary";
-import type { AmplenoteStatus, CapacitiesStatus } from "@/shared/website";
+import type { CapacitiesStatus } from "@/shared/website";
 
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -22,7 +22,7 @@ const ARCHIVE = {
     none: { label: "Not archived", color: "gray" },
 } as const;
 
-export const CapacitiesCard = ({ status, onStatus }: { status: CapacitiesStatus; onStatus: (status: AmplenoteStatus) => void }) => {
+export const CapacitiesCard = ({ status }: { status: CapacitiesStatus }) => {
     const toast = useToast();
     const [busy, setBusy] = useState(false);
     const [checked, setChecked] = useState<CapacitiesStatus | null>(null);
@@ -32,9 +32,8 @@ export const CapacitiesCard = ({ status, onStatus }: { status: CapacitiesStatus;
     const archive = async () => {
         setBusy(true);
         try {
-            const result = await api<{ capacities: CapacitiesStatus; status: AmplenoteStatus }>("POST", "/api/portal/website/capacities/archive", {});
+            const result = await api<{ capacities: CapacitiesStatus }>("POST", "/api/portal/website/capacities/archive", {});
             setChecked(result.capacities);
-            onStatus(result.status);
             const missing = result.capacities.totals.missingImages ?? 0;
             if (missing) toast.error("Archived, but images are missing", `${missing} image(s) aren't in R2. Don't cancel Capacities yet.`);
             else
@@ -150,7 +149,7 @@ export const CapacitiesCard = ({ status, onStatus }: { status: CapacitiesStatus;
                                 <Badge size="sm" color="brand">
                                     Same address
                                 </Badge>
-                                <span>The Capacities copy is kept in the archive and can be restored from the article below.</span>
+                                <span>Published from Amplenote before it was retired. The Capacities copy is kept in the archive.</span>
                             </li>
                         ))}
                     </ul>

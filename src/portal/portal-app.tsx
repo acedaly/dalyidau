@@ -1,38 +1,4 @@
-import { CalendarCalendarsPage } from "@/portal/calendar/pages/calendar-calendars-page";
-import { CalendarFamilyPage } from "@/portal/calendar/pages/calendar-family-page";
-import { CalendarHolidaysPage } from "@/portal/calendar/pages/calendar-holidays-page";
-import { CalendarSettingsPage } from "@/portal/calendar/pages/calendar-settings-page";
-import { CalendarSubscriptionsPage } from "@/portal/calendar/pages/calendar-subscriptions-page";
-import { CalendarViewPage } from "@/portal/calendar/pages/calendar-view-page";
-import { CalendarYearPage } from "@/portal/calendar/pages/calendar-year-page";
-import { LeavePage } from "@/portal/calendar/pages/leave-page";
-import { LeavePlannerPage } from "@/portal/calendar/pages/leave-planner-page";
-import { LeaveSettingsPage } from "@/portal/calendar/pages/leave-settings-page";
-import { CentreAnalyticsPage } from "@/portal/centre/pages/centre-analytics-page";
-import { CentreAssistantPage } from "@/portal/centre/pages/centre-assistant-page";
-import { CentreBriefingsPage } from "@/portal/centre/pages/centre-briefings-page";
-import { CentreChangesPage } from "@/portal/centre/pages/centre-changes-page";
-import { CentreCorrelationsPage } from "@/portal/centre/pages/centre-correlations-page";
-import { CentreHazardsPage } from "@/portal/centre/pages/centre-hazards-page";
-import { CentreHistoryPage } from "@/portal/centre/pages/centre-history-page";
-import { CentreMapPage } from "@/portal/centre/pages/centre-map-page";
-import { CentreOverviewPage } from "@/portal/centre/pages/centre-overview-page";
-import { CentreRecordPage } from "@/portal/centre/pages/centre-record-page";
-import { CentreRecordsPage } from "@/portal/centre/pages/centre-records-page";
-import { CentreReplayPage } from "@/portal/centre/pages/centre-replay-page";
-import { CentreReportPage } from "@/portal/centre/pages/centre-report-page";
-import { CentreReportsPage } from "@/portal/centre/pages/centre-reports-page";
-import { CentreRulesPage } from "@/portal/centre/pages/centre-rules-page";
-import { CentreSettingsPage } from "@/portal/centre/pages/centre-settings-page";
-import { CentreSourcesPage } from "@/portal/centre/pages/centre-sources-page";
-import { CentreTimelinePage } from "@/portal/centre/pages/centre-timeline-page";
-import { CentreWallboardEditorPage } from "@/portal/centre/pages/centre-wallboard-editor-page";
-import { CentreWallboardsPage } from "@/portal/centre/pages/centre-wallboards-page";
-import { CentreWatchesPage } from "@/portal/centre/pages/centre-watches-page";
 import { ToastProvider } from "@/portal/components/toast";
-import { IntelligenceBriefingPage } from "@/portal/intelligence/pages/intelligence-briefing-page";
-import { IntelligenceHomePage } from "@/portal/intelligence/pages/intelligence-home-page";
-import { IntelligenceSettingsPage } from "@/portal/intelligence/pages/intelligence-settings-page";
 import { PortalSidebar } from "@/portal/layout/portal-sidebar";
 import { AuditPage } from "@/portal/pages/audit-page";
 import { BudgetPage } from "@/portal/pages/budget-page";
@@ -45,7 +11,6 @@ import { GuestsPage } from "@/portal/pages/guests-page";
 import { HouseholdsPage } from "@/portal/pages/households-page";
 import { InvitationStudioPage } from "@/portal/pages/invitation-studio-page";
 import { MessagePage } from "@/portal/pages/message-page";
-import { PortalHomePage } from "@/portal/pages/portal-home-page";
 import { PortalSettingsPage } from "@/portal/pages/portal-settings-page";
 import { ProviderSettingsPage } from "@/portal/pages/provider-settings-page";
 import { RsvpsPage } from "@/portal/pages/rsvps-page";
@@ -58,14 +23,11 @@ import { TextsPage } from "@/portal/pages/texts-page";
 import { TimelinePage } from "@/portal/pages/timeline-page";
 import { WebsitePage } from "@/portal/pages/website-page";
 import { PortalProvider } from "@/portal/portal-context";
-import { TodayPage } from "@/portal/today/pages/today-page";
 import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
 
 const Page = ({ data }: { data: PortalPageData }) => {
     switch (data.route) {
-        case "portal-home":
-            return <PortalHomePage data={data} />;
         case "dashboard":
             return <DashboardPage data={data} />;
         case "guests":
@@ -108,76 +70,6 @@ const Page = ({ data }: { data: PortalPageData }) => {
             return <PortalSettingsPage data={data} />;
         case "audit":
             return <AuditPage data={data} />;
-        case "calendar-view":
-            return <CalendarViewPage key={`${data.view}:${data.anchor}`} data={data} />;
-        case "calendar-year":
-            return <CalendarYearPage data={data} />;
-        case "calendar-family":
-            return <CalendarFamilyPage data={data} />;
-        case "calendar-calendars":
-            return <CalendarCalendarsPage data={data} />;
-        case "calendar-subscriptions":
-            return <CalendarSubscriptionsPage data={data} />;
-        case "calendar-holidays":
-            return <CalendarHolidaysPage data={data} />;
-        case "calendar-settings":
-            return <CalendarSettingsPage data={data} />;
-        case "calendar-leave":
-            return <LeavePage data={data} />;
-        case "calendar-leave-planner":
-            return <LeavePlannerPage data={data} />;
-        case "calendar-leave-settings":
-            return <LeaveSettingsPage data={data} />;
-        case "intelligence-home":
-            return <IntelligenceHomePage data={data} />;
-        case "intelligence-briefing":
-            return <IntelligenceBriefingPage key={data.kind} data={data} />;
-        case "intelligence-settings":
-            return <IntelligenceSettingsPage data={data} />;
-        case "centre-overview":
-            return <CentreOverviewPage data={data} />;
-        case "centre-map":
-            return <CentreMapPage data={data} />;
-        case "centre-records":
-            return <CentreRecordsPage data={data} />;
-        case "centre-record":
-            return <CentreRecordPage key={data.record.id} data={data} />;
-        case "centre-hazards":
-            return <CentreHazardsPage key={data.tab} data={data} />;
-        case "centre-history":
-            return <CentreHistoryPage data={data} />;
-        case "centre-briefings":
-            return <CentreBriefingsPage data={data} />;
-        case "centre-watches":
-            return <CentreWatchesPage data={data} />;
-        case "centre-wallboards":
-            return <CentreWallboardsPage data={data} />;
-        case "centre-sources":
-            return <CentreSourcesPage data={data} />;
-        case "centre-settings":
-            return <CentreSettingsPage data={data} />;
-        case "centre-changes":
-            return <CentreChangesPage data={data} />;
-        case "centre-timeline":
-            return <CentreTimelinePage data={data} />;
-        case "centre-replay":
-            return <CentreReplayPage data={data} />;
-        case "centre-analytics":
-            return <CentreAnalyticsPage data={data} />;
-        case "centre-correlations":
-            return <CentreCorrelationsPage data={data} />;
-        case "centre-rules":
-            return <CentreRulesPage data={data} />;
-        case "centre-reports":
-            return <CentreReportsPage data={data} />;
-        case "centre-report":
-            return <CentreReportPage key={data.summary.id} data={data} />;
-        case "centre-assistant":
-            return <CentreAssistantPage data={data} />;
-        case "centre-wallboard":
-            return <CentreWallboardEditorPage key={data.wallboard.id} data={data} />;
-        case "today":
-            return <TodayPage data={data} />;
         case "forbidden":
             return <ForbiddenPage message={data.message} />;
         default:

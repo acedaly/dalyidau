@@ -1,5 +1,5 @@
-// The article design system's markup: the blocks both publishers produce (capacities/render.ts and
-// amplenote/markdown.ts), styled once in src/styles/article.css. Callers pass escaped HTML for
+// The article design system's markup: the blocks the publishers produced (capacities/render.ts, and
+// amplenote/markdown.ts until Amplenote was retired), styled once in src/styles/article.css. Callers pass escaped HTML for
 // `inner`/`caption` and plain strings for everything else, which is escaped here. Class names are
 // part of the stored HTML of every published post, so existing ones never change meaning: archived
 // Capacities posts are never re-rendered and rely on them as they are.

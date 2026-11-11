@@ -3,7 +3,7 @@
 // settings each application keeps for itself. Wedding details and guest fields stay in Wedding
 // Planner. Which sections someone sees comes from settings-sections.ts, which the worker also uses.
 import { useState } from "react";
-import { Calendar, Key01, LayoutGrid01, Link03, Palette, ShieldTick, Stars02, Toggle01Right, User01, Users01 } from "@untitledui/icons";
+import { Key01, LayoutGrid01, Link03, Palette, ShieldTick, User01, Users01 } from "@untitledui/icons";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Badge } from "@/components/base/badges/badges";
 import { Select } from "@/components/base/select/select";
@@ -17,7 +17,6 @@ import { FeaturesPanel } from "@/portal/settings/features-panel";
 import { PeoplePanel } from "@/portal/settings/people-panel";
 import { PrivacyPanel } from "@/portal/settings/privacy-panel";
 import { SettingsCard, type SettingsLink, SettingsLinks, StatusRow } from "@/portal/settings/settings-card";
-import { SwitchSummary } from "@/portal/settings/switch-summary";
 import { WebsitePanel } from "@/portal/settings/website-panel";
 import { type ApplicationId, applicationById, availableApplications, canAccessApplication } from "@/shared/portal/applications";
 import { ROLES, ROLE_LABELS } from "@/shared/portal/permissions";
@@ -142,7 +141,7 @@ const ProviderRows = ({ integrations }: { integrations: PortalIntegrations }) =>
     <dl className="flex flex-col divide-y divide-secondary">
         <StatusRow
             label="Email provider"
-            detail="Shared by guest email and reminder emails. Each also has its own switch."
+            detail="Used by guest email. Sending also needs its own switch."
             value={integrations.email ?? "Not set up"}
             ok={!!integrations.email}
         />
@@ -154,69 +153,6 @@ const ProviderRows = ({ integrations }: { integrations: PortalIntegrations }) =>
             ok={integrations.webhooks}
         />
     </dl>
-);
-
-const CALENDAR_LINKS: SettingsLink[] = [
-    {
-        label: "Settings, import and export",
-        description: "Your time zone, reminders and whether notifications are emailed to you.",
-        href: "/portal/calendar/settings",
-    },
-    { label: "Calendars and sharing", description: "Create, copy and revoke your private subscription addresses.", href: "/portal/calendar/calendars" },
-    { label: "Subscriptions", description: "Calendars you follow from elsewhere, and how often they refresh.", href: "/portal/calendar/subscriptions" },
-    { label: "Holidays and school dates", description: "NSW public and school holidays shown on calendars.", href: "/portal/calendar/holidays" },
-    { label: "Leave settings", description: "Leave types, balances and accrual.", href: "/portal/calendar/leave/settings" },
-];
-
-const CalendarTab = ({ data }: { data: Data }) => (
-    <div className="grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
-        <SettingsCard
-            id="calendar-switches"
-            icon={Toggle01Right}
-            title="Subscription addresses and reminder emails"
-            description="These switches apply to everyone. While they're off, addresses answer “not found” and notifications stay in the portal."
-        >
-            <SwitchSummary area="calendar" />
-        </SettingsCard>
-        <SettingsCard id="calendar-links" icon={Calendar} title="In Daly Calendar" description="Settings each person keeps for themselves.">
-            <SettingsLinks label="Calendar settings" links={CALENDAR_LINKS} />
-        </SettingsCard>
-        {data.integrations && (
-            <SettingsCard id="calendar-config" icon={Key01} title="On the Worker" className="lg:col-span-2">
-                <dl className="flex flex-col divide-y divide-secondary">
-                    <StatusRow
-                        label="Subscribed calendar addresses encrypted"
-                        detail="CALENDAR_ENCRYPTION_KEY. Optional; without it addresses are stored as entered."
-                        value={data.integrations.calendarEncryption ? "Encrypted" : "Not set"}
-                        ok={data.integrations.calendarEncryption}
-                    />
-                    <StatusRow label="Email provider for reminder emails" value={data.integrations.email ?? "Not set up"} ok={!!data.integrations.email} />
-                </dl>
-            </SettingsCard>
-        )}
-    </div>
-);
-
-const IntelligenceTab = () => (
-    <div className="grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
-        <SettingsCard
-            id="intelligence-links"
-            icon={Stars02}
-            title="Daly Intelligence"
-            description="AI features and the monthly budget are set in Intelligence itself. AI only suggests; nothing is saved until someone approves it."
-        >
-            <SettingsLinks
-                label="Intelligence settings"
-                links={[
-                    {
-                        label: "AI settings",
-                        description: "Which AI features are on, the budget and your briefing preferences.",
-                        href: "/portal/intelligence/settings",
-                    },
-                ]}
-            />
-        </SettingsCard>
-    </div>
 );
 
 const SecurityTab = ({ data, tabs }: { data: Data; tabs: PortalSettingsTab[] }) => {
@@ -252,14 +188,6 @@ const SecurityTab = ({ data, tabs }: { data: Data; tabs: PortalSettingsTab[] }) 
             {data.integrations ? (
                 <SettingsCard id="integrations" icon={Link03} title="Integrations" description="What's configured on the Worker. Secrets are never shown.">
                     <ProviderRows integrations={data.integrations} />
-                    <dl className="flex flex-col divide-y divide-secondary border-t border-secondary pt-3">
-                        <StatusRow
-                            label="AI assistants (MCP)"
-                            detail="Through the MCP gateway, with the same permissions as here."
-                            value={data.integrations.mcp ? "Configured" : "Not set up"}
-                            ok={data.integrations.mcp}
-                        />
-                    </dl>
                 </SettingsCard>
             ) : (
                 <Notice title="Integrations">Only owners and admins can see which providers are configured.</Notice>
@@ -314,8 +242,6 @@ export const PortalSettingsPage = ({ data }: { data: Data }) => {
                         {id === "general" && <GeneralTab />}
                         {id === "access" && <AccessTab data={data} />}
                         {id === "features" && <FeaturesPanel />}
-                        {id === "calendar" && <CalendarTab data={data} />}
-                        {id === "intelligence" && <IntelligenceTab />}
                         {id === "website" && data.website && <WebsitePanel initial={data.website} />}
                         {id === "security" && <SecurityTab data={data} tabs={tabs} />}
                         {id === "privacy" && data.privacy && <PrivacyPanel initial={data.privacy} />}

@@ -17,8 +17,9 @@
     "observability": { "enabled": true, "head_sampling_rate": 1 },
     "vars": { "ENVIRONMENT": "development", "AUTH_MODE": "development" },
     "secrets": { "required": ["DEV_MCP_TOKEN"] },
-    // Locally the portal runs as its staging Worker name (`wrangler dev --env staging`, docs/MCP.md).
-    "services": [{ "binding": "PORTAL", "service": "dalyidau-staging", "entrypoint": "PortalMcpEntrypoint" }],
+    // Locally the portal runs under its own name (`wrangler dev` with development vars, docs/MCP.md),
+    // which `wrangler dev` finds through the local dev registry. The staging Worker no longer exists.
+    "services": [{ "binding": "PORTAL", "service": "dalyidau", "entrypoint": "PortalMcpEntrypoint" }],
     // Per-person limits keyed by the Access subject. Free with Workers; the namespace ids are the
     // ones the gateway has always used, so live counters carry over.
     "ratelimits": [

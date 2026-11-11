@@ -1,9 +1,9 @@
-import type { FlagKey, Flags } from "./flags";
+import type { FlagKey } from "./flags";
 import type { Permission } from "./permissions";
 
-export type ApplicationId = "wedding" | "calendar" | "intelligence" | "intelligence-centre";
+export type ApplicationId = "wedding";
 
-export type ApplicationIcon = "wedding" | "calendar" | "intelligence" | "centre";
+export type ApplicationIcon = "wedding";
 
 export type NavigationIcon =
     | "dashboard"
@@ -21,34 +21,6 @@ export type NavigationIcon =
     | "budget"
     | "suppliers"
     | "settings"
-    | "shared"
-    | "reports"
-    | "intelligence"
-    | "briefing"
-    | "review"
-    | "calendar"
-    | "year"
-    | "agenda"
-    | "subscriptions"
-    | "family"
-    | "leave"
-    | "planner"
-    | "holidays"
-    | "centre"
-    | "map"
-    | "incidents"
-    | "hazards"
-    | "history"
-    | "watch"
-    | "wallboard"
-    | "sources"
-    | "changes"
-    | "situation"
-    | "replay"
-    | "analytics"
-    | "correlations"
-    | "rules"
-    | "assistant"
     | "app";
 
 export interface ApplicationNavigationItem {
@@ -85,6 +57,9 @@ export interface PortalApplication {
     navigation: readonly ApplicationNavigationSection[];
 }
 
+// The portal's applications. Since Daly Calendar, Today, Daly Intelligence and the Intelligence
+// Centre were retired (docs/DECOMMISSION_PORTAL_APPS.md), Wedding Planner is the only one, and
+// /portal opens it.
 export const APPLICATIONS = [
     {
         id: "wedding",
@@ -158,121 +133,6 @@ export const APPLICATIONS = [
             },
         ],
     },
-    {
-        id: "calendar",
-        name: "Daly Calendar",
-        summary: "Calendars, school holidays and leave.",
-        description:
-            "Personal and shared calendars, subscribed feeds, the family planner, NSW public and school holidays, and an annual leave planner with forecasts. Private to you unless you share.",
-        icon: "calendar",
-        baseRoute: "/portal/calendar",
-        requiredPermission: "calendar.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "Calendar",
-                items: [
-                    { label: "Calendar", href: "/portal/calendar", icon: "calendar" },
-                    { label: "Agenda", href: "/portal/calendar?view=agenda", icon: "agenda" },
-                    { label: "Year planner", href: "/portal/calendar/year", icon: "year" },
-                    { label: "Family planner", href: "/portal/calendar/family", icon: "family" },
-                ],
-            },
-            {
-                label: "Leave",
-                items: [
-                    { label: "Leave and balances", href: "/portal/calendar/leave", icon: "leave" },
-                    { label: "Plan time off", href: "/portal/calendar/leave/planner", icon: "planner" },
-                    { label: "Leave settings", href: "/portal/calendar/leave/settings", icon: "settings" },
-                ],
-            },
-            {
-                label: "Manage",
-                items: [
-                    { label: "Calendars and sharing", href: "/portal/calendar/calendars", icon: "shared" },
-                    { label: "Subscriptions", href: "/portal/calendar/subscriptions", icon: "subscriptions" },
-                    { label: "Holidays and school dates", href: "/portal/calendar/holidays", icon: "holidays" },
-                    { label: "Settings, import and export", href: "/portal/calendar/settings", icon: "settings" },
-                ],
-            },
-        ],
-    },
-    {
-        id: "intelligence",
-        name: "Daly Intelligence",
-        summary: "AI settings, budgets and briefings.",
-        description:
-            "The portal's shared AI layer: daily briefings and weekly reviews from your calendar, the AI budget, and the settings the Intelligence Centre uses. Off until an owner switches it on.",
-        icon: "intelligence",
-        baseRoute: "/portal/intelligence",
-        requiredPermission: "intelligence.use",
-        enabled: true,
-        navigation: [
-            {
-                label: "Intelligence",
-                items: [
-                    { label: "Overview", href: "/portal/intelligence", icon: "intelligence" },
-                    { label: "Daily briefing", href: "/portal/intelligence/briefing", icon: "briefing" },
-                    { label: "Weekly review", href: "/portal/intelligence/briefing/weekly", icon: "review" },
-                ],
-            },
-            {
-                label: "Application",
-                items: [{ label: "AI settings", href: "/portal/intelligence/settings", icon: "settings" }],
-            },
-        ],
-    },
-    {
-        id: "intelligence-centre",
-        name: "Intelligence Centre",
-        summary: "Public warnings, incidents, weather and hazards.",
-        description:
-            "Official warnings, incidents, fire danger, weather, rivers, roads, air quality and other public hazard information on a map, with private watch areas, alerts, briefings and wallboards. Not an official warning service.",
-        icon: "centre",
-        baseRoute: "/portal/intelligence-centre",
-        requiredPermission: "centre.use",
-        enabled: true,
-        status: {
-            flag: "intelligence_centre.ingestion",
-            enabledLabel: "Collecting",
-            disabledLabel: "Collection off",
-        },
-        navigation: [
-            {
-                label: "Situation",
-                items: [
-                    { label: "Overview", href: "/portal/intelligence-centre", icon: "centre" },
-                    { label: "Live map", href: "/portal/intelligence-centre/map", icon: "map" },
-                    { label: "What's changed", href: "/portal/intelligence-centre/changes", icon: "changes" },
-                    { label: "Incidents and warnings", href: "/portal/intelligence-centre/records", icon: "incidents", active: "prefix" },
-                    { label: "Hazards", href: "/portal/intelligence-centre/hazards/weather", icon: "hazards", active: "prefix" },
-                ],
-            },
-            {
-                label: "Analysis",
-                items: [
-                    { label: "Timelines", href: "/portal/intelligence-centre/timeline", icon: "situation" },
-                    { label: "Replay", href: "/portal/intelligence-centre/replay", icon: "replay" },
-                    { label: "Analytics", href: "/portal/intelligence-centre/analytics", icon: "analytics" },
-                    { label: "Correlations", href: "/portal/intelligence-centre/correlations", icon: "correlations" },
-                    { label: "History", href: "/portal/intelligence-centre/history", icon: "history" },
-                    { label: "Briefings", href: "/portal/intelligence-centre/briefings", icon: "briefing" },
-                    { label: "Reports", href: "/portal/intelligence-centre/reports", icon: "reports", active: "prefix" },
-                    { label: "Assistant", href: "/portal/intelligence-centre/assistant", icon: "assistant" },
-                ],
-            },
-            {
-                label: "Manage",
-                items: [
-                    { label: "Watch areas", href: "/portal/intelligence-centre/watches", icon: "watch" },
-                    { label: "Monitoring rules", href: "/portal/intelligence-centre/rules", icon: "rules" },
-                    { label: "Wallboards", href: "/portal/intelligence-centre/wallboards", icon: "wallboard", active: "prefix" },
-                    { label: "Sources", href: "/portal/intelligence-centre/sources", icon: "sources" },
-                    { label: "Settings", href: "/portal/intelligence-centre/settings", icon: "settings" },
-                ],
-            },
-        ],
-    },
 ] as const satisfies readonly PortalApplication[];
 
 export const applicationById = (id: ApplicationId): PortalApplication | undefined => APPLICATIONS.find((application) => application.id === id);
@@ -285,15 +145,3 @@ export const canAccessApplication = (user: { permissions: readonly Permission[] 
 
 export const availableApplications = (user: { permissions: readonly Permission[] }): PortalApplication[] =>
     APPLICATIONS.filter((application) => canAccessApplication(user, application));
-
-/**
- * Whether the sidebar and the launcher list an application (and, for Today, its link). While
- * "portal.other_applications" is off the portal lists only Wedding Planner. This only hides links:
- * every application's routes, API and MCP tools keep working, and its own navigation still shows
- * while someone is inside it.
- */
-export const isApplicationListed = (id: ApplicationId | "today", flags: Pick<Flags, "portal.other_applications">): boolean =>
-    id === "wedding" || flags["portal.other_applications"];
-
-export const listedApplications = (user: { permissions: readonly Permission[] }, flags: Pick<Flags, "portal.other_applications">): PortalApplication[] =>
-    availableApplications(user).filter((application) => isApplicationListed(application.id, flags));

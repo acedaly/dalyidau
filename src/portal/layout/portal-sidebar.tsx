@@ -4,50 +4,25 @@
 // AvatarLabelGroup in place of the demo account switcher (which loads remote avatars).
 import type { FC, HTMLAttributes } from "react";
 import {
-    AlertTriangle,
     BarChartSquare02,
-    BellRinging01,
     Building07,
     Calendar,
     CalendarCheck01,
-    CalendarDate,
     CheckDone01,
     ClipboardCheck,
     Clock,
-    ClockRewind,
     X as CloseIcon,
-    Database01,
-    Dataflow01,
-    Flag01,
     Globe02,
-    Globe04,
     HeartRounded,
-    LayersThree01,
     LayoutGrid01,
-    LineChartUp01,
     LogOut01,
     Mail01,
-    Map01,
     Menu02,
-    MessageChatSquare,
-    Monitor01,
     Phone01,
-    Plane,
-    PlayCircle,
     Receipt,
-    Route,
-    Rows01,
-    Rss01,
     Settings01,
     ShieldTick,
-    Signal01,
-    Stars02,
-    Sun,
-    Sunrise,
-    Target04,
     Users01,
-    Users02,
-    Users03,
     Wallet02,
 } from "@untitledui/icons";
 import {
@@ -64,7 +39,7 @@ import { ThemeToggle } from "@/components/site/theme-toggle";
 import { site } from "@/content/site";
 import { initials } from "@/portal/lib/format";
 import { usePortal } from "@/portal/portal-context";
-import { type ApplicationIcon, type NavigationIcon, applicationForPath } from "@/shared/portal/applications";
+import { type ApplicationIcon, type NavigationIcon, applicationById, applicationForPath } from "@/shared/portal/applications";
 import type { FlagKey } from "@/shared/portal/flags";
 import { ROLE_LABELS } from "@/shared/portal/permissions";
 import type { Permission } from "@/shared/portal/permissions";
@@ -95,70 +70,22 @@ const ICONS: Record<NavigationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     budget: Wallet02,
     suppliers: ClipboardCheck,
     settings: Settings01,
-    shared: Users03,
-    reports: LineChartUp01,
-    intelligence: Stars02,
-    briefing: Sunrise,
-    review: CalendarCheck01,
-    calendar: Calendar,
-    year: CalendarDate,
-    agenda: Rows01,
-    subscriptions: Rss01,
-    family: Users02,
-    leave: Plane,
-    planner: Sun,
-    holidays: Flag01,
-    centre: Globe04,
-    map: Map01,
-    incidents: AlertTriangle,
-    hazards: LayersThree01,
-    history: ClockRewind,
-    watch: Target04,
-    wallboard: Monitor01,
-    sources: Database01,
-    changes: Signal01,
-    situation: Route,
-    replay: PlayCircle,
-    analytics: BarChartSquare02,
-    correlations: Dataflow01,
-    rules: BellRinging01,
-    assistant: MessageChatSquare,
     app: Phone01,
 };
 
 const APPLICATION_ICONS: Record<ApplicationIcon, FC<HTMLAttributes<HTMLOrSVGElement>>> = {
     wedding: HeartRounded,
-    calendar: Calendar,
-    intelligence: Stars02,
-    centre: Globe04,
 };
 
-/**
- * Whether a navigation item is the current page. Calendar's Agenda is the calendar page with
- * ?view=agenda, so the calendar's two items also compare the view.
- */
-const isCurrent = (item: { href: string; active?: "exact" | "prefix" }, path: string) => {
-    const [itemPath, itemQuery] = item.href.split("?");
-    if (itemPath === "/portal/calendar") {
-        const search = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search.replace(/^\?/, ""));
-        const wanted = new URLSearchParams(itemQuery ?? "");
-        return itemPath === path && (wanted.get("view") === "agenda") === (search.get("view") === "agenda");
-    }
-    return item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`));
-};
+/** Whether a navigation item is the current page. */
+const isCurrent = (item: { href: string; active?: "exact" | "prefix" }, path: string) =>
+    item.href === path || (item.active === "prefix" && path.startsWith(`${item.href}/`));
 
 const portalSections = (path: string): { label: string; items: NavEntry[] }[] => {
-    const application = applicationForPath(path);
+    // Wedding Planner is the portal's only application (docs/DECOMMISSION_PORTAL_APPS.md); its
+    // navigation shows on every page, Portal settings and the audit log included.
+    const application = applicationForPath(path) ?? applicationById("wedding");
     return [
-        {
-            label: "Applications",
-            items: [
-                // Today first: the day from Calendar. The launcher stays right below it.
-                // Listed only with Portal settings → Features → Other applications on (applications.ts).
-                { label: "Today", href: "/portal/today", icon: Sun, permission: "calendar.use", flag: "portal.other_applications" },
-                { label: "All Applications", href: "/portal", icon: LayoutGrid01 },
-            ],
-        },
         ...(application
             ? application.navigation.map((section) => ({ label: section.label, items: section.items.map((item) => ({ ...item, icon: ICONS[item.icon] })) }))
             : []),
@@ -178,8 +105,8 @@ const Logo = ({ path }: { path: string }) => {
     const application = applicationForPath(path);
     return (
         <a
-            href="/portal"
-            aria-label="All Applications"
+            href="/portal/wedding"
+            aria-label="Wedding Planner"
             className="group flex items-center gap-2.5 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4"
         >
             <span

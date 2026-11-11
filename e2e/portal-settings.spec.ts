@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 
-// Portal settings: reached from the launcher, sections as tabs (a select on phones), feature
+// Portal settings: reached from the sidebar, sections as tabs (a select on phones), feature
 // switches changed in one place and shown read-only where they apply. The e2e Worker acts as an
 // owner (ACCESS_DEV_EMAIL). Tests run one at a time on one database, so anything switched on here
 // is switched back off.
@@ -26,8 +26,9 @@ const expectAccessible = async (page: Page) => {
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 };
 
-test("opens Portal settings from the launcher and moves between sections", async ({ page, isMobile }) => {
-    await page.goto("/portal");
+test("opens Portal settings from the sidebar and moves between sections", async ({ page, isMobile }) => {
+    await page.goto("/portal/wedding");
+    if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
     await page
         .getByRole("link", { name: /Portal settings/ })
         .first()
@@ -38,8 +39,7 @@ test("opens Portal settings from the launcher and moves between sections", async
     for (const [label, path] of [
         ["Household & Access", "/portal/settings/access"],
         ["Features", "/portal/settings/features"],
-        ["Calendar & Subscriptions", "/portal/settings/calendar"],
-        ["Intelligence", "/portal/settings/intelligence"],
+        ["Website & Blog", "/portal/settings/website"],
         ["Integrations & Security", "/portal/settings/security"],
     ] as const) {
         await openSection(page, isMobile, label);
@@ -54,28 +54,22 @@ test("opens Portal settings from the launcher and moves between sections", async
     await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
 });
 
-test("changes a Calendar switch in one place and shows it in Calendar settings", async ({ page, request }) => {
+test("changes a Wedding Planner switch in one place and shows it in Wedding settings", async ({ page, request }) => {
     try {
         await page.goto("/portal/settings/features");
-        const feeds = page.getByRole("switch", { name: /Calendar subscription addresses/ });
-        await expect(feeds).not.toBeChecked();
-        await feeds.click({ force: true });
-        await expect(feeds).toBeChecked();
+        const saveTheDate = page.getByRole("switch", { name: /Public Save the Date page/ });
+        await expect(saveTheDate).not.toBeChecked();
+        await saveTheDate.click({ force: true });
+        await expect(saveTheDate).toBeChecked();
         await page.reload();
-        await expect(page.getByRole("switch", { name: /Calendar subscription addresses/ })).toBeChecked();
+        await expect(page.getByRole("switch", { name: /Public Save the Date page/ })).toBeChecked();
 
-        await page.goto("/portal/calendar/settings");
-        const summary = page.locator('[data-flag="calendar.feeds"]');
-        await expect(summary).toContainText("On");
-        await expect(page.locator('[data-flag="calendar.reminders.email"]')).toContainText("Off");
-        // Calendar settings has no toggle of its own for the portal switch.
-        await expect(page.getByRole("switch", { name: /Calendar subscription addresses/ })).toHaveCount(0);
-
-        await page.getByRole("link", { name: "Manage in Portal settings → Features" }).click();
-        await expect(page).toHaveURL(/\/portal\/settings\/features#features-calendar$/);
-        await expect(page.locator("#features-calendar")).toBeInViewport();
+        await page.goto("/portal/wedding/settings");
+        await expect(page.locator('[data-flag="wedding.save_the_date.public"]')).toContainText("On");
+        // Wedding settings has no toggle of its own for the portal switch.
+        await expect(page.getByRole("switch", { name: /Public Save the Date page/ })).toHaveCount(0);
     } finally {
-        await setFlag(request, "calendar.feeds", false);
+        await setFlag(request, "wedding.save_the_date.public", false);
     }
 });
 

@@ -65,20 +65,20 @@ const flagRows = async () =>
     (await db().prepare("SELECT key, enabled, updated_at, updated_by FROM feature_flags ORDER BY key").all<Record<string, unknown>>()).results;
 
 describe("settings sections and switch areas", () => {
-    it("places every feature switch in exactly one area belonging to a real application (or, for the portal and the website, a permission)", () => {
+    it("places every feature switch in exactly one area belonging to a real application (or, for the website, a permission)", () => {
         expect(Object.keys(FLAG_AREAS).sort()).toEqual([...FLAG_KEYS].sort());
         const placed = FEATURE_AREAS.flatMap(flagsInArea);
         expect(placed.sort()).toEqual([...FLAG_KEYS].sort());
         for (const area of FEATURE_AREAS) {
             const details = FEATURE_AREA_DETAILS[area];
-            // The portal-wide and website areas aren't applications; they need portal.settings.manage.
-            if ("permission" in details) expect(["portal", "website"]).toContain(area);
+            // The website area isn't an application; it needs portal.settings.manage.
+            if ("permission" in details) expect(area).toBe("website");
             else expect(APPLICATIONS.some((application) => application.id === details.application)).toBe(true);
         }
         expect(FLAG_AREAS["website.capacities.sync"]).toBe("website");
-        expect(FLAG_AREAS["calendar.feeds"]).toBe("calendar");
-        expect(FLAG_AREAS["calendar.reminders.email"]).toBe("calendar");
-        expect(FLAG_KEYS).not.toContain("tasks.reminders.email");
+        expect(FEATURE_AREAS).toEqual(["wedding", "website"]);
+        // Retired applications' switches are gone (docs/DECOMMISSION_PORTAL_APPS.md).
+        expect(FLAG_KEYS.join(" ")).not.toMatch(/tasks\.|calendar\.|intelligence|amplenote|other_applications/);
     });
 
     it("keeps every switch's default and definition as it was", () => {
@@ -129,35 +129,24 @@ describe("Portal settings routes", () => {
         }
     });
 
-    it("lists Portal settings in the launcher and the sidebar", async () => {
+    it("lists Portal settings, and the audit log for those who may read it, in the sidebar", async () => {
         await addPeople();
-        for (const email of [OWNER, VIEWER]) {
-            const { rendered } = await open("/portal", email);
-            expect(rendered).toContain('data-portal-link="settings"');
-            expect(rendered).toContain('href="/portal/settings"');
-        }
-        expect((await open("/portal", OWNER)).rendered).toContain('data-portal-link="audit"');
-        expect((await open("/portal", VIEWER)).rendered).not.toContain('data-portal-link="audit"');
-        expect((await open("/portal/wedding", VIEWER)).rendered).toContain('href="/portal/settings"');
+        for (const email of [OWNER, VIEWER]) expect((await open("/portal/wedding", email)).rendered).toContain('href="/portal/settings"');
+        expect((await open("/portal/wedding", OWNER)).rendered).toContain('href="/portal/audit"');
+        expect((await open("/portal/wedding", VIEWER)).rendered).not.toContain('href="/portal/audit"');
     });
 });
 
 describe("permissions", () => {
     it("opens General instead of a section the person can't use", async () => {
         await addPeople();
-        for (const tab of ["calendar", "intelligence"]) {
-            for (const email of [EDITOR, VIEWER]) {
-                const { response, data } = await open(`/portal/settings/${tab}`, email);
-                expect(response.status).toBe(200);
-                expect(settingsData(data).tab, `${email} ${tab}`).toBe("general");
-            }
-            expect(settingsData((await open(`/portal/settings/${tab}`, ADMIN)).data).tab).toBe(tab);
-        }
+        for (const email of [EDITOR, VIEWER]) expect(settingsData((await open("/portal/settings/website", email)).data).tab, email).toBe("general");
+        expect(settingsData((await open("/portal/settings/website", ADMIN)).data).tab).toBe("website");
         expect(settingsData((await open("/portal/settings/privacy", VIEWER)).data).tab).toBe("general");
         expect(settingsData((await open("/portal/settings/privacy", EDITOR)).data).tab).toBe("privacy");
-        // The retired Tasks and Knowledge sections send old bookmarks somewhere that exists.
-        expect((await open("/portal/settings/tasks", ADMIN)).response.headers.get("Location")).toBe("https://daly.id.au/portal/settings");
-        expect((await open("/portal/settings/knowledge", ADMIN)).response.headers.get("Location")).toBe("https://daly.id.au/portal/settings/intelligence");
+        // Retired applications' sections send old bookmarks somewhere that exists.
+        for (const tab of ["tasks", "knowledge", "calendar", "intelligence"])
+            expect((await open(`/portal/settings/${tab}`, ADMIN)).response.headers.get("Location"), tab).toBe("https://daly.id.au/portal/settings");
     });
 
     it("gives people management to owners and integration status to owners and admins only", async () => {
@@ -176,11 +165,10 @@ describe("permissions", () => {
     });
 
     it("reports integrations as yes/no only, never their secrets or audience tags", async () => {
-        const env = await portalEnv({ MCP_ACCESS_AUD: "aud-mcp-should-not-leak-0123", CALENDAR_ENCRYPTION_KEY: "k".repeat(48) });
+        const env = await portalEnv({ MCP_ACCESS_AUD: "aud-mcp-should-not-leak-0123", COMMS_WEBHOOK_SECRET: "k".repeat(48) });
         const { html, data } = await open("/portal/settings/security", OWNER, env);
         const integrations = settingsData(data).integrations!;
-        expect(integrations.mcp).toBe(true);
-        expect(integrations.calendarEncryption).toBe(true);
+        expect(integrations.webhooks).toBe(true);
         expect(html).not.toContain("aud-mcp-should-not-leak-0123");
         expect(html).not.toContain("k".repeat(48));
     });
@@ -191,8 +179,7 @@ describe("permissions", () => {
         expect(settingsData(viewer.data).tab).toBe("features");
         expect(viewer.rendered).toContain("Only owners and admins can change features.");
         expect(viewer.rendered).toContain('data-feature-area="wedding"');
-        expect(viewer.rendered).not.toContain('data-feature-area="calendar"');
-        expect(viewer.rendered).not.toContain('data-feature-area="tasks"');
+        expect(viewer.rendered).not.toContain('data-feature-area="website"');
 
         const admin = await open("/portal/settings/features", ADMIN);
         expect(admin.rendered).not.toContain("Only owners and admins can change features.");
@@ -204,21 +191,21 @@ describe("permissions", () => {
     it("still lets only owners and admins change a switch, and audits every change", async () => {
         await addPeople();
         for (const email of [EDITOR, VIEWER]) {
-            expect((await apiCall("PUT", "/api/portal/flags/calendar.feeds", { enabled: true }, { email })).status).toBe(403);
+            expect((await apiCall("PUT", "/api/portal/flags/rsvp.native", { enabled: true }, { email })).status).toBe(403);
         }
         expect(await flagRows()).toEqual([]);
-        expect((await apiCall("PUT", "/api/portal/flags/calendar.feeds", { enabled: true }, { email: ADMIN })).status).toBe(200);
-        expect((await apiCall("PUT", "/api/portal/flags/calendar.feeds", { enabled: false }, { email: OWNER })).status).toBe(200);
+        expect((await apiCall("PUT", "/api/portal/flags/rsvp.native", { enabled: true }, { email: ADMIN })).status).toBe(200);
+        expect((await apiCall("PUT", "/api/portal/flags/rsvp.native", { enabled: false }, { email: OWNER })).status).toBe(200);
         expect((await apiCall("PUT", "/api/portal/flags/not.a.switch", { enabled: true })).status).toBe(404);
         const rows = await flagRows();
         expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({ key: "calendar.feeds", enabled: 0, updated_by: OWNER });
+        expect(rows[0]).toMatchObject({ key: "rsvp.native", enabled: 0, updated_by: OWNER });
         const audit = await db()
             .prepare("SELECT actor, entity_id, changes FROM audit_log WHERE action = 'flag.update' ORDER BY id")
             .all<{ actor: string; entity_id: string; changes: string }>();
         expect(audit.results.map((r) => [r.actor, r.entity_id, JSON.parse(r.changes)])).toEqual([
-            [ADMIN, "calendar.feeds", { enabled: [false, true] }],
-            [OWNER, "calendar.feeds", { enabled: [true, false] }],
+            [ADMIN, "rsvp.native", { enabled: [false, true] }],
+            [OWNER, "rsvp.native", { enabled: [true, false] }],
         ]);
     });
 });
@@ -231,10 +218,11 @@ describe("existing switch values", () => {
             ["rsvp.native", 1],
             ["communications.delivery", 1],
             ["module.budget", 0],
-            ["calendar.feeds", 1],
         ];
+        // And a retired application's switch, as production holds it: kept, and ignored.
+        const retired: [string, number][] = [["calendar.feeds", 1]];
         await db().batch(
-            stored.map(([key, enabled]) =>
+            [...stored, ...retired].map(([key, enabled]) =>
                 db()
                     .prepare("INSERT INTO feature_flags (key, enabled, updated_at, updated_by) VALUES (?, ?, '2026-10-01T00:00:00.000Z', ?)")
                     .bind(key, enabled, OWNER),
@@ -252,15 +240,13 @@ describe("existing switch values", () => {
             "/portal/wedding/settings/fields",
             "/portal/wedding/settings/features",
             "/portal/settings/people",
-            "/portal/calendar/settings",
-            "/portal/calendar/calendars",
         ]) {
             const { response, data } = await open(path);
             expect([200, 302], path).toContain(response.status);
             if (data && "context" in data) {
                 const flags = (data as { context: { flags: Record<FlagKey, boolean> } }).context.flags;
                 for (const [key, enabled] of stored) expect(flags[key], `${path} ${key}`).toBe(enabled === 1);
-                expect(flags["calendar.reminders.email"]).toBe(false);
+                expect(Object.keys(flags)).not.toContain("calendar.feeds");
             }
         }
 
@@ -294,30 +280,5 @@ describe("Wedding settings", () => {
         expect(saved.status).toBe(200);
         expect(saved.json.value).toMatchObject(details);
         expect(await auditActions()).toContain("settings.update");
-    });
-});
-
-describe("Calendar settings", () => {
-    it("shows the subscription and reminder email switches with a link to the central controls", async () => {
-        await db()
-            .prepare("INSERT INTO feature_flags (key, enabled, updated_at, updated_by) VALUES ('calendar.feeds', 1, '2026-10-01T00:00:00.000Z', ?)")
-            .bind(OWNER)
-            .run();
-        const { response, rendered } = await open("/portal/calendar/settings");
-        expect(response.status).toBe(200);
-        expect(rendered).toContain('data-flag="calendar.feeds"');
-        expect(rendered).toContain('data-flag="calendar.reminders.email"');
-        expect(rendered).toContain(`href="${featuresHref("calendar")}"`);
-        expect(rendered).toContain("Manage in Portal settings → Features");
-
-        const calendars = await open("/portal/calendar/calendars");
-        expect(calendars.response.status).toBe(200);
-        expect(calendars.rendered).not.toContain("Wedding settings");
-    });
-
-    it("explains where subscription addresses are switched on while they're off", async () => {
-        const { rendered } = await open("/portal/calendar/calendars");
-        expect(rendered).toContain("Subscription addresses are switched off");
-        expect(rendered).toContain(`href="${featuresHref("calendar")}"`);
     });
 });

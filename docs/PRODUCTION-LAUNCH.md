@@ -5,7 +5,7 @@ Status on 12 October 2026: **code-complete, not approved for production launch**
 ## Release gates
 
 - [ ] PR CI is green at the exact commit being approved.
-- [ ] Review the portal on an isolated staging deployment with fictional data. Staging has not yet been deployed and its `SITE_URL` is still a placeholder.
+- [ ] Review the portal locally with fictional data (`scripts/local-up.sh`, then `npm run seed:portal`). There is no staging environment any more (removed 9 Nov 2026).
 - [ ] Take a verified production backup: `npm run db:backup -- --env production`.
 - [ ] Record current D1 row counts and confirm `npm run db:verify` passes.
 - [ ] Confirm Cloudflare Access covers `/portal*` and `/api/portal*`, permits only intended people, and has a separate role row for every non-owner.
@@ -30,7 +30,7 @@ Status on 12 October 2026: **code-complete, not approved for production launch**
 
 ## Native RSVP approval (later, separate decision)
 
-- [ ] Test a signed invitation end to end in staging: open, answer conditional questions, submit, retry the same submission, edit the answer, rotate, and revoke.
+- [ ] Test a signed invitation end to end locally: open, answer conditional questions, submit, retry the same submission, edit the answer, rotate, and revoke.
 - [ ] Verify event attendance appears in RSVP reports, seating and catering.
 - [ ] Review every published question and its scope, required state, conditions and answer report. Confirm the courtesy-bus question is informational only.
 - [ ] Distribute only the current signed household links. Rotate any link disclosed to the wrong person.
@@ -59,8 +59,8 @@ The application supports Cloudflare Email Service directly. No Resend fallback i
     ```
 
 4. Add `EMAIL_FROM` as a non-secret environment variable and change `EMAIL_DELIVERY` from `off` to `cloudflare` only in the approved environment.
-5. Deploy to staging first. Enable **Email delivery** in staging, send only to controlled test addresses, and verify provider ids, failure handling, invitation deduplication and the scheduled queue.
-6. Return staging and production to `EMAIL_DELIVERY: "off"` until a separate production-send approval. Production delivery requires both the Worker configuration and the database feature switch, so either one being off prevents sends.
+5. Test locally first (`EMAIL_DELIVERY=log`), then use the controlled provider test sends (Email & SMS settings) to approved test addresses only, and verify provider ids, failure handling, invitation deduplication and the scheduled queue.
+6. Keep the **Email delivery** switch off until a separate production-send approval. Production delivery requires both the Worker configuration and the database feature switch, so either one being off prevents sends.
 
 ## After an approved merge
 
@@ -75,6 +75,5 @@ The application supports Cloudflare Email Service directly. No Resend fallback i
 
 - Production `RSVP_LINK_SECRET` has not been confirmed.
 - The existing configuration audit previously reported `ADMIN_TOKEN` missing.
-- Staging has not been deployed, and its final workers.dev URL/Access application are not configured.
 - Cloudflare Email Service domain onboarding, DNS, sender identity and binding are deliberately not configured.
 - Native RSVP, website publishing and email delivery require owner acceptance testing and explicit approval.

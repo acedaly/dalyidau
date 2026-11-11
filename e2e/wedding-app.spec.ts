@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
-// Wedding Planner, the installable phone app (docs/PLANNER.md), at /portal/planner; the wedding-only
-// portal navigation (Portal settings → Features → "Other applications", off by default); and the
-// full portal's wedding pages at phone width. Both projects (desktop, mobile) share one database,
+// Wedding Planner, the installable phone app (docs/PLANNER.md), at /portal/planner; the portal opening
+// on Wedding Planner, its only application (docs/DECOMMISSION_PORTAL_APPS.md); and the full portal's
+// wedding pages at phone width. Both projects (desktop, mobile) share one database,
 // so names include the project.
 
 const JSON_HEADERS = { Origin: "http://localhost:8787", "Content-Type": "application/json" };
@@ -30,18 +30,17 @@ const axe = async (page: Page, label: string) => {
 /** The app's own navigation: the bottom bar on phones, the rail on wider screens. */
 const tab = (page: Page, name: string) => page.getByRole("navigation", { name: "Wedding Planner" }).getByRole("link", { name, exact: true });
 
-test("the portal lists only Wedding Planner by default", async ({ page, isMobile }) => {
+test("the portal opens on Wedding Planner, with no other application listed", async ({ page, isMobile }) => {
     await page.goto("/portal");
-    await expect(page.locator("[data-application]")).toHaveCount(1);
-    await expect(page.locator('[data-application="wedding"]')).toBeVisible();
-    await expect(page.locator('[data-portal-link="today"]')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/portal\/wedding$/);
+    await expect(page.locator('[data-application]:not([data-application="wedding"])')).toHaveCount(0);
     if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
     const nav = page.getByRole("navigation", { name: "Portal" });
-    await expect(nav.getByRole("link", { name: "All Applications" })).toBeVisible();
-    await expect(nav.getByRole("link", { name: "Today" })).toHaveCount(0);
-    // Still there for anyone (and the Chief of Staff connector) who goes straight to it.
-    const calendar = await page.request.get("/portal/calendar");
-    expect(calendar.status()).toBe(200);
+    await expect(nav.getByRole("link", { name: "Guests" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Phone app" })).toBeVisible();
+    for (const name of ["All Applications", "Today"]) await expect(nav.getByRole("link", { name, exact: true })).toHaveCount(0);
+    // The retired applications' addresses say so.
+    expect((await page.request.get("/portal/calendar")).status()).toBe(410);
 });
 
 test("Wedding Planner's views load, fit the screen and pass axe", async ({ page }) => {
