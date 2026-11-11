@@ -133,6 +133,35 @@ describe("with the switch on", () => {
         expect((await get("/")).html).toContain("Projects are on their way");
     });
 
+    it("switches on and off on the next request, through the edge cache", async () => {
+        await publishProject(testEnv, project(), media);
+        const design = async () => ((await get("/")).html.includes('class="site-v2"') ? "projects" : "classic");
+        expect(await design()).toBe("classic");
+        expect(await design()).toBe("classic"); // now cached
+        await setSwitch(true);
+        expect(await design()).toBe("projects");
+        expect((await get("/projects/lamp")).status).toBe(200);
+        await setSwitch(false);
+        expect(await design()).toBe("classic");
+        expect((await get("/projects/lamp")).status).toBe(404);
+        await setSwitch(true);
+        expect(await design()).toBe("projects");
+    });
+
+    it("uses the Daly brand icons only in the projects-first design", async () => {
+        const classic = (await get("/")).html;
+        expect(classic).toContain('href="/favicon.svg"');
+        expect(classic).not.toContain("/brand/");
+        await setSwitch(true);
+        const branded = (await get("/")).html;
+        expect(branded).toContain('<link rel="icon" href="/brand/favicon.svg"');
+        expect(branded).toContain('href="/brand/favicon-32.png"');
+        expect(branded).toContain('href="/brand/apple-touch-icon.png"');
+        expect(branded).not.toContain('href="/favicon.ico"');
+        // The logo is drawn inline, with the name for screen readers.
+        expect(branded).toMatch(/<svg viewBox="0 0 437 180"[^>]*aria-hidden="true"/);
+    });
+
     it("falls back safely from a damaged snapshot", async () => {
         await setSwitch(true);
         await testEnv.DB.batch([

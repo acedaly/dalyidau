@@ -4,6 +4,8 @@ Read this first if you are a Claude Code session picking up this work.
 
 ## Phase 4: projects-first redesign (directive 11 Nov 2026 ~11:00Z): WAITING FOR THE OWNER'S VISUAL APPROVAL
 
+**12 Nov 2026 (owner: prepare production, keep the switch OFF):** #56 merged and deployed (production `3c1b441a`, before it `431fb40f`). Public site (31 URLs), wedding tables (24) and screenshots (24) unchanged. Payload applied `20261111_085000_projects`; Projects is empty in production. Access destination `daly.id.au/api/projects` added (16 destinations; nothing else changed). Live round trip done (upload, draft, publish, private preview, Trash); the test project **"Payload live check" is in Trash** and its test image (Payload media id 2, public copy `/media/c4be1d54fdb6d233bcd2e1fc.png`) is kept for the owner to delete. `site:projects` is `[]`. The switch has no row (default off) and was never turned on in production; on/off through the edge cache is proven by `test/projects.test.ts`. Payload backups: `npm run payload:backup` ([PAYLOAD-BACKUP.md](PAYLOAD-BACKUP.md)). The owner's Daly brand (navy/vermilion, Space Grotesk, logo, icons) is #57, redesign only; screenshots on the review page.
+
 - Review page: https://claude.ai/artifact/6S3ymU2DQiQK1tY14HGuye. Design, content model and go-live steps: `docs/PAYLOAD-FRONTEND-PLAN.md` §11. Journal: `docs/PAYLOAD-FRONTEND-LOG.md` ("Phase 4").
 - **PR #56** (`feature/projects-redesign`), CI green, **not merged** (the classifier refused the production deploy; the owner merges). Merging deploys with the switch **off**: the live site is unchanged; Projects appears in the admin; the preview opens at `/portal/preview`.
 - **Do not** switch on `website.projects_home` until the owner approves the design.
