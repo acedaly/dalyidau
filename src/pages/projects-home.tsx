@@ -33,7 +33,10 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                             {content.heroCtaLabel}
                         </Button>
                         {content.showWriting && (
-                            <a href="/blog" className="rounded-xs text-md font-semibold text-secondary underline-offset-4 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2">
+                            <a
+                                href="/blog"
+                                className="v2-link rounded-xs text-md font-semibold text-secondary underline-offset-4 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
                                 Or read the writing
                             </a>
                         )}
@@ -50,7 +53,10 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                         {content.projectsIntro && <p className="mt-2 max-w-2xl text-md text-tertiary">{content.projectsIntro}</p>}
                     </div>
                     {content.showMoreProjects && projects.length > 0 && (
-                        <a href={href("/projects")} className="group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 max-md:hidden">
+                        <a
+                            href={href("/projects")}
+                            className="group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 max-md:hidden"
+                        >
                             All projects
                             <ArrowRight aria-hidden="true" className="size-4 transition duration-150 motion-safe:group-hover:translate-x-0.5" />
                         </a>
@@ -92,7 +98,10 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                             <h2 id="writing-heading" className="v2-display text-display-xs text-primary">
                                 {content.writingHeading}
                             </h2>
-                            <a href="/blog" className="group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-secondary outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2">
+                            <a
+                                href="/blog"
+                                className="v2-link group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-secondary outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
                                 All writing
                                 <ArrowRight aria-hidden="true" className="size-4 transition duration-150 motion-safe:group-hover:translate-x-0.5" />
                             </a>
@@ -100,12 +109,17 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                         <ul className="divide-y divide-secondary border-y border-secondary">
                             {latest.map((post) => (
                                 <li key={post.slug}>
-                                    <a href={`/blog/${post.slug}`} className="group flex flex-col gap-1 py-5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 sm:flex-row sm:items-baseline sm:gap-6">
+                                    <a
+                                        href={`/blog/${post.slug}`}
+                                        className="group flex flex-col gap-1 py-5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 sm:flex-row sm:items-baseline sm:gap-6"
+                                    >
                                         <time dateTime={post.publishedAt} className="shrink-0 text-sm text-quaternary tabular-nums sm:w-36">
                                             {formatDate(post.publishedAt)}
                                         </time>
                                         <span className="flex flex-col gap-1">
-                                            <span className="text-lg font-semibold text-primary group-hover:underline group-hover:underline-offset-4">{post.title}</span>
+                                            <span className="text-lg font-semibold text-primary group-hover:underline group-hover:underline-offset-4">
+                                                {post.title}
+                                            </span>
                                             {post.summary && <span className="line-clamp-2 text-md text-tertiary">{post.summary}</span>}
                                         </span>
                                     </a>
@@ -124,7 +138,10 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                         </h2>
                         <div className="flex max-w-2xl flex-col items-start gap-5">
                             <p className="text-lg leading-relaxed text-secondary">{content.aboutText}</p>
-                            <a href="/about" className="group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2">
+                            <a
+                                href="/about"
+                                className="group inline-flex items-center gap-1.5 rounded-xs text-md font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
                                 More about me
                                 <ArrowRight aria-hidden="true" className="size-4 transition duration-150 motion-safe:group-hover:translate-x-0.5" />
                             </a>

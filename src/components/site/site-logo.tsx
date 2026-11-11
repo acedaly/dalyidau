@@ -1,5 +1,6 @@
-import { useSiteFrame, usePreviewHref } from "@/providers/site-frame";
+import { DalyLogo } from "@/components/site/brand/daly-logo";
 import { useSite } from "@/providers/site-content";
+import { usePreviewHref, useSiteFrame } from "@/providers/site-frame";
 import { cx } from "@/utils/cx";
 
 export const SiteLogo = ({ className }: { className?: string }) => {
@@ -8,12 +9,12 @@ export const SiteLogo = ({ className }: { className?: string }) => {
     const home = usePreviewHref()("/");
     if (projects)
         return (
-            // The projects-first design's wordmark: the initials and a sage full stop, with the name for screen readers.
-            <a href={home} className={cx("rounded-md text-xl font-bold tracking-tight text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4", className)}>
-                <span aria-hidden="true">
-                    {site.shortName}
-                    <span className="text-fg-brand-primary">.</span>
-                </span>
+            // The projects-first design: the Daly logo, with the name for screen readers.
+            <a
+                href={home}
+                className={cx("-ml-2 block rounded-md text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2", className)}
+            >
+                <DalyLogo className="h-11 w-auto" />
                 <span className="sr-only">{site.name}</span>
             </a>
         );

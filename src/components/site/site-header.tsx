@@ -16,8 +16,14 @@ export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPu
     const { projects } = useSiteFrame();
     const previewHref = usePreviewHref();
     // The projects-first design always offers Projects; the menu's own items are kept as they are in Payload.
-    const base = projects && !site.nav.some((item) => item.href === "/projects") ? [{ label: "Projects", href: "/projects" }, ...site.nav.filter((item) => item.href !== "/")] : site.nav;
-    const navigation = (weddingPublished ? [...base, { label: "Wedding", href: "https://wedding.daly.id.au" }] : base).map((item) => ({ ...item, href: projects ? previewHref(item.href) : item.href }));
+    const base =
+        projects && !site.nav.some((item) => item.href === "/projects")
+            ? [{ label: "Projects", href: "/projects" }, ...site.nav.filter((item) => item.href !== "/")]
+            : site.nav;
+    const navigation = (weddingPublished ? [...base, { label: "Wedding", href: "https://wedding.daly.id.au" }] : base).map((item) => ({
+        ...item,
+        href: projects ? previewHref(item.href) : item.href,
+    }));
 
     return (
         <header
@@ -38,7 +44,7 @@ export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPu
                                         aria-current={active ? "page" : undefined}
                                         className={cx(
                                             "flex rounded-lg px-3 py-2 text-md font-semibold outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2",
-                                            active ? "text-primary" : "text-tertiary hover:text-secondary_hover",
+                                            active ? "text-primary" : "v2-link text-tertiary hover:text-secondary_hover",
                                         )}
                                     >
                                         {item.label}

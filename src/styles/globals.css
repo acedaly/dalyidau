@@ -9,6 +9,7 @@
  */
 @import "tailwindcss" source(none);
 @import "@fontsource-variable/cormorant-garamond";
+@import "@fontsource/space-grotesk/latin-600.css";
 @source "../../shell.html";
 @source "../app.tsx";
 @source "../entry-client.tsx";
@@ -87,50 +88,61 @@
 /*
  * The projects-first design (Phase 4), only on pages rendered with <html class="site-v2"> (the switched-on
  * site, or the private preview). It redefines Untitled UI's base scales, so every semantic token (bg-primary,
- * text-tertiary, border-secondary, brand…) and every component follows: warm off-white and stone neutrals,
- * charcoal type, a muted sage accent, and a warm charcoal dark mode. The wedding site never gets this class.
+ * text-tertiary, border-secondary, brand…) and every component follows. The Daly brand (owner, 12 Nov 2026):
+ * navy #10203A for text and dark backgrounds, vermilion #E4572E as an accent only, white, light grey #F3F5F8,
+ * Space Grotesk 600 for the wordmark and headings. Neutrals are navy-tinted greys. Vermilion is 3.7:1 on white,
+ * so it is brand-500 (non-text: the logo stem, dots, focus rings, highlights); anything that carries text uses
+ * the darker #B8401C (brand-600, 5.5:1: buttons, small accent text) or darker. The wedding site never gets this class.
  */
 .site-v2 {
-    --color-white: rgb(250 249 246);
-    --color-neutral-25: rgb(252 251 248);
-    --color-neutral-50: rgb(244 242 236);
-    --color-neutral-100: rgb(236 233 226);
-    --color-neutral-200: rgb(225 221 211);
-    --color-neutral-300: rgb(208 203 191);
-    --color-neutral-400: rgb(168 163 151);
-    --color-neutral-500: rgb(110 105 95);
-    --color-neutral-600: rgb(101 97 88);
-    --color-neutral-700: rgb(74 71 64);
-    --color-neutral-800: rgb(50 48 44);
-    --color-neutral-900: rgb(33 32 29);
-    --color-neutral-950: rgb(21 21 19);
-    --color-brand-25: rgb(248 250 246);
-    --color-brand-50: rgb(240 244 237);
-    --color-brand-100: rgb(225 233 220);
-    --color-brand-200: rgb(201 215 193);
-    --color-brand-300: rgb(170 192 160);
-    --color-brand-400: rgb(137 163 125);
-    --color-brand-500: rgb(108 136 97);
-    --color-brand-600: rgb(84 111 75);
-    --color-brand-700: rgb(68 90 61);
-    --color-brand-800: rgb(56 73 51);
-    --color-brand-900: rgb(46 60 43);
-    --color-brand-950: rgb(26 34 25);
+    --color-white: rgb(255 255 255);
+    --color-neutral-25: rgb(248 249 251);
+    --color-neutral-50: rgb(243 245 248); /* light grey */
+    --color-neutral-100: rgb(231 235 240);
+    --color-neutral-200: rgb(213 219 228);
+    --color-neutral-300: rgb(182 192 206);
+    --color-neutral-400: rgb(137 148 166);
+    --color-neutral-500: rgb(94 106 126); /* 5.0:1 on light grey */
+    --color-neutral-600: rgb(74 86 106);
+    --color-neutral-700: rgb(53 65 86);
+    --color-neutral-800: rgb(34 48 73);
+    --color-neutral-900: rgb(16 32 58); /* navy */
+    --color-neutral-950: rgb(10 21 38);
+    --color-brand-25: rgb(254 248 245);
+    --color-brand-50: rgb(253 240 235);
+    --color-brand-100: rgb(250 220 209);
+    --color-brand-200: rgb(245 187 166);
+    --color-brand-300: rgb(239 149 118);
+    --color-brand-400: rgb(234 117 80);
+    --color-brand-500: rgb(228 87 46); /* vermilion */
+    --color-brand-600: rgb(184 64 28); /* darker vermilion for text and buttons */
+    --color-brand-700: rgb(154 53 23);
+    --color-brand-800: rgb(122 42 18);
+    --color-brand-900: rgb(92 32 14);
+    --color-brand-950: rgb(58 20 9);
+    --font-v2-display: "Space Grotesk", var(--font-body);
     background-color: var(--color-white);
 }
+/* Dark mode: white on navy. */
 .site-v2.dark-mode {
-    --color-brand-300: rgb(180 202 170);
-    --color-brand-400: rgb(156 182 145);
-    --color-brand-500: rgb(134 161 122);
+    --color-neutral-400: rgb(154 165 182); /* 5.8:1 on the raised navy */
+    --color-neutral-900: rgb(23 42 71);
+    --color-neutral-950: rgb(16 32 58); /* navy */
+    --color-brand-300: rgb(245 160 132);
+    --color-brand-400: rgb(240 122 85);
     background-color: var(--color-neutral-950);
 }
 .site-v2 body {
     font-feature-settings: "ss01", "cv11";
 }
-/* Headings in the projects-first design: tight, confident sans. */
-.v2-display {
-    letter-spacing: -0.032em;
+/* Headings in the projects-first design: Space Grotesk SemiBold. */
+.v2-display,
+.site-v2 :is(h1, h2, h3) {
+    font-family: var(--font-v2-display);
     font-weight: 600;
+}
+.v2-display {
+    letter-spacing: -0.025em;
     text-wrap: balance;
 }
 .v2-eyebrow {
@@ -140,17 +152,13 @@
 /* A project without a cover image: a quiet, textured panel with its initials, never a stock picture. */
 .v2-cover-fallback {
     background-color: var(--color-brand-50);
-    background-image:
-        linear-gradient(var(--color-brand-100) 1px, transparent 1px),
-        linear-gradient(90deg, var(--color-brand-100) 1px, transparent 1px);
+    background-image: linear-gradient(var(--color-brand-100) 1px, transparent 1px), linear-gradient(90deg, var(--color-brand-100) 1px, transparent 1px);
     background-size: 28px 28px;
     background-position: -1px -1px;
 }
 .dark-mode .v2-cover-fallback {
-    background-color: rgb(30 33 28);
-    background-image:
-        linear-gradient(rgb(40 45 38) 1px, transparent 1px),
-        linear-gradient(90deg, rgb(40 45 38) 1px, transparent 1px);
+    background-color: rgb(23 42 71);
+    background-image: linear-gradient(rgb(34 54 86) 1px, transparent 1px), linear-gradient(90deg, rgb(34 54 86) 1px, transparent 1px);
 }
 .v2-card-image {
     transition: transform 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -167,4 +175,11 @@
     .group:focus-visible .v2-card-image {
         transform: none;
     }
+}
+/* Links in the projects-first design turn vermilion on hover (the darker shade on light, so it stays readable). */
+.site-v2 .v2-link:hover {
+    color: var(--color-brand-600);
+}
+.site-v2.dark-mode .v2-link:hover {
+    color: var(--color-brand-400);
 }

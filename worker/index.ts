@@ -1,9 +1,9 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
 import { render, renderWedding } from "../src/entry-server";
+import { WEDDING_PREVIEW, adminPathForPortal } from "../src/shared/portal/admin-paths";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
-import { WEDDING_PREVIEW, adminPathForPortal } from "../src/shared/portal/admin-paths";
 import type { GuestInvitationPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import { RESERVED_SLUGS, type SiteSettings } from "../src/shared/site-content";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
@@ -278,6 +278,13 @@ async function renderDocument(env: Env, input: DocumentInput): Promise<Response>
             `<script type="application/json" id="page-data">${jsonForScript({ area: input.area, data: input.data, path: input.path })}</script>`,
         );
     if (input.htmlAttributes) html = html.replace('<html lang="en-AU">', `<html lang="en-AU" ${input.htmlAttributes}>`);
+    // The projects-first design uses the Daly logo pack's icons (public/brand) and navy browser chrome in dark mode.
+    if (input.htmlAttributes?.includes("site-v2"))
+        html = html
+            .replace('href="/favicon.svg"', 'href="/brand/favicon.svg"')
+            .replace(/<link rel="icon" href="\/favicon\.ico"[^>]*>/, '<link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />')
+            .replace('href="/apple-touch-icon.png"', 'href="/brand/apple-touch-icon.png"')
+            .replace('content="#0c0e12"', 'content="#10203a"');
     return new Response(html, { status: input.status, headers: { "Content-Type": "text/html; charset=utf-8", ...input.headers } });
 }
 
@@ -414,7 +421,13 @@ async function weddingPage(request: Request, env: Env, url: URL, indexable: bool
     const flags = await loadFlags(env.DB);
     // Until the couple publishes it, /wedding is indistinguishable from any other missing page.
     if (!route || !flags["wedding.site.public"])
-        return renderPage(env, { route: "not-found", path: url.pathname, context: { weddingPublished: false, site: await loadSite(env.DB) } }, url.pathname, 404, true);
+        return renderPage(
+            env,
+            { route: "not-found", path: url.pathname, context: { weddingPublished: false, site: await loadSite(env.DB) } },
+            url.pathname,
+            404,
+            true,
+        );
     const data = { ...(await loadWeddingPage(env.DB, route, false)), legacyPaths: true };
     const noindex = data.content.noindex || !indexable || route === "rsvp";
     return renderWeddingDocument(env, data, url.pathname, 200, noindex, weddingPageHeaders(route, noindex));
