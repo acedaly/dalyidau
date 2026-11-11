@@ -11,6 +11,7 @@ import { r2Storage } from '@payloadcms/storage-r2'
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Pages } from './collections/Pages'
+import { Posts } from './collections/Posts'
 import { migrations } from './migrations'
 
 const filename = fileURLToPath(import.meta.url)
@@ -57,6 +58,9 @@ const cloudflare =
   isCLI || !isProduction
     ? await getCloudflareContextFromWrangler()
     : await getCloudflareContext({ async: true })
+// The CLI (payload migrate) has no request context: hooks and migrations read the bindings from here
+// instead (src/cloudflare-env.ts). Never set in the deployed Worker.
+if (isCLI || !isProduction) (globalThis as { __payloadLocalEnv?: unknown }).__payloadLocalEnv = cloudflare.env
 
 export default buildConfig({
   admin: {
@@ -74,7 +78,7 @@ export default buildConfig({
       afterNavLinks: ['/views/wedding-nav#WeddingNav'],
     },
   },
-  collections: [Users, Media, Pages],
+  collections: [Users, Media, Pages, Posts],
   // Not used; switched off so there is one less API surface to secure.
   graphQL: { disable: true },
   jobs: {

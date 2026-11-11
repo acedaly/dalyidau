@@ -70,6 +70,7 @@ export interface Config {
     users: User;
     media: Media;
     pages: Page;
+    posts: Post;
     'payload-kv': PayloadKv;
     'payload-jobs': PayloadJob;
     'payload-locked-documents': PayloadLockedDocument;
@@ -81,6 +82,7 @@ export interface Config {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     pages: PagesSelect<false> | PagesSelect<true>;
+    posts: PostsSelect<false> | PostsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -91,12 +93,8 @@ export interface Config {
     defaultIDType: number;
   };
   fallbackLocale: null;
-  globals: {
-    'payload-jobs-stats': PayloadJobsStat;
-  };
-  globalsSelect: {
-    'payload-jobs-stats': PayloadJobsStatsSelect<false> | PayloadJobsStatsSelect<true>;
-  };
+  globals: {};
+  globalsSelect: {};
   locale: null;
   widgets: {
     collections: CollectionsWidget;
@@ -187,6 +185,99 @@ export interface Page {
     };
     [k: string]: unknown;
   } | null;
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
+}
+/**
+ * Posts on daly.id.au/blog. Publishing puts a post on the site straight away; Unpublish takes it down.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "posts".
+ */
+export interface Post {
+  id: number;
+  title: string;
+  /**
+   * The address: daly.id.au/blog/<slug>. Changing it keeps the old address redirecting.
+   */
+  slug: string;
+  subtitle?: string | null;
+  /**
+   * Shown in lists, feeds and search results. Left empty, the first words of the post are used.
+   */
+  summary?: string | null;
+  /**
+   * The featured image (JPEG, PNG, GIF, WebP or AVIF, up to 15 MB).
+   */
+  heroImage?: (number | null) | Media;
+  content?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  publishedAt?: string | null;
+  /**
+   * Shown as "Updated" on the post, when set.
+   */
+  updatedDate?: string | null;
+  category?: string | null;
+  tags?:
+    | {
+        tag: string;
+        id?: string | null;
+      }[]
+    | null;
+  featured?: boolean | null;
+  /**
+   * The post's id on the public site. Imported posts keep their original one.
+   */
+  publicId?: string | null;
+  /**
+   * An imported post as it was published before Payload. While Content is empty, the site shows this HTML exactly as it was; writing Content replaces it.
+   */
+  legacy?: {
+    source?: string | null;
+    bodyHtml?: string | null;
+    toc?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    searchText?: string | null;
+    wordCount?: number | null;
+    readingMinutes?: number | null;
+    imageKey?: string | null;
+    imageAlt?: string | null;
+    imageWidth?: number | null;
+    imageHeight?: number | null;
+    /**
+     * The posts row before import, for undoing it.
+     */
+    originalRow?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -297,15 +388,6 @@ export interface PayloadJob {
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
-  meta?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -327,6 +409,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'pages';
         value: number | Page;
+      } | null)
+    | ({
+        relationTo: 'posts';
+        value: number | Post;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -411,6 +497,47 @@ export interface PagesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "posts_select".
+ */
+export interface PostsSelect<T extends boolean = true> {
+  title?: T;
+  slug?: T;
+  subtitle?: T;
+  summary?: T;
+  heroImage?: T;
+  content?: T;
+  publishedAt?: T;
+  updatedDate?: T;
+  category?: T;
+  tags?:
+    | T
+    | {
+        tag?: T;
+        id?: T;
+      };
+  featured?: T;
+  publicId?: T;
+  legacy?:
+    | T
+    | {
+        source?: T;
+        bodyHtml?: T;
+        toc?: T;
+        searchText?: T;
+        wordCount?: T;
+        readingMinutes?: T;
+        imageKey?: T;
+        imageAlt?: T;
+        imageWidth?: T;
+        imageHeight?: T;
+        originalRow?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  _status?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv_select".
  */
 export interface PayloadKvSelect<T extends boolean = true> {
@@ -445,7 +572,6 @@ export interface PayloadJobsSelect<T extends boolean = true> {
   queue?: T;
   waitUntil?: T;
   processing?: T;
-  meta?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -480,34 +606,6 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "payload-jobs-stats".
- */
-export interface PayloadJobsStat {
-  id: number;
-  stats?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  updatedAt?: string | null;
-  createdAt?: string | null;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "payload-jobs-stats_select".
- */
-export interface PayloadJobsStatsSelect<T extends boolean = true> {
-  stats?: T;
-  updatedAt?: T;
-  createdAt?: T;
-  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
