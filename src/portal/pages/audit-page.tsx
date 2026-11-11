@@ -55,7 +55,7 @@ export const AuditPage = ({ data }: { data: PageData<"audit"> }) => {
         <>
             <PageHeader
                 title="Audit log"
-                description="Every change made in the portal and through the RSVP form: who, what and when."
+                description="Every change made in the admin and through the RSVP form: who, what and when."
                 breadcrumbs={[{ label: "Audit log" }]}
                 actions={
                     can("portal.audit.view") && (

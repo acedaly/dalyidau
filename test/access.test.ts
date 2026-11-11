@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaultFlags } from "../src/shared/portal/flags";
 import { verifyAccessJwt } from "../worker/portal/access";
 import { loadPortalPage } from "../worker/portal/pages";
-import { AUD, ORIGIN, OWNER, SECOND_OWNER, TEAM, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal, testKeys } from "./portal-helpers";
+import { AUD, ORIGIN, OWNER, SECOND_OWNER, TEAM, accessToken, adminPage, apiCall, auditActions, call, db, portalEnv, resetPortal, testKeys } from "./portal-helpers";
 
 const config = { teamDomain: TEAM, audiences: [AUD] };
 const keyFor = async (kid: string) => {
@@ -90,17 +90,15 @@ describe("portal access control", () => {
 
     it("lets configured owners in, privately", async () => {
         for (const email of [OWNER, SECOND_OWNER]) {
+            // The retired portal sends signed-in people to the same screen in Payload, privately.
             const response = await call("/portal/wedding", { token: await accessToken({ email }) });
-            expect(response.status).toBe(200);
+            expect(response.status).toBe(302);
+            expect(response.headers.get("Location")).toBe(`${ORIGIN}/admin/wedding`);
             expect(response.headers.get("Cache-Control")).toBe("no-store");
             expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
-            const html = await response.text();
-            expect(html).toContain('<script type="application/json" id="page-data">');
-            expect(html).toContain("Dashboard");
-            expect(html).toContain("/assets/portal-");
-            // The Worker sends a loading shell, never a React render of the page (CPU budget).
-            expect(html).toContain("data-portal-boot");
-            expect(html).not.toContain("<aside");
+            const screen = await adminPage("/portal/wedding", { token: await accessToken({ email }) });
+            expect(screen.status).toBe(200);
+            expect(screen.data?.route).toBe("dashboard");
         }
         const me = await apiCall<{ user: { role: string; permissions: string[] } }>("GET", "/api/portal/me");
         expect(me.json.user.role).toBe("owner");
@@ -122,7 +120,7 @@ describe("portal access control", () => {
         expect(write.status).toBe(403);
         const budget = await apiCall("GET", "/api/portal/wedding/budget-items", undefined, { email: "viewer@example.com" });
         expect(budget.status).toBe(403);
-        const page = await call("/portal/wedding/budget", { token: await accessToken({ email: "viewer@example.com" }) });
+        const page = await adminPage("/portal/wedding/budget", { token: await accessToken({ email: "viewer@example.com" }) });
         expect(page.status).toBe(403);
     });
 
@@ -212,7 +210,7 @@ describe("portal access control", () => {
         for (const host of ["dalyidau.example.workers.dev", "abc123-dalyidau.example.workers.dev"]) {
             expect((await call("/portal/wedding", { host })).status).toBe(401);
             expect((await call("/api/portal/wedding/guests", { host })).status).toBe(401);
-            expect((await call("/portal/wedding", { host, token: await accessToken() })).status).toBe(200);
+            expect((await call("/portal/wedding", { host, token: await accessToken() })).status).toBe(302);
         }
     });
 
@@ -242,7 +240,10 @@ describe("portal access control", () => {
 
     it("keeps owner emails and Access settings out of the page for other users", async () => {
         await apiCall("POST", "/api/portal/users", { email: "viewer@example.com", role: "viewer" });
-        const html = await (await call("/portal/settings", { token: await accessToken({ email: "viewer@example.com" }) })).text();
+        // What Payload's Administration screen receives and renders for a viewer.
+        const screen = await adminPage("/portal/settings/access", { token: await accessToken({ email: "viewer@example.com" }) });
+        expect(screen.status).toBe(200);
+        const html = JSON.stringify(screen.data) + screen.html;
         expect(html).not.toContain(OWNER);
         expect(html).not.toContain(SECOND_OWNER);
         expect(html).not.toContain(AUD);

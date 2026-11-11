@@ -5,20 +5,17 @@
 // the message of their retirement (after the usual sign-in and role checks); their public addresses
 // answer a plain 410; the database holds exactly what it should; and the wedding site, RSVP, Wedding
 // Planner and the blog answer as before. Every identity and record is fictional.
-import { createElement } from "react";
-import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
 import pending0033 from "../docs/pending/0033_drop_retired_portal_app_tables.sql?raw";
 import migration0032 from "../docs/pending/0032_drop_retired_tables.sql?raw";
-import { PortalApp } from "../src/portal/portal-app";
 import { APPLICATIONS } from "../src/shared/portal/applications";
 import { FLAG_KEYS } from "../src/shared/portal/flags";
 import { PERMISSIONS, ROLE_PERMISSIONS } from "../src/shared/portal/permissions";
 import { FEATURE_AREAS, PORTAL_SETTINGS_TABS } from "../src/shared/portal/settings-sections";
-import type { Household, PortalPageData, WeddingEvent } from "../src/shared/portal/types";
+import type { Household, WeddingEvent } from "../src/shared/portal/types";
 import type { Env } from "../worker/env";
 import { loadFlags } from "../worker/portal/flags";
-import { ORIGIN, OWNER, SECOND_OWNER, accessToken, apiCall, call, db, portalEnv, resetPortal } from "./portal-helpers";
+import { ORIGIN, OWNER, SECOND_OWNER, accessToken, adminPage, apiCall, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
 
@@ -28,12 +25,22 @@ const VIEWER = "viewer@example.com";
 const PLANNER_HOST = "weddingplanner.daly.id.au";
 const WEDDING_HOST = "wedding.daly.id.au";
 
+/**
+ * A screen as Payload's admin shows it (the portal's own pages were retired in Phase 3). A retired
+ * application's address isn't a screen: the Worker answers it with a plain 410 that says why.
+ */
 const render = async (path: string, email = OWNER) => {
-    const response = await call(path, { token: await accessToken({ email }) });
+    const token = await accessToken({ email });
+    const page = await adminPage(path, { token });
+    if (page.status !== 404) return { response: { status: page.status, headers: new Headers({ "Cache-Control": "no-store" }) }, data: page.data, html: page.html };
+    const response = await call(path, { token });
     const html = await response.text();
-    const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
-    const payload = json ? (JSON.parse(json) as { data: PortalPageData; path: string }) : null;
-    return { response, data: payload?.data, html: payload ? renderToString(createElement(PortalApp, { data: payload.data, path: payload.path })) : "" };
+    const message = /<p>([^<]*)<\/p>/
+        .exec(html)?.[1]
+        ?.replace(/&amp;/g, "&")
+        .replace(/&#39;|&#x27;/g, "'")
+        .replace(/&quot;/g, '"');
+    return { response, data: response.status === 410 ? { route: "forbidden", message } : undefined, html };
 };
 
 const addPeople = async () => {
@@ -83,10 +90,10 @@ describe("nothing of a retired application is offered", () => {
         expect(links.filter((href) => !/^\/portal\/(wedding|planner)(\/|$)/.test(href))).toEqual([]);
     });
 
-    it("opens the portal on Wedding Planner, and no page links to a retired application", async () => {
+    it("sends /portal to the wedding admin in Payload, and no screen links to a retired application", async () => {
         const home = await call("/portal", { token: await accessToken() });
         expect(home.status).toBe(302);
-        expect(home.headers.get("Location")).toBe(`${ORIGIN}/portal/wedding`);
+        expect(home.headers.get("Location")).toBe(`${ORIGIN}/admin/wedding`);
         await addPeople();
         for (const email of [OWNER, VIEWER])
             for (const path of [
@@ -294,17 +301,15 @@ describe("the wedding site, RSVP, Wedding Planner and the blog answer as before"
         expect(lookup.json.household?.guests.map((g) => g.firstName)).toEqual(["Alex"]);
     });
 
-    it("serves Wedding Planner, the phone app, at /portal/planner and on its own address", async () => {
+    it("sends the retired phone app's addresses to the wedding admin in Payload", async () => {
         const token = await accessToken();
-        expect((await call("/portal/planner", { token })).status).toBe(200);
-        expect((await call("/portal/planner/guests", { token })).status).toBe(200);
+        expect((await call("/portal/planner", { token })).status).toBe(302);
+        expect((await call("/portal/planner/guests", { token })).headers.get("Location")).toBe(`${ORIGIN}/admin/wedding`);
         const env: Env = await portalEnv({ PLANNER_URL: `https://${PLANNER_HOST}` });
         const onHost = (path: string) => call(path, { token, host: PLANNER_HOST, env });
-        expect((await onHost("/")).status).toBe(200);
-        expect((await onHost("/api/portal/dashboard")).status).toBe(200);
-        expect((await onHost("/api/portal/wedding/guests")).status).toBe(200);
-        expect((await onHost("/api/portal/me")).status).toBe(200);
-        for (const path of ["/api/portal/calendar/calendars", "/api/portal/today", "/portal/calendar"]) expect((await onHost(path)).status, path).toBe(404);
+        expect((await onHost("/")).status).toBe(302);
+        for (const path of ["/api/portal/dashboard", "/api/portal/wedding/guests", "/api/portal/me", "/api/portal/calendar/calendars", "/api/portal/today"])
+            expect((await onHost(path)).status, path).toBe(404);
     });
 
     it("keeps every published article online whichever publisher wrote it, Amplenote's included", async () => {
@@ -433,7 +438,7 @@ describe("the database", () => {
             const r = await apiCall("GET", path);
             expect(r.status, `${path}: ${r.text}`).toBe(200);
         }
-        for (const path of ["/portal/wedding", "/portal/settings/website", "/portal/settings/features", "/portal/planner"])
+        for (const path of ["/portal/wedding", "/portal/settings/website", "/portal/settings/features"])
             expect((await render(path)).response.status, path).toBe(200);
         expect((await apiCall("POST", "/api/portal/website/capacities/archive", {})).status).toBe(200);
         expect((await call("/blog", { token: null })).status).toBe(200);

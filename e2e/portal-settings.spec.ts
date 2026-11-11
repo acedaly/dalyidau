@@ -1,7 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { at } from "./helpers";
 
-// Portal settings: reached from the sidebar, sections as tabs (a select on phones), feature
+// Administration: reached from the sidebar, sections as tabs (a select on phones), feature
 // switches changed in one place and shown read-only where they apply. The e2e Worker acts as an
 // owner (ACCESS_DEV_EMAIL). Tests run one at a time on one database, so anything switched on here
 // is switched back off.
@@ -15,32 +16,29 @@ const setFlag = async (request: APIRequestContext, key: string, enabled: boolean
 
 const openSection = async (page: Page, isMobile: boolean, label: string) => {
     if (isMobile) {
-        await page.getByRole("button", { name: /Settings section/ }).click();
-        await page.getByRole("option", { name: label, exact: true }).click();
-    } else await page.getByRole("tab", { name: label }).click();
+        await at(page).getByRole("button", { name: /Settings section/ }).click();
+        await at(page).getByRole("option", { name: label, exact: true }).click();
+    } else await at(page).getByRole("tab", { name: label }).click();
 };
 
 const expectAccessible = async (page: Page) => {
     // The development-only environment banner is excluded, as in the other suites.
-    const results = await new AxeBuilder({ page }).include("main").exclude("main p.bg-warning-primary").analyze();
+    const results = await new AxeBuilder({ page }).include('[data-testid="wedding-screen"]').analyze();
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 };
 
-test("opens Portal settings from the sidebar and moves between sections", async ({ page, isMobile }) => {
-    await page.goto("/portal/wedding");
-    if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
-    await page
-        .getByRole("link", { name: /Portal settings/ })
-        .first()
-        .click();
-    await expect(page).toHaveURL(/\/portal\/settings$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Portal settings" })).toBeVisible();
+test("opens Administration from Payload's menu and moves between sections", async ({ page, isMobile }) => {
+    // An old portal address opens the section in Payload, which lists it in its menu.
+    await page.goto("/portal/settings/access");
+    await expect(page).toHaveURL(/\/admin\/administration\/access$/);
+    await expect(page.getByRole("navigation", { name: "Wedding and administration" }).getByRole("link", { name: "Users and permissions" })).toHaveCount(1);
+    await expect(at(page).getByRole("heading", { level: 1, name: "Administration" })).toBeVisible();
 
     for (const [label, path] of [
-        ["Household & Access", "/portal/settings/access"],
-        ["Features", "/portal/settings/features"],
-        ["Website & Blog", "/portal/settings/website"],
-        ["Integrations & Security", "/portal/settings/security"],
+        ["Users and permissions", "/admin/administration/access"],
+        ["Features", "/admin/administration/features"],
+        ["Capacities archive", "/admin/administration/website"],
+        ["Integrations and security", "/admin/administration/security"],
     ] as const) {
         await openSection(page, isMobile, label);
         await expect(page).toHaveURL(new RegExp(`${path}$`));
@@ -51,38 +49,38 @@ test("opens Portal settings from the sidebar and moves between sections", async 
 
     // The address is shareable: reloading keeps the section.
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+    await expect(at(page).getByRole("heading", { name: "Integrations" })).toBeVisible();
 });
 
 test("changes a Wedding Planner switch in one place and shows it in Wedding settings", async ({ page, request }) => {
     try {
-        await page.goto("/portal/settings/features");
-        const saveTheDate = page.getByRole("switch", { name: /Public Save the Date page/ });
+        await page.goto("/admin/administration/features");
+        const saveTheDate = at(page).getByRole("switch", { name: /Public Save the Date page/ });
         await expect(saveTheDate).not.toBeChecked();
         await saveTheDate.click({ force: true });
         await expect(saveTheDate).toBeChecked();
         await page.reload();
-        await expect(page.getByRole("switch", { name: /Public Save the Date page/ })).toBeChecked();
+        await expect(at(page).getByRole("switch", { name: /Public Save the Date page/ })).toBeChecked();
 
-        await page.goto("/portal/wedding/settings");
-        await expect(page.locator('[data-flag="wedding.save_the_date.public"]')).toContainText("On");
+        await page.goto("/admin/wedding/settings");
+        await expect(at(page).locator('[data-flag="wedding.save_the_date.public"]')).toContainText("On");
         // Wedding settings has no toggle of its own for the portal switch.
-        await expect(page.getByRole("switch", { name: /Public Save the Date page/ })).toHaveCount(0);
+        await expect(at(page).getByRole("switch", { name: /Public Save the Date page/ })).toHaveCount(0);
     } finally {
         await setFlag(request, "wedding.save_the_date.public", false);
     }
 });
 
-test("keeps Wedding settings for wedding details and sends old feature links to Portal settings", async ({ page }) => {
+test("keeps Wedding settings for wedding details and sends old feature links to Administration", async ({ page }) => {
     await page.goto("/portal/wedding/settings/features");
-    await expect(page).toHaveURL(/\/portal\/settings\/features#features-wedding$/);
-    await expect(page.getByRole("switch", { name: /Public wedding website/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/administration\/features#features-wedding$/);
+    await expect(at(page).getByRole("switch", { name: /Public wedding website/ })).toBeVisible();
 
-    await page.goto("/portal/wedding/settings");
-    await expect(page.getByRole("heading", { level: 1, name: "Wedding settings" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Features" })).toHaveCount(0);
-    await expect(page.getByRole("textbox", { name: /First partner/ })).toBeVisible();
-    await expect(page.locator('[data-flag="wedding.site.public"]')).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveCount(0);
+    await page.goto("/admin/wedding/settings");
+    await expect(at(page).getByRole("heading", { level: 1, name: "Wedding settings" })).toBeVisible();
+    await expect(at(page).getByRole("tab", { name: "Features" })).toHaveCount(0);
+    await expect(at(page).getByRole("textbox", { name: /First partner/ })).toBeVisible();
+    await expect(at(page).locator('[data-flag="wedding.site.public"]')).toBeVisible();
+    await expect(at(page).getByRole("switch")).toHaveCount(0);
     await expectAccessible(page);
 });

@@ -21,3 +21,12 @@ export const mock = async (action: string, ...args: unknown[]) => {
     const response = await fetch("http://localhost:8790/__control", { method: "POST", body: JSON.stringify({ action, args }) });
     if (!response.ok) throw new Error(`mock control failed: ${action}`);
 };
+
+/** The wedding or administration screen inside Payload's admin (it renders in an open shadow root, which Playwright's locators pierce). */
+export const screen = (page: import("@playwright/test").Page) => page.locator('[data-testid="wedding-screen"]');
+
+/**
+ * Where to look for things: inside the screen on Payload's admin pages, the whole page elsewhere (the public
+ * wedding site, the blog). Resolved when called, so use it after navigating.
+ */
+export const at = (page: import("@playwright/test").Page) => (new URL(page.url()).pathname.startsWith("/admin/") ? screen(page) : page);

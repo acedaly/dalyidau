@@ -1,10 +1,7 @@
 // Portal settings: the central home for feature switches, the sections each role sees, the old
 // settings addresses, and that moving the switches changed nothing about their storage,
 // permissions or audit trail.
-import { createElement } from "react";
-import { renderToString } from "react-dom/server.edge";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PortalApp } from "../src/portal/portal-app";
 import { APPLICATIONS } from "../src/shared/portal/applications";
 import { FLAG_DEFINITIONS, FLAG_KEYS, type FlagKey } from "../src/shared/portal/flags";
 import { ROLE_PERMISSIONS, type Role } from "../src/shared/portal/permissions";
@@ -20,7 +17,8 @@ import {
     visibleSettingsTabs,
 } from "../src/shared/portal/settings-sections";
 import type { PortalPageData } from "../src/shared/portal/types";
-import { ORIGIN, OWNER, accessToken, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
+import { adminPathForPortal } from "../src/shared/portal/admin-paths";
+import { ORIGIN, OWNER, accessToken, adminPage, apiCall, auditActions, call, db, portalEnv, resetPortal } from "./portal-helpers";
 
 beforeEach(resetPortal);
 
@@ -38,21 +36,16 @@ const addPeople = async () => {
     }
 };
 
-const pageData = (html: string) => {
-    const json = /<script type="application\/json" id="page-data">([\s\S]*?)<\/script>/.exec(html)?.[1];
-    return JSON.parse(json!) as { area: string; data: PortalPageData; path: string };
-};
-
-/** Fetches a portal page and renders it from the data the Worker sent, as the browser would. */
+/** A screen as Payload's admin shows it; old portal addresses answer with their redirect, as the Worker does. */
 const open = async (path: string, email = OWNER, env?: Awaited<ReturnType<typeof portalEnv>>) => {
-    const response = await call(path, { token: await accessToken({ email }), env });
-    const html = await response.text();
-    const payload = response.status === 302 ? null : pageData(html);
+    const token = await accessToken({ email });
+    const page = await adminPage(path, { token, env });
+    const redirect = page.status === 404 ? await call(path, { token, env }) : null;
     return {
-        response,
-        html,
-        data: payload?.data,
-        rendered: payload ? renderToString(createElement(PortalApp, { data: payload.data, path: payload.path })) : "",
+        response: redirect?.status === 302 ? redirect : { status: page.status, headers: new Headers() },
+        html: page.html,
+        data: page.data,
+        rendered: page.html,
     };
 };
 
@@ -103,24 +96,25 @@ describe("Portal settings routes", () => {
     it.each(PORTAL_SETTINGS_TABS.map((tab) => [tab]))("renders the %s section for an owner", async (tab) => {
         const { response, data, rendered } = await open(tab === "general" ? "/portal/settings" : `/portal/settings/${tab}`);
         expect(response.status).toBe(200);
-        expect(response.headers.get("Cache-Control")).toBe("no-store");
         expect(settingsData(data).tab).toBe(tab);
-        expect(rendered).toMatch(/<h1[^>]*>Portal settings/);
+        expect(rendered).toMatch(/<h1[^>]*>Administration/);
         expect(rendered).toContain(PORTAL_SETTINGS_SECTIONS[tab].label.replace("&", "&amp;"));
     });
 
     it("404s sections that don't exist", async () => {
-        expect((await open("/portal/settings/nope")).response.status).toBe(404);
-        expect((await open("/portal/wedding/settings/nope")).response.status).toBe(404);
+        const token = await accessToken();
+        expect((await adminPage("/portal/settings/nope", { token })).status).toBe(404);
+        expect((await adminPage("/portal/wedding/settings/nope", { token })).status).toBe(404);
     });
 
     it("redirects every old settings address after sign-in, and only after sign-in", async () => {
         for (const [from, to] of Object.entries(SETTINGS_REDIRECTS)) {
             const { response } = await open(from);
             expect(response.status, from).toBe(302);
-            expect(response.headers.get("Location")).toBe(`${ORIGIN}${to}`);
+            // Straight to the Payload screen that replaced the destination.
+            expect(response.headers.get("Location")).toBe(`${ORIGIN}${adminPathForPortal(to)}`);
             expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
-            // The destination is a real page.
+            // The destination is a real screen.
             expect((await open(to.split("#")[0]!)).response.status, to).toBe(200);
             // Strangers get the Access refusal, not a map of the portal.
             const anonymous = await call(from);
@@ -129,12 +123,6 @@ describe("Portal settings routes", () => {
         }
     });
 
-    it("lists Portal settings, and the audit log for those who may read it, in the sidebar", async () => {
-        await addPeople();
-        for (const email of [OWNER, VIEWER]) expect((await open("/portal/wedding", email)).rendered).toContain('href="/portal/settings"');
-        expect((await open("/portal/wedding", OWNER)).rendered).toContain('href="/portal/audit"');
-        expect((await open("/portal/wedding", VIEWER)).rendered).not.toContain('href="/portal/audit"');
-    });
 });
 
 describe("permissions", () => {
@@ -146,7 +134,7 @@ describe("permissions", () => {
         expect(settingsData((await open("/portal/settings/privacy", EDITOR)).data).tab).toBe("privacy");
         // Retired applications' sections send old bookmarks somewhere that exists.
         for (const tab of ["tasks", "knowledge", "calendar", "intelligence"])
-            expect((await open(`/portal/settings/${tab}`, ADMIN)).response.headers.get("Location"), tab).toBe("https://daly.id.au/portal/settings");
+            expect((await open(`/portal/settings/${tab}`, ADMIN)).response.headers.get("Location"), tab).toBe("https://daly.id.au/admin/administration");
     });
 
     it("gives people management to owners and integration status to owners and admins only", async () => {

@@ -77,6 +77,10 @@ jobs:
                   node scripts/seed-invented.mjs
                   node e2e-platform/custom-view.mjs
                   node e2e-platform/wedding-publish.mjs
+                  # Stop this server, then the wedding and administration screens' browser suite on its own server (8787).
+                  pkill -f "wrangler dev" || true; pkill -f workerd || true
+                  for i in $(seq 1 30); do curl -s -o /dev/null localhost:8790 || break; sleep 1; done
+                  cd ../.. && npx playwright test -c playwright.admin.config.ts
             - uses: actions/upload-artifact@v4
               if: failure()
               with:

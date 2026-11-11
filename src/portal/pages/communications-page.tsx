@@ -134,9 +134,9 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
 
             <DeliveryStatus status={data.comms.status} email={data.comms.email} sms={data.comms.sms} />
             {!data.deliveryAvailable && (
-                <Notice color="brand" title="Nothing is sent from the portal yet">
+                <Notice color="brand" title="Nothing is sent from the admin yet">
                     You can write messages, choose recipients, preview them for each guest and export a mail-merge file. Email and texts are only sent once a
-                    provider is set up and its switch is turned on in Portal settings → Features.
+                    provider is set up and its switch is turned on in Administration → Features.
                 </Notice>
             )}
             {canEdit && (
@@ -236,7 +236,7 @@ export const CommunicationsPage = ({ data }: { data: PageData<"communications"> 
                 <Tabs.Panel id="messages" className="pt-6">
                     <DataTable
                         title="Messages"
-                        description="Every message prepared in the portal, with its delivery history."
+                        description="Every message prepared in the admin, with its delivery history."
                         rows={data.messages}
                         columns={messageColumns}
                         searchText={(m) => m.subject}

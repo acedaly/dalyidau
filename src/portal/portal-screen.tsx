@@ -1,5 +1,7 @@
+// One wedding or administration screen, as Payload's admin shows it (poc/payload/src/views/wedding-screen.tsx):
+// the page component for the route its loader returned, with the portal context and toasts it needs. The
+// portal's own chrome (sidebar, header) was retired with /portal in Phase 3.
 import { ToastProvider } from "@/portal/components/toast";
-import { PortalSidebar } from "@/portal/layout/portal-sidebar";
 import { AuditPage } from "@/portal/pages/audit-page";
 import { BudgetPage } from "@/portal/pages/budget-page";
 import { CateringPage } from "@/portal/pages/catering-page";
@@ -23,10 +25,9 @@ import { TextsPage } from "@/portal/pages/texts-page";
 import { TimelinePage } from "@/portal/pages/timeline-page";
 import { WebsitePage } from "@/portal/pages/website-page";
 import { PortalProvider } from "@/portal/portal-context";
-import { ThemeProvider } from "@/providers/theme-provider";
 import type { PortalPageData } from "@/shared/portal/types";
 
-const Page = ({ data }: { data: PortalPageData }) => {
+export const PortalScreen = ({ data }: { data: PortalPageData }) => {
     switch (data.route) {
         case "dashboard":
             return <DashboardPage data={data} />;
@@ -77,34 +78,13 @@ const Page = ({ data }: { data: PortalPageData }) => {
     }
 };
 
-export const PortalApp = ({ data, path }: { data: PortalPageData; path: string }) => (
-    <ThemeProvider>
-        <PortalProvider value={data.context}>
-            <ToastProvider>
-                <a
-                    href="#main"
-                    className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary shadow-lg ring-1 ring-primary focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
-                >
-                    Skip to content
-                </a>
-                <div className="flex min-h-dvh flex-col bg-primary lg:flex-row lg:bg-secondary print:block print:bg-primary">
-                    <div className="contents print:hidden">
-                        <PortalSidebar path={path} />
-                    </div>
-                    <main id="main" className="min-w-0 flex-1 lg:pt-1 lg:pr-1 lg:pb-1 print:p-0">
-                        <div className="min-h-full bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary print:shadow-none print:ring-0">
-                            {data.context.environment !== "production" && (
-                                <p className="border-b border-secondary bg-warning-primary px-4 py-2 text-xs font-medium text-warning-primary lg:rounded-t-xl lg:px-8 print:hidden">
-                                    {data.context.environment} environment: changes here don't affect the live data.
-                                </p>
-                            )}
-                            <div className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8 lg:pt-8 lg:pb-12 print:max-w-none print:p-0">
-                                <Page data={data} />
-                            </div>
-                        </div>
-                    </main>
-                </div>
-            </ToastProvider>
-        </PortalProvider>
-    </ThemeProvider>
+/** A screen with the providers it needs, laid out as inside Payload. */
+export const AdminScreen = ({ data }: { data: PortalPageData }) => (
+    <PortalProvider value={data.context}>
+        <ToastProvider>
+            <div data-admin-screen className="mx-auto flex w-full max-w-container flex-col gap-8 px-4 py-8 lg:px-8">
+                <PortalScreen data={data} />
+            </div>
+        </ToastProvider>
+    </PortalProvider>
 );

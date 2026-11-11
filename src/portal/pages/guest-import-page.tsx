@@ -208,7 +208,7 @@ export const GuestImportPage = ({ data }: { data: PageData<"guest-import"> }) =>
                             <li>Guest Name is split into first and last names; anything unusual is flagged for you to check.</li>
                             <li>Mailing addresses become the household's postal address. Differing addresses within a party are flagged.</li>
                             <li>An empty Attending cell means no reply yet. “Plus One Allowed: No” never removes a named guest.</li>
-                            <li>Guests and households already in the portal are matched, so importing the same file again doesn't create duplicates.</li>
+                            <li>Guests and households already in the admin are matched, so importing the same file again doesn't create duplicates.</li>
                             <li>Recorded RSVPs, names and addresses are only replaced if you tick “Replace”.</li>
                         </ul>
                     </details>

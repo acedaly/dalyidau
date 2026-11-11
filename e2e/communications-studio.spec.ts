@@ -1,4 +1,5 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { at } from "./helpers";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 // The one-household UAT journey in a real browser: Invitation Studio → generate → its pending
@@ -60,62 +61,62 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
             events: [event.item.id],
         });
 
-    await page.goto("/portal/wedding/invitations");
-    await page.getByRole("checkbox", { name: `The Example Household ${suffix}` }).check({ force: true });
-    await page.getByRole("checkbox", { name: "Email", exact: true }).check({ force: true });
-    await page.getByRole("button", { name: "Preview every version" }).click();
-    await page.getByRole("button", { name: "Email", exact: true }).click();
+    await page.goto("/admin/wedding/invitations");
+    await at(page).getByRole("checkbox", { name: `The Example Household ${suffix}` }).check({ force: true });
+    await at(page).getByRole("checkbox", { name: "Email", exact: true }).check({ force: true });
+    await at(page).getByRole("button", { name: "Preview every version" }).click();
+    await at(page).getByRole("button", { name: "Email", exact: true }).click();
     const email = page.frameLocator('iframe[title^="Email to"]').first();
     await expect(email.getByRole("link", { name: "RSVP", exact: true })).toBeVisible();
     await expect(email.getByText("INVITATION FOR")).toBeVisible();
     // Not captured: this view shows a real signed link (repository files never contain one).
 
-    await page.getByRole("button", { name: "Generate (do not send)" }).click();
-    const review = page.getByRole("link", { name: "Review and send" }).first();
+    await at(page).getByRole("button", { name: "Generate (do not send)" }).click();
+    const review = at(page).getByRole("link", { name: "Review and send" }).first();
     await expect(review).toBeVisible();
     await review.click();
-    await expect(page).toHaveURL(/\/portal\/wedding\/communications\/msg_/);
-    await expect(page.getByRole("heading", { name: "Send check" })).toBeVisible();
-    const sendingTo = page.getByText(`fred.${suffix}@example.com`);
+    await expect(page).toHaveURL(/\/admin\/wedding\/communications\/msg_/);
+    await expect(at(page).getByRole("heading", { name: "Send check" })).toBeVisible();
+    const sendingTo = at(page).getByText(`fred.${suffix}@example.com`);
     await expect(sendingTo.first()).toBeVisible();
-    await expect(page.getByText(`sam.${suffix}@example.com`)).toHaveCount(0);
-    await expect(page.getByText("Email delivery is off", { exact: true })).toBeVisible();
-    await expect(page.getByText("Prepared by")).toBeVisible();
+    await expect(at(page).getByText(`sam.${suffix}@example.com`)).toHaveCount(0);
+    await expect(at(page).getByText("Email delivery is off", { exact: true })).toBeVisible();
+    await expect(at(page).getByText("Prepared by")).toBeVisible();
     await shot(page, `message-send-check-${suffix}`);
 
     // Invitation Studio has its own preparation workflow. It exposes a held-back draft and an
     // explicit replacement action here, rather than relying on Communications' compose toggle.
-    await page.goto("/portal/wedding/invitations");
-    await page.getByRole("checkbox", { name: `The Example Household ${suffix}` }).check({ force: true });
-    await page.getByRole("checkbox", { name: "Email", exact: true }).check({ force: true });
-    await expect(page.getByRole("link", { name: "Email prepared (not sent)" }).first()).toBeVisible();
-    await page.getByRole("button", { name: "Preview every version" }).click();
-    await page.getByRole("button", { name: "Prepare drafts now" }).click();
-    await expect(page.getByText("These households already have unsent invitation drafts")).toBeVisible();
-    await page.getByRole("button", { name: "Replace draft", exact: true }).evaluate((element: HTMLButtonElement) => element.click());
-    await expect(page.getByRole("heading", { name: "Replace the existing draft?" })).toBeVisible();
-    await expect(page.getByText(/No guest will be contacted/)).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.goto("/admin/wedding/invitations");
+    await at(page).getByRole("checkbox", { name: `The Example Household ${suffix}` }).check({ force: true });
+    await at(page).getByRole("checkbox", { name: "Email", exact: true }).check({ force: true });
+    await expect(at(page).getByRole("link", { name: "Email prepared (not sent)" }).first()).toBeVisible();
+    await at(page).getByRole("button", { name: "Preview every version" }).click();
+    await at(page).getByRole("button", { name: "Prepare drafts now" }).click();
+    await expect(at(page).getByText("These households already have unsent invitation drafts")).toBeVisible();
+    await at(page).getByRole("button", { name: "Replace draft", exact: true }).evaluate((element: HTMLButtonElement) => element.click());
+    await expect(at(page).getByRole("heading", { name: "Replace the existing draft?" })).toBeVisible();
+    await expect(at(page).getByText(/No guest will be contacted/)).toBeVisible();
+    await at(page).getByRole("button", { name: "Cancel" }).click();
 
-    await page.goto("/portal/wedding/communications");
-    await expect(page.getByRole("heading", { name: "Communications Studio" })).toBeVisible();
+    await page.goto("/admin/wedding/communications");
+    await expect(at(page).getByRole("heading", { name: "Communications Studio" })).toBeVisible();
     await shot(page, `communications-studio-${suffix}`);
-    const invitationCampaign = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Formal invitation", exact: true }) });
+    const invitationCampaign = at(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Formal invitation", exact: true }) });
     await invitationCampaign.getByRole("button", { name: "Create" }).click();
-    await expect(page.getByRole("radio", { name: "Specific people" })).toBeChecked();
-    await expect(page.getByText("Prepare another invitation for households that already have one")).toBeVisible();
-    await expect(page.getByText("Choose at least one household or guest.")).toBeVisible();
+    await expect(at(page).getByRole("radio", { name: "Specific people" })).toBeChecked();
+    await expect(at(page).getByText("Prepare another invitation for households that already have one")).toBeVisible();
+    await expect(at(page).getByText("Choose at least one household or guest.")).toBeVisible();
     // Choose the one household, then capture the panel once its slide-in has finished.
-    await page.getByRole("button", { name: "Search households" }).click();
-    await page.getByRole("option", { name: new RegExp(`Fred & Ann Example-${suffix}`) }).click();
-    await expect(page.getByText(/^1 household selected/)).toBeVisible();
-    await expect(page.getByText(/Already in an unsent draft for this household/)).toBeVisible();
-    const prepareAnother = page.getByRole("switch", { name: /Prepare another invitation for households that already have one/ });
+    await at(page).getByRole("button", { name: "Search households" }).click();
+    await at(page).getByRole("option", { name: new RegExp(`Fred & Ann Example-${suffix}`) }).click();
+    await expect(at(page).getByText(/^1 household selected/)).toBeVisible();
+    await expect(at(page).getByText(/Already in an unsent draft for this household/)).toBeVisible();
+    const prepareAnother = at(page).getByRole("switch", { name: /Prepare another invitation for households that already have one/ });
     await prepareAnother.evaluate((element: HTMLInputElement) => element.click());
     await expect(prepareAnother).toBeChecked();
-    await page.getByRole("heading", { name: "1. Recipients" }).click({ force: true });
-    await expect(page.getByText(`fred.${suffix}@example.com`)).toBeVisible();
-    await expect(page.getByText("Already in a draft")).toBeVisible();
+    await at(page).getByRole("heading", { name: "1. Recipients" }).click({ force: true });
+    await expect(at(page).getByText(`fred.${suffix}@example.com`)).toBeVisible();
+    await expect(at(page).getByText("Already in a draft")).toBeVisible();
     await page.waitForTimeout(400);
     if (CAPTURE) await page.screenshot({ path: `${ASSETS}/compose-specific-${suffix}.jpg`, type: "jpeg", quality: 72 });
 
@@ -140,16 +141,16 @@ test("a single household goes from Invitation Studio to a reviewable draft addre
         body.preflight.warnings.push("“Send another” is on: 1 household that was already sent one will get another. They're marked below.");
         await route.fulfill({ response, json: body });
     });
-    await page.goto(`/portal/wedding/communications/${repeat.message.id}`);
-    await expect(page.getByText("Already sent one", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Send another invitation", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Schedule another invitation" }).click();
-    await expect(page.getByRole("heading", { name: "Schedule another invitation?" })).toBeVisible();
-    await expect(page.getByRole("checkbox", { name: /already received an invitation and should receive another/ })).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.goto(`/admin/wedding/communications/${repeat.message.id}`);
+    await expect(at(page).getByText("Already sent one", { exact: true })).toBeVisible();
+    await expect(at(page).getByRole("button", { name: "Send another invitation", exact: true })).toBeVisible();
+    await at(page).getByRole("button", { name: "Schedule another invitation" }).click();
+    await expect(at(page).getByRole("heading", { name: "Schedule another invitation?" })).toBeVisible();
+    await expect(at(page).getByRole("checkbox", { name: /already received an invitation and should receive another/ })).toBeVisible();
+    await at(page).getByRole("button", { name: "Cancel" }).click();
 
-    await page.goto("/portal/wedding");
-    await expect(page.getByRole("heading", { name: "Contact details" })).toBeVisible();
+    await page.goto("/admin/wedding");
+    await expect(at(page).getByRole("heading", { name: "Contact details" })).toBeVisible();
     await shot(page, `dashboard-${suffix}`);
     expect(errors).toEqual([]);
 
