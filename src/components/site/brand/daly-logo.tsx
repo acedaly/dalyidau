@@ -3,7 +3,6 @@
 // colour, so they are navy on light backgrounds and white on navy, as in the pack's "colour" and
 // "reversed" files. The viewBox keeps the pack's clear space (the width of the stem) on every side.
 // Don't stretch, recolour or re-space it.
-import { cx } from "@/utils/cx";
 
 const STEM = "M0 0h28v120h-28z";
 const D = "M40 0h10a60 60 0 0 1 0 120h-10v-28h10a32 32 0 0 0 0-64h-10z";
