@@ -24,6 +24,12 @@ export const NAV: ReadonlyArray<readonly [label: string, screen: string]> = [
   ['Settings', 'settings'],
 ]
 
+/** The menu's collapsible groups (as the portal's sidebar sections). Every NAV screen is in exactly one. */
+export const NAV_GROUPS: ReadonlyArray<readonly [label: string, screens: readonly string[]]> = [
+  ['Wedding', ['', 'guests', 'households', 'events', 'rsvps', 'invitations', 'communications', 'website', 'settings']],
+  ['Planning', ['seating', 'catering', 'tasks', 'timeline', 'budget', 'suppliers']],
+]
+
 export const adminPath = (screen: string) => (screen ? `/admin/wedding/${screen}` : '/admin/wedding')
 export const portalPath = (screen: string) => (screen ? `/portal/wedding/${screen}` : '/portal/wedding')
 

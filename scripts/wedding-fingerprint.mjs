@@ -6,6 +6,8 @@
 // For each wedding table: the row count and a SHA-256 over every row (ORDER BY rowid). Only counts and
 // hashes are written, never guests' details. Guests can RSVP at any time, so a difference isn't
 // automatically a fault: `compare` names the tables that changed, and the audit log tells you why.
+// portal_users.last_seen_at is left out: signing in updates it (at most every ten minutes,
+// worker/portal/auth.ts), so verifying the admin would otherwise look like a data change.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -45,7 +47,7 @@ function capture(file, db) {
     // Six tables per call: one call for everything is too big a response, one per table trips the API's rate limit.
     for (let i = 0; i < WEDDING_TABLES.length; i += 6) {
         const batch = WEDDING_TABLES.slice(i, i + 6);
-        const r = spawnSync("npx", ["wrangler", "d1", "execute", db, "--remote", "--json", "--command", batch.map((t) => `SELECT * FROM ${t} ORDER BY rowid`).join("; ")], {
+        const r = spawnSync("npx", ["wrangler", "d1", "execute", db, "--remote", "--json", "--command", batch.map((t) => (t === "portal_users" ? "SELECT email, name, role, active, created_at FROM portal_users ORDER BY rowid" : `SELECT * FROM ${t} ORDER BY rowid`)).join("; ")], {
             encoding: "utf8",
             maxBuffer: 512 * 1024 * 1024,
         });

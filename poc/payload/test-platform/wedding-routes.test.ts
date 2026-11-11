@@ -1,7 +1,7 @@
 // Every wedding screen the portal serves is reachable inside Payload, and nothing else is.
 import { describe, expect, it } from "vitest";
 import pagesSource from "../../../worker/portal/pages.ts?raw";
-import { NAV, WEDDING_SCREEN, adminPathForPortalLink } from "../src/views/wedding-routes";
+import { NAV, NAV_GROUPS, WEDDING_SCREEN, adminPathForPortalLink } from "../src/views/wedding-routes";
 
 /** A concrete example path for each portal pattern (fills the one capture group the patterns use). */
 const examples = (pattern: string) => {
@@ -39,5 +39,11 @@ describe("wedding screens in Payload", () => {
         for (const href of ["/portal/calendar", "/portal/wedding/unknown", "https://evil.example/portal/wedding", "//evil.example/portal/wedding", "/portal/weddingx", "/api/portal/wedding/guests.csv"]) {
             expect(adminPathForPortalLink(href), href).toBeNull();
         }
+    });
+
+    it("puts every wedding screen in exactly one collapsible menu group", () => {
+        const grouped = NAV_GROUPS.flatMap(([, screens]) => screens);
+        expect([...grouped].sort()).toEqual(NAV.map(([, screen]) => screen).sort());
+        expect(new Set(grouped).size).toBe(grouped.length);
     });
 });
