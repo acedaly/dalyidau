@@ -6,7 +6,7 @@ Payload is where blog posts are written, edited and kept (`/admin/collections/po
 
 - **Publish** (or **Publish changes**): the post's main document is written into `posts` with `source = 'payload'` (`worker/blog/payload-publisher.ts`). Its images are copied into the public `dalyidau-media` bucket under their content hash, recorded in `media` and served from `/media/<hash>.<ext>`. The content version is bumped, so the edge cache shows the change at once.
 - **Save draft**: nothing public changes. The hook re-reads the main document, which a draft save doesn't touch.
-- **Unpublish**: the post leaves the site and its old addresses stop redirecting. It stays in Payload.
+- **Unpublish**: the post leaves the site and stays in Payload. Its old addresses answer 404 while it's off the site and lead to it again when it's published again, at the same address or a new one.
 - **Change the slug**: the old address redirects (301) to the new one.
 - **Move to Trash** (owners only): the post leaves the site, as on unpublish, and can be restored from Trash. **Delete permanently** is for owners only.
 - **Fails closed**: a missing title or content, an invalid slug, a slug another post uses, an unreadable featured image, or a row owned by another publisher refuses the save with a message. Nothing is half-written.
