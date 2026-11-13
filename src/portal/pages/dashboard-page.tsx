@@ -106,7 +106,8 @@ export const DashboardPage = ({ data }: { data: PageData<"dashboard"> }) => {
             />
 
             {!editing && (
-                <nav aria-label="Quick actions" className="flex flex-wrap gap-2">
+                // One row that scrolls sideways on a phone, rather than three rows of buttons above the widgets.
+                <nav aria-label="Quick actions" className="-mb-1 flex gap-2 overflow-x-auto pb-1 *:shrink-0 sm:flex-wrap sm:overflow-visible">
                     {portal.can("wedding.guests.edit") && (
                         <>
                             <Button size="sm" color="secondary" iconLeading={UserPlus01} href="/portal/wedding/guests?new=1">

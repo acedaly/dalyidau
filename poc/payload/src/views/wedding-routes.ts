@@ -48,6 +48,9 @@ export const ADMINISTRATION_NAV: ReadonlyArray<readonly [label: string, screen: 
   ['Audit log', 'audit'],
 ]
 
+/** Wedding Planner, the installable phone app (worker/planner, docs/PLANNER.md), outside Payload. */
+export const PLANNER_APP_PATH = '/portal/planner'
+
 export const adminPath = weddingAdminPath
 export const portalPath = (screen: string) => (screen ? `/portal/wedding/${screen}` : '/portal/wedding')
 

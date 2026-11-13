@@ -25,15 +25,27 @@ test("old portal addresses open the wedding admin in Payload, with the wedding a
     await page.goto("/portal");
     await expect(page).toHaveURL(/\/admin\/wedding$/);
     await expect(at(page).getByText("Everything for", { exact: false })).toBeVisible();
-    const nav = page.getByRole("navigation", { name: "Wedding and administration" });
+    const nav = page.getByRole("navigation", { name: "Wedding" });
+    const admin = page.getByRole("navigation", { name: "Administration" });
     // Payload's menu starts closed for someone new, and on a phone.
     await expect(at(page).getByRole("heading", { level: 1 })).toBeVisible();
     if (!(await nav.getByRole("link", { name: "Guests" }).isVisible())) await page.locator(".nav-toggler, button[aria-label*='enu']").first().click();
     await expect(nav.getByRole("link", { name: "Guests" })).toBeVisible();
-    await expect(nav.getByRole("link", { name: "Users and permissions" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: /^Phone app/ })).toHaveAttribute("href", "/portal/planner");
+    await expect(admin.getByRole("link", { name: "Users and permissions" })).toBeVisible();
     await page.goto("/portal/settings/features");
     await expect(page).toHaveURL(/\/admin\/administration\/features$/);
     await expect(at(page).getByRole("heading", { level: 1, name: "Administration" })).toBeVisible();
+});
+
+test("the admin's home starts with the wedding, and links the phone app", async ({ page }) => {
+    await page.goto("/admin");
+    const wedding = page.getByRole("region", { name: "Wedding" });
+    await expect(wedding.getByRole("link", { name: /^Guests/ })).toHaveAttribute("href", "/admin/wedding/guests");
+    await expect(wedding.getByRole("link", { name: /Open the phone app/ })).toHaveAttribute("href", "/portal/planner");
+    const box = (await wedding.boundingBox())!;
+    const blog = (await page.getByRole("heading", { name: "Blog and Media" }).boundingBox())!;
+    expect(box.y, "the Wedding section comes first").toBeLessThan(blog.y);
 });
 
 test("every portal page loads, hydrates and fits the screen", async ({ page }) => {
@@ -87,18 +99,20 @@ test("core portal workflows expose labelled controls and keyboard focus", async 
         await page.goto(path);
         await expect(screen(page)).toBeVisible();
         await expect(at(page).getByRole("heading", { level: 1 })).toHaveCount(1);
-        const unlabelled = await at(page).locator("button, input:not([type=hidden]), select, textarea").evaluateAll((elements) =>
-            elements
-                .filter((element) => {
-                    const labelled = element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title");
-                    const nativeLabel =
-                        element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
-                            ? element.labels?.length
-                            : false;
-                    return !labelled && !nativeLabel && !element.textContent?.trim();
-                })
-                .map((element) => element.outerHTML.slice(0, 160)),
-        );
+        const unlabelled = await at(page)
+            .locator("button, input:not([type=hidden]), select, textarea")
+            .evaluateAll((elements) =>
+                elements
+                    .filter((element) => {
+                        const labelled = element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title");
+                        const nativeLabel =
+                            element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
+                                ? element.labels?.length
+                                : false;
+                        return !labelled && !nativeLabel && !element.textContent?.trim();
+                    })
+                    .map((element) => element.outerHTML.slice(0, 160)),
+            );
         expect(unlabelled, path).toEqual([]);
         await page.keyboard.press("Tab");
         expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
@@ -124,7 +138,9 @@ test("Invitation Studio exposes the shared native stationery template", async ({
 test("builds an RSVP question with Untitled UI controls", async ({ page }, info) => {
     const question = `Which song will get you dancing? ${info.project.name}`;
     await page.goto("/admin/wedding/rsvps");
-    await at(page).getByRole("tab", { name: /Questions/ }).click();
+    await at(page)
+        .getByRole("tab", { name: /Questions/ })
+        .click();
     await at(page).getByRole("button", { name: "Add question" }).click();
     const dialog = at(page).getByRole("dialog", { name: "Add RSVP question" });
     await dialog.getByLabel("Question").fill(question);
@@ -167,14 +183,24 @@ test("connects RSVP attendance to seating and catering", async ({ page, request 
     await panel.getByLabel("Seats").fill("8");
     await panel.getByRole("button", { name: "Add table" }).click();
     await expect(at(page).getByText("Table added")).toBeVisible();
-    await at(page).getByRole("button", { name: `Move Seat ${suffix}` }).click();
-    await at(page).getByRole("menuitem", { name: `Move to Table ${suffix}` }).click();
-    await expect(at(page).getByRole("region", { name: `Table ${suffix}` }).getByText(`Seat ${suffix}`, { exact: true })).toBeVisible();
+    await at(page)
+        .getByRole("button", { name: `Move Seat ${suffix}` })
+        .click();
+    await at(page)
+        .getByRole("menuitem", { name: `Move to Table ${suffix}` })
+        .click();
+    await expect(
+        at(page)
+            .getByRole("region", { name: `Table ${suffix}` })
+            .getByText(`Seat ${suffix}`, { exact: true }),
+    ).toBeVisible();
     await expect(at(page).getByText("1 / 1")).toBeVisible();
 
     await page.goto("/admin/wedding/catering");
     await expect(at(page).getByRole("row", { name: new RegExp(`Seat ${suffix}`) })).toBeVisible();
-    await at(page).getByRole("button", { name: new RegExp(`Meal for Seat ${suffix}$`) }).click();
+    await at(page)
+        .getByRole("button", { name: new RegExp(`Meal for Seat ${suffix}$`) })
+        .click();
     await at(page).getByRole("option", { name: "No meal" }).click();
     await expect(at(page).getByText("Meal updated")).toBeVisible();
 });
@@ -321,11 +347,17 @@ test("a guest RSVPs on the public website with their household code", async ({ p
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/admin/wedding/guests");
     await at(page).getByRole("searchbox", { name: "Search guests" }).fill(`Taylor ${suffix}`);
-    await expect(at(page).getByRole("row", { name: new RegExp(`Taylor ${suffix}`) }).getByText("Attending")).toBeVisible();
+    await expect(
+        at(page)
+            .getByRole("row", { name: new RegExp(`Taylor ${suffix}`) })
+            .getByText("Attending"),
+    ).toBeVisible();
 
     // …and on the planner's private transport overview, never on the public site.
     await page.goto("/admin/wedding/rsvps");
-    await at(page).getByRole("tab", { name: /Transport/ }).click();
+    await at(page)
+        .getByRole("tab", { name: /Transport/ })
+        .click();
     await at(page).getByRole("searchbox", { name: "Search households or accommodation" }).fill(`Motel ${suffix}`);
     await expect(
         page
@@ -409,7 +441,9 @@ test("deletes a guest, restores it, then erases it with typed confirmation", asy
 
     await page.goto("/admin/wedding/guests");
     await at(page).getByRole("searchbox", { name: "Search guests" }).fill(name);
-    await at(page).getByRole("rowheader", { name: new RegExp(name) }).click();
+    await at(page)
+        .getByRole("rowheader", { name: new RegExp(name) })
+        .click();
     await at(page).getByRole("dialog").getByRole("button", { name: "Delete" }).click();
     await at(page).getByRole("button", { name: "Delete guest" }).click();
     await expect(at(page).getByText("Guest deleted")).toBeVisible();

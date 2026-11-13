@@ -359,7 +359,6 @@ describe("portal pages", () => {
             ["/portal/settings", "/admin/administration"],
             ["/portal/settings/access", "/admin/administration/access"],
             ["/portal/audit?action=x", "/admin/administration/audit?action=x"],
-            ["/portal/planner/guests", "/admin/wedding"],
             ["/portal/something-else", "/admin"],
         ]) {
             const response = await call(from, { token });

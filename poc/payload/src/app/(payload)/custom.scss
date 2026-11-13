@@ -1,0 +1,116 @@
+// Layout fixes for Payload's admin (13 Nov 2026). Payload's own theme variables only, so light and dark
+// mode both work. The wedding and administration screens live in a shadow root and aren't styled here.
+
+// The Wedding and Administration menu groups (src/views/wedding-nav.tsx) sit in a wrapper of their own;
+// at full width their arrows line up with Payload's own groups.
+.daly-nav {
+  width: 100%;
+}
+
+// The Wedding section at the top of the dashboard (src/views/dashboard-wedding.tsx).
+.daly-dashboard {
+  // Payload's dashboard widgets are inset 6px; this lines up with them.
+  padding-inline: 6px;
+  margin-bottom: calc(var(--base) * 2);
+
+  &__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--base) / 2) var(--base);
+    margin-bottom: var(--base);
+
+    .collections__label {
+      margin: 0;
+    }
+  }
+
+  &__app {
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--theme-text);
+    border-bottom: 1px solid var(--theme-elevation-250);
+
+    &:hover,
+    &:focus-visible {
+      border-bottom-color: var(--theme-text);
+    }
+  }
+
+  &__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: calc(var(--base) / 2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+}
+
+.daly-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) / 4);
+  height: 100%;
+  padding: calc(var(--base) * 0.8) var(--base);
+  border: 1px solid var(--theme-elevation-100);
+  border-radius: var(--style-radius-m);
+  background: var(--theme-elevation-50);
+  color: var(--theme-text);
+  text-decoration: none;
+  transition: border-color 100ms linear, background-color 100ms linear;
+
+  &:hover {
+    border-color: var(--theme-elevation-250);
+    background: var(--theme-elevation-0);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-text);
+    outline-offset: 2px;
+  }
+
+  &__title {
+    font-weight: 600;
+  }
+
+  &__text {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--theme-elevation-600);
+  }
+}
+
+// The Daly mark in the header's breadcrumb.
+.daly-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+// The full Daly logo on the sign-in page.
+.daly-logo {
+  width: auto;
+  max-width: 100%;
+  height: 4.5rem;
+}
+
+// Phones: Payload's collection cards are a single tall column with a lot of empty space; two per row reads
+// faster, and the dashboard's section headings don't need desktop size.
+@media (max-width: 768px) {
+  .daly-dashboard__cards,
+  .collections__card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .daly-card__text {
+    display: none;
+  }
+
+  .dashboard .collections__label,
+  .daly-dashboard .collections__label {
+    font-size: 1.25rem;
+  }
+}

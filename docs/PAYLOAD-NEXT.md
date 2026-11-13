@@ -2,6 +2,11 @@
 
 Read this first if you are a Claude Code session picking up this work.
 
+## 13 Nov 2026: Wedding Planner restored; admin layout fixes (branch `feature/wedding-planner-pwa`, draft PR, not merged)
+
+- Wedding Planner, the phone app, is back at `/portal/planner` (docs/PLANNER.md). The old host redirects there.
+- Payload admin: the dashboard opens with a Wedding section (cards with a line each, and the phone app); the Wedding menu groups come before Blog and Website, Administration last, arrows aligned; the Daly mark replaces Payload's in the header; the wedding dashboard's quick actions are one sideways-scrolling row on a phone. Payload keeps its sidebar closed on windows up to 1440px wide (its own "large" breakpoint), which is why the dashboard is now the hub.
+
 ## Phase 4: projects-first redesign (directive 11 Nov 2026 ~11:00Z): WAITING FOR THE OWNER'S VISUAL APPROVAL
 
 **12 Nov 2026 (owner: prepare production, keep the switch OFF):** #56 merged and deployed (production `3c1b441a`, before it `431fb40f`). Public site (31 URLs), wedding tables (24) and screenshots (24) unchanged. Payload applied `20261111_085000_projects`; Projects is empty in production. Access destination `daly.id.au/api/projects` added (16 destinations; nothing else changed). Live round trip done (upload, draft, publish, private preview, Trash); the test project **"Payload live check" is in Trash** and its test image (Payload media id 2, public copy `/media/c4be1d54fdb6d233bcd2e1fc.png`) is kept for the owner to delete. `site:projects` is `[]`. The switch has no row (default off) and was never turned on in production; on/off through the edge cache is proven by `test/projects.test.ts`. Payload backups: `npm run payload:backup` ([PAYLOAD-BACKUP.md](PAYLOAD-BACKUP.md)). The owner's Daly brand (navy/vermilion, Space Grotesk, logo, icons) is #57, redesign only; screenshots on the review page.

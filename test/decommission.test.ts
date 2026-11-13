@@ -301,10 +301,10 @@ describe("the wedding site, RSVP, Wedding Planner and the blog answer as before"
         expect(lookup.json.household?.guests.map((g) => g.firstName)).toEqual(["Alex"]);
     });
 
-    it("sends the retired phone app's addresses to the wedding admin in Payload", async () => {
+    it("serves the phone app on daly.id.au only; its old address redirects there and answers no API", async () => {
         const token = await accessToken();
-        expect((await call("/portal/planner", { token })).status).toBe(302);
-        expect((await call("/portal/planner/guests", { token })).headers.get("Location")).toBe(`${ORIGIN}/admin/wedding`);
+        expect((await call("/portal/planner", { token })).status).toBe(200);
+        expect((await call("/portal/planner/guests", { token })).status).toBe(200);
         const env: Env = await portalEnv({ PLANNER_URL: `https://${PLANNER_HOST}` });
         const onHost = (path: string) => call(path, { token, host: PLANNER_HOST, env });
         expect((await onHost("/")).status).toBe(302);

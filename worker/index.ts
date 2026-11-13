@@ -1,10 +1,12 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { site } from "../src/content/site";
 import { render, renderWedding } from "../src/entry-server";
+import { plannerBootMarkup } from "../src/planner/shell-markup";
+import type { PlannerPageData } from "../src/shared/planner/types";
 import { WEDDING_PREVIEW, adminPathForPortal } from "../src/shared/portal/admin-paths";
 import { applicationById, canAccessApplication } from "../src/shared/portal/applications";
 import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/calendar";
-import type { GuestInvitationPageData, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
+import type { GuestInvitationPageData, PortalUser, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import { RESERVED_SLUGS, type SiteSettings } from "../src/shared/site-content";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
 import { handleCommsWebhook } from "./comms/webhooks";
@@ -13,7 +15,7 @@ import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { loggablePath } from "./lib/log";
-import { PLANNER_PATH, RETIRED_APP_WORKER } from "./planner/pwa";
+import { PLANNER_PATH, RETIRED_APP_WORKER, offlineDocument, plannerFiles, plannerManifest, plannerView, serviceWorkerScript } from "./planner/pwa";
 import { handlePortalApi } from "./portal/api";
 import { type AuthResult, authenticate } from "./portal/auth";
 import { processDueMessages } from "./portal/comms";
@@ -230,11 +232,12 @@ const readFilters = (url: URL): BlogFilters => {
     };
 };
 
-type Area = "site" | "wedding";
+type Area = "site" | "wedding" | "planner";
 
 const SHELL_FILES: Record<Area, string> = {
     site: "shell.html",
     wedding: "shell-wedding.html",
+    planner: "shell-planner.html",
 };
 const shellCache = new Map<Area, { html: string; version: string }>();
 
@@ -325,7 +328,9 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
     const auth = await authenticate(request, env);
     if (!auth.ok) return accessDenied(auth);
     const path = url.pathname;
-    if (path === "/portal/sw.js" || path === `${PLANNER_PATH}/sw.js`) return retiredWorker();
+    if (path === "/portal/sw.js") return retiredWorker();
+    // Wedding Planner, the phone app (docs/PLANNER.md), and its manifest, service worker and offline page.
+    if (path === PLANNER_PATH || path.startsWith(`${PLANNER_PATH}/`)) return plannerPage(env, auth.user, url);
     const preview = WEDDING_PREVIEW.exec(path);
     if (preview) {
         const application = applicationById("wedding");
@@ -369,16 +374,60 @@ const privateRedirect = (location: string) => new Response(null, { status: 302, 
 const retiredWorker = () => new Response(RETIRED_APP_WORKER, { headers: { "Content-Type": "text/javascript; charset=utf-8", ...PRIVATE_HEADERS } });
 
 /**
- * weddingplanner.daly.id.au, the retired phone app (docs/PLANNER.md): it never got its Cloudflare Access
- * destination, and Payload's admin works on a phone. Nothing of the portal answers here any more: pages go
- * to the wedding admin in Payload, its service worker retires itself, and the API is closed.
+ * weddingplanner.daly.id.au, the app's first host (docs/PLANNER.md). It never got its Cloudflare Access
+ * destination, so nothing private answers here: pages go to the same view of the app on daly.id.au (behind
+ * Access), the service worker an earlier install left on this host retires itself, and the API is closed.
  */
 function plannerHost(request: Request, env: Env, url: URL): Response {
     const path = url.pathname;
     if (path === "/sw.js") return retiredWorker();
     if (path.startsWith("/api/")) return apiJson({ error: "not_found" }, 404);
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-    return privateRedirect(`${new URL(env.SITE_URL).origin}/admin/wedding`);
+    const view = plannerView(path.replace(/\/+$/, "")) ?? "home";
+    return privateRedirect(`${new URL(env.SITE_URL).origin}${PLANNER_PATH}${view === "home" ? "" : `/${view}`}`);
+}
+
+// --- Wedding Planner (docs/PLANNER.md) --------------------------------------------------------------
+
+/** The app, its manifest, service worker and offline page, at /portal/planner. Signed in already (portalPage). */
+async function plannerPage(env: Env, user: PortalUser, url: URL): Promise<Response> {
+    const application = applicationById("wedding");
+    if (!application || !canAccessApplication(user, application)) return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    const base = PLANNER_PATH;
+    const path = url.pathname;
+    const files = plannerFiles(base);
+    const adminUrl = `${new URL(env.SITE_URL).origin}/admin/wedding`;
+    if (path === files.manifest)
+        return new Response(JSON.stringify(plannerManifest(base)), {
+            headers: { "Content-Type": "application/manifest+json; charset=utf-8", ...PRIVATE_HEADERS },
+        });
+    if (path === files.serviceWorker || path === files.offline) {
+        const { html, version } = await shell(env, "planner");
+        if (path === files.offline)
+            return new Response(offlineDocument(html, adminUrl), { headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
+        return new Response(serviceWorkerScript(version, html, base), {
+            // At <base>/sw.js, but it looks after <base> itself too.
+            headers: { "Content-Type": "text/javascript; charset=utf-8", "Service-Worker-Allowed": files.scope, ...PRIVATE_HEADERS },
+        });
+    }
+    const view = plannerView(path.slice(base.length));
+    if (!view) return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    const [flags, wedding] = await Promise.all([loadFlags(env.DB), getSettings(env.DB, "wedding")]);
+    const data: PlannerPageData = { context: { user, flags, wedding, environment: env.ENVIRONMENT }, base, view, portalUrl: adminUrl };
+    return renderDocument(env, {
+        area: "planner",
+        head: [
+            `<title>Wedding Planner</title>`,
+            `<meta name="robots" content="noindex, nofollow">`,
+            // Behind Cloudflare Access, so the manifest is fetched with credentials.
+            `<link rel="manifest" href="${escapeHtml(files.manifest)}" crossorigin="use-credentials">`,
+        ].join("\n        "),
+        body: plannerBootMarkup(),
+        data,
+        path,
+        status: 200,
+        headers: PRIVATE_HEADERS,
+    });
 }
 
 async function portalApi(request: Request, env: Env): Promise<Response> {
