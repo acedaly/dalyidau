@@ -14,7 +14,8 @@ export const weddingAdminPath = (screen: string) => (screen ? `/admin/wedding/${
 export const administrationPath = (screen: string) => (screen ? `/admin/administration/${screen}` : "/admin/administration");
 
 /** The portal page (as its loader knows it) for an Administration screen. */
-export const portalPathForAdministration = (screen: string) => (screen === "audit" ? "/portal/audit" : screen ? `/portal/settings/${screen}` : "/portal/settings");
+export const portalPathForAdministration = (screen: string) =>
+    screen === "audit" ? "/portal/audit" : screen ? `/portal/settings/${screen}` : "/portal/settings";
 
 /** The draft preview of the wedding website: a rendered wedding page, not admin chrome; it stays at this address. */
 export const WEDDING_PREVIEW = /^\/portal\/wedding\/website\/preview(\/rsvp)?$/;
@@ -35,9 +36,10 @@ export function adminPathForPortal(href: string, { strict = false }: { strict?: 
         path = p;
         if (f && !rest) rest = `#${f}`;
     }
-    if (WEDDING_PREVIEW.test(path)) return null;
+    // The website preview and Wedding Planner, the phone app, are still served under /portal.
+    if (WEDDING_PREVIEW.test(path) || path === "/portal/planner" || path.startsWith("/portal/planner/")) return null;
     if (path === "/portal/wedding") return weddingAdminPath("") + rest;
-    if (path === "/portal" || path === "/portal/planner" || path.startsWith("/portal/planner/")) return strict ? null : weddingAdminPath("");
+    if (path === "/portal") return strict ? null : weddingAdminPath("");
     const wedding = /^\/portal\/wedding\/(.+)$/.exec(path);
     if (wedding) return WEDDING_SCREEN.test(wedding[1]) ? weddingAdminPath(wedding[1]) + rest : strict ? null : weddingAdminPath("");
     if (path === "/portal/audit") return administrationPath("audit") + rest;

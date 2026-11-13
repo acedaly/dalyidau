@@ -22,6 +22,10 @@ import { UnderlineFeatureClient as UnderlineFeatureClient_e70f5e05f09f93e00b997e
 import { BoldFeatureClient as BoldFeatureClient_e70f5e05f09f93e00b997edb1ef0c864 } from '@payloadcms/richtext-lexical/client'
 import { ItalicFeatureClient as ItalicFeatureClient_e70f5e05f09f93e00b997edb1ef0c864 } from '@payloadcms/richtext-lexical/client'
 import { NavRowLabel as NavRowLabel_bbeef62f5e5f65ae1b38c7b80bd9c137 } from '../../../site/nav-row-label'
+import { DalyIcon as DalyIcon_e471d128ae4ef759453ad66e6584d35a } from '../../../views/brand'
+import { DalyLogo as DalyLogo_e471d128ae4ef759453ad66e6584d35a } from '../../../views/brand'
+import { AdministrationNav as AdministrationNav_d62215a7b9cd8f32f71e06a9fc3d512f } from '../../../views/wedding-nav'
+import { DashboardWedding as DashboardWedding_9c801c3e8a9453ecb7e9ac2ce2977439 } from '../../../views/dashboard-wedding'
 import { WeddingNav as WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f } from '../../../views/wedding-nav'
 import { WeddingView as WeddingView_89f3776151e178f7bd4678261c83a692 } from '../../../views/wedding-view'
 import { AdministrationView as AdministrationView_31a20551262206fdc11c96539bce98be } from '../../../views/administration-view'
@@ -54,6 +58,10 @@ export const importMap = {
   "@payloadcms/richtext-lexical/client#BoldFeatureClient": BoldFeatureClient_e70f5e05f09f93e00b997edb1ef0c864,
   "@payloadcms/richtext-lexical/client#ItalicFeatureClient": ItalicFeatureClient_e70f5e05f09f93e00b997edb1ef0c864,
   "/site/nav-row-label#NavRowLabel": NavRowLabel_bbeef62f5e5f65ae1b38c7b80bd9c137,
+  "/views/brand#DalyIcon": DalyIcon_e471d128ae4ef759453ad66e6584d35a,
+  "/views/brand#DalyLogo": DalyLogo_e471d128ae4ef759453ad66e6584d35a,
+  "/views/wedding-nav#AdministrationNav": AdministrationNav_d62215a7b9cd8f32f71e06a9fc3d512f,
+  "/views/dashboard-wedding#DashboardWedding": DashboardWedding_9c801c3e8a9453ecb7e9ac2ce2977439,
   "/views/wedding-nav#WeddingNav": WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f,
   "/views/wedding-view#WeddingView": WeddingView_89f3776151e178f7bd4678261c83a692,
   "/views/administration-view#AdministrationView": AdministrationView_31a20551262206fdc11c96539bce98be,

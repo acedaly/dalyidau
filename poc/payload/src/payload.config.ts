@@ -71,6 +71,7 @@ export default buildConfig({
     user: Users.slug,
     // Payload's default is Gravatar, which sends a hash of each person's email to gravatar.com (Phase 0 finding).
     avatar: 'default',
+    meta: { titleSuffix: ' · Daly admin', icons: [{ rel: 'icon', type: 'image/svg+xml', url: '/brand/favicon.svg' }] },
     importMap: {
       baseDir: path.resolve(dirname),
     },
@@ -81,7 +82,11 @@ export default buildConfig({
         // The former portal settings and audit log (Phase 3: Payload is the only admin).
         administration: { Component: '/views/administration-view#AdministrationView', path: '/administration/:segments*', meta: { title: 'Administration' } },
       },
-      afterNavLinks: ['/views/wedding-nav#WeddingNav'],
+      // The wedding first (used most), Administration last; the Wedding section heads the dashboard.
+      beforeNavLinks: ['/views/wedding-nav#WeddingNav'],
+      afterNavLinks: ['/views/wedding-nav#AdministrationNav'],
+      beforeDashboard: ['/views/dashboard-wedding#DashboardWedding'],
+      graphics: { Icon: '/views/brand#DalyIcon', Logo: '/views/brand#DalyLogo' },
     },
   },
   collections: [Users, Media, Pages, Projects, Posts],

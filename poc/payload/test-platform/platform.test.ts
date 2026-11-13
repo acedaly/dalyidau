@@ -68,9 +68,9 @@ describe("experiment 6: guest-facing hosts never reach administration", () => {
                 for (const token of [null, owner]) {
                     for (const method of ["GET", "POST"]) {
                         const response = await call(path, { method, token, host, headers: { Origin: `https://${host}` } });
-                        // A refusal of any kind (404, 405, 401), never content. The retired planner host sends people
-                        // to the wedding admin on daly.id.au (behind Access) instead of showing anything itself.
-                        const toAdmin = host === "weddingplanner.daly.id.au" && response.status === 302 && response.headers.get("Location") === "https://daly.id.au/admin/wedding";
+                        // A refusal of any kind (404, 405, 401), never content. The old planner host sends people
+                        // to the phone app on daly.id.au (behind Access) instead of showing anything itself.
+                        const toAdmin = host === "weddingplanner.daly.id.au" && response.status === 302 && response.headers.get("Location") === "https://daly.id.au/portal/planner";
                         if (!toAdmin) expect(response.status, `${method} ${host}${path} → ${response.status}`).toBeGreaterThanOrEqual(401);
                         expect(response.headers.get("X-Poc-Target")).toBeNull();
                     }

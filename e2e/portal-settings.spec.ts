@@ -16,7 +16,9 @@ const setFlag = async (request: APIRequestContext, key: string, enabled: boolean
 
 const openSection = async (page: Page, isMobile: boolean, label: string) => {
     if (isMobile) {
-        await at(page).getByRole("button", { name: /Settings section/ }).click();
+        await at(page)
+            .getByRole("button", { name: /Settings section/ })
+            .click();
         await at(page).getByRole("option", { name: label, exact: true }).click();
     } else await at(page).getByRole("tab", { name: label }).click();
 };
@@ -31,7 +33,7 @@ test("opens Administration from Payload's menu and moves between sections", asyn
     // An old portal address opens the section in Payload, which lists it in its menu.
     await page.goto("/portal/settings/access");
     await expect(page).toHaveURL(/\/admin\/administration\/access$/);
-    await expect(page.getByRole("navigation", { name: "Wedding and administration" }).getByRole("link", { name: "Users and permissions" })).toHaveCount(1);
+    await expect(page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Users and permissions" })).toHaveCount(1);
     await expect(at(page).getByRole("heading", { level: 1, name: "Administration" })).toBeVisible();
 
     for (const [label, path] of [
