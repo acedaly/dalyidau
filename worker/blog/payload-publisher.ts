@@ -344,7 +344,13 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
                 return image ? { ...image, ...mediaUrls(image.key, image.width, !!ctx.transforms) } : null;
             },
         });
-        body = { html: rendered.html, toc: rendered.toc, text: rendered.text, wordCount: rendered.wordCount, readingMinutes: Math.max(1, Math.round(rendered.wordCount / 225)) };
+        body = {
+            html: rendered.html,
+            toc: rendered.toc,
+            text: rendered.text,
+            wordCount: rendered.wordCount,
+            readingMinutes: Math.max(1, Math.round(rendered.wordCount / 225)),
+        };
     } else if (input.legacy) {
         body = {
             html: input.legacy.body_html,
@@ -435,17 +441,32 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
 }
 
 /**
- * Takes a Payload post off the public site. Only rows Payload owns are touched; its old addresses
- * stop redirecting. The post itself stays in Payload (and in backups).
+ * Takes a Payload post off the public site. Only rows Payload owns are touched. The post itself stays
+ * in Payload (and in backups).
+ *
+ * Its old addresses are kept, and its current one is added to them: while the post is off the site
+ * they all answer 404 (redirectFor joins on the posts row, which is gone), and when it's published
+ * again, at this address or a new one, every earlier address leads to it again. `forget` is for a post
+ * deleted for good: its addresses are released.
  */
-export async function unpublishPayloadPost(env: PublisherEnv, postId: string, now = new Date()): Promise<boolean> {
-    const row = await env.DB.prepare("SELECT source FROM posts WHERE id = ?").bind(postId).first<{ source: string }>();
-    if (!row) return false;
-    if (row.source !== "payload") throw new PublishError(`Post ${postId} belongs to the ${row.source} publisher.`);
+export async function unpublishPayloadPost(env: PublisherEnv, postId: string, options: { forget?: boolean; now?: Date } = {}): Promise<boolean> {
+    const row = await env.DB.prepare("SELECT source, slug FROM posts WHERE id = ?").bind(postId).first<{ source: string; slug: string }>();
+    if (row && row.source !== "payload") throw new PublishError(`Post ${postId} belongs to the ${row.source} publisher.`);
+    const at = (options.now ?? new Date()).toISOString();
+    if (!row) {
+        // Already off the site (in Trash, say). Deleting it for good still releases the addresses kept for it.
+        if (options.forget)
+            await env.DB.prepare("DELETE FROM slug_redirects WHERE post_id = ? AND NOT EXISTS (SELECT 1 FROM posts WHERE id = ?)").bind(postId, postId).run();
+        return false;
+    }
     await env.DB.batch([
         env.DB.prepare("DELETE FROM posts WHERE id = ? AND source = 'payload'").bind(postId),
-        env.DB.prepare("DELETE FROM slug_redirects WHERE post_id = ?").bind(postId),
-        bumpContentVersion(env.DB, now.toISOString()),
+        options.forget
+            ? env.DB.prepare("DELETE FROM slug_redirects WHERE post_id = ?").bind(postId)
+            : env.DB.prepare(
+                  "INSERT INTO slug_redirects (from_slug, post_id, created_at) VALUES (?, ?, ?) ON CONFLICT(from_slug) DO UPDATE SET post_id = excluded.post_id",
+              ).bind(row.slug, postId, at),
+        bumpContentVersion(env.DB, at),
     ]);
     return true;
 }

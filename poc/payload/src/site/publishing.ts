@@ -140,7 +140,7 @@ export const pageInput = (doc: PageDoc): PageInput => ({
 })
 
 /** Makes the public site match a page's main (published) document, then refreshes the menu. */
-export async function syncPage(req: PayloadRequest, id: string | number) {
+export async function syncPage(req: PayloadRequest, id: string | number, deleted = false) {
   const env = await publisherEnv()
   const main = (await req.payload
     .findByID({ collection: 'pages', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
@@ -148,7 +148,8 @@ export async function syncPage(req: PayloadRequest, id: string | number) {
   if (main && main._status === 'published' && !main.deletedAt) {
     const page = await asEditorError(() => publishPage(env, pageInput(main), mediaLoader(req, env)))
     req.payload.logger.info({ msg: 'page published', slug: page.slug })
-  } else if (await unpublishPage(env, id)) req.payload.logger.info({ msg: 'page unpublished', id })
+  // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+  } else if (await unpublishPage(env, id, { forget: deleted && !main })) req.payload.logger.info({ msg: 'page unpublished', id })
   await republishSettings(req).catch((error) => req.payload.logger.error({ msg: 'menu refresh failed', message: (error as Error).message }))
 }
 
@@ -199,7 +200,7 @@ export const projectInput = (doc: ProjectDoc): ProjectInput => ({
 })
 
 /** Makes the public site match a project's main (published) document. */
-export async function syncProject(req: PayloadRequest, id: string | number) {
+export async function syncProject(req: PayloadRequest, id: string | number, deleted = false) {
   const env = await publisherEnv()
   const main = (await req.payload
     .findByID({ collection: 'projects', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
@@ -207,7 +208,8 @@ export async function syncProject(req: PayloadRequest, id: string | number) {
   if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
     const project = await asEditorError(() => publishProject(env, projectInput(main), mediaLoader(req, env)))
     req.payload.logger.info({ msg: 'project published', slug: project.slug })
-  } else if (await unpublishProject(env, id)) req.payload.logger.info({ msg: 'project unpublished', id })
+  // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+  } else if (await unpublishProject(env, id, { forget: deleted && !main })) req.payload.logger.info({ msg: 'project unpublished', id })
 }
 
 export async function republishProjectsHome(req: PayloadRequest, doc: Record<string, unknown>) {

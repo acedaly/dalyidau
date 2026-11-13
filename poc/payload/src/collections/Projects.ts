@@ -64,7 +64,7 @@ export const Projects: CollectionConfig = {
       },
     ],
     afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await syncProject(req, doc.id), doc))],
-    afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncProject(req, doc.id))],
+    afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncProject(req, doc.id, true))],
   },
   fields: [
     { name: 'title', type: 'text', required: true },

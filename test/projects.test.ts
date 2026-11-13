@@ -133,6 +133,121 @@ describe("with the switch on", () => {
         expect((await get("/")).html).toContain("Projects are on their way");
     });
 
+    it("keeps a project's old addresses through an unpublish: 404 while it's off, redirecting again once it's back", async () => {
+        await setSwitch(true);
+        await publishProject(testEnv, project(), media);
+        await publishProject(testEnv, project({ slug: "desk-lamp" }), media);
+        await unpublishProject(testEnv, 1);
+        for (const path of ["/projects/lamp", "/projects/desk-lamp"]) {
+            const off = await get(path);
+            expect(off.status, path).toBe(404);
+            expect(off.location, path).toBeNull();
+        }
+        await publishProject(testEnv, project({ slug: "reading-lamp" }), media);
+        expect((await get("/projects/lamp")).location).toBe("https://daly.id.au/projects/reading-lamp");
+        expect((await get("/projects/desk-lamp")).location).toBe("https://daly.id.au/projects/reading-lamp");
+        const index = (await get("/projects")).html;
+        expect(index).toContain("/projects/reading-lamp");
+        expect(index).not.toContain('/projects/desk-lamp"');
+    });
+
+    it("old addresses belong to the project, not to where it lived: another project taking its last address inherits none of them", async () => {
+        await setSwitch(true);
+        await publishProject(testEnv, project(), media);
+        await publishProject(testEnv, project({ slug: "desk-lamp" }), media);
+        await unpublishProject(testEnv, 1);
+        await publishProject(testEnv, project({ id: 2, slug: "desk-lamp", title: "Another lamp" }), media);
+        expect((await get("/projects/desk-lamp")).html).toContain("Another lamp");
+        expect((await get("/projects/lamp")).status, "1's old address must not lead to 2").toBe(404);
+        await publishProject(testEnv, project({ id: 2, slug: "floor-lamp", title: "Another lamp" }), media);
+        expect((await get("/projects/desk-lamp")).location).toBe("https://daly.id.au/projects/floor-lamp");
+        expect((await get("/projects/lamp")).status, "…nor follow 2 when it moves").toBe(404);
+        await publishProject(testEnv, project({ slug: "old-lamp" }), media);
+        expect((await get("/projects/lamp")).location).toBe("https://daly.id.au/projects/old-lamp");
+        expect((await get("/projects/desk-lamp")).location).toBe("https://daly.id.au/projects/floor-lamp");
+        const list = (await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:projects'").first<{ value: string }>())!.value;
+        expect((JSON.parse(list) as Array<{ slug: string }>).map((p) => p.slug).sort()).toEqual(["floor-lamp", "old-lamp"]);
+    });
+
+    it("a project deleted for good releases its addresses", async () => {
+        await setSwitch(true);
+        await publishProject(testEnv, project(), media);
+        await publishProject(testEnv, project({ slug: "desk-lamp" }), media);
+        await unpublishProject(testEnv, 1);
+        await unpublishProject(testEnv, 1, { forget: true });
+        expect(
+            (await testEnv.DB.prepare("SELECT key FROM meta WHERE key LIKE 'project-redirect:%' OR key LIKE 'project-id:%' OR key LIKE 'project:%'").all())
+                .results,
+        ).toEqual([]);
+        await publishProject(testEnv, project({ slug: "new-thing", title: "Unrelated" }), media);
+        expect((await get("/projects/lamp")).status).toBe(404);
+        expect((await get("/projects/desk-lamp")).status).toBe(404);
+    });
+
+    it("writes a project and the project list in one batch, so a failed write can't leave them disagreeing", async () => {
+        await setSwitch(true);
+        await publishProject(testEnv, project(), media);
+        // D1 can fail any one batch. Before, a project was written in one batch and the list in a second:
+        // failing the second left the project at its new address but the list (cards, sitemap) at the old one.
+        const failingAfterFirstBatch = () => {
+            let batches = 0;
+            return {
+                ...testEnv,
+                DB: new Proxy(testEnv.DB, {
+                    get(target, prop) {
+                        if (prop === "batch")
+                            return async (statements: Parameters<typeof target.batch>[0]) => {
+                                if (++batches > 1) throw new Error("D1 batch failed");
+                                return target.batch(statements);
+                            };
+                        const value = Reflect.get(target, prop);
+                        return typeof value === "function" ? value.bind(target) : value;
+                    },
+                }),
+            } as never;
+        };
+        const consistent = async () => {
+            const { results } = await testEnv.DB.prepare("SELECT key, value FROM meta WHERE key LIKE 'project:%' OR key = 'site:projects'").all<{
+                key: string;
+                value: string;
+            }>();
+            const list = JSON.parse(results.find((r) => r.key === "site:projects")?.value ?? "[]") as Array<{ slug: string; title: string }>;
+            const snapshots = results.filter((r) => r.key.startsWith("project:")).map((r) => JSON.parse(r.value) as { slug: string; title: string });
+            expect(list.map((p) => `${p.slug}:${p.title}`).sort()).toEqual(snapshots.map((p) => `${p.slug}:${p.title}`).sort());
+            return list.map((p) => p.slug);
+        };
+        // And if the one batch fails, nothing has changed: there's no write outside it.
+        const failingEveryBatch = {
+            ...testEnv,
+            DB: new Proxy(testEnv.DB, {
+                get(target, prop) {
+                    if (prop === "batch" || prop === "exec")
+                        return async () => {
+                            throw new Error("D1 batch failed");
+                        };
+                    const value = Reflect.get(target, prop);
+                    if (prop === "prepare")
+                        return (sql: string) => {
+                            if (!/^\s*SELECT/i.test(sql)) throw new Error(`a write outside the batch: ${sql}`);
+                            return target.prepare(sql);
+                        };
+                    return typeof value === "function" ? value.bind(target) : value;
+                },
+            }),
+        } as never;
+        const snapshot = async () =>
+            (await testEnv.DB.prepare("SELECT key, value FROM meta WHERE key LIKE 'project%' OR key = 'site:projects' ORDER BY key").all()).results;
+        const before = await snapshot();
+        await expect(publishProject(failingEveryBatch, project({ slug: "desk-lamp", title: "Renamed" }), media)).rejects.toThrow();
+        await expect(unpublishProject(failingEveryBatch, 1)).rejects.toThrow();
+        expect(await snapshot()).toEqual(before);
+
+        await publishProject(failingAfterFirstBatch(), project({ slug: "desk-lamp", title: "Renamed" }), media);
+        expect(await consistent()).toEqual(["desk-lamp"]);
+        await unpublishProject(failingAfterFirstBatch(), 1);
+        expect(await consistent()).toEqual([]);
+    });
+
     it("switches on and off on the next request, through the edge cache", async () => {
         await publishProject(testEnv, project(), media);
         const design = async () => ((await get("/")).html.includes('class="site-v2"') ? "projects" : "classic");
