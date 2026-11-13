@@ -661,12 +661,17 @@ function renderGuestDocument(env: Env, data: GuestInvitationPageData | SaveTheDa
     });
 }
 
-/** Website photos are public once the site is; before that, only signed-in portal users (the preview) see them. */
+/**
+ * Website photos are public once the site is; before that, only the people who may open the wedding
+ * website's draft preview (portalPage's WEDDING_PREVIEW check) see them, not every signed-in role.
+ */
 async function weddingPhoto(request: Request, env: Env, file: string): Promise<Response> {
     const flags = await loadFlags(env.DB);
     if (!flags["wedding.site.public"]) {
         const auth = await authenticate(request, env);
-        if (!auth.ok) return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+        const application = applicationById("wedding");
+        if (!auth.ok || !application || !canAccessApplication(auth.user, application))
+            return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
         const response = await serveMedia(env.MEDIA, file);
         const copy = new Response(response.body, response);
         copy.headers.set("Cache-Control", "private, no-store");

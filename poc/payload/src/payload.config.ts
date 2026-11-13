@@ -9,7 +9,7 @@ import { GetPlatformProxyOptions } from 'wrangler'
 import { r2Storage } from '@payloadcms/storage-r2'
 
 import { Users } from './collections/Users'
-import { Media } from './collections/Media'
+import { Media, MEDIA_MAX_BYTES } from './collections/Media'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
 import { Projects } from './collections/Projects'
@@ -115,6 +115,8 @@ export default buildConfig({
     },
   },
   editor: lexicalEditor(),
+  // Uploads over the public site's 15 MB limit are refused while they stream in (413), not after.
+  upload: { limits: { fileSize: MEDIA_MAX_BYTES }, abortOnLimit: true },
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),

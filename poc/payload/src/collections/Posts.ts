@@ -89,6 +89,9 @@ export const toPublisherInput = (doc: PostDoc): PayloadPostInput => {
   }
 }
 
+/** Fields only server code writes (hooks, the import with overrideAccess): never a request, on create or update. */
+const SERVER_ONLY = { create: () => false, update: () => false }
+
 /** A new post gets its public id once, at creation; it never changes. */
 const assignPublicId: CollectionBeforeChangeHook = ({ data, operation }) => {
   if (operation === 'create' && !data.publicId) data.publicId = `payload:${crypto.randomUUID()}`
@@ -161,7 +164,8 @@ const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) 
 const removePublicPost: CollectionAfterDeleteHook = async ({ doc, req, context }) => {
   if (context?.skipPublicSync) return
   const env = await publisherEnv()
-  if (await unpublishPayloadPost(env, toPublisherInput(doc as PostDoc).postId)) req.payload.logger.info({ msg: 'blog post removed', id: doc.id })
+  // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
+  if (await unpublishPayloadPost(env, toPublisherInput(doc as PostDoc).postId, { forget: true })) req.payload.logger.info({ msg: 'blog post removed', id: doc.id })
 }
 
 export const Posts: CollectionConfig = {
@@ -214,7 +218,8 @@ export const Posts: CollectionConfig = {
       type: 'text',
       unique: true,
       index: true,
-      access: { update: () => false },
+      // Set only by the server (assignPublicId, the import): never from a request, on create or update.
+      access: SERVER_ONLY,
       admin: { position: 'sidebar', readOnly: true, description: "The post's id on the public site. Imported posts keep their original one." },
     },
     {
@@ -225,19 +230,23 @@ export const Posts: CollectionConfig = {
           'An imported post as it was published before Payload. While Content is empty, the site shows this HTML exactly as it was; writing Content replaces it.',
         condition: (data) => Boolean(data?.legacy?.bodyHtml),
       },
-      access: { update: () => false },
+      // Only the import (overrideAccess) writes this. Its HTML is published as stored, without the escaping
+      // the Lexical renderer applies, so no request may ever set it: not on create, not on update. The rule
+      // is on every field inside as well as the group: Payload fills a refused group's fields from the
+      // source document when duplicating, so the group's rule alone would let Duplicate copy the HTML.
+      access: SERVER_ONLY,
       fields: [
-        { name: 'source', type: 'text', admin: { readOnly: true } },
-        { name: 'bodyHtml', type: 'textarea', admin: { readOnly: true } },
-        { name: 'toc', type: 'json', admin: { readOnly: true } },
-        { name: 'searchText', type: 'textarea', admin: { readOnly: true, hidden: true } },
-        { name: 'wordCount', type: 'number', admin: { readOnly: true } },
-        { name: 'readingMinutes', type: 'number', admin: { readOnly: true } },
-        { name: 'imageKey', type: 'text', admin: { readOnly: true } },
-        { name: 'imageAlt', type: 'text', admin: { readOnly: true } },
-        { name: 'imageWidth', type: 'number', admin: { readOnly: true } },
-        { name: 'imageHeight', type: 'number', admin: { readOnly: true } },
-        { name: 'originalRow', type: 'json', admin: { readOnly: true, hidden: true, description: 'The posts row before import, for undoing it.' } },
+        { name: 'source', type: 'text', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'bodyHtml', type: 'textarea', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'toc', type: 'json', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'searchText', type: 'textarea', access: SERVER_ONLY, admin: { readOnly: true, hidden: true } },
+        { name: 'wordCount', type: 'number', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'readingMinutes', type: 'number', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'imageKey', type: 'text', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'imageAlt', type: 'text', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'imageWidth', type: 'number', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'imageHeight', type: 'number', access: SERVER_ONLY, admin: { readOnly: true } },
+        { name: 'originalRow', type: 'json', access: SERVER_ONLY, admin: { readOnly: true, hidden: true, description: 'The posts row before import, for undoing it.' } },
       ],
     },
   ],
