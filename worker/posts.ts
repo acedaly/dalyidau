@@ -1,7 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { normaliseSeo } from "../src/shared/site-content";
 import type { BlogFilters, Post, PostSummary, TocEntry } from "../src/shared/types";
-import { mediaUrls } from "./lib/image";
+import { type ImageMode, mediaUrls } from "./lib/image";
 
 export const PAGE_SIZE = 9;
 
@@ -36,7 +36,7 @@ const parseJson = <T>(value: string | undefined | null, fallback: T): T => {
     }
 };
 
-export const toSummary = (row: Row, transforms: boolean): PostSummary => ({
+export const toSummary = (row: Row, transforms: ImageMode): PostSummary => ({
     slug: row.slug,
     title: row.title,
     subtitle: row.subtitle,
@@ -60,7 +60,7 @@ export const toSummary = (row: Row, transforms: boolean): PostSummary => ({
 export class PostStore {
     constructor(
         private readonly db: D1Database,
-        private readonly transforms: boolean,
+        private readonly transforms: ImageMode,
     ) {}
 
     async latest(limit: number): Promise<PostSummary[]> {

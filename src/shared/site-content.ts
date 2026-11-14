@@ -543,3 +543,24 @@ export function normaliseProject(input: unknown): Project | null {
 /** Featured first, then by display order (lower first), then title. */
 export const sortProjects = <T extends { featured: boolean; order: number; title: string }>(projects: T[]) =>
     [...projects].sort((a, b) => Number(b.featured) - Number(a.featured) || a.order - b.order || a.title.localeCompare(b.title));
+
+/**
+ * The projects-first design's menus, from the menu kept in Payload (Website → Navigation):
+ * - the header leads with Projects, then the menu's own items, then Wedding while the wedding site is public;
+ * - the link to the blog is called "Writing", the design's word for it everywhere, unless it has been given
+ *   a name of its own in Payload (anything other than "Blog");
+ * - Contact isn't in the header: it closes the footer, which otherwise repeats the header (without Wedding).
+ * Home is left out of both: the wordmark is the way home.
+ */
+export function projectsMenus(nav: NavItem[], weddingPublished: boolean): { header: NavItem[]; footer: NavItem[] } {
+    const isContact = (item: NavItem) => item.href === "/contact";
+    const own = nav
+        .filter((item) => item.href !== "/" && item.href !== "/projects")
+        .map((item) => (item.href === "/blog" && item.label.trim().toLowerCase() === "blog" ? { ...item, label: "Writing" } : item));
+    const projects = nav.find((item) => item.href === "/projects") ?? { label: "Projects", href: "/projects" };
+    const main = [projects, ...own.filter((item) => !isContact(item))];
+    return {
+        header: weddingPublished ? [...main, { label: "Wedding", href: "https://wedding.daly.id.au" }] : main,
+        footer: [...main, own.find(isContact) ?? { label: "Contact", href: "/contact" }],
+    };
+}

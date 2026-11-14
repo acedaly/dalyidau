@@ -30,7 +30,8 @@ import { seoInput } from '../fields/seo'
 
 export const publisherEnv = async (): Promise<PublisherEnv & { R2: R2Bucket }> => {
   const e = await cloudflareEnv<PublisherEnv & { R2: R2Bucket }>()
-  return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2 }
+  // IMAGES and IMAGE_TRANSFORMS: smaller copies of each image are made as it is published (worker/lib/image-variants.ts).
+  return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2, IMAGES: e.IMAGES, IMAGE_TRANSFORMS: e.IMAGE_TRANSFORMS }
 }
 
 /**

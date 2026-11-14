@@ -28,6 +28,7 @@
         // The wedding (existing portal) database, with the existing migrations. Invented data only.
         { "binding": "DB", "database_name": "payload-poc-wedding", "database_id": "00000000-0000-4000-8000-0000000000db", "migrations_dir": "../../migrations" },
     ],
+    "images": { "binding": "IMAGES" }, // smaller copies of published images (worker/lib/image-variants.ts)
     "r2_buckets": [
         { "binding": "R2", "bucket_name": "payload-poc-media" },
         { "binding": "MEDIA", "bucket_name": "payload-poc-wedding-media" },
@@ -42,7 +43,7 @@
         "CAPACITIES_STRUCTURE_NAME": "Blog Post",
         "SYNC_MAX_REQUESTS": "0",
         "SYNC_REQUEST_SPACING_MS": "0",
-        "IMAGE_TRANSFORMS": "off",
+        "IMAGE_TRANSFORMS": "variants",
         "EMAIL_DELIVERY": "log",
         "EMAIL_FROM": "\"Test Couple\" <wedding@example.test>",
         "SMS_DELIVERY": "log",
@@ -64,6 +65,7 @@
                 { "binding": "D1", "database_name": "dalyidau-payload-staging-content", "database_id": "da629290-cea1-4bae-83ee-e5d82b7e653e" },
                 { "binding": "DB", "database_name": "dalyidau-payload-staging-wedding", "database_id": "cdbdc5aa-5edb-40b9-b69e-badd863993f8", "migrations_dir": "../../migrations" },
             ],
+            "images": { "binding": "IMAGES" }, // smaller copies of published images (worker/lib/image-variants.ts)
             "r2_buckets": [
                 { "binding": "R2", "bucket_name": "dalyidau-payload-staging-media" },
                 { "binding": "MEDIA", "bucket_name": "dalyidau-payload-staging-wedding-media" },
@@ -80,7 +82,7 @@
                 "CAPACITIES_STRUCTURE_NAME": "Blog Post",
                 "SYNC_MAX_REQUESTS": "0",
                 "SYNC_REQUEST_SPACING_MS": "0",
-                "IMAGE_TRANSFORMS": "off",
+                "IMAGE_TRANSFORMS": "variants",
                 "EMAIL_DELIVERY": "log",
                 "EMAIL_FROM": "\"Test Couple\" <wedding@example.test>",
                 "SMS_DELIVERY": "log",
@@ -107,6 +109,7 @@
                 { "binding": "D1", "database_name": "dalyidau-payload", "database_id": "857fc770-666f-473b-8078-754c3cfb3ed3" },
                 { "binding": "DB", "database_name": "dalyidau-production", "database_id": "a003fec1-8404-4468-a23f-de5fb202bc57", "migrations_dir": "../../migrations" },
             ],
+            "images": { "binding": "IMAGES" }, // smaller copies of published images (worker/lib/image-variants.ts)
             "r2_buckets": [
                 { "binding": "R2", "bucket_name": "dalyidau-payload-media" },
                 { "binding": "MEDIA", "bucket_name": "dalyidau-media" },
@@ -121,7 +124,7 @@
                 "CAPACITIES_STRUCTURE_NAME": "Blog Post",
                 "SYNC_MAX_REQUESTS": "40",
                 "SYNC_REQUEST_SPACING_MS": "2100",
-                "IMAGE_TRANSFORMS": "off",
+                "IMAGE_TRANSFORMS": "variants",
                 "EMAIL_DELIVERY": "fastmail",
                 "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
                 "EMAIL_REPLY_TO": "wedding@daly.id.au",

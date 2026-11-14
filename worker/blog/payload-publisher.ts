@@ -12,7 +12,8 @@ import { SEO_LIMITS, type Seo, canonicalLink } from "../../src/shared/site-conte
 import type { TocEntry } from "../../src/shared/types";
 import { codeBlock, imageFigure, quote } from "../lib/article-html";
 import { escapeHtml, isExternal, isValidSlug, safeUrl, slugify } from "../lib/html";
-import { ALLOWED_IMAGE_TYPES, imageDimensions, imageProblem, mediaUrls } from "../lib/image";
+import { ALLOWED_IMAGE_TYPES, type ImageMode, imageDimensions, imageMode, imageProblem, mediaUrls } from "../lib/image";
+import { type ImagesBinding, prepareVariants } from "../lib/image-variants";
 
 /** A Lexical node as Payload stores it (only the fields this renderer reads). */
 export interface LexicalNode {
@@ -125,6 +126,10 @@ export interface PublisherEnv {
     DB: D1Database;
     MEDIA: R2Bucket;
     SITE_URL: string;
+    /** How smaller copies of images are offered (worker/lib/image.ts imageMode): "variants" makes them at publish time. */
+    IMAGE_TRANSFORMS?: string;
+    /** Cloudflare's Images binding, which makes the smaller copies. Without it only the original is published. */
+    IMAGES?: ImagesBinding;
 }
 
 /**
@@ -143,7 +148,7 @@ export interface PublishContext {
     loadMedia(id: string | number): Promise<MediaFile | null>;
     now?: () => Date;
     /** Image transformations (srcset) — off unless the zone has them. */
-    transforms?: boolean;
+    transforms?: ImageMode;
     mode?: PublishMode;
 }
 
@@ -367,6 +372,9 @@ export async function storePublicImage(
     }
     if (!(await env.MEDIA.head(key)))
         await env.MEDIA.put(key, file.bytes, { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" } });
+    // Its smaller copies are made now, so the first visitor doesn't wait for them (best effort: the media
+    // route makes whatever is missing; nothing here can fail the publish).
+    if (imageMode(env.IMAGE_TRANSFORMS) === "variants") await prepareVariants(env, key, dims?.width).catch(() => 0);
     await env.DB.prepare(
         "INSERT INTO media (id, r2_key, content_type, width, height, bytes, alt, caption, created_at, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET r2_key = excluded.r2_key, content_type = excluded.content_type, width = excluded.width, height = excluded.height, bytes = excluded.bytes, alt = excluded.alt, caption = excluded.caption, checked_at = excluded.checked_at",
     )
@@ -457,7 +465,7 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
             siteUrl: env.SITE_URL,
             image: (id) => {
                 const image = stored.get(String(id));
-                return image ? { ...image, ...mediaUrls(image.key, image.width, !!ctx.transforms) } : null;
+                return image ? { ...image, ...mediaUrls(image.key, image.width, ctx.transforms ?? imageMode(env.IMAGE_TRANSFORMS)) } : null;
             },
         });
         body = {

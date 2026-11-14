@@ -1,4 +1,5 @@
 import { type ReactNode, createContext, useContext } from "react";
+import { variantSrcSet } from "@/shared/image-variants";
 
 // Which design the public page uses, and the private preview's address prefix (Phase 4). The preview
 // (/portal/preview) shows the projects-first pages before they're switched on; links between those pages
@@ -6,13 +7,21 @@ import { type ReactNode, createContext, useContext } from "react";
 interface SiteFrame {
     projects: boolean;
     base: string;
+    /** The site makes smaller copies of its images; components offer them in `srcset`. */
+    imageVariants?: boolean;
 }
 
 const SiteFrameContext = createContext<SiteFrame>({ projects: false, base: "" });
 
-export const SiteFrameProvider = ({ projects, base, children }: SiteFrame & { children: ReactNode }) => (
-    <SiteFrameContext.Provider value={{ projects, base }}>{children}</SiteFrameContext.Provider>
+export const SiteFrameProvider = ({ projects, base, imageVariants, children }: SiteFrame & { children: ReactNode }) => (
+    <SiteFrameContext.Provider value={{ projects, base, imageVariants }}>{children}</SiteFrameContext.Provider>
 );
+
+/** The `srcset` for one of the site's images, when smaller copies are on offer (undefined otherwise). */
+export const useImageSrcSet = () => {
+    const { imageVariants } = useSiteFrame();
+    return (image: { src: string; width?: number | null } | null | undefined) => (imageVariants && image ? variantSrcSet(image.src, image.width) : undefined);
+};
 
 export const useSiteFrame = () => useContext(SiteFrameContext);
 

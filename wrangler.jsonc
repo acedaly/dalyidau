@@ -29,6 +29,9 @@
             "bucket_name": "dalyidau-media",
         },
     ],
+    // Makes the smaller copies of published images (worker/lib/image-variants.ts). On the Images Free plan:
+    // 5,000 unique transformations a month, never billed beyond that (new ones fail and the original is served).
+    "images": { "binding": "IMAGES" },
     "triggers": {
         "crons": ["*/15 * * * *"],
     },
@@ -41,7 +44,7 @@
         "CAPACITIES_STRUCTURE_NAME": "Blog Post",
         "SYNC_MAX_REQUESTS": "40",
         "SYNC_REQUEST_SPACING_MS": "2100",
-        "IMAGE_TRANSFORMS": "off",
+        "IMAGE_TRANSFORMS": "variants",
         "EMAIL_DELIVERY": "fastmail",
         "EMAIL_FROM": "\"Amelia & Aidan\" <wedding@daly.id.au>",
         "EMAIL_REPLY_TO": "wedding@daly.id.au",

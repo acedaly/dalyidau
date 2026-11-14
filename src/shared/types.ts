@@ -73,6 +73,8 @@ export interface PublicSiteContext {
     design?: "projects";
     /** The private preview's address prefix ("/portal/preview"); links to the redesigned pages keep it. */
     base?: string;
+    /** The site makes smaller copies of its images (worker/lib/image-variants.ts): components list them in `srcset`. */
+    imageVariants?: boolean;
     /** Set only on a draft preview (worker/site/preview.ts): the page says so, above everything else. */
     preview?: { published: boolean; createdAt: string };
 }

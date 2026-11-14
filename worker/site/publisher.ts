@@ -37,7 +37,7 @@ import {
     storePublicImage,
     uploadIds,
 } from "../blog/payload-publisher";
-import { mediaUrls } from "../lib/image";
+import { imageMode, mediaUrls } from "../lib/image";
 import { SNAPSHOT } from "./content";
 
 export { PublishError };
@@ -159,7 +159,7 @@ export interface NavigationInput {
 export interface MediaLoader {
     loadMedia(id: string | number): Promise<MediaFile | null>;
     now?: () => Date;
-    transforms?: boolean;
+    transforms?: import("../lib/image").ImageMode;
     /** `publish` (default), `check` or `preview`: see PublishMode in ../blog/payload-publisher. */
     mode?: PublishMode;
 }
@@ -339,7 +339,7 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
             siteUrl: env.SITE_URL,
             image: (id) => {
                 const image = stored.get(String(id));
-                return image ? { ...image, ...mediaUrls(image.key, image.width, !!ctx.transforms) } : null;
+                return image ? { ...image, ...mediaUrls(image.key, image.width, ctx.transforms ?? imageMode(env.IMAGE_TRANSFORMS)) } : null;
             },
         }).html;
     }
@@ -571,7 +571,7 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
             siteUrl: env.SITE_URL,
             image: (id) => {
                 const img = stored.get(String(id));
-                return img ? { ...img, ...mediaUrls(img.key, img.width, !!ctx.transforms) } : null;
+                return img ? { ...img, ...mediaUrls(img.key, img.width, ctx.transforms ?? imageMode(env.IMAGE_TRANSFORMS)) } : null;
             },
         }).html;
     }

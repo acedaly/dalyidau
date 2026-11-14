@@ -39,7 +39,7 @@ const Page = ({ data }: PageProps) => {
 
 export const App = ({ data, path }: PageProps) => (
     <SiteContentProvider value={data.context.site}>
-        <SiteFrameProvider projects={data.context.design === "projects"} base={data.context.base ?? ""}>
+        <SiteFrameProvider projects={data.context.design === "projects"} base={data.context.base ?? ""} imageVariants={data.context.imageVariants}>
             <ThemeProvider>
                 <a
                     href="#main"

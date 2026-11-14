@@ -4,7 +4,7 @@
 // is ever served.
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PROJECTS_HOME, pageSlugProblem } from "../src/shared/site-content";
+import { DEFAULT_PROJECTS_HOME, DEFAULT_SITE, pageSlugProblem, projectsMenus } from "../src/shared/site-content";
 import { publishPayloadPost } from "../worker/blog/payload-publisher";
 import { pageCacheKey } from "../worker/index";
 import { PublishError, projectProblem, publishProject, publishProjectsHome, unpublishProject } from "../worker/site/publisher";
@@ -419,6 +419,53 @@ describe("with the switch on", () => {
         const home = await get("/");
         expect(home.status).toBe(200);
         expect(home.html).toContain(DEFAULT_PROJECTS_HOME.heroTitle);
+    });
+});
+
+describe("the projects-first menus", () => {
+    const labels = (items: { label: string }[]) => items.map((i) => i.label);
+
+    it("header: Projects, Writing, About, Wedding; Contact is in the footer", () => {
+        const nav = [
+            { label: "Home", href: "/" },
+            { label: "Blog", href: "/blog" },
+            { label: "About", href: "/about" },
+            { label: "Contact", href: "/contact" },
+        ];
+        const { header, footer } = projectsMenus(nav, true);
+        expect(labels(header)).toEqual(["Projects", "Writing", "About", "Wedding"]);
+        expect(labels(footer)).toEqual(["Projects", "Writing", "About", "Contact"]);
+        expect(labels(projectsMenus(nav, false).header)).toEqual(["Projects", "Writing", "About"]);
+        // The menu as the site ships it, before anything is saved in Payload.
+        expect(labels(projectsMenus(DEFAULT_SITE.nav, false).footer).at(-1)).toBe("Contact");
+    });
+
+    it("keeps what the editor chose: their own name for the blog, their own Projects label, extra items, the order", () => {
+        const nav = [
+            { label: "Notes", href: "/blog" },
+            { label: "Work", href: "/projects" },
+            { label: "Uses", href: "/uses" },
+            { label: "Say hello", href: "/contact" },
+        ];
+        const { header, footer } = projectsMenus(nav, false);
+        expect(labels(header)).toEqual(["Work", "Notes", "Uses"]);
+        expect(labels(footer)).toEqual(["Work", "Notes", "Uses", "Say hello"]);
+    });
+
+    it("renders them: no Contact in the header, Contact in the footer", async () => {
+        await setSwitch(true);
+        const html = (await get("/")).html;
+        const header = /<nav aria-label="Main"[\s\S]*?<\/nav>/.exec(html)![0];
+        const footer = /<nav aria-label="Footer"[\s\S]*?<\/nav>/.exec(html)![0];
+        expect(header).toContain(">Projects<");
+        expect(header).toContain(">Writing<");
+        expect(header).not.toContain("/contact");
+        expect(footer).toContain('href="/contact"');
+        expect(footer).not.toContain("Wedding");
+        // The classic design's menu is untouched.
+        await setSwitch(false);
+        const classic = /<nav aria-label="Main"[\s\S]*?<\/nav>/.exec((await get("/")).html)![0];
+        expect(classic).toContain(">Blog<");
     });
 });
 
