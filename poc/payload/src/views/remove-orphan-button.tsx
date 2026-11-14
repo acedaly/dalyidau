@@ -21,8 +21,10 @@ export function RemoveOrphanButton({ kind, siteId, title }: { kind: 'post' | 'pa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind, siteId }),
       })
-      const result = (await response.json().catch(() => null)) as { removed?: boolean; reason?: string } | null
+      const result = (await response.json().catch(() => null)) as { removed?: boolean; reason?: string; warning?: string } | null
       if (!response.ok || !result?.removed) throw new Error(result?.reason ?? `The server answered ${response.status}.`)
+      if (result.warning) setMessage(result.warning)
+      setStep('idle')
       router.refresh()
     } catch (error) {
       setStep('idle')

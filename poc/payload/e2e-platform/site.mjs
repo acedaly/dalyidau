@@ -236,7 +236,7 @@ expect("only an owner may remove it from the website", (await call("POST", "/api
 const notOrphan = await call("POST", "/api/globals/site-settings/remove-orphan", OWNER, { kind: "page", siteId: String(p2id) });
 expect("…and never something Payload has a document for", notOrphan.json?.removed === false && (await page("/sync-check")).status === 200, notOrphan.text.slice(0, 200));
 const removedOrphan = await call("POST", "/api/globals/site-settings/remove-orphan", OWNER, orphan);
-const keptCopy = siteSql(`SELECT value FROM meta WHERE key = 'removed:post:payload:ghost'`).toString();
+const keptCopy = siteSql(`SELECT value FROM meta WHERE key LIKE 'removed:post:payload:ghost:%'`).toString();
 expect(
     "the owner removes it: it leaves the website, a full copy is kept, and the check agrees the site matches",
     removedOrphan.json?.removed === true && (await page("/blog/ghost-post")).status === 404 && keptCopy.includes("ghost-post") && keptCopy.includes("<p>ghost</p>") && (await sync()).json?.inStep === true,

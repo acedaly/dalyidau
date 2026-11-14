@@ -19,10 +19,10 @@ export function RepublishButton() {
       const response = await fetch('/api/globals/site-settings/republish', { method: 'POST', credentials: 'same-origin' })
       if (!response.ok) throw new Error(`The server answered ${response.status}.`)
       const result = (await response.json()) as Result
-      // Done when everything Republish may touch is right (what has no document here is listed, and left alone).
-      if (result.inStep || (!result.failed.length && result.leftAlone.length)) {
+      router.refresh()
+      // Done when nothing failed: what has no document here is listed, and left alone on purpose.
+      if (!result.failed.length && (result.inStep || result.leftAlone.length)) {
         setState('idle')
-        router.refresh()
         return
       }
       setState('failed')
@@ -31,7 +31,6 @@ export function RepublishButton() {
           ? result.failed.map((f) => `${f.title || f.slug || 'An item'}: ${f.message}`).join(' ')
           : 'Some things are still out of step. Try again in a minute.',
       )
-      router.refresh()
     } catch (error) {
       setState('failed')
       setMessage(`Republishing didn’t work. ${(error as Error).message} Try again in a minute.`)

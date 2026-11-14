@@ -4,9 +4,19 @@
 //   whatever differs, from the two databases alone.
 import { beforeEach, describe, expect, it } from "vitest";
 import { PREVIEW_MEDIA_PREFIX, PublishError, preparePayloadPost, publishPayloadPost, unpublishPayloadPost } from "../worker/blog/payload-publisher";
-import { removeOrphan, removedKey } from "../worker/site/orphans";
+import { removeOrphan, removedPrefix } from "../worker/site/orphans";
 import { publishPage, publishProject, republishProjectList, unpublishPage, unpublishProject } from "../worker/site/publisher";
-import { DRIFT_KEY, SYNC_GRACE_MS, discrepancies, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from "../worker/site/sync-check";
+import {
+    DRIFT_KEY,
+    SYNC_GRACE_MS,
+    adoptEarlierPosts,
+    discrepancies,
+    inStep,
+    noteSyncStatus,
+    readSyncStatus,
+    recordSiteDrift,
+    siteDrift,
+} from "../worker/site/sync-check";
 import { resetDb, testEnv } from "./helpers";
 import { sampleImage } from "./image-samples";
 
@@ -23,7 +33,17 @@ const T0 = "2026-11-01T00:00:00.000Z";
 const LATER = new Date("2026-11-02T00:00:00.000Z");
 
 /** Payload's own database, as far as the check reads it: three tables of rows. */
-type Row = { id: number; slug: string; title: string; updated_at: string; deleted_at: string | null; _status: string; public_id?: string; listed?: number };
+type Row = {
+    id: number;
+    slug: string;
+    title: string;
+    updated_at: string;
+    created_at?: string;
+    deleted_at: string | null;
+    _status: string;
+    public_id?: string;
+    listed?: number;
+};
 const payload = (tables: { posts?: Row[]; pages?: Row[]; projects?: Row[] }) =>
     ({
         prepare: (sql: string) => ({
@@ -62,52 +82,55 @@ describe("check mode: every refusal a publish would give, and nothing written", 
         await publishPage(testEnv, { id: 9, slug: "now", title: "Taken" }, media);
         await publishProject(testEnv, { id: 9, slug: "lamp", title: "Taken" }, media);
         const before = await state();
-        const cases: Array<[string, () => Promise<unknown>, RegExp]> = [
-            ["post: address in use", () => preparePayloadPost(testEnv, post(), { ...media, mode: "check" }), /already used/],
-            ["post: no content", () => preparePayloadPost(testEnv, post({ slug: "x", content: words(" ") }), { ...media, mode: "check" }), /content/],
-            [
-                "post: damaged featured image",
-                () => preparePayloadPost(testEnv, post({ slug: "x", heroMediaId: 8 }), { ...media, mode: "check" }),
-                /featured image/,
-            ],
-            [
-                "post: missing featured image",
-                () => preparePayloadPost(testEnv, post({ slug: "x", heroMediaId: 99 }), { ...media, mode: "check" }),
-                /featured image/,
-            ],
-            ["page: address in use", () => publishPage(testEnv, { id: 1, slug: "now", title: "Now" }, { ...media, mode: "check" }), /already used/],
+        type Mode = { mode?: "check" };
+        const cases: Array<[string, (m: Mode) => Promise<unknown>, RegExp]> = [
+            ["post: address in use", (m) => preparePayloadPost(testEnv, post(), { ...media, ...m }), /already used/],
+            ["post: no content", (m) => preparePayloadPost(testEnv, post({ slug: "x", content: words(" ") }), { ...media, ...m }), /content/],
+            ["post: damaged featured image", (m) => preparePayloadPost(testEnv, post({ slug: "x", heroMediaId: 8 }), { ...media, ...m }), /featured image/],
+            ["post: missing featured image", (m) => preparePayloadPost(testEnv, post({ slug: "x", heroMediaId: 99 }), { ...media, ...m }), /featured image/],
+            ["page: address in use", (m) => publishPage(testEnv, { id: 1, slug: "now", title: "Now" }, { ...media, ...m }), /already used/],
             [
                 "page: damaged featured image",
-                () => publishPage(testEnv, { id: 1, slug: "then", title: "Then", heroMediaId: 8 }, { ...media, mode: "check" }),
+                (m) => publishPage(testEnv, { id: 1, slug: "then", title: "Then", heroMediaId: 8 }, { ...media, ...m }),
                 /featured image/,
             ],
-            ["page: an address the site uses itself", () => publishPage(testEnv, { id: 1, slug: "blog", title: "Blog" }, { ...media, mode: "check" }), /./],
-            ["project: address in use", () => publishProject(testEnv, { id: 1, slug: "lamp", title: "Lamp" }, { ...media, mode: "check" }), /already used/],
+            ["page: an address the site uses itself", (m) => publishPage(testEnv, { id: 1, slug: "blog", title: "Blog" }, { ...media, ...m }), /./],
+            ["project: address in use", (m) => publishProject(testEnv, { id: 1, slug: "lamp", title: "Lamp" }, { ...media, ...m }), /already used/],
             [
                 "project: damaged cover",
-                () => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", heroMediaId: 8 }, { ...media, mode: "check" }),
+                (m) => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", heroMediaId: 8 }, { ...media, ...m }),
                 /cover image/,
             ],
             [
                 "project: damaged screenshot",
-                () => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", gallery: [{ mediaId: 8 }] }, { ...media, mode: "check" }),
+                (m) => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", gallery: [{ mediaId: 8 }] }, { ...media, ...m }),
                 /Screenshot 1/,
             ],
             [
                 "project: bad link",
-                () => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", websiteUrl: "javascript:alert(1)" }, { ...media, mode: "check" }),
+                (m) => publishProject(testEnv, { id: 1, slug: "desk", title: "Desk", websiteUrl: "javascript:alert(1)" }, { ...media, ...m }),
                 /https/,
             ],
         ];
-        for (const [label, run, message] of cases) {
-            const error = await run().then(
-                () => null,
-                (e: unknown) => e,
-            );
-            expect(error, label).toBeInstanceOf(PublishError);
-            expect((error as Error).message, label).toMatch(message);
-            // …and the real publish refuses the same thing.
+        // Checked first, and then the real publish: it refuses the same thing, for the same reason.
+        for (const mode of [{ mode: "check" as const }, {}]) {
+            for (const [label, run, message] of cases) {
+                const error = await run(mode).then(
+                    () => null,
+                    (e: unknown) => e,
+                );
+                expect(error, `${label} (${mode.mode ?? "publish"})`).toBeInstanceOf(PublishError);
+                expect((error as Error).message, label).toMatch(message);
+            }
+            // A refused check writes nothing at all. (A refused publish may have stored an image it read before refusing.)
+            if (mode.mode) expect(await state()).toEqual(before);
         }
+        const after = await state();
+        expect({ posts: after.posts, redirects: after.redirects, meta: after.meta }).toEqual({
+            posts: before.posts,
+            redirects: before.redirects,
+            meta: before.meta,
+        });
         expect(await state()).toEqual(before);
     });
 });
@@ -303,6 +326,13 @@ describe("the sync check", () => {
         expect((await readSyncStatus(testEnv.DB)).outstanding).toBe(0);
     });
 
+    const kept = async (kind: "post" | "page" | "project", siteId: string) =>
+        (
+            await testEnv.DB.prepare("SELECT value FROM meta WHERE substr(key, 1, ?1) = ?2 ORDER BY key")
+                .bind(removedPrefix(kind, siteId).length, removedPrefix(kind, siteId))
+                .all<{ value: string }>()
+        ).results.map((r) => r.value);
+
     it("removing an orphan takes one item off the site and keeps a full copy first", async () => {
         await publishAll();
         await publishPayloadPost(
@@ -316,9 +346,7 @@ describe("the sync check", () => {
 
         expect(await removeOrphan(testEnv, "post", "payload:1", "owner@example.com", LATER)).toBe("hello-again");
         expect((await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM posts").first<{ n: number }>())!.n).toBe(0);
-        const post = JSON.parse(
-            (await testEnv.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(removedKey("post", "payload:1")).first<{ value: string }>())!.value,
-        );
+        const post = JSON.parse((await kept("post", "payload:1"))[0]);
         expect(post).toMatchObject({ kind: "post", slug: "hello-again", by: "owner@example.com", removedAt: LATER.toISOString() });
         expect(post.copy.row.body_html).toContain("Words.");
         expect(post.copy.redirects.map((r: { from_slug: string }) => r.from_slug)).toEqual(["hello"]);
@@ -332,10 +360,7 @@ describe("the sync check", () => {
         ).results;
         expect(left).toEqual([]);
         expect(JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:projects'").first<{ value: string }>())!.value)).toEqual([]);
-        expect(
-            JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(removedKey("page", "1")).first<{ value: string }>())!.value).copy
-                .snapshots[0].value,
-        ).toContain("Now");
+        expect(JSON.parse((await kept("page", "1"))[0]).copy.snapshots[0].value).toContain("Now");
         // The kept copies aren't site content: the checker doesn't count them.
         expect(inStep(await siteDrift(payload({}), testEnv.DB, LATER))).toBe(true);
         // Another publisher's post can't be removed this way.
@@ -367,5 +392,142 @@ describe("the sync check", () => {
         mended.pages.push(row({ id: 2, slug: "broken" }));
         mended.projects.push(row({ id: 2, slug: "broken", listed: 1 }));
         expect(inStep(await siteDrift(payload(mended), testEnv.DB, LATER))).toBe(true);
+    });
+
+    it("a document that was given a deleted one's number is never taken for it", async () => {
+        await publishAll(); // page 1 at /now and project 1 at /lamp, from saves made at T0
+        // Payload lost those documents; new ones, created later, were given the same numbers.
+        const born = "2026-11-01T12:00:00.000Z";
+        const reborn = {
+            posts: inPayload().posts,
+            pages: [row({ id: 1, slug: "fresh", created_at: born, updated_at: born, _status: "draft" })],
+            projects: [row({ id: 1, slug: "fresh", created_at: born, updated_at: born, listed: 1 })],
+        };
+        const report = await siteDrift(payload(reborn), testEnv.DB, LATER);
+        // The site's copies are orphans (no document: Republish leaves them alone), not the new documents' to unpublish.
+        expect(report.items.map((i) => `${i.kind}:${i.slug}:${i.state}:${i.id}`).sort()).toEqual([
+            "page:now:extra:null",
+            "project:fresh:missing:1",
+            "project:lamp:extra:null",
+        ]);
+        const before = await state();
+        // Unpublishing the new documents takes nothing down…
+        expect(await unpublishPage(testEnv, 1, { createdAt: born })).toBe(false);
+        expect(await unpublishProject(testEnv, 1, { createdAt: born })).toBe(false);
+        // …and publishing them is refused, in a check and for real, rather than replacing or redirecting the earlier ones.
+        for (const mode of [{ mode: "check" as const }, {}]) {
+            await expect(
+                publishPage(testEnv, { id: 1, slug: "fresh", title: "Fresh", createdAt: born, updatedAt: born }, { ...media, ...mode }),
+            ).rejects.toThrow(/earlier page \(at \/now\)/);
+            await expect(
+                publishProject(testEnv, { id: 1, slug: "fresh", title: "Fresh", createdAt: born, updatedAt: born }, { ...media, ...mode }),
+            ).rejects.toThrow(/earlier project \(at \/projects\/lamp\)/);
+        }
+        expect(await state()).toEqual(before);
+        // Once an owner has removed the earlier ones (copies kept), the new documents publish normally.
+        expect(await removeOrphan(testEnv, "page", "1", null)).toBe("now");
+        expect(await removeOrphan(testEnv, "project", "1", null)).toBe("lamp");
+        await publishPage(testEnv, { id: 1, slug: "fresh", title: "Fresh", createdAt: born, updatedAt: born }, media);
+        await publishProject(testEnv, { id: 1, slug: "fresh", title: "Fresh", createdAt: born, updatedAt: born }, media);
+        reborn.pages[0]._status = "published";
+        expect(inStep(await siteDrift(payload(reborn), testEnv.DB, LATER))).toBe(true);
+        // A document's own snapshot (made at or after it was created) is still its own.
+        expect(await unpublishPage(testEnv, 1, { createdAt: born })).toBe(true);
+    });
+
+    it("a rename that overlapped an unpublish can't leave the page up: removal goes by the id inside the snapshot", async () => {
+        await publishAll();
+        // What the overlap leaves: the page at its new address, with the row that says where it is gone.
+        await testEnv.DB.batch([
+            testEnv.DB.prepare("UPDATE meta SET key = 'page:moved', value = json_set(value, '$.slug', 'moved') WHERE key = 'page:now'"),
+            testEnv.DB.prepare("DELETE FROM meta WHERE key = 'page-id:1'"),
+            testEnv.DB.prepare("UPDATE meta SET key = 'project:moved', value = json_set(value, '$.slug', 'moved') WHERE key = 'project:lamp'"),
+            testEnv.DB.prepare("DELETE FROM meta WHERE key = 'project-id:1'"),
+        ]);
+        const drafts = {
+            pages: [row({ id: 1, slug: "moved", _status: "draft" })],
+            projects: [row({ id: 1, slug: "moved", _status: "draft" })],
+            posts: inPayload().posts,
+        };
+        expect((await siteDrift(payload(drafts), testEnv.DB, LATER)).items.map((i) => `${i.kind}:${i.slug}:${i.state}:${i.id}`).sort()).toEqual([
+            "page:moved:extra:1",
+            "project:moved:extra:1",
+        ]);
+        expect(await unpublishPage(testEnv, 1)).toBe(true);
+        expect(await unpublishProject(testEnv, 1)).toBe(true);
+        expect(inStep(await siteDrift(payload(drafts), testEnv.DB, LATER))).toBe(true);
+        const meta = Object.fromEntries((await state()).meta.map((r) => [(r as { key: string }).key, (r as { value: string }).value]));
+        expect(meta["page:moved"]).toBeUndefined();
+        expect(JSON.parse(meta["site:projects"])).toEqual([]);
+        // Its address is kept for it, as for any unpublish.
+        expect(meta["page-redirect:moved"]).toBe(JSON.stringify("@page:1"));
+        expect(meta["project-redirect:moved"]).toBe(JSON.stringify("@project:1"));
+    });
+
+    it("a second copy left by two overlapping renames is reported, and the next publish removes it", async () => {
+        await publishAll();
+        await testEnv.DB.batch([
+            testEnv.DB.prepare("INSERT INTO meta (key, value) SELECT 'page:twin', json_set(value, '$.slug', 'twin') FROM meta WHERE key = 'page:now'"),
+            testEnv.DB.prepare("INSERT INTO meta (key, value) SELECT 'project:twin', json_set(value, '$.slug', 'twin') FROM meta WHERE key = 'project:lamp'"),
+        ]);
+        const report = await siteDrift(payload(inPayload()), testEnv.DB, LATER);
+        expect(report.items.map((i) => `${i.kind}:${i.slug}:${i.state}:${i.id}`).sort()).toEqual(["page:now:stale:1", "project:lamp:stale:1"]);
+        await publishAll();
+        expect(inStep(await siteDrift(payload(inPayload()), testEnv.DB, LATER))).toBe(true);
+        const meta = Object.fromEntries((await state()).meta.map((r) => [(r as { key: string }).key, (r as { value: string }).value]));
+        expect(meta["page:twin"]).toBeUndefined();
+        expect(meta["project:twin"]).toBeUndefined();
+        // The stray addresses lead to the real ones.
+        expect(meta["page-redirect:twin"]).toBe(JSON.stringify("now"));
+        expect(meta["project-redirect:twin"]).toBe(JSON.stringify("lamp"));
+    });
+
+    it("posts published before the site recorded their save are adopted once, and only if they were in step", async () => {
+        await publishAll();
+        const insert = (id: string, slug: string, sourceUpdated: string | null, synced: string) =>
+            testEnv.DB.prepare(
+                "INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source_updated_at, source) VALUES (?1, ?2, ?2, '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, ?3, 'h', ?4, ?5, 'payload')",
+            )
+                .bind(id, slug, T0, synced, sourceUpdated)
+                .run();
+        const saved = "2026-11-01T06:00:00.000Z";
+        // As the earlier release left them: the article's own date (or nothing) where the save's time now goes.
+        await insert("payload:2", "written-after", "2026-10-01T00:00:00.000Z", "2026-11-01T07:00:00.000Z"); // written after Payload's save: in step
+        await insert("payload:3", "no-date", null, saved); // written at the save: in step
+        await insert("payload:4", "behind", "2026-10-01T00:00:00.000Z", "2026-11-01T05:00:00.000Z"); // written before the save: really behind
+        await insert("payload:5", "old-address", "2026-10-01T00:00:00.000Z", "2026-11-01T07:00:00.000Z"); // at another address: really stale
+        const inP = inPayload();
+        inP.posts.push(
+            row({ id: 2, slug: "written-after", public_id: "payload:2", updated_at: saved }),
+            row({ id: 3, slug: "no-date", public_id: "payload:3", updated_at: saved }),
+            row({ id: 4, slug: "behind", public_id: "payload:4", updated_at: saved }),
+            row({ id: 5, slug: "new-address", public_id: "payload:5", updated_at: saved }),
+        );
+        // Without the adoption, every one of them reads as stale.
+        expect((await siteDrift(payload(inP), testEnv.DB, LATER)).items).toHaveLength(4);
+        const version = await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'content_version'").first();
+        const report = await recordSiteDrift(payload(inP), testEnv.DB, LATER);
+        expect(report!.items.map((i) => `${i.slug}:${i.state}`).sort()).toEqual(["behind:stale", "new-address:stale"]);
+        // Nothing public changed.
+        expect(await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'content_version'").first()).toEqual(version);
+        // Once only: a post that falls behind later is never excused.
+        await testEnv.DB.prepare("UPDATE posts SET source_updated_at = '2026-10-01T00:00:00.000Z' WHERE id = 'payload:2'").run();
+        expect(await adoptEarlierPosts(payload(inP), testEnv.DB)).toBe(0);
+        expect((await siteDrift(payload(inP), testEnv.DB, LATER)).items).toHaveLength(3);
+    });
+
+    it("a check made for a person counts every save and doesn't pass for the automatic one", async () => {
+        await publishAll();
+        const cron = new Date("2026-11-02T00:00:00.000Z");
+        await recordSiteDrift(payload(inPayload()), testEnv.DB, cron);
+        const justSaved = inPayload();
+        const now = new Date("2026-11-03T00:00:00.000Z");
+        justSaved.pages[0].updated_at = new Date(now.getTime() - 1000).toISOString();
+        // The cron would leave the save of a second ago out; a person's check doesn't.
+        expect((await siteDrift(payload(justSaved), testEnv.DB, now)).items).toEqual([]);
+        const report = await recordSiteDrift(payload(justSaved), testEnv.DB, now, { manual: true });
+        expect(report!.items.map((i) => `${i.kind}:${i.state}`)).toEqual(["page:stale"]);
+        expect(report!.checkedAt).toBe(now.toISOString());
+        expect(await readSyncStatus(testEnv.DB)).toMatchObject({ lastSuccessAt: cron.toISOString(), outstanding: 1 });
     });
 });

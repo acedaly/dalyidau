@@ -38,6 +38,7 @@ type PayloadRow = {
     slug: string | null;
     title: string | null;
     updated_at: string;
+    created_at?: string | null;
     deleted_at: string | null;
     _status: string | null;
     public_id?: string | null;
@@ -56,13 +57,14 @@ const parse = (value: string | undefined): Record<string, unknown> | null => {
 
 /**
  * Compares Payload's published documents with the public site. `payloadDb` is Payload's database, `siteDb`
- * the site's. Throws if either can't be read: "couldn't check" must never look like "in step".
+ * the site's. Throws if either can't be read: "couldn't check" must never look like "in step". `graceMs` is how
+ * recent a save may be and still be left out as "on its way" (the cron's two minutes; 0 for a person looking).
  */
-export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now = new Date()): Promise<DriftReport> {
+export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now = new Date(), graceMs = SYNC_GRACE_MS): Promise<DriftReport> {
     const [posts, pages, projects, sitePosts, meta] = await Promise.all([
         payloadDb.prepare("SELECT id, slug, title, public_id, updated_at, deleted_at, _status FROM posts").all<PayloadRow>(),
-        payloadDb.prepare("SELECT id, slug, title, updated_at, deleted_at, _status FROM pages").all<PayloadRow>(),
-        payloadDb.prepare("SELECT id, slug, title, listed, updated_at, deleted_at, _status FROM projects").all<PayloadRow>(),
+        payloadDb.prepare("SELECT id, slug, title, updated_at, created_at, deleted_at, _status FROM pages").all<PayloadRow>(),
+        payloadDb.prepare("SELECT id, slug, title, listed, updated_at, created_at, deleted_at, _status FROM projects").all<PayloadRow>(),
         siteDb
             .prepare("SELECT id, slug, title, source_updated_at FROM posts WHERE source = 'payload'")
             .all<{ id: string; slug: string; title: string; source_updated_at: string | null }>(),
@@ -80,7 +82,7 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
             .all<{ key: string; value: string | null }>(),
     ]);
     const items: DriftItem[] = [];
-    const settled = (row: PayloadRow) => !(now.getTime() - time(row.updated_at) < SYNC_GRACE_MS);
+    const settled = (row: PayloadRow) => !(now.getTime() - time(row.updated_at) < graceMs);
     const live = (row: PayloadRow) => row._status === "published" && !row.deleted_at;
 
     // Posts: one row in the site's `posts` per published post, made from Payload's last save of it.
@@ -113,11 +115,15 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
 
     // Pages and projects: a snapshot per published item, carrying the updatedAt of the Payload save it was made from.
     const metaBy = new Map<string, string | undefined>(meta.results.map((r) => [r.key, r.value ?? undefined]));
+    // Payload gives a new document the number of the last one deleted. A snapshot made before a document
+    // existed is an earlier document's (one Payload no longer has), whatever number it carries.
+    const owns = (row: PayloadRow, snapshot: Record<string, unknown>) => !(time(snapshot.updatedAt as string) < time(row.created_at));
     const snapshots = (kind: "page" | "project", rows: PayloadRow[], published: (row: PayloadRow) => boolean) => {
-        const expected = new Set<string>();
+        const expected = new Map<string, string | null>();
+        const listedAlready = new Set<string>();
+        const rowById = new Map(rows.map((r) => [String(r.id), r]));
         for (const row of rows) {
             if (!published(row)) continue;
-            expected.add(String(row.id));
             const base = { kind, id: row.id, siteId: String(row.id), title: row.title ?? "", slug: row.slug ?? "" };
             const slugRaw = metaBy.get(`${kind}-id:${row.id}`);
             let slug: unknown = null;
@@ -127,27 +133,31 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
                 slug = null;
             }
             const snapshot = typeof slug === "string" ? parse(metaBy.get(`${kind}:${slug}`)) : null;
-            if (!snapshot || String(snapshot.id) !== String(row.id)) {
-                if (settled(row)) items.push({ ...base, state: "missing" });
+            expected.set(String(row.id), typeof slug === "string" ? slug : null);
+            if (!snapshot || String(snapshot.id) !== String(row.id) || !owns(row, snapshot)) {
+                if (settled(row)) (items.push({ ...base, state: "missing" }), listedAlready.add(String(row.id)));
             } else if ((slug !== row.slug || time(snapshot.updatedAt as string) !== time(row.updated_at)) && settled(row))
-                items.push({ ...base, state: "stale" });
+                (items.push({ ...base, state: "stale" }), listedAlready.add(String(row.id)));
         }
-        const unsettled = new Set(rows.filter((r) => !settled(r)).map((r) => String(r.id)));
         for (const [key, value] of metaBy) {
             if (!key.startsWith(`${kind}:`)) continue;
             const snapshot = parse(value);
             const id = snapshot?.id === undefined ? null : String(snapshot.id);
-            if (id !== null && (expected.has(id) || unsettled.has(id))) continue;
             // The built-in About page and anything else without a Payload id isn't Payload's to account for.
-            if (id === null) continue;
-            items.push({
-                kind,
-                id: rows.some((r) => String(r.id) === id) ? Number(id) : null,
-                siteId: id,
-                title: String(snapshot?.title ?? ""),
-                slug: key.slice(kind.length + 1),
-                state: "extra",
-            });
+            if (id === null || !snapshot) continue;
+            const at = key.slice(kind.length + 1);
+            const row = rowById.get(id);
+            const theirs = row && owns(row, snapshot) ? row : undefined;
+            if (theirs && !settled(theirs)) continue;
+            if (theirs && expected.has(id)) {
+                // A second copy of a published item at another address (two saves that overlapped): publishing it again removes it.
+                if (expected.get(id) !== at && expected.get(id) !== null && !listedAlready.has(id)) {
+                    items.push({ kind, id: theirs.id, siteId: id, title: theirs.title ?? "", slug: theirs.slug ?? "", state: "stale" });
+                    listedAlready.add(id);
+                }
+                continue;
+            }
+            items.push({ kind, id: theirs ? theirs.id : null, siteId: id, title: String(snapshot.title ?? ""), slug: at, state: "extra" });
         }
     };
     snapshots("page", pages.results, live);
@@ -221,20 +231,67 @@ export async function noteSyncStatus(db: D1Database, patch: Partial<SyncStatus>)
         .run();
 }
 
+const ADOPTED_KEY = "site:posts-adopted";
+
 /**
- * Runs the check from the Worker's cron and keeps the result where the admin can read it. A site out of
- * step is logged as an error (it shows in the Worker's logs and alerts); a check that couldn't run is logged
- * and recorded as a failure, and leaves the last result alone.
+ * Once, after the release that started recording which Payload save each post on the site was made from:
+ * posts published before it carry a different date there (the article's "Updated" date, or when it was
+ * published), so every one of them would read as stale. A post whose row was written at or after Payload's
+ * last save of it, at the same address, was in step by the rule in force until then, and is stamped with that
+ * save. Anything else is left to be reported. Nothing public changes, and it never runs twice.
  */
-export async function recordSiteDrift(payloadDb: D1Database | undefined, siteDb: D1Database, now = new Date()): Promise<DriftReport | null> {
+export async function adoptEarlierPosts(payloadDb: D1Database, siteDb: D1Database): Promise<number> {
+    if (await siteDb.prepare("SELECT 1 FROM meta WHERE key = ?").bind(ADOPTED_KEY).first()) return 0;
+    const [posts, sitePosts] = await Promise.all([
+        payloadDb.prepare("SELECT id, slug, public_id, updated_at, deleted_at, _status FROM posts").all<PayloadRow>(),
+        siteDb
+            .prepare("SELECT id, slug, source_updated_at, synced_at FROM posts WHERE source = 'payload'")
+            .all<{ id: string; slug: string; source_updated_at: string | null; synced_at: string | null }>(),
+    ]);
+    const onSite = new Map(sitePosts.results.map((r) => [r.id, r]));
+    const stamps = [];
+    for (const row of posts.results) {
+        const site = onSite.get(row.public_id || `payload:${row.id}`);
+        if (!site || row._status !== "published" || row.deleted_at || site.slug !== row.slug) continue;
+        if (time(site.source_updated_at) === time(row.updated_at) || !(time(site.synced_at) >= time(row.updated_at))) continue;
+        stamps.push(
+            siteDb
+                .prepare("UPDATE posts SET source_updated_at = ?1 WHERE id = ?2 AND source = 'payload' AND synced_at = ?3")
+                .bind(row.updated_at, site.id, site.synced_at),
+        );
+    }
+    await siteDb.batch([
+        ...stamps,
+        siteDb.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING").bind(ADOPTED_KEY, JSON.stringify({ posts: stamps.length })),
+    ]);
+    if (stamps.length) console.log(JSON.stringify({ event: "site_posts_adopted", posts: stamps.length }));
+    return stamps.length;
+}
+
+/**
+ * Runs the check and keeps the result where the admin can read it. A site out of step is logged as an error
+ * (it shows in the Worker's logs and alerts); a check that couldn't run is logged and recorded as a failure,
+ * and leaves the last result alone. The cron's run is the "automatic check"; one made for a person (after a
+ * Republish, say) counts every save however recent and doesn't claim to be the automatic one.
+ */
+export async function recordSiteDrift(
+    payloadDb: D1Database | undefined,
+    siteDb: D1Database,
+    now = new Date(),
+    options: { manual?: boolean } = {},
+): Promise<DriftReport | null> {
     if (!payloadDb) return null;
     try {
-        const report = await siteDrift(payloadDb, siteDb, now);
+        await adoptEarlierPosts(payloadDb, siteDb);
+        const report = await siteDrift(payloadDb, siteDb, now, options.manual ? 0 : SYNC_GRACE_MS);
         await siteDb
             .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .bind(DRIFT_KEY, JSON.stringify(report))
             .run();
-        await noteSyncStatus(siteDb, { lastSuccessAt: report.checkedAt, outstanding: discrepancies(report) });
+        await noteSyncStatus(
+            siteDb,
+            options.manual ? { outstanding: discrepancies(report) } : { lastSuccessAt: report.checkedAt, outstanding: discrepancies(report) },
+        );
         if (!inStep(report))
             console.error(
                 JSON.stringify({

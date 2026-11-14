@@ -79,6 +79,53 @@ const ownerOf = (value: string): unknown => {
 };
 const pageIdKey = (id: string | number) => `page-id:${id}`;
 
+type Kind = "page" | "project";
+const SNAPSHOT_PREFIX = { page: "page:", project: "project:" } as const;
+const REDIRECT_PREFIX = { page: "page-redirect:", project: "project-redirect:" } as const;
+const OWNED_BY = "json_valid(value) AND CAST(json_extract(value, '$.id') AS TEXT) = ";
+
+/**
+ * Every snapshot of one item, found by the id inside it, not by the address it is believed to be at: two
+ * saves that overlap (a rename and an unpublish, or two renames) can each act on an address the other has
+ * just changed, and a snapshot removed "by address" would then be left on the site. `except` keeps one.
+ * Each one removed leaves a redirect from its address to `to` (the item's new address, or its off-site marker).
+ */
+const sweepSnapshots = (db: D1Database, kind: Kind, id: string | number, to: string | null, except: string | null = null) => {
+    const prefix = SNAPSHOT_PREFIX[kind];
+    const where = `substr(key, 1, ${prefix.length}) = '${prefix}' AND ${OWNED_BY}?1 AND key != ?2`;
+    const statements = [];
+    if (to !== null)
+        statements.push(
+            db
+                .prepare(
+                    `INSERT INTO meta (key, value) SELECT '${REDIRECT_PREFIX[kind]}' || substr(key, ${prefix.length + 1}), ?3 FROM meta WHERE ${where}
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+                )
+                .bind(String(id), except ?? "", JSON.stringify(to)),
+        );
+    statements.push(db.prepare(`DELETE FROM meta WHERE ${where}`).bind(String(id), except ?? ""));
+    return statements;
+};
+
+/**
+ * Payload gives a new document the number of the last one deleted (its tables don't use AUTOINCREMENT).
+ * A snapshot made before this document existed is therefore an earlier document's, not this one's: it must
+ * not be replaced, renamed, redirected or taken down in this document's name.
+ */
+async function earlierDocumentsSlug(db: D1Database, kind: Kind, id: string | number, createdAt: string | null | undefined): Promise<string | null> {
+    const created = createdAt ? Date.parse(createdAt) : NaN;
+    if (Number.isNaN(created)) return null;
+    const prefix = SNAPSHOT_PREFIX[kind];
+    const { results } = await db
+        .prepare(`SELECT key, json_extract(value, '$.updatedAt') AS updatedAt FROM meta WHERE substr(key, 1, ${prefix.length}) = '${prefix}' AND ${OWNED_BY}?1`)
+        .bind(String(id))
+        .all<{ key: string; updatedAt: string | null }>();
+    const earlier = results.find((r) => Date.parse(r.updatedAt ?? "") < created);
+    return earlier ? earlier.key.slice(prefix.length) : null;
+}
+const EARLIER = (kind: Kind, slug: string) =>
+    `The website still has an earlier ${kind} (at ${kind === "page" ? "/" : "/projects/"}${slug}) that Payload no longer has a document for, under the number this ${kind} was given. It's listed under "Website sync" on the dashboard: an owner can remove it there, and then this can be published.`;
+
 export interface SiteSettingsInput {
     name?: string | null;
     shortName?: string | null;
@@ -228,6 +275,8 @@ export interface PageInput {
     showButtons?: boolean | null;
     seoTitle?: string | null;
     seoDescription?: string | null;
+    /** When Payload created the document: tells it apart from an earlier one that had the same number. */
+    createdAt?: string | null;
     updatedAt?: string | null;
 }
 
@@ -251,6 +300,8 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         const ownerId = owner ? ownerOf(owner.value) : undefined;
         if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
             throw new PublishError(`daly.id.au/${slug} is already used by another page.`);
+        const earlier = await earlierDocumentsSlug(env.DB, "page", input.id, input.createdAt);
+        if (earlier) throw new PublishError(EARLIER("page", earlier));
     }
 
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
@@ -315,6 +366,8 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         // Earlier addresses of this page follow it to its new one.
         statements.push(repoint(env.DB, "page-redirect:", previousSlug, slug));
     }
+    // Any other snapshot of this page (an overlapping save's) goes too, leaving its address redirecting here.
+    statements.push(...sweepSnapshots(env.DB, "page", input.id, slug, SNAPSHOT.page(slug)));
     // Last, so it wins over the lines above: an address a page now owns never redirects.
     statements.push(del(env.DB, SNAPSHOT.redirect(slug)));
     await env.DB.batch(statements);
@@ -326,21 +379,33 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
  * for it (see offSite): they answer 404 while it's off the site and lead to it again when it's back, even
  * at a new address. `forget` is for a page deleted for good: its addresses are released.
  */
-export async function unpublishPage(env: PublisherEnv, id: string | number, options: { forget?: boolean; now?: Date } = {}): Promise<boolean> {
+export async function unpublishPage(
+    env: PublisherEnv,
+    id: string | number,
+    options: { forget?: boolean; now?: Date; createdAt?: string | null } = {},
+): Promise<boolean> {
+    // What's on the site under this number is an earlier document's: not this one's to take down.
+    if (await earlierDocumentsSlug(env.DB, "page", id, options.createdAt)) return false;
     const slug = await currentSlug(env.DB, pageIdKey(id));
     const marker = offSite("page", id);
-    const statements = slug ? [del(env.DB, SNAPSHOT.page(slug)), del(env.DB, pageIdKey(id))] : [];
+    const statements = slug ? [del(env.DB, SNAPSHOT.page(slug)), del(env.DB, pageIdKey(id))] : [del(env.DB, pageIdKey(id))];
     if (options.forget) {
         statements.push(dropRedirectsTo(env.DB, "page-redirect:", marker));
         if (slug) statements.push(dropRedirectsTo(env.DB, "page-redirect:", slug));
     } else if (slug) {
         statements.push(repoint(env.DB, "page-redirect:", slug, marker), put(env.DB, SNAPSHOT.redirect(slug), marker));
     }
-    statements.push(put(env.DB, SNAPSHOT.pagesManaged, true));
+    // By the id inside the snapshot as well: a save that overlapped this one may have moved the page meanwhile.
+    const sweep = sweepSnapshots(env.DB, "page", id, options.forget ? null : marker);
+    const swept = statements.length + sweep.length - 1;
+    statements.push(...sweep, put(env.DB, SNAPSHOT.pagesManaged, true));
     // Nothing public changes when the page wasn't on the site: cached pages stay as they are.
-    if (slug || options.forget) statements.push(bump(env.DB, (options.now ?? new Date()).toISOString()));
-    await env.DB.batch(statements);
-    return Boolean(slug);
+    const at = (options.now ?? new Date()).toISOString();
+    if (slug || options.forget) statements.push(bump(env.DB, at));
+    const results = await env.DB.batch(statements);
+    const sweptSome = (results[swept]?.meta?.changes ?? 0) > 0;
+    if (sweptSome && !slug && !options.forget) await bump(env.DB, at).run();
+    return Boolean(slug) || sweptSome;
 }
 
 /** Slugs of the pages currently on the site. */
@@ -370,6 +435,8 @@ export interface ProjectInput {
     seoTitle?: string | null;
     seoDescription?: string | null;
     publishedAt?: string | null;
+    /** When Payload created the document: tells it apart from an earlier one that had the same number. */
+    createdAt?: string | null;
     updatedAt?: string | null;
 }
 
@@ -440,6 +507,8 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
         const ownerId = owner ? ownerOf(owner.value) : undefined;
         if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
             throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
+        const earlier = await earlierDocumentsSlug(env.DB, "project", input.id, input.createdAt);
+        if (earlier) throw new PublishError(EARLIER("project", earlier));
     }
 
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
@@ -523,6 +592,8 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
         statements.push(del(env.DB, projectKey(previousSlug)), put(env.DB, projectRedirectKey(previousSlug), slug));
         statements.push(repoint(env.DB, "project-redirect:", previousSlug, slug));
     }
+    // Any other snapshot of this project (an overlapping save's) goes too, leaving its address redirecting here.
+    statements.push(...sweepSnapshots(env.DB, "project", input.id, slug, projectKey(slug)));
     // Last, so it wins over the lines above: an address a project now owns never redirects.
     statements.push(del(env.DB, projectRedirectKey(slug)));
     statements.push(rebuildProjectIndex(env.DB), bump(env.DB, now));
@@ -537,19 +608,28 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
  * the site and lead to it again when it's back, even at a new address. `forget` is for a project deleted
  * for good: its addresses are released.
  */
-export async function unpublishProject(env: PublisherEnv, id: string | number, options: { forget?: boolean; now?: Date } = {}): Promise<boolean> {
+export async function unpublishProject(
+    env: PublisherEnv,
+    id: string | number,
+    options: { forget?: boolean; now?: Date; createdAt?: string | null } = {},
+): Promise<boolean> {
+    // What's on the site under this number is an earlier document's: not this one's to take down.
+    if (await earlierDocumentsSlug(env.DB, "project", id, options.createdAt)) return false;
     const slug = await currentSlug(env.DB, projectIdKey(id));
     const marker = offSite("project", id);
-    const statements = slug ? [del(env.DB, projectKey(slug)), del(env.DB, projectIdKey(id))] : [];
+    const statements = slug ? [del(env.DB, projectKey(slug)), del(env.DB, projectIdKey(id))] : [del(env.DB, projectIdKey(id))];
     if (options.forget) {
         statements.push(dropRedirectsTo(env.DB, "project-redirect:", marker));
         if (slug) statements.push(dropRedirectsTo(env.DB, "project-redirect:", slug));
     } else if (slug) {
         statements.push(repoint(env.DB, "project-redirect:", slug, marker), put(env.DB, projectRedirectKey(slug), marker));
     }
-    statements.push(rebuildProjectIndex(env.DB), bump(env.DB, (options.now ?? new Date()).toISOString()));
-    await env.DB.batch(statements);
-    return Boolean(slug);
+    // By the id inside the snapshot as well: a save that overlapped this one may have moved the project meanwhile.
+    const sweep = sweepSnapshots(env.DB, "project", id, options.forget ? null : marker);
+    const swept = statements.length + sweep.length - 1;
+    statements.push(...sweep, rebuildProjectIndex(env.DB), bump(env.DB, (options.now ?? new Date()).toISOString()));
+    const results = await env.DB.batch(statements);
+    return Boolean(slug) || (results[swept]?.meta?.changes ?? 0) > 0;
 }
 
 /** The projects-first homepage's words, validated. Pure. */

@@ -19,6 +19,7 @@ import {
   type SiteSettingsInput,
 } from '../../../../worker/site/publisher'
 import { type DraftPreview, type PreviewKind, previewPath, storeDraftPreview } from '../../../../worker/site/preview'
+import { GaveUp, Unsettled, retried, settle as settleLoop } from '../../../../worker/site/settle'
 import { noteSyncStatus } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
 
@@ -47,26 +48,20 @@ type Versioned = { updatedAt?: string | null; _status?: string | null; deletedAt
 const sameVersion = (a: Versioned, b: Versioned) =>
   (a === null) === (b === null) && a?.updatedAt === b?.updatedAt && a?._status === b?._status && (a?.deletedAt ?? null) === (b?.deletedAt ?? null) && (a?.listed ?? null) === (b?.listed ?? null)
 
-/**
- * Makes the site match a document, and makes sure it still does when it's done. Two syncs of one document
- * can overlap (a save and Republish, or two saves): each reads the document, then writes what it read, and
- * the one that read the older version can be the one that writes last. So after writing, the document is
- * read again; if it changed meanwhile (a newer save, an unpublish, a move to Trash) the sync runs again from
- * what it is now. Whoever wrote something stale is therefore the one who puts it right, and a sync can never
- * leave the site on an older version than Payload, or put back something that was unpublished meanwhile.
- */
 export { DELETED_NOT_ON_SITE, NOT_CONFIRMED, SAVED_NOT_ON_SITE, reader }
 
+/**
+ * Makes the site match a document, and makes sure it still does when it's done (worker/site/settle.ts has
+ * the loop and why). A document that changed under every attempt is never left unsaid: the editor is told,
+ * and the sync check will show it.
+ */
 export async function settle<D extends Versioned>(read: (verifying: boolean) => Promise<D>, apply: (doc: D) => Promise<void>): Promise<void> {
-  let doc = await read(false)
-  for (let round = 0; round < 4; round++) {
-    await apply(doc)
-    const now = await read(true)
-    if (sameVersion(doc, now)) return
-    doc = now
+  try {
+    await settleLoop(read, apply, sameVersion)
+  } catch (error) {
+    if (!(error instanceof Unsettled)) throw error
+    throw new APIError(`The document kept changing while the website was being updated. Check "Website sync" on the dashboard in a minute, and press Republish if it's listed.`, 503, undefined, true)
   }
-  // The document changed under every attempt. Never left unsaid: the editor is told, and the sync check will show it.
-  throw new APIError(`The document kept changing while the website was being updated. Check "Website sync" on the dashboard in a minute, and press Republish if it's listed.`, 503, undefined, true)
 }
 
 /** A document read for a sync: retried like a write; a failed check-back says so truthfully (the site was written). */
@@ -106,26 +101,27 @@ const NOT_CONFIRMED = `Saved, and the website was updated, but it couldn't be co
  * doesn't, instead of a bare error. The cron's sync check (worker/site/sync-check.ts) reports it until it's fixed.
  */
 export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>, onRetry?: () => void, failure: string = SAVED_NOT_ON_SITE): Promise<T> {
-  let last: unknown
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await work()
-    } catch (error) {
-      if (error instanceof PublishError) throw new APIError(error.message, 400, undefined, true)
-      if (error instanceof APIError) throw error
-      last = error
-      // A failed attempt may still have been written (the answer was lost, not the write): callers that
-      // act on "did this change anything?" must then assume it did.
-      onRetry?.()
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 150 * 4 ** attempt))
+  const note = (message: string) =>
+    publisherEnv()
+      .then((env) => noteSyncStatus(env.DB, { lastPublishFailure: { at: new Date().toISOString(), what, message: message.slice(0, 300) } }))
+      .catch(() => undefined)
+  try {
+    return await retried(work, { onRetry, isFinal: (error) => error instanceof PublishError || error instanceof APIError })
+  } catch (error) {
+    if (error instanceof APIError) throw error
+    if (error instanceof PublishError) {
+      // Refused now although the check before saving passed (an image deleted or an address taken in
+      // between). Payload has already saved, so the message must not read as "not saved".
+      req.payload.logger.error({ msg: 'site_sync_refused', what, message: error.message })
+      await note(error.message)
+      throw new APIError(`Saved in Payload, but not published on the website: ${error.message}`, 400, undefined, true)
     }
+    const last = error instanceof GaveUp ? error.last : error
+    req.payload.logger.error({ msg: 'site_sync_failed', what, message: (last as Error)?.message })
+    // Kept for the dashboard too (best effort: the site's database may be what's failing).
+    await note(String((last as Error)?.message ?? last))
+    throw new APIError(failure, 503, undefined, true)
   }
-  req.payload.logger.error({ msg: 'site_sync_failed', what, message: (last as Error)?.message })
-  // Kept for the dashboard too (best effort: the site's database may be what's failing).
-  await publisherEnv()
-    .then((env) => noteSyncStatus(env.DB, { lastPublishFailure: { at: new Date().toISOString(), what, message: String((last as Error)?.message ?? last).slice(0, 300) } }))
-    .catch(() => undefined)
-  throw new APIError(failure, 503, undefined, true)
 }
 
 /** A publish refusal becomes a message the editor sees, not a 500. */
@@ -197,6 +193,7 @@ type PageDoc = {
   heroImage?: unknown
   showButtons?: boolean | null
   seo?: { title?: string | null; description?: string | null } | null
+  createdAt?: string | null
   updatedAt?: string | null
   _status?: 'draft' | 'published'
   deletedAt?: string | null
@@ -212,6 +209,7 @@ export const pageInput = (doc: PageDoc): PageInput => ({
   showButtons: doc.showButtons,
   seoTitle: doc.seo?.title,
   seoDescription: doc.seo?.description,
+  createdAt: doc.createdAt ?? null,
   updatedAt: doc.updatedAt ?? null,
 })
 
@@ -235,7 +233,7 @@ export async function syncPage(req: PayloadRequest, id: string | number, deleted
       // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
       if (!main && !deleted) return
       // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-      const removed = await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }), assumeChanged, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE)
+      const removed = await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main, createdAt: main?.createdAt }), assumeChanged, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE)
       if (removed) {
         req.payload.logger.info({ msg: 'page unpublished', id })
         changed = true
@@ -290,6 +288,7 @@ export const projectInput = (doc: ProjectDoc): ProjectInput => ({
   seoTitle: doc.seo?.title,
   seoDescription: doc.seo?.description,
   publishedAt: doc.createdAt ?? null,
+  createdAt: doc.createdAt ?? null,
   updatedAt: doc.updatedAt ?? null,
 })
 
@@ -305,7 +304,7 @@ export async function syncProject(req: PayloadRequest, id: string | number, dele
     // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
     if (!main && !deleted) return
     // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-    if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }), undefined, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE))
+    if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main, createdAt: main?.createdAt }), undefined, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE))
       req.payload.logger.info({ msg: 'project unpublished', id })
   })
 }

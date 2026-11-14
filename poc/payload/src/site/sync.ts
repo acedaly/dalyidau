@@ -1,7 +1,7 @@
 import type { PayloadRequest } from 'payload'
 
 import { republishProjectList } from '../../../../worker/site/publisher'
-import { type DriftItem, type DriftReport, SYNC_GRACE_MS, type SyncStatus, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from '../../../../worker/site/sync-check'
+import { type DriftItem, type DriftReport, type SyncStatus, adoptEarlierPosts, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
 import { syncPost } from '../collections/Posts'
 import { removeOrphan } from '../../../../worker/site/orphans'
@@ -18,7 +18,9 @@ type Databases = { D1: D1Database; DB: D1Database }
  */
 export async function siteSyncReport(): Promise<DriftReport> {
   const env = await cloudflareEnv<Databases>()
-  return siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
+  // Posts published before the site recorded which save they were made from (once; see adoptEarlierPosts).
+  await adoptEarlierPosts(env.D1 as never, env.DB as never)
+  return siteDrift(env.D1 as never, env.DB as never, new Date(), 0)
 }
 
 /** What's known about the checks themselves: the last automatic run, the last failure, the last repair. */
@@ -49,7 +51,8 @@ export type RepublishResult = {
 export async function republish(req: PayloadRequest): Promise<RepublishResult> {
   const env = await cloudflareEnv<Databases>()
   // Asked for by a person, so even a save from a moment ago counts.
-  const before = await siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
+  await adoptEarlierPosts(env.D1 as never, env.DB as never)
+  const before = await siteDrift(env.D1 as never, env.DB as never, new Date(), 0)
   const fixed: DriftItem[] = []
   const failed: RepublishResult['failed'] = []
   const leftAlone: DriftItem[] = []
@@ -71,7 +74,15 @@ export async function republish(req: PayloadRequest): Promise<RepublishResult> {
   if (before.projectListStale) await republishProjectList({ DB: env.DB as never })
   // The menu and settings aren't compared item by item, so a repair always rebuilds them from Payload.
   await republishSettings(req).catch((error) => failed.push({ kind: 'page', id: null, siteId: 'menu', title: 'The menu and site settings', slug: '', state: 'stale', message: (error as Error).message }))
-  const report = (await recordSiteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))) ?? before
+  // If the comparison can't be made again, nothing is known to be fixed: say so rather than assume.
+  const after = await recordSiteDrift(env.D1 as never, env.DB as never, new Date(), { manual: true })
+  const report = after ?? before
+  // Fixed means the comparison, made again, no longer lists it: not merely that nothing threw.
+  for (const item of [...fixed]) {
+    if (after && !after.items.some((i) => i.kind === item.kind && i.siteId === item.siteId)) continue
+    fixed.splice(fixed.indexOf(item), 1)
+    failed.push({ ...item, message: after ? 'It was published again, but the website still doesn’t match. Open it and save it again, or try Republish in a minute.' : 'The website couldn’t be checked afterwards, so it isn’t known whether this was fixed.' })
+  }
   await noteSyncStatus(env.DB as never, {
     lastRepair: {
       at: new Date().toISOString(),
@@ -91,15 +102,20 @@ export async function republish(req: PayloadRequest): Promise<RepublishResult> {
  * if the comparison, made again now, still says Payload has no document for it. A full copy of what was on
  * the site is kept first (worker/site/orphans.ts). Republish never does this.
  */
-export async function removeOrphanedItem(req: PayloadRequest, kind: DriftItem['kind'], siteId: string): Promise<{ removed: boolean; slug: string | null; reason?: string }> {
+export async function removeOrphanedItem(req: PayloadRequest, kind: DriftItem['kind'], siteId: string): Promise<{ removed: boolean; slug: string | null; reason?: string; warning?: string }> {
   const env = await cloudflareEnv<Databases>()
-  const report = await siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
-  const item = report.items.find((i) => i.kind === kind && i.siteId === siteId)
-  if (!item || item.state !== 'extra' || item.id !== null) return { removed: false, slug: null, reason: 'Payload has a document for that, or it isn’t on the website. Use Republish instead.' }
+  const report = await siteDrift(env.D1 as never, env.DB as never, new Date(), 0)
+  const item = report.items.find((i) => i.kind === kind && i.siteId === siteId && i.state === 'extra' && i.id === null)
+  if (!item) return { removed: false, slug: null, reason: 'Payload has a document for that, or it isn’t on the website. Use Republish instead.' }
   const by = (req.user as { email?: string } | null)?.email ?? null
   const slug = await removeOrphan(await publisherEnv(), kind, siteId, by)
-  if (kind === 'page') await republishSettings(req)
-  await recordSiteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
   req.payload.logger.info({ msg: 'orphan removed from the site', kind, siteId, slug, by })
-  return { removed: slug !== null, slug }
+  // The removal has happened. What follows is tidying: if it fails, say that, never "it wasn't removed".
+  let warning: string | undefined
+  if (kind === 'page' && slug !== null)
+    await republishSettings(req).catch(() => {
+      warning = 'It was removed, but the menu couldn’t be refreshed. Press Republish to rebuild the menu.'
+    })
+  await recordSiteDrift(env.D1 as never, env.DB as never, new Date(), { manual: true }).catch(() => undefined)
+  return { removed: slug !== null, slug, ...(warning ? { warning } : {}) }
 }

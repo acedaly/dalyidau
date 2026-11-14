@@ -21,6 +21,9 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
   const [report, status] = await Promise.all([siteSyncReport().catch(() => null), siteSyncStatus().catch(() => null)])
   const ok = report ? inStep(report) : false
   const count = report ? discrepancies(report) : null
+  // A save the website missed since the last repair may have left the menu or settings behind, which the
+  // comparison doesn't cover item by item: Republish rebuilds them, so it's offered then too.
+  const missedSince = status?.lastPublishFailure && !(Date.parse(status.lastRepair?.at ?? '') >= Date.parse(status.lastPublishFailure.at))
   const when = (iso: string | null | undefined) =>
     iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Australia/Sydney' }).format(new Date(iso)) : null
   return (
@@ -35,9 +38,17 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
           Couldn’t check the website just now. Reload this page to try again.
         </p>
       ) : ok ? (
-        <p className="daly-sync__line" role="status">
-          <span aria-hidden="true" className="daly-sync__dot" /> The website matches what’s published here.
-        </p>
+        <>
+          <p className="daly-sync__line" role="status">
+            <span aria-hidden="true" className="daly-sync__dot" /> The website matches what’s published here.
+          </p>
+          {missedSince ? (
+            <>
+              <p className="daly-sync__line">A recent save didn’t reach the website. If the menu or site settings look out of date, Republish rebuilds them.</p>
+              <RepublishButton />
+            </>
+          ) : null}
+        </>
       ) : (
         <div role="alert">
           <p className="daly-sync__line">
@@ -56,7 +67,7 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
             ))}
             {report.projectListStale ? <li>The list of projects on the website is out of date.</li> : null}
           </ul>
-          {report.projectListStale || report.items.some((item) => item.id !== null) ? <RepublishButton /> : null}
+          {report.projectListStale || missedSince || report.items.some((item) => item.id !== null) ? <RepublishButton /> : null}
         </div>
       )}
       <dl className="daly-sync__facts">
