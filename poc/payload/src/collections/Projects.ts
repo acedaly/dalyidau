@@ -5,6 +5,7 @@ import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
 import { checkProject, projectPreview, syncProject, statusAfter, willBePublic } from '../site/publishing'
+import { seoFields } from '../fields/seo'
 import { contentEditor } from './Users'
 
 // Projects on daly.id.au/projects (Phase 4). Publishing puts a project on the site straight away (while
@@ -67,7 +68,7 @@ export const Projects: CollectionConfig = {
         return data
       },
     ],
-    afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await syncProject(req, doc.id), doc))],
+    afterChange: [async ({ doc, req, context, operation }) => (context?.skipPublicSync ? doc : (await syncProject(req, doc.id, false, operation === 'create'), doc))],
     afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncProject(req, doc.id, true))],
   },
   fields: [
@@ -116,15 +117,7 @@ export const Projects: CollectionConfig = {
         },
       ],
     },
-    {
-      name: 'seo',
-      label: 'Search and link previews',
-      type: 'group',
-      fields: [
-        { name: 'title', type: 'text', admin: { description: 'Leave empty to use "<title> — <site name>".' } },
-        { name: 'description', type: 'textarea', admin: { description: 'Leave empty to use the summary.' } },
-      ],
-    },
+    seoFields({ title: '"<title> — <site name>"', description: 'the summary', image: 'the cover image' }),
     { name: 'status', type: 'select', required: true, defaultValue: 'active', options: PROJECT_STATUSES, admin: { position: 'sidebar' } },
     { name: 'listed', label: 'Show on the public site', type: 'checkbox', defaultValue: true, admin: { position: 'sidebar', description: 'Untick to keep a published (or archived) project in the CMS but off the site.' } },
     { name: 'featured', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar', description: 'Featured projects lead the homepage.' } },

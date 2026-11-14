@@ -1,4 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { normaliseSeo } from "../src/shared/site-content";
 import type { BlogFilters, Post, PostSummary, TocEntry } from "../src/shared/types";
 import { mediaUrls } from "./lib/image";
 
@@ -73,9 +74,19 @@ export class PostStore {
     }
 
     async bySlug(slug: string): Promise<(Post & { id: string }) | null> {
-        const row = await this.db.prepare(`SELECT ${SUMMARY_COLUMNS}, body_html, toc FROM posts WHERE slug = ?`).bind(slug).first<Row>();
+        const row = await this.db
+            .prepare(`SELECT ${SUMMARY_COLUMNS}, body_html, toc, seo FROM posts WHERE slug = ?`)
+            .bind(slug)
+            .first<Row & { seo?: string | null }>();
         if (!row) return null;
-        return { ...toSummary(row, this.transforms), id: row.id, bodyHtml: row.body_html ?? "", toc: parseJson<TocEntry[]>(row.toc, []) };
+        const seo = parseJson<unknown>(row.seo, null);
+        return {
+            ...toSummary(row, this.transforms),
+            id: row.id,
+            bodyHtml: row.body_html ?? "",
+            toc: parseJson<TocEntry[]>(row.toc, []),
+            seo: seo ? normaliseSeo(seo) : null,
+        };
     }
 
     /** Current slug for a renamed post, if the old slug is known. */
@@ -159,7 +170,10 @@ export class PostStore {
 
     async sitemapEntries(): Promise<{ slug: string; lastmod: string }[]> {
         const { results } = await this.db
-            .prepare("SELECT slug, COALESCE(updated_at, published_at) AS lastmod FROM posts ORDER BY published_at DESC")
+            .prepare(
+                // A post that asks not to be listed by search engines stays out of the sitemap.
+                "SELECT slug, COALESCE(updated_at, published_at) AS lastmod FROM posts WHERE seo IS NULL OR NOT json_valid(seo) OR json_extract(seo, '$.noindex') IS NOT 1 ORDER BY published_at DESC",
+            )
             .all<{ slug: string; lastmod: string }>();
         return results;
     }

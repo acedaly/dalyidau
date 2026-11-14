@@ -30,8 +30,10 @@ import {
     PublishError,
     type PublishMode,
     type PublisherEnv,
+    type SeoInput,
     lexicalHasContent,
     renderLexical,
+    resolveSeo,
     storePublicImage,
     uploadIds,
 } from "../blog/payload-publisher";
@@ -123,6 +125,15 @@ async function earlierDocumentsSlug(db: D1Database, kind: Kind, id: string | num
     const earlier = results.find((r) => Date.parse(r.updatedAt ?? "") < created);
     return earlier ? earlier.key.slice(prefix.length) : null;
 }
+/**
+ * For a document Payload has only just created. It can't own any addresses yet, so any kept under its
+ * number (see offSite) are an earlier, deleted document's whose clean-up never reached the site: they are
+ * released, so this document doesn't inherit them when it's published.
+ */
+export async function forgetEarlierDocument(env: Pick<PublisherEnv, "DB">, kind: Kind, id: string | number): Promise<void> {
+    await dropRedirectsTo(env.DB, REDIRECT_PREFIX[kind], offSite(kind, id)).run();
+}
+
 const EARLIER = (kind: Kind, slug: string) =>
     `The website still has an earlier ${kind} (at ${kind === "page" ? "/" : "/projects/"}${slug}) that Payload no longer has a document for, under the number this ${kind} was given. It's listed under "Website sync" on the dashboard: an owner can remove it there, and then this can be published.`;
 
@@ -275,6 +286,8 @@ export interface PageInput {
     showButtons?: boolean | null;
     seoTitle?: string | null;
     seoDescription?: string | null;
+    /** The rest of the search and sharing settings (its title and description are the two above). */
+    seo?: SeoInput | null;
     /** When Payload created the document: tells it apart from an earlier one that had the same number. */
     createdAt?: string | null;
     updatedAt?: string | null;
@@ -336,6 +349,7 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         if (!hero) throw new PublishError("The featured image couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.");
         image = { src: `/media/${hero.key}`, alt: hero.alt, width: hero.width ?? undefined, height: hero.height ?? undefined };
     }
+    const seo = await resolveSeo({ ...input.seo, title: input.seoTitle, description: input.seoDescription }, copy);
     const snapshot = {
         id: input.id,
         slug,
@@ -344,8 +358,10 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         bodyHtml,
         image,
         showButtons: !!input.showButtons,
-        seoTitle: input.seoTitle?.trim() || null,
-        seoDescription: input.seoDescription?.trim() || null,
+        // Kept beside `seo` so a rollback to code that reads only these still finds them.
+        seoTitle: seo?.title ?? null,
+        seoDescription: seo?.description ?? null,
+        ...(seo ? { seo } : {}),
         updatedAt: input.updatedAt ?? now,
     };
     const page = normalisePage(snapshot);
@@ -434,6 +450,8 @@ export interface ProjectInput {
     links?: Array<{ label?: string | null; url?: string | null }> | null;
     seoTitle?: string | null;
     seoDescription?: string | null;
+    /** The rest of the search and sharing settings (its title and description are the two above). */
+    seo?: SeoInput | null;
     publishedAt?: string | null;
     /** When Payload created the document: tells it apart from an earlier one that had the same number. */
     createdAt?: string | null;
@@ -477,7 +495,7 @@ const rebuildProjectIndex = (db: D1Database) =>
             `INSERT INTO meta (key, value)
              SELECT ?1, (
                  SELECT json_group_array(json(summary)) FROM (
-                     SELECT json_remove(value, '$.bodyHtml', '$.gallery', '$.links', '$.seoTitle', '$.seoDescription') AS summary
+                     SELECT json_remove(value, '$.bodyHtml', '$.gallery', '$.links', '$.seoTitle', '$.seoDescription', '$.seo') AS summary
                      FROM meta
                      WHERE substr(key, 1, 8) = 'project:' AND json_valid(value)
                      ORDER BY json_extract(value, '$.featured') DESC, json_extract(value, '$.order'), json_extract(value, '$.title') COLLATE NOCASE
@@ -557,6 +575,7 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
             },
         }).html;
     }
+    const seo = await resolveSeo({ ...input.seo, title: input.seoTitle, description: input.seoDescription }, copy);
     const snapshot = {
         id: input.id,
         slug,
@@ -572,8 +591,12 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
         bodyHtml,
         gallery,
         links: (input.links ?? []).map((l) => ({ label: l.label!.trim(), url: safeLink(l.url)! })),
-        seoTitle: input.seoTitle?.trim() || null,
-        seoDescription: input.seoDescription?.trim() || null,
+        // Kept beside `seo` so a rollback to code that reads only these still finds them.
+        seoTitle: seo?.title ?? null,
+        seoDescription: seo?.description ?? null,
+        ...(seo ? { seo } : {}),
+        // On the summary too: the project list is what the sitemap is built from.
+        ...(seo?.noindex ? { noindex: true } : {}),
         publishedAt: input.publishedAt ?? now,
         updatedAt: input.updatedAt ?? now,
     };

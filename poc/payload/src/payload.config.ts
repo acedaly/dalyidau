@@ -15,6 +15,7 @@ import { Posts } from './collections/Posts'
 import { Projects } from './collections/Projects'
 import { Homepage } from './globals/Homepage'
 import { Navigation } from './globals/Navigation'
+import { Redirects } from './globals/Redirects'
 import { SiteSettings } from './globals/SiteSettings'
 import { migrations } from './migrations'
 
@@ -91,7 +92,7 @@ export default buildConfig({
   },
   collections: [Users, Media, Pages, Projects, Posts],
   // The website (docs/PAYLOAD-FRONTEND-PLAN.md): published straight to the public site by their hooks.
-  globals: [Homepage, Navigation, SiteSettings],
+  globals: [Homepage, Navigation, Redirects, SiteSettings],
   // Not used; switched off so there is one less API surface to secure.
   graphQL: { disable: true },
   jobs: {
@@ -124,6 +125,10 @@ export default buildConfig({
   db: sqliteD1Adapter({
     binding: cloudflare.env.D1,
     prodMigrations: migrations,
+    // `autoIncrement` stays off. Turning it on would stop SQLite reusing a deleted row's number, but Payload
+    // can only do that by rebuilding every one of its tables (copy, drop, rename), and D1 runs a migration
+    // statement by statement with no transaction around it. The public site guards against a reused number
+    // itself instead (worker/site/publisher.ts earlierDocumentsSlug and forgetEarlierDocument).
   }),
   logger: isProduction ? cloudflareLogger : undefined,
   plugins: [

@@ -1,5 +1,5 @@
 // Data shapes shared by the worker (server render) and the browser (hydration).
-import type { HomeContent, Project, ProjectSummary, ProjectsHomeContent, PublicPage, SiteSettings } from "./site-content";
+import type { HomeContent, Project, ProjectSummary, ProjectsHomeContent, PublicPage, Seo, SiteSettings } from "./site-content";
 
 export interface TocEntry {
     id: string;
@@ -33,6 +33,8 @@ export interface Post extends PostSummary {
     /** Sanitised article HTML. Omitted from the embedded JSON and read back from the DOM on hydration. */
     bodyHtml: string;
     toc: TocEntry[];
+    /** Search and sharing settings, when the post sets any (posts published from Payload). */
+    seo?: Seo | null;
 }
 
 export interface BlogFilters {

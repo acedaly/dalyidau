@@ -7,6 +7,7 @@
 // databases: it never starts Payload, so it is cheap enough for the Worker's cron, and it changes nothing.
 import type { D1Database } from "@cloudflare/workers-types";
 import { SNAPSHOT } from "./content";
+import { type RedirectInput, normaliseRedirects, redirectsFingerprint, redirectsSnapshot } from "./redirects";
 
 export type DriftKind = "post" | "page" | "project";
 export interface DriftItem {
@@ -28,6 +29,8 @@ export interface DriftReport {
     items: DriftItem[];
     /** True when the project list (cards, index, sitemap) doesn't match the published projects. */
     projectListStale: boolean;
+    /** True when the redirects on the site weren't made from Payload's last save of the Redirects list. */
+    redirectsStale?: boolean;
 }
 
 /** A save this recent may still be on its way to the site: it isn't drift yet. */
@@ -180,10 +183,43 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
         .sort();
     const projectListStale = listed.length !== have.length || listed.some((slug, i) => slug !== have[i]);
 
-    return { checkedAt: now.toISOString(), items, projectListStale };
+    return { checkedAt: now.toISOString(), items, projectListStale, redirectsStale: await redirectsStale(payloadDb, siteDb, now, graceMs) };
 }
 
-export const inStep = (report: DriftReport) => report.items.length === 0 && !report.projectListStale;
+/**
+ * The Redirects list is rows in Payload and one snapshot on the site. They are compared by content (the
+ * enabled rows, as the site would store them), not only by when they were saved: a snapshot with the right
+ * date and the wrong list is still wrong. A Payload database from before the list existed has no table for
+ * it: then there is nothing to compare (the rest of the check still runs).
+ */
+async function redirectsStale(payloadDb: D1Database, siteDb: D1Database, now: Date, graceMs: number): Promise<boolean> {
+    let saved: { updated_at: string | null } | null;
+    let rows: RedirectInput[];
+    try {
+        saved = (await payloadDb.prepare("SELECT updated_at FROM redirects LIMIT 1").all<{ updated_at: string | null }>()).results[0] ?? null;
+        rows = (
+            await payloadDb
+                .prepare('SELECT "from", "to", status, enabled FROM redirects_items ORDER BY _order')
+                .all<{ from: string; to: string; status: string; enabled: number | null }>()
+        ).results.map((r) => ({ from: r.from, to: r.to, status: r.status, enabled: r.enabled !== 0 }));
+    } catch (error) {
+        if (/no such table/i.test((error as Error).message)) return false;
+        throw error;
+    }
+    // A save this recent may still be on its way.
+    if (saved?.updated_at && now.getTime() - time(saved.updated_at) < graceMs) return false;
+    let expected: string;
+    try {
+        expected = redirectsFingerprint(redirectsSnapshot(rows).redirects);
+    } catch {
+        // Rows that couldn't be published as they are (saved before a rule existed): the site can't match them.
+        return true;
+    }
+    const row = await siteDb.prepare("SELECT value FROM meta WHERE key = 'site:redirects'").first<{ value: string }>();
+    return redirectsFingerprint(normaliseRedirects(parse(row?.value)).redirects) !== expected;
+}
+
+export const inStep = (report: DriftReport) => report.items.length === 0 && !report.projectListStale && !report.redirectsStale;
 
 export const DRIFT_KEY = "site:sync-check";
 export const STATUS_KEY = "site:sync-status";
@@ -210,7 +246,7 @@ const NO_STATUS: SyncStatus = {
     lastPublishFailure: null,
 };
 
-export const discrepancies = (report: DriftReport) => report.items.length + (report.projectListStale ? 1 : 0);
+export const discrepancies = (report: DriftReport) => report.items.length + (report.projectListStale ? 1 : 0) + (report.redirectsStale ? 1 : 0);
 
 export async function readSyncStatus(db: D1Database): Promise<SyncStatus> {
     try {
@@ -298,6 +334,7 @@ export async function recordSiteDrift(
                     event: "site_out_of_sync",
                     items: report.items.map((i) => `${i.kind}:${i.siteId}:${i.state}`),
                     projectListStale: report.projectListStale,
+                    redirectsStale: report.redirectsStale ?? false,
                 }),
             );
         return report;

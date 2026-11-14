@@ -3,7 +3,9 @@ import type { GlobalConfig } from 'payload'
 import { DEFAULT_SITE, SOCIAL_KINDS } from '../../../../src/shared/site-content'
 import { settingsSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
+import { changedByField, recordChangedBy } from '../fields/changed-by'
 import { asEditorError, republishSettings, settingsInput } from '../site/publishing'
+import { checkBeforeRestore, isRestore, resaveRestored } from '../site/restore'
 import { removeOrphanedItem, republish, siteSyncReport, siteSyncStatus } from '../site/sync'
 import { discrepancies, inStep } from '../../../../worker/site/sync-check'
 
@@ -15,9 +17,12 @@ export const SiteSettings: GlobalConfig = {
     group: 'Website',
     description: 'Names, descriptions, contact details and social links used across daly.id.au. Saving updates the site straight away.',
   },
+  // Every save is kept, with who made it: Versions shows what changed and when, and can restore earlier settings.
+  versions: { max: 50 },
   access: {
     read: ({ req }) => contentEditor(req.user as never),
     update: ({ req }) => contentEditor(req.user as never),
+    readVersions: ({ req }) => contentEditor(req.user as never),
   },
   // Website sync (src/site/sync.ts), here because /api/globals is already behind the admin's sign-in:
   // GET  /api/globals/site-settings/sync       does the public site match what's published in Payload?
@@ -54,9 +59,19 @@ export const SiteSettings: GlobalConfig = {
     },
   ],
   hooks: {
+    // An earlier version that today's rules would refuse is refused before it is restored (src/site/restore.ts).
+    beforeOperation: [checkBeforeRestore('site-settings', (version) => void settingsSnapshot(settingsInput(version as never), []))],
     // Checked before saving, so a mistake is shown and nothing is stored.
-    beforeChange: [async ({ data }) => (await asEditorError(async () => settingsSnapshot(settingsInput(data as never), [])), data)],
-    afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await republishSettings(req, { settings: doc }), doc))],
+    beforeChange: [recordChangedBy, async ({ data }) => (await asEditorError(async () => settingsSnapshot(settingsInput(data as never), [])), data)],
+    afterChange: [
+      async ({ doc, req, context }) => {
+        if (context?.skipPublicSync) return doc
+        // A restore hands over a version row, not the settings: they are saved again as themselves (src/site/restore.ts).
+        if (isRestore(req)) await resaveRestored(req, 'site-settings', doc)
+        else await republishSettings(req, { settings: doc })
+        return doc
+      },
+    ],
   },
   fields: [
     {
@@ -111,5 +126,6 @@ export const SiteSettings: GlobalConfig = {
       admin: { description: 'Used in link previews for pages without their own image. Leave empty for the built-in one. Best at 1200 × 630.' },
     },
     { name: 'footerText', label: 'Footer text', type: 'text', admin: { description: 'After "© year" in the footer. Leave empty to use the site name.' } },
+    changedByField,
   ],
 }

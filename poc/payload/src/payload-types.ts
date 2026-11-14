@@ -98,11 +98,13 @@ export interface Config {
   globals: {
     homepage: Homepage;
     navigation: Navigation;
+    redirects: Redirect;
     'site-settings': SiteSetting;
   };
   globalsSelect: {
     homepage: HomepageSelect<false> | HomepageSelect<true>;
     navigation: NavigationSelect<false> | NavigationSelect<true>;
+    redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     'site-settings': SiteSettingsSelect<false> | SiteSettingsSelect<true>;
   };
   locale: null;
@@ -211,15 +213,38 @@ export interface Page {
     [k: string]: unknown;
   } | null;
   showButtons?: boolean | null;
+  /**
+   * All optional. Left empty, search engines and link previews use the title, summary and image above.
+   */
   seo?: {
     /**
-     * Leave empty to use "<title> — <site name>".
+     * The page title in search results and the browser tab. Leave empty to use "<title> — <site name>". About 60 characters shows in full.
      */
     title?: string | null;
     /**
-     * Leave empty to use the introduction.
+     * The line under the title in search results. Leave empty to use the introduction. About 155 characters shows in full.
      */
     description?: string | null;
+    /**
+     * Leave empty to use the search title.
+     */
+    socialTitle?: string | null;
+    /**
+     * Leave empty to use the search description.
+     */
+    socialDescription?: string | null;
+    /**
+     * 1200 × 630 pixels looks best. Leave empty to use the featured image.
+     */
+    image?: (number | null) | Media;
+    /**
+     * Only when this was first published somewhere else, or duplicates another page here: the address search engines should treat as the original. Leave empty otherwise.
+     */
+    canonical?: string | null;
+    /**
+     * The page stays public for anyone with the link, but search engines are asked not to list it and it is left out of the sitemap.
+     */
+    noindex?: boolean | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -278,15 +303,38 @@ export interface Project {
         id?: string | null;
       }[]
     | null;
+  /**
+   * All optional. Left empty, search engines and link previews use the title, summary and image above.
+   */
   seo?: {
     /**
-     * Leave empty to use "<title> — <site name>".
+     * The page title in search results and the browser tab. Leave empty to use "<title> — <site name>". About 60 characters shows in full.
      */
     title?: string | null;
     /**
-     * Leave empty to use the summary.
+     * The line under the title in search results. Leave empty to use the summary. About 155 characters shows in full.
      */
     description?: string | null;
+    /**
+     * Leave empty to use the search title.
+     */
+    socialTitle?: string | null;
+    /**
+     * Leave empty to use the search description.
+     */
+    socialDescription?: string | null;
+    /**
+     * 1200 × 630 pixels looks best. Leave empty to use the cover image.
+     */
+    image?: (number | null) | Media;
+    /**
+     * Only when this was first published somewhere else, or duplicates another page here: the address search engines should treat as the original. Leave empty otherwise.
+     */
+    canonical?: string | null;
+    /**
+     * The page stays public for anyone with the link, but search engines are asked not to list it and it is left out of the sitemap.
+     */
+    noindex?: boolean | null;
   };
   status: 'active' | 'completed' | 'experimental' | 'archived';
   /**
@@ -362,6 +410,39 @@ export interface Post {
       }[]
     | null;
   featured?: boolean | null;
+  /**
+   * All optional. Left empty, search engines and link previews use the title, summary and image above.
+   */
+  seo?: {
+    /**
+     * The page title in search results and the browser tab. Leave empty to use "<title> — <site name>". About 60 characters shows in full.
+     */
+    title?: string | null;
+    /**
+     * The line under the title in search results. Leave empty to use the summary. About 155 characters shows in full.
+     */
+    description?: string | null;
+    /**
+     * Leave empty to use the search title.
+     */
+    socialTitle?: string | null;
+    /**
+     * Leave empty to use the search description.
+     */
+    socialDescription?: string | null;
+    /**
+     * 1200 × 630 pixels looks best. Leave empty to use the featured image.
+     */
+    image?: (number | null) | Media;
+    /**
+     * Only when this was first published somewhere else, or duplicates another page here: the address search engines should treat as the original. Leave empty otherwise.
+     */
+    canonical?: string | null;
+    /**
+     * The page stays public for anyone with the link, but search engines are asked not to list it and it is left out of the sitemap.
+     */
+    noindex?: boolean | null;
+  };
   /**
    * The post's id on the public site. Imported posts keep their original one.
    */
@@ -627,6 +708,11 @@ export interface PagesSelect<T extends boolean = true> {
     | {
         title?: T;
         description?: T;
+        socialTitle?: T;
+        socialDescription?: T;
+        image?: T;
+        canonical?: T;
+        noindex?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -664,6 +750,11 @@ export interface ProjectsSelect<T extends boolean = true> {
     | {
         title?: T;
         description?: T;
+        socialTitle?: T;
+        socialDescription?: T;
+        image?: T;
+        canonical?: T;
+        noindex?: T;
       };
   status?: T;
   listed?: T;
@@ -701,6 +792,17 @@ export interface PostsSelect<T extends boolean = true> {
         id?: T;
       };
   featured?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        socialTitle?: T;
+        socialDescription?: T;
+        image?: T;
+        canonical?: T;
+        noindex?: T;
+      };
   publicId?: T;
   legacy?:
     | T
@@ -873,6 +975,45 @@ export interface Navigation {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Recorded with every save. Earlier versions, with who made them and when, are under Versions.
+   */
+  changedBy?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * Send an old address somewhere new. You rarely need this: renaming a post, page or project keeps its old address working by itself (those are listed at the bottom). Saving updates the site straight away.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects".
+ */
+export interface Redirect {
+  id: number;
+  items?:
+    | {
+        /**
+         * A path on this site. Only used when nothing else answers it.
+         */
+        from: string;
+        to: string;
+        status: '301' | '302';
+        /**
+         * Untick to keep the redirect here without using it.
+         */
+        enabled?: boolean | null;
+        /**
+         * For you: the content or reason it belongs to. Never shown on the site.
+         */
+        note?: string | null;
+        createdAt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Recorded with every save. Earlier versions, with who made them and when, are under Versions.
+   */
+  changedBy?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -925,6 +1066,10 @@ export interface SiteSetting {
    * After "© year" in the footer. Leave empty to use the site name.
    */
   footerText?: string | null;
+  /**
+   * Recorded with every save. Earlier versions, with who made them and when, are under Versions.
+   */
+  changedBy?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -987,6 +1132,28 @@ export interface NavigationSelect<T extends boolean = true> {
         url?: T;
         id?: T;
       };
+  changedBy?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects_select".
+ */
+export interface RedirectsSelect<T extends boolean = true> {
+  items?:
+    | T
+    | {
+        from?: T;
+        to?: T;
+        status?: T;
+        enabled?: T;
+        note?: T;
+        createdAt?: T;
+        id?: T;
+      };
+  changedBy?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;
@@ -1021,6 +1188,7 @@ export interface SiteSettingsSelect<T extends boolean = true> {
       };
   seoImage?: T;
   footerText?: T;
+  changedBy?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

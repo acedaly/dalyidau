@@ -28,6 +28,7 @@ import { PostStore, toSummary } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { listPages, loadPage, loadProject, loadProjects, loadProjectsHome, loadSite, loadSiteAndHome } from "./site/content";
 import { type PreviewKind, cleanPreviews, loadDraftPreview } from "./site/preview";
+import { manualRedirect } from "./site/redirects";
 import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
@@ -109,7 +110,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
     if (path === "/sitemap.xml") {
         const [posts, pages, flags] = await Promise.all([store.sitemapEntries(), listPages(env.DB), loadFlags(env.DB)]);
-        const projects = flags["website.projects_home"] ? await loadProjects(env.DB) : [];
+        const projects = flags["website.projects_home"] ? (await loadProjects(env.DB)).filter((p) => !p.noindex) : [];
         return text(sitemapXml(env.SITE_URL, posts, pages, projects), "application/xml", HTML_EDGE_TTL);
     }
     if (path === "/feed.xml" || path === "/rss.xml") {
@@ -135,6 +136,17 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     return cachedPage(request, env, ctx, indexable, variant, async () => {
         const result = await route(path, url, store, env.DB, projects);
         if ("redirect" in result) return Response.redirect(`${url.origin}${result.redirect}`, 301);
+        // Nothing answers this address: a redirect kept by hand in Payload (Website → Redirects), if there is one.
+        if (result.status === 404) {
+            const manual = await manualRedirect(env.DB, path);
+            // Browsers keep a permanent redirect for good unless told otherwise: an hour, so removing one in Payload works.
+            if (manual)
+                return new Response(null, {
+                    status: manual.status,
+                    // Through URL, so the header is always an encoded, absolute address (it is stored encoded too).
+                    headers: { Location: new URL(manual.to, url.origin).href, "Cache-Control": "public, max-age=3600" },
+                });
+        }
         const site = result.site ?? (await loadSite(env.DB));
         const context = { weddingPublished, site, ...(projects ? { design: "projects" as const } : {}) };
         return renderPage(env, { ...result.data, context }, path, result.status, !indexable);
