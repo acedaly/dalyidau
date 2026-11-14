@@ -11,7 +11,7 @@ import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 import type { TocEntry } from "../../src/shared/types";
 import { codeBlock, imageFigure, quote } from "../lib/article-html";
 import { escapeHtml, isExternal, isValidSlug, safeUrl, slugify } from "../lib/html";
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, imageDimensions, mediaUrls } from "../lib/image";
+import { ALLOWED_IMAGE_TYPES, imageDimensions, imageProblem, mediaUrls } from "../lib/image";
 
 /** A Lexical node as Payload stores it (only the fields this renderer reads). */
 export interface LexicalNode {
@@ -283,7 +283,8 @@ export const lexicalHasContent = (root: LexicalNode | null | undefined): boolean
 export async function storePublicImage(env: PublisherEnv, mediaId: string, file: MediaFile, now: string): Promise<StoredImage | null> {
     const type = file.contentType.split(";")[0].trim().toLowerCase();
     const ext = ALLOWED_IMAGE_TYPES[type];
-    if (!ext || file.bytes.byteLength > MAX_IMAGE_BYTES) return null;
+    // Only a whole, well-formed image of a sane size is ever copied to the public bucket (lib/image.ts imageProblem).
+    if (!ext || imageProblem(file.bytes, type)) return null;
     const key = `${(await sha256(file.bytes)).slice(0, 24)}.${ext}`;
     const dims = imageDimensions(file.bytes, type);
     if (!(await env.MEDIA.head(key)))
