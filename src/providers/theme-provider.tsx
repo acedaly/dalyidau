@@ -39,6 +39,18 @@ interface ThemeProviderProps {
     storageKey?: string;
 }
 
+/**
+ * The browser's own chrome (the address bar on a phone) takes its colour from two <meta name="theme-color">
+ * tags, one per device colour scheme. When the visitor picks a theme by hand, both are given that theme's
+ * colour; when they go back to following the device, each gets its own again.
+ */
+const syncThemeColor = (theme: Theme) => {
+    const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')];
+    for (const meta of metas) if (!meta.dataset.content) meta.dataset.content = meta.content;
+    const chosen = theme === "system" ? null : metas.find((meta) => meta.media.includes(theme));
+    for (const meta of metas) meta.content = (chosen ?? meta).dataset.content ?? meta.content;
+};
+
 export const ThemeProvider = ({ children, defaultTheme = "system", storageKey = "ui-theme", darkModeClass = "dark-mode" }: ThemeProviderProps) => {
     const [theme, setTheme] = useState<Theme>(() => {
         if (typeof window !== "undefined") {
@@ -64,6 +76,7 @@ export const ThemeProvider = ({ children, defaultTheme = "system", storageKey = 
         };
 
         applyTheme();
+        syncThemeColor(theme);
 
         // Listen for system theme changes
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");

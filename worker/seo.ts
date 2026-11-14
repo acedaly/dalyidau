@@ -226,6 +226,8 @@ export const sitemapXml = (
     pages: { slug: string; lastmod: string | null }[],
     /** Public projects, only once the projects-first site is switched on. */
     projects: { slug: string; updatedAt: string | null }[] = [],
+    /** The projects-first site is on: /projects is a page of the site even before it lists anything. */
+    projectsOn = projects.length > 0,
 ) => {
     const latest = posts[0]?.lastmod;
     const urls: { loc: string; lastmod?: string }[] = [
@@ -234,7 +236,7 @@ export const sitemapXml = (
         // No lastmod for pages: a page's own edits are rare, and the sitemap stays stable across republishing.
         ...pages.map((p) => ({ loc: `/${p.slug}` })),
         { loc: "/contact" },
-        ...(projects.length ? [{ loc: "/projects" }, ...projects.map((p) => ({ loc: `/projects/${p.slug}`, lastmod: p.updatedAt ?? undefined }))] : []),
+        ...(projectsOn ? [{ loc: "/projects" }, ...projects.map((p) => ({ loc: `/projects/${p.slug}`, lastmod: p.updatedAt ?? undefined }))] : []),
         ...posts.map((p) => ({ loc: `/blog/${p.slug}`, lastmod: p.lastmod })),
     ];
     const body = urls

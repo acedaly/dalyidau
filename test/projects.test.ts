@@ -96,6 +96,34 @@ describe("with the switch off", () => {
 });
 
 describe("with the switch on", () => {
+    it("before any project is published, says so plainly and points at what there is", async () => {
+        await setSwitch(true);
+        const home = await get("/");
+        expect(home.html).toContain("Nothing is written up here yet.");
+        // No button promising projects that aren't there, and nothing about writing "below" when none is shown.
+        // (What's rendered, not the page's embedded data, which carries every label.)
+        const shown = home.html.split('id="page-data"')[0];
+        expect(shown).not.toContain("Explore projects");
+        expect(shown).not.toContain("below");
+        const index = await get("/projects");
+        expect(index.status).toBe(200);
+        expect(index.html).toContain("Nothing is written up here yet.");
+        expect(index.html).not.toContain("0 projects");
+        // /projects is a page of the site from the moment the design is on.
+        expect((await get("/sitemap.xml")).html).toContain("<loc>https://daly.id.au/projects</loc>");
+    });
+
+    it("the page for an address that doesn't exist offers the projects as well as the writing", async () => {
+        await setSwitch(true);
+        const missing = await get("/no-such-page");
+        expect(missing.status).toBe(404);
+        expect(missing.html).toContain('href="/projects"');
+        expect(missing.html).toContain('href="/blog"');
+        await setSwitch(false);
+        const classic = await get("/no-such-page");
+        expect(classic.html).toContain("Browse the blog");
+    });
+
     it("shows the projects-first homepage, the index and each project, escaped", async () => {
         await setSwitch(true);
         await publishProject(testEnv, project(), media);
@@ -130,7 +158,7 @@ describe("with the switch on", () => {
         expect((await get("/projects/desk-lamp")).status).toBe(404);
         expect((await get("/projects/lamp")).status).toBe(404);
         expect((await get("/projects")).html).not.toContain("lamp");
-        expect((await get("/")).html).toContain("Projects are on their way");
+        expect((await get("/")).html).toContain("Nothing is written up here yet.");
     });
 
     it("keeps a project's old addresses through an unpublish: 404 while it's off, redirecting again once it's back", async () => {

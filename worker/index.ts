@@ -110,8 +110,9 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
     if (path === "/sitemap.xml") {
         const [posts, pages, flags] = await Promise.all([store.sitemapEntries(), listPages(env.DB), loadFlags(env.DB)]);
-        const projects = flags["website.projects_home"] ? (await loadProjects(env.DB)).filter((p) => !p.noindex) : [];
-        return text(sitemapXml(env.SITE_URL, posts, pages, projects), "application/xml", HTML_EDGE_TTL);
+        const projectsOn = flags["website.projects_home"];
+        const projects = projectsOn ? (await loadProjects(env.DB)).filter((p) => !p.noindex) : [];
+        return text(sitemapXml(env.SITE_URL, posts, pages, projects, projectsOn), "application/xml", HTML_EDGE_TTL);
     }
     if (path === "/feed.xml" || path === "/rss.xml") {
         const [posts, site] = await Promise.all([store.all(), loadSite(env.DB)]);
@@ -758,6 +759,9 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
  * Edge-caches successful HTML. The key includes the app build and the content version, which
  * every sync that changes public content bumps, so new and edited posts show up immediately.
  */
+/** The query parameters a public page's content depends on (readFilters; `q` is never cached). */
+const PAGE_PARAMS = ["category", "page", "tag"];
+
 async function cachedPage(
     request: Request,
     env: Env,
@@ -776,7 +780,10 @@ async function cachedPage(
         shell(env),
         env.DB.prepare("SELECT value FROM meta WHERE key = 'content_version'").first<{ value: string }>(),
     ]);
-    const params = new URLSearchParams(url.search);
+    // Only what the pages read (the blog's filters). Tracking parameters (utm_*, fbclid…) would otherwise
+    // give every shared link its own copy in the cache.
+    const params = new URLSearchParams();
+    for (const name of PAGE_PARAMS) for (const value of url.searchParams.getAll(name)) params.append(name, value);
     params.set("__b", build);
     params.set("__c", content?.value ?? "0");
     params.set("__v", variant);

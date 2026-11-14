@@ -43,17 +43,34 @@ test("search and category filters work", async ({ page }) => {
     await expect(page.getByText("1 article")).toBeVisible();
 });
 
-test("dark mode toggles and persists across pages", async ({ page }) => {
+test("the theme toggles, persists across pages, and can go back to following the device", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/");
     const html = page.locator("html");
+    const toggle = page.getByRole("button", { name: /^Theme: / });
     await expect(html).not.toHaveClass(/dark-mode/);
-    await page.getByRole("button", { name: "Toggle dark mode" }).click();
+    await expect(toggle).toHaveAccessibleName("Theme: following your device. Switch to dark.");
+    // The first press always changes something: on a light device, to dark.
+    await toggle.click();
     await expect(html).toHaveClass(/dark-mode/);
+    // The browser's own chrome follows the choice, not the device.
+    expect(await page.locator('meta[name="theme-color"]').evaluateAll((metas) => new Set(metas.map((m) => (m as HTMLMetaElement).content)).size)).toBe(1);
     await page.goto("/blog");
     await expect(html).toHaveClass(/dark-mode/);
-    await page.getByRole("button", { name: "Toggle dark mode" }).click();
+    await expect(toggle).toHaveAccessibleName("Theme: dark. Switch to light.");
+    await toggle.click();
     await expect(html).not.toHaveClass(/dark-mode/);
+    // Chosen by hand, so it holds even when the device says otherwise…
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(html).not.toHaveClass(/dark-mode/);
+    await page.emulateMedia({ colorScheme: "light" });
+    // …until the third press hands it back to the device, which is then followed.
+    await toggle.click();
+    await expect(toggle).toHaveAccessibleName(/^Theme: following your device\./);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(html).toHaveClass(/dark-mode/);
+    expect(await page.evaluate(() => localStorage.getItem("ui-theme"))).toBeNull();
+    expect(await page.locator('meta[name="theme-color"]').evaluateAll((metas) => new Set(metas.map((m) => (m as HTMLMetaElement).content)).size)).toBe(2);
 });
 
 test("follows the system colour scheme by default", async ({ page }) => {
