@@ -12,35 +12,54 @@ export const MEDIA_MAX_BYTES = 15 * 1024 * 1024
 /**
  * Refuses to delete an image that something still uses (docs/AUDIT-2026-11.md, M3). Before, the database
  * quietly emptied the field that pointed at it, and an image inside an article's text was left out the next
- * time the article was published. Drafts and items in Trash count: they'd lose it just the same. Old versions
- * don't: they're history, and keep working without it.
+ * time the article was published. Drafts (including a newer draft of something already published) and items in Trash count: they'd lose it
+ * just the same. Older versions don't: they're history, and keep working without it.
  */
 const refuseIfInUse: CollectionBeforeDeleteHook = async ({ id }) => {
   const { D1 } = await cloudflareEnv<{ D1: D1Database }>()
   const n = Number(id)
-  // In an article's or page's text an image is an upload node: {"type":"upload", … "value":<id>}.
-  const inText = [`%"relationTo":"media"%"value":${n},%`, `%"relationTo":"media"%"value":${n}}%`, `%"value":${n},%"relationTo":"media"%`, `%"value":${n}}%"relationTo":"media"%`]
-  const text = (table: string) => `SELECT title FROM ${table} WHERE ${inText.map((_, i) => `content LIKE ?${i + 2}`).join(' OR ')}`
+  // In rich text an image is an upload node, whose JSON has `"relationTo":"media","value":<id>` side by side
+  // (followed by `}` as the editor saves it, or `,` when other keys come after). Matched as that exact run:
+  // `"value":3}` on its own is also how a numbered list's third item is stored.
+  const patterns = [`%"relationTo":"media","value":${n}}%`, `%"relationTo":"media","value":${n},%`]
+  const text = (table: string, column: string, title: string, where = '') =>
+    `SELECT ${title} AS title FROM ${table} WHERE (${column} LIKE ?2 OR ${column} LIKE ?3)${where}`
+  // Every statement takes the same three values (the id and the two patterns); those that only need the id say so with `?2 IS NOT ?3`.
+  const byId = (sql: string) => `${sql} AND ?2 IS NOT ?3`
+  // The published (or only) copy of each document, and the latest saved draft of each, which lives in its
+  // version table. One short statement each, sent together: D1 allows only a few SELECTs joined by UNION.
   const queries: Array<[string, string]> = [
-    ['Blog post', `SELECT title FROM posts WHERE hero_image_id = ?1 OR seo_image_id = ?1 UNION ${text('posts')}`],
-    ['Page', `SELECT title FROM pages WHERE hero_image_id = ?1 OR seo_image_id = ?1 UNION ${text('pages')}`],
-    ['Project', `SELECT title FROM projects WHERE hero_image_id = ?1 OR seo_image_id = ?1 UNION SELECT p.title FROM projects p JOIN projects_gallery g ON g._parent_id = p.id WHERE g.image_id = ?1 UNION ${text('projects')}`],
-    ['Site settings', `SELECT 'the default sharing image' AS title FROM site_settings WHERE seo_image_id = ?1`],
+    ['Blog post', byId(`SELECT title FROM posts WHERE (hero_image_id = ?1 OR seo_image_id = ?1)`)],
+    ['Blog post', text('posts', 'content', 'title')],
+    ['Blog post', byId(`SELECT version_title AS title FROM _posts_v WHERE latest = 1 AND (version_hero_image_id = ?1 OR version_seo_image_id = ?1)`)],
+    ['Blog post', text('_posts_v', 'version_content', 'version_title', ' AND latest = 1')],
+    ['Page', byId(`SELECT title FROM pages WHERE (hero_image_id = ?1 OR seo_image_id = ?1)`)],
+    ['Page', text('pages', 'content', 'title')],
+    ['Page', byId(`SELECT version_title AS title FROM _pages_v WHERE latest = 1 AND (version_hero_image_id = ?1 OR version_seo_image_id = ?1)`)],
+    ['Page', text('_pages_v', 'version_content', 'version_title', ' AND latest = 1')],
+    ['Project', byId(`SELECT title FROM projects WHERE (hero_image_id = ?1 OR seo_image_id = ?1)`)],
+    ['Project', byId(`SELECT p.title AS title FROM projects p JOIN projects_gallery g ON g._parent_id = p.id WHERE g.image_id = ?1`)],
+    ['Project', text('projects', 'content', 'title')],
+    ['Project', byId(`SELECT version_title AS title FROM _projects_v WHERE latest = 1 AND (version_hero_image_id = ?1 OR version_seo_image_id = ?1)`)],
+    ['Project', byId(`SELECT v.version_title AS title FROM _projects_v v JOIN _projects_v_version_gallery g ON g._parent_id = v.id WHERE v.latest = 1 AND g.image_id = ?1`)],
+    ['Project', text('_projects_v', 'version_content', 'version_title', ' AND latest = 1')],
+    ['Site settings', byId(`SELECT 'the default sharing image' AS title FROM site_settings WHERE seo_image_id = ?1`)],
   ]
-  const uses: string[] = []
-  for (const [kind, sql] of queries) {
-    const { results } = await D1.prepare(sql)
-      .bind(n, ...(sql.includes('LIKE') ? inText : []))
-      .all<{ title: string | null }>()
-    for (const row of results) uses.push(kind === 'Site settings' ? `Site settings (${row.title})` : `${kind} “${row.title ?? 'untitled'}”`)
-  }
-  if (uses.length)
+  const found = await D1.batch<{ title: string | null }>(queries.map(([, sql]) => D1.prepare(sql).bind(n, ...patterns)))
+  const uses = new Set<string>()
+  found.forEach((result, i) => {
+    const kind = queries[i][0]
+    for (const row of result.results) uses.add(kind === 'Site settings' ? `Site settings (${row.title})` : `${kind} “${row.title ?? 'untitled'}”`)
+  })
+  if (uses.size) {
+    const list = [...uses]
     throw new APIError(
-      `This image is still used by ${uses.slice(0, 5).join(', ')}${uses.length > 5 ? ` and ${uses.length - 5} more` : ''}. Take it out of ${uses.length === 1 ? 'that' : 'those'} first, then delete it.`,
+      `This image is still used by ${list.slice(0, 5).join(', ')}${list.length > 5 ? ` and ${list.length - 5} more` : ''}. Take it out of ${list.length === 1 ? 'that' : 'those'} first, then delete it.`,
       400,
       undefined,
       true,
     )
+  }
 }
 
 export const Media: CollectionConfig = {

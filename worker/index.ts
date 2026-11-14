@@ -16,7 +16,7 @@ import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { imageMode } from "./lib/image";
-import { canResize, ensureVariant, isVariantWidth, variantFormat } from "./lib/image-variants";
+import { ensureVariant, isVariantWidth, variantFormat } from "./lib/image-variants";
 import { loggablePath } from "./lib/log";
 import { pageCacheKey } from "./lib/page-cache";
 import { PLANNER_PATH, RETIRED_APP_WORKER, offlineDocument, plannerFiles, plannerManifest, plannerView, serviceWorkerScript } from "./planner/pwa";
@@ -810,17 +810,19 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
     if (!/^[a-f0-9]{24}\.(jpg|png|gif|webp|avif)$/.test(key)) return new Response("Not found", { status: 404 });
     const cache = (globalThis as unknown as { caches: { default: Cache } }).caches?.default;
     const url = new URL(request.url);
-    // A smaller copy (worker/lib/image-variants.ts): only the widths the site itself asks for, in the best
-    // format this browser accepts. Anything else in the query string is ignored, so it can't split the cache.
+    // A smaller copy (worker/lib/image-variants.ts): only at the widths, and in the formats, the site itself
+    // offers. Anything else in the query string is ignored, so it can't split the cache or make work.
     const width = Number(url.searchParams.get("w"));
-    const format =
-        isVariantWidth(width) && canResize(key) && imageMode(env.IMAGE_TRANSFORMS) === "variants" ? variantFormat(key, request.headers.get("Accept")) : null;
+    const format = isVariantWidth(width) && imageMode(env.IMAGE_TRANSFORMS) === "variants" ? variantFormat(key, request.headers.get("Accept")) : null;
     const cacheKey = new Request(`${url.origin}${url.pathname}${format ? `?w=${width}&f=${format}` : ""}`);
     const hit = cache ? await cache.match(cacheKey) : undefined;
     if (hit) return hit;
 
+    let fallback = false;
     if (format) {
-        const variant = await ensureVariant(env, key, width as never, format);
+        // Only smaller than the original, as the pages' own srcset is: nothing is enlarged or merely re-encoded.
+        const known = await env.DB.prepare("SELECT width FROM media WHERE r2_key = ? LIMIT 1").bind(key).first<{ width: number | null }>();
+        const variant = known?.width && width < known.width ? await ensureVariant(env, key, width as never, format) : null;
         if (variant) {
             const headers = new Headers({
                 "Content-Type": variant.contentType,
@@ -834,8 +836,9 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
             if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()));
             return response;
         }
-        // It couldn't be made: the original is the answer (below), and it isn't cached under this address,
-        // so the smaller copy is tried again next time.
+        // No such copy (too wide for this image, not one of the site's, or it couldn't be made): the original
+        // answers, remembered for five minutes so a copy that can't be made isn't attempted on every request.
+        fallback = true;
     }
 
     const object = await env.MEDIA.get(key);
@@ -845,12 +848,12 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("ETag", object.httpEtag);
     headers.set("Content-Disposition", "inline");
-    if (format) {
+    if (fallback) {
         headers.set("Vary", "Accept");
         headers.set("Cache-Control", "public, max-age=300");
     }
     const response = new Response(object.body as unknown as ReadableStream, { headers });
-    if (cache && !format) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
 }
 

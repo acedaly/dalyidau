@@ -4,7 +4,7 @@ import { APIError } from 'payload'
 import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
-import { checkProject, projectPreview, syncProject, statusAfter, willBePublic } from '../site/publishing'
+import { PROJECT_TEMPLATE_HEADINGS, checkProject, projectPreview, syncProject, statusAfter, willBePublic } from '../site/publishing'
 import { seoFields } from '../fields/seo'
 import { contentEditor } from './Users'
 
@@ -26,7 +26,7 @@ const projectTemplate = {
     indent: 0,
     version: 1,
     direction: 'ltr',
-    children: ['What it is and why', 'What I did', 'How it’s built', 'How it turned out'].flatMap((text) => [heading(text), blank()]),
+    children: PROJECT_TEMPLATE_HEADINGS.flatMap((text) => [heading(text), blank()]),
   },
 }
 

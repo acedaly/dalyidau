@@ -14,7 +14,7 @@ import { pngOfSize, sampleImage } from "./image-samples";
 const KEY = "0123456789abcdef01234567.jpg";
 
 /** Stands in for Cloudflare's Images binding: records what was asked and answers with labelled bytes. */
-const fakeImages = (options: { fail?: boolean } = {}) => {
+const fakeImages = (options: { fail?: boolean; answerAs?: string } = {}) => {
     const calls: Array<{ width?: number; fit?: string; format: string; quality?: number }> = [];
     const binding: ImagesBinding = {
         input: () => ({
@@ -22,7 +22,10 @@ const fakeImages = (options: { fail?: boolean } = {}) => {
                 output: async (output) => {
                     calls.push({ ...transform, ...output });
                     if (options.fail) throw new Error("9422: transformation limit reached");
-                    return { response: () => new Response(`resized:${transform.width}:${output.format}`) };
+                    return {
+                        response: () =>
+                            new Response(`resized:${transform.width}:${output.format}`, { headers: { "Content-Type": options.answerAs ?? output.format } }),
+                    };
                 },
             }),
         }),
@@ -65,14 +68,13 @@ describe("which copies exist", () => {
         expect([imageMode("variants"), imageMode("on"), imageMode("off"), imageMode(undefined)]).toEqual(["variants", true, false, false]);
     });
 
-    it("answers in the best format the browser accepts, otherwise one every browser reads", () => {
+    it("answers in AVIF or WebP when the browser accepts one; otherwise with the original, never a third format", () => {
         expect(variantFormat(KEY, "image/avif,image/webp,image/*")).toBe("avif");
         expect(variantFormat(KEY, "image/webp,image/*")).toBe("webp");
-        expect(variantFormat(KEY, "image/*")).toBe("jpg");
-        expect(variantFormat(KEY, null)).toBe("jpg");
-        expect(variantFormat("0123456789abcdef01234567.png", "image/*")).toBe("png");
-        // A WebP original for a browser that didn't say it reads WebP.
-        expect(variantFormat("0123456789abcdef01234567.webp", "image/*")).toBe("jpg");
+        expect(variantFormat(KEY, "image/*")).toBeNull();
+        expect(variantFormat(KEY, "*/*")).toBeNull();
+        expect(variantFormat(KEY, null)).toBeNull();
+        expect(variantFormat("0123456789abcdef01234567.gif", "image/avif")).toBeNull();
     });
 });
 
@@ -84,6 +86,12 @@ describe("making a copy", () => {
         const first = await ensureVariant(env, KEY, 960, "webp");
         expect(first?.contentType).toBe("image/webp");
         expect(calls).toEqual([{ width: 960, fit: "scale-down", format: "image/webp", quality: 80 }]);
+        // Two requests arriving together for a copy that isn't made yet share the making.
+        const together = await Promise.all([ensureVariant(env, KEY, 480, "avif"), ensureVariant(env, KEY, 480, "avif"), ensureVariant(env, KEY, 480, "avif")]);
+        expect(together.every(Boolean)).toBe(true);
+        expect(calls.filter((c) => c.width === 480)).toHaveLength(1);
+        calls.length = 1;
+        await testEnv.MEDIA.delete(variantKey(KEY, 480, "avif"));
         expect(await stored()).toEqual([KEY, variantKey(KEY, 960, "webp")]);
         expect(await (await testEnv.MEDIA.get(variantKey(KEY, 960, "webp")))!.text()).toBe("resized:960:image/webp");
         // Asked for again: read from the bucket, not made again.
@@ -100,6 +108,8 @@ describe("making a copy", () => {
         expect(await ensureVariant({ MEDIA: testEnv.MEDIA }, KEY, 480, "avif")).toBeNull();
         // The service refuses (over the free allowance, a file it can't read).
         expect(await ensureVariant({ MEDIA: testEnv.MEDIA, IMAGES: fakeImages({ fail: true }).binding }, KEY, 480, "avif")).toBeNull();
+        // The service answers in another format than asked: not stored under the wrong name.
+        expect(await ensureVariant({ MEDIA: testEnv.MEDIA, IMAGES: fakeImages({ answerAs: "image/jpeg" }).binding }, KEY, 480, "avif")).toBeNull();
         // No original; an animated image; a key that isn't one of ours.
         const { binding, calls } = fakeImages();
         expect(await ensureVariant({ MEDIA: testEnv.MEDIA, IMAGES: binding }, "ffffffffffffffffffffffff.jpg", 480, "avif")).toBeNull();
@@ -115,6 +125,20 @@ describe("making a copy", () => {
         expect(calls.map((c) => `${c.width}:${c.format}`).sort()).toEqual(["480:image/avif", "480:image/webp", "960:image/avif", "960:image/webp"]);
         expect(await prepareVariants({ MEDIA: testEnv.MEDIA }, KEY, 1200)).toBe(0);
         expect(await prepareVariants({ MEDIA: testEnv.MEDIA, IMAGES: binding }, KEY, 300)).toBe(0);
+        // From the bytes the publisher already holds: the original isn't read from the bucket again.
+        const fromBytes = fakeImages();
+        const noOriginal = "aaaaaaaaaaaaaaaaaaaaaaaa.jpg";
+        expect(await prepareVariants({ MEDIA: testEnv.MEDIA, IMAGES: fromBytes.binding }, noOriginal, 1200, sampleImage("jpeg"))).toBe(4);
+        // A publish makes a bounded number ahead of time; the rest are left to the media route.
+        const budget = { left: 3 };
+        const bounded = fakeImages();
+        expect(
+            await prepareVariants({ MEDIA: testEnv.MEDIA, IMAGES: bounded.binding }, "bbbbbbbbbbbbbbbbbbbbbbbb.jpg", 3000, sampleImage("jpeg"), budget),
+        ).toBe(3);
+        expect(
+            await prepareVariants({ MEDIA: testEnv.MEDIA, IMAGES: bounded.binding }, "cccccccccccccccccccccccc.jpg", 3000, sampleImage("jpeg"), budget),
+        ).toBe(0);
+        expect([bounded.calls.length, budget.left]).toEqual([3, 0]);
     });
 });
 
@@ -142,7 +166,8 @@ describe("publishing", () => {
         expect((await stored()).filter((k) => k.startsWith("variants/"))).toHaveLength(6);
         // The published page asks for them: the featured image carries a srcset of the site's own copies.
         const html = await (await SELF.fetch("https://daly.id.au/blog/hello")).text();
-        if (testEnv.IMAGE_TRANSFORMS === "variants") expect(html).toContain(`/media/${row!.image_key}?w=960 960w`);
+        expect(testEnv.IMAGE_TRANSFORMS).toBe("variants");
+        expect(html).toContain(`/media/${row!.image_key}?w=960 960w`);
         // Published again: nothing is made twice.
         await publishPayloadPost({ ...testEnv, IMAGE_TRANSFORMS: "variants", IMAGES: binding }, { ...post, title: "Hello again" }, await wide());
         expect(calls).toHaveLength(6);
@@ -185,20 +210,70 @@ describe("publishing", () => {
 });
 
 describe("the media route", () => {
-    it("answers a width it doesn't make, or a request it can't satisfy, with the original", async () => {
-        const bytes = sampleImage("jpeg");
+    const bytes = sampleImage("jpeg");
+    const ask = (path: string, accept?: string) => SELF.fetch(`https://daly.id.au${path}`, accept ? { headers: { Accept: accept } } : undefined);
+    const known = (key: string, width: number) =>
+        testEnv.DB.prepare(
+            "INSERT INTO media (id, r2_key, content_type, width, height, bytes, created_at, checked_at) VALUES (?1, ?2, 'image/jpeg', ?3, 10, 1, ?4, ?4)",
+        )
+            .bind(`payload-media:${key}`, key, width, "2026-11-01T00:00:00.000Z")
+            .run();
+
+    it("serves the stored copy at an offered width, in the format the browser accepts", async () => {
+        if (testEnv.IMAGE_TRANSFORMS !== "variants") throw new Error("these tests need IMAGE_TRANSFORMS=variants (wrangler.jsonc)");
         await testEnv.MEDIA.put(KEY, bytes, { httpMetadata: { contentType: "image/jpeg" } });
-        for (const query of ["", "?w=123", "?w=abc", "?w=960&utm_source=x", "?w=99999"]) {
-            const response = await SELF.fetch(`https://daly.id.au/media/${KEY}${query}`, { headers: { Accept: "image/avif,image/webp" } });
-            expect(response.status, query).toBe(200);
-            // Either a copy was made (the local runtime has the binding) or the original is served: never an error.
-            expect(["image/jpeg", "image/avif", "image/webp"], query).toContain(response.headers.get("Content-Type"));
-            if (query !== "?w=960&utm_source=x") {
-                expect(response.headers.get("Content-Type"), query).toBe("image/jpeg");
-                expect((await response.arrayBuffer()).byteLength, query).toBe(bytes.byteLength);
-            } else await response.arrayBuffer();
+        await known(KEY, 2000);
+        await testEnv.MEDIA.put(variantKey(KEY, 960, "webp"), "the webp copy");
+        await testEnv.MEDIA.put(variantKey(KEY, 960, "avif"), "the avif copy");
+        const webp = await ask(`/media/${KEY}?w=960&utm_source=x`, "image/webp,*/*");
+        expect([webp.status, webp.headers.get("Content-Type"), webp.headers.get("Vary"), await webp.text()]).toEqual([
+            200,
+            "image/webp",
+            "Accept",
+            "the webp copy",
+        ]);
+        expect(webp.headers.get("Cache-Control")).toContain("immutable");
+        const avif = await ask(`/media/${KEY}?w=960`, "image/avif,image/webp,*/*");
+        expect([avif.headers.get("Content-Type"), await avif.text()]).toEqual(["image/avif", "the avif copy"]);
+    });
+
+    it("answers with the original, making nothing, for anything the site doesn't offer", async () => {
+        // Its own image: the test above left copies of KEY in the edge cache, as a real visitor would.
+        const OWN = "1111111111111111aaaaaaaa.jpg";
+        await testEnv.MEDIA.put(OWN, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+        await known(OWN, 800);
+        const before = await stored();
+        for (const [query, accept] of [
+            ["", "image/avif,image/webp"],
+            ["?w=123", "image/avif"], // not a width the site makes
+            ["?w=abc", "image/avif"],
+            ["?w=99999", "image/avif"],
+            ["?w=960", "image/avif"], // wider than this 800-pixel image
+            ["?w=1600", "image/webp"],
+            ["?w=480", "*/*"], // a browser that accepts neither modern format
+            ["?w=480", undefined],
+        ] as const) {
+            const response = await ask(`/media/${OWN}${query}`, accept);
+            expect([response.status, response.headers.get("Content-Type")], `${query} ${accept}`).toEqual([200, "image/jpeg"]);
+            expect((await response.arrayBuffer()).byteLength, `${query} ${accept}`).toBe(bytes.byteLength);
         }
-        expect((await SELF.fetch(`https://daly.id.au/media/ffffffffffffffffffffffff.jpg?w=960`)).status).toBe(404);
-        expect((await SELF.fetch(`https://daly.id.au/media/variants/0123456789abcdef01234567-960.webp`)).status).toBe(404);
+        expect(await stored()).toEqual(before);
+        // An image the site has no record of, or that isn't there, makes nothing either.
+        await testEnv.MEDIA.put("dddddddddddddddddddddddd.jpg", bytes, { httpMetadata: { contentType: "image/jpeg" } });
+        expect((await ask("/media/dddddddddddddddddddddddd.jpg?w=480", "image/avif")).headers.get("Content-Type")).toBe("image/jpeg");
+        expect((await ask("/media/ffffffffffffffffffffffff.jpg?w=960", "image/avif")).status).toBe(404);
+        expect((await stored()).filter((k) => k.startsWith("variants/"))).toEqual([]);
+        // The copies themselves, and a draft's private images, aren't addresses.
+        expect((await ask("/media/variants/0123456789abcdef01234567-960.webp")).status).toBe(404);
+    });
+
+    it("a draft preview's image stays private, with or without a width", async () => {
+        const secret = "eeeeeeeeeeeeeeeeeeeeeeee.jpg";
+        await testEnv.MEDIA.put(`preview/${secret}`, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+        for (const query of ["", "?w=480", "?w=960"]) {
+            const response = await ask(`/media/${secret}${query}`, "image/avif,image/webp");
+            expect([response.status, response.headers.get("Cache-Control")], query).toEqual([404, "no-store"]);
+        }
+        expect((await stored()).filter((k) => k.startsWith("variants/"))).toEqual([]);
     });
 });

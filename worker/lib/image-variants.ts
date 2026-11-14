@@ -16,11 +16,11 @@ import { VARIANT_WIDTHS, type VariantWidth, smallerWidths } from "../../src/shar
 // The widths ever made (a request for any other is answered with the original) are shared with the pages.
 export { VARIANT_WIDTHS, type VariantWidth };
 export const VARIANT_FORMATS = ["avif", "webp"] as const;
-export type VariantFormat = (typeof VARIANT_FORMATS)[number] | "jpg" | "png";
+export type VariantFormat = (typeof VARIANT_FORMATS)[number];
 
-const CONTENT_TYPE: Record<VariantFormat, string> = { avif: "image/avif", webp: "image/webp", jpg: "image/jpeg", png: "image/png" };
+const CONTENT_TYPE: Record<VariantFormat, string> = { avif: "image/avif", webp: "image/webp" };
 /** Visually lossless for photographs and screenshots at these sizes, at a fraction of the bytes. */
-const QUALITY: Record<VariantFormat, number> = { avif: 60, webp: 80, jpg: 82, png: 90 };
+const QUALITY: Record<VariantFormat, number> = { avif: 60, webp: 80 };
 
 /** The slice of Cloudflare's Images binding this uses (https://developers.cloudflare.com/images/optimization/binding/). */
 export interface ImagesBinding {
@@ -45,14 +45,17 @@ export const variantKey = (key: string, width: VariantWidth, format: VariantForm
 
 export const isVariantWidth = (value: number): value is VariantWidth => (VARIANT_WIDTHS as readonly number[]).includes(value);
 
-/** The format to answer in: the best the browser says it accepts, otherwise the original's own (resized). */
-export function variantFormat(key: string, accept: string | null): VariantFormat {
+/**
+ * The format to answer in, or null for "the original": only the two modern formats are ever made, and only
+ * for a browser that says it accepts one. A browser that doesn't gets the image as it was published, so a
+ * request can't be used to make copies the site never offers.
+ */
+export function variantFormat(key: string, accept: string | null): VariantFormat | null {
+    if (!canResize(key)) return null;
     const accepted = (accept ?? "").toLowerCase();
     if (accepted.includes("image/avif")) return "avif";
     if (accepted.includes("image/webp")) return "webp";
-    const ext = KEY.exec(key)?.[2];
-    // A WebP or AVIF original asked for by a browser that didn't say it accepts it: JPEG is the safe answer.
-    return ext === "png" ? "png" : "jpg";
+    return null;
 }
 
 /**
@@ -61,35 +64,64 @@ export function variantFormat(key: string, accept: string | null): VariantFormat
  */
 export const variantWidths = (key: string, width: number | null | undefined): VariantWidth[] => (canResize(key) ? smallerWidths(width) : []);
 
+/** One copy at a time per Worker instance: simultaneous requests for a copy that isn't made yet share the making. */
+const making = new Map<string, Promise<{ body: ArrayBuffer; contentType: string } | null>>();
+
 /**
- * The stored copy of `key` at `width` in `format`, made now if it isn't there yet. Null when it can't be
- * made (no binding, the original is missing, the service refused): the caller serves the original.
+ * The stored copy of `key` at `width` in `format`, made now if it isn't there yet. `source` is the original's
+ * bytes when the caller already has them (publishing does). Null when it can't be made (no binding, the
+ * original is missing, the service refused or answered in another format): the caller serves the original.
  */
 export async function ensureVariant(
     env: VariantEnv,
     key: string,
     width: VariantWidth,
     format: VariantFormat,
+    source?: Uint8Array,
 ): Promise<{ body: ReadableStream | ArrayBuffer; contentType: string; etag?: string } | null> {
     if (!canResize(key)) return null;
     const stored = variantKey(key, width, format);
     try {
-        const existing = await env.MEDIA.get(stored);
-        if (existing) return { body: existing.body as unknown as ReadableStream, contentType: CONTENT_TYPE[format], etag: existing.httpEtag };
+        // Publishing only needs to know it's there; a request needs its bytes.
+        if (source) {
+            if (await env.MEDIA.head(stored)) return { body: new ArrayBuffer(0), contentType: CONTENT_TYPE[format] };
+        } else {
+            const existing = await env.MEDIA.get(stored);
+            if (existing) return { body: existing.body as unknown as ReadableStream, contentType: CONTENT_TYPE[format], etag: existing.httpEtag };
+        }
         if (!env.IMAGES) return null;
-        const original = await env.MEDIA.get(key);
-        if (!original) return null;
-        const made = (
-            await env.IMAGES.input(original.body as unknown as ReadableStream)
-                // scale-down: never larger than the original, whatever was asked for.
-                .transform({ width, fit: "scale-down" })
-                .output({ format: CONTENT_TYPE[format], quality: QUALITY[format] })
-        ).response();
-        if (!made.ok) throw new Error(`Images answered ${made.status}`);
-        const bytes = await made.arrayBuffer();
-        if (!bytes.byteLength) throw new Error("Images returned nothing");
-        await env.MEDIA.put(stored, bytes, { httpMetadata: { contentType: CONTENT_TYPE[format], cacheControl: "public, max-age=31536000, immutable" } });
-        return { body: bytes, contentType: CONTENT_TYPE[format] };
+        const images = env.IMAGES;
+        const pending =
+            making.get(stored) ??
+            (async () => {
+                const input = source
+                    ? (new Blob([source as unknown as BlobPart]).stream() as unknown as ReadableStream)
+                    : ((await env.MEDIA.get(key))?.body as unknown as ReadableStream | undefined);
+                if (!input) return null;
+                const made = (
+                    await images
+                        .input(input)
+                        // scale-down: never larger than the original, whatever was asked for.
+                        .transform({ width, fit: "scale-down" })
+                        .output({ format: CONTENT_TYPE[format], quality: QUALITY[format] })
+                ).response();
+                if (!made.ok) throw new Error(`Images answered ${made.status}`);
+                // Stored under the format's name for good, so it must really be that format.
+                const type = made.headers.get("Content-Type")?.split(";")[0].trim();
+                if (type && type !== CONTENT_TYPE[format]) throw new Error(`Images answered ${type}, not ${CONTENT_TYPE[format]}`);
+                const bytes = await made.arrayBuffer();
+                if (!bytes.byteLength) throw new Error("Images returned nothing");
+                await env.MEDIA.put(stored, bytes, {
+                    httpMetadata: { contentType: CONTENT_TYPE[format], cacheControl: "public, max-age=31536000, immutable" },
+                });
+                return { body: bytes, contentType: CONTENT_TYPE[format] };
+            })();
+        making.set(stored, pending);
+        try {
+            return await pending;
+        } finally {
+            making.delete(stored);
+        }
     } catch (error) {
         // Over the plan's allowance (error 9422), a file the service can't read, a bad moment: the original is served.
         console.warn(JSON.stringify({ event: "image_variant_failed", key, width, format, message: (error as Error).message?.slice(0, 200) }));
@@ -97,12 +129,25 @@ export async function ensureVariant(
     }
 }
 
+/** How many copies one publish may make ahead of time; the rest are made by the media route when first asked for. */
+export const PUBLISH_VARIANT_BUDGET = 24;
+
 /**
- * Makes every smaller copy of a newly published image ahead of time, in both modern formats. Best effort:
- * whatever isn't made here is made by the media route the first time it's asked for.
+ * Makes the smaller copies of a newly published image ahead of time, in both modern formats, from the bytes
+ * the publisher already holds. Best effort and bounded: `budget` is shared by every image in one publish, so
+ * a project with two dozen screenshots doesn't spend the request making 150 copies. Whatever isn't made here
+ * is made by the media route the first time it's asked for.
  */
-export async function prepareVariants(env: VariantEnv, key: string, width: number | null | undefined): Promise<number> {
+export async function prepareVariants(
+    env: VariantEnv,
+    key: string,
+    width: number | null | undefined,
+    source?: Uint8Array,
+    budget: { left: number } = { left: PUBLISH_VARIANT_BUDGET },
+): Promise<number> {
     if (!env.IMAGES) return 0;
-    const jobs = variantWidths(key, width).flatMap((w) => VARIANT_FORMATS.map((format) => ensureVariant(env, key, w, format)));
-    return (await Promise.all(jobs)).filter(Boolean).length;
+    const wanted = variantWidths(key, width).flatMap((w) => VARIANT_FORMATS.map((format) => [w, format] as const));
+    const now = wanted.slice(0, Math.max(0, budget.left));
+    budget.left -= now.length;
+    return (await Promise.all(now.map(([w, format]) => ensureVariant(env, key, w, format, source)))).filter(Boolean).length;
 }

@@ -138,9 +138,13 @@ If the wrong version was published, open **Versions**, pick the right one and **
 
 ### An image is missing or broken on the site
 
-Published images are copied to `dalyidau-media` under their content hash. Publish the item again (or press
-Republish): the copy is made again from Payload's library. Smaller copies (`variants/…`) are remade on demand;
-deleting them is always safe.
+Published images are copied to `dalyidau-media` under their content hash. Open the item in Payload and
+**Publish** it again (changing nothing): the copy is made again from Payload's library. Republish on the
+dashboard won't do this: it compares what the two databases say, not the files, so it sees nothing wrong.
+
+Smaller copies live beside the originals under `variants/<hash>-<width>.<format>` and are remade when next
+asked for: deleting them is always safe. To take an image off the site by hand, delete the original **and**
+its `variants/<hash>-*` copies.
 
 ### The wedding
 

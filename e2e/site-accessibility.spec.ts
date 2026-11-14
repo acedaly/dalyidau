@@ -89,6 +89,8 @@ for (const design of DESIGNS)
             if (article) pages.push(article);
             for (const path of pages) {
                 await page.goto(path);
+                // The design under test is the one that rendered.
+                expect(await page.locator("html.site-v2").count(), `${design.name} ${path}`).toBe(design.on ? 1 : 0);
                 await page.evaluate(() => document.fonts.ready);
                 await audit(page, `${design.name} ${scheme} ${path}`);
             }

@@ -52,9 +52,9 @@ Reading time, the table of contents, related posts, the feed and the sitemap upd
 
 ## Adding a project
 
-A project page works best when it answers, in this order: what it is, why it exists, what you did, what it's
-built with, and how it turned out. A new project's Description starts with those headings; delete the ones that
-don't apply.
+A project page works best when it answers four things, in this order: what it is and why it exists, what you
+did, how it's built, and how it turned out. A new project's Description starts with those four headings. Write
+under the ones that fit; a suggested heading left with nothing under it isn't published.
 
 | Field                   | What to put there                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------- |
