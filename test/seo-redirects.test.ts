@@ -5,7 +5,16 @@ import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PublishError, publishPayloadPost, unpublishPayloadPost } from "../worker/blog/payload-publisher";
 import { forgetEarlierDocument, publishPage, publishProject, unpublishPage } from "../worker/site/publisher";
-import { REDIRECTS_KEY, addressInUse, automaticRedirects, manualRedirect, publishRedirects, redirectFrom, redirectsSnapshot } from "../worker/site/redirects";
+import {
+    REDIRECTS_KEY,
+    addressInUse,
+    automaticRedirects,
+    manualRedirect,
+    publishRedirects,
+    redirectFrom,
+    redirectTo,
+    redirectsSnapshot,
+} from "../worker/site/redirects";
 import { discrepancies, inStep, siteDrift } from "../worker/site/sync-check";
 import { resetDb, testEnv } from "./helpers";
 import { sampleImage } from "./image-samples";
@@ -231,6 +240,12 @@ describe("redirects kept by hand", () => {
         expect(problem([row("/a", "https://www.daly.id.au/a/?x=1")])).toMatch(/points \/a at itself/);
         expect(problem([row("/a", "/a?x=1")])).toMatch(/points \/a at itself/);
         expect(problem([row("/a", "https://daly.id.au/b#top"), row("/b", "/c")])).toMatch(/itself redirected/);
+        // The router sends a blog address to lower case before anything else, so these are one address.
+        expect(problem([row("/blog/hello", "/blog/HELLO")])).toMatch(/points \/blog\/hello at itself/);
+        expect(problem([row("/blog/Hello", "https://daly.id.au/blog/hELLO/")])).toMatch(/at itself/);
+        expect(problem([row("/a", "/blog/HELLO"), row("/blog/hello", "/c")])).toMatch(/itself redirected/);
+        // Elsewhere on the site, case is part of the address.
+        expect(problem([row("/notes/hello", "/notes/HELLO")])).toBeNull();
         // The same path on another site is somewhere else.
         expect(problem([row("/a", "https://example.com/a")])).toBeNull();
         expect(problem([row("/a", "javascript:alert(1)")])).toMatch(/Redirect 1 needs a destination/);
@@ -238,6 +253,43 @@ describe("redirects kept by hand", () => {
         expect(problem([row("/a", "/b", { status: "307" })])).toMatch(/permanent \(301\) or temporary \(302\)/);
         expect(problem([row("/a", "/b"), row("/c", "https://example.com/x", { status: "302" }), row("/d", "/e", { enabled: false })])).toBeNull();
         expect(redirectsSnapshot([row("/a", "/b"), row("/d", "/e", { enabled: false })]).redirects).toEqual({ "/a": { to: "/b", status: 301 } });
+    });
+
+    it("a destination with characters a header can't carry is stored and sent percent-encoded", async () => {
+        expect(redirectTo("/日本/café")).toEqual({ to: "/%E6%97%A5%E6%9C%AC/caf%C3%A9" });
+        expect(redirectTo("/search?q=café#résumé")).toEqual({ to: "/search?q=caf%C3%A9#r%C3%A9sum%C3%A9" });
+        expect(redirectTo("https://例え.jp/日本")).toEqual({ to: "https://xn--r8jz45g.jp/%E6%97%A5%E6%9C%AC" });
+        // Already encoded: unchanged, not encoded twice.
+        expect(redirectTo("/caf%C3%A9")).toEqual({ to: "/caf%C3%A9" });
+        await publishRedirects(testEnv, [row("/old-unicode", "/日本"), row("/blog/Old-Post", "/caf\u00e9")]);
+        expect(await get("/old-unicode")).toMatchObject({ status: 301, location: "https://daly.id.au/%E6%97%A5%E6%9C%AC" });
+        // An old blog address is matched in the lower case the router has already sent the visitor to.
+        expect(await get("/blog/Old-Post")).toMatchObject({ status: 301, location: "https://daly.id.au/blog/old-post" });
+        expect(await get("/blog/old-post")).toMatchObject({ status: 301, location: "https://daly.id.au/caf%C3%A9" });
+        // A blog address with characters the router leaves alone (+ & , :) or lower-case escapes still matches:
+        // the lookup uses the same form the old address is stored in.
+        await publishRedirects(testEnv, [row("/blog/c++-tips", "/blog"), row("/blog/q&a", "/about"), row("/blog/caf%c3%a9", "/contact")]);
+        expect(await get("/blog/c++-tips")).toMatchObject({ status: 301, location: "https://daly.id.au/blog" });
+        expect(await get("/blog/C++-Tips")).toMatchObject({ status: 301, location: "https://daly.id.au/blog/c%2B%2B-tips" });
+        expect(await get("/blog/c%2B%2B-tips")).toMatchObject({ status: 301, location: "https://daly.id.au/blog" });
+        expect(await get("/blog/q&a")).toMatchObject({ status: 301, location: "https://daly.id.au/about" });
+        expect(await get("/blog/caf%c3%a9")).toMatchObject({ status: 301, location: "https://daly.id.au/contact" });
+        expect(await get("/blog/caf%C3%A9")).toMatchObject({ status: 301, location: "https://daly.id.au/contact" });
+        // A destination that only becomes another site's address once resolved is refused, not stored and dropped.
+        expect("problem" in redirectTo("/a/..//evil.example/y")).toBe(true);
+        // The length limit is on the stored (encoded) form, once: 34 kanji is fine, a very long address isn't.
+        expect("path" in redirectFrom("/" + "日".repeat(34))).toBe(true);
+        expect(redirectFrom("/" + "a".repeat(700))).toEqual({ problem: "has an old address that's too long." });
+        // The list a write replaces is kept, one back.
+        const previous = JSON.parse(
+            (await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:redirects-previous'").first<{ value: string }>())!.value,
+        );
+        expect(Object.keys(previous.redirects)).toEqual(["/old-unicode", "/blog/old-post"]);
+        // Even a list stored before destinations were encoded redirects instead of failing.
+        await testEnv.DB.prepare("UPDATE meta SET value = ? WHERE key = ?")
+            .bind(JSON.stringify({ redirects: { "/stored-raw": { to: "/日本", status: 301 } } }), REDIRECTS_KEY)
+            .run();
+        expect(await get("/stored-raw")).toMatchObject({ status: 301, location: "https://daly.id.au/%E6%97%A5%E6%9C%AC" });
     });
 
     it("sends an address that nothing answers to its destination, with the status chosen", async () => {

@@ -143,7 +143,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
             if (manual)
                 return new Response(null, {
                     status: manual.status,
-                    headers: { Location: manual.to.startsWith("/") ? `${url.origin}${manual.to}` : manual.to, "Cache-Control": "public, max-age=3600" },
+                    // Through URL, so the header is always an encoded, absolute address (it is stored encoded too).
+                    headers: { Location: new URL(manual.to, url.origin).href, "Cache-Control": "public, max-age=3600" },
                 });
         }
         const site = result.site ?? (await loadSite(env.DB));

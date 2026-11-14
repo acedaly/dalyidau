@@ -10,9 +10,12 @@ import { PublishError, type PublisherEnv } from "../blog/payload-publisher";
 import { SNAPSHOT } from "./content";
 
 export const REDIRECTS_KEY = "site:redirects";
+/** The list the site had before the last one written (kept in case that write was a mistake). */
+export const REDIRECTS_PREVIOUS_KEY = "site:redirects-previous";
 export const REDIRECT_STATUSES = [301, 302] as const;
 export type RedirectStatus = (typeof REDIRECT_STATUSES)[number];
 export const MAX_REDIRECTS = 500;
+const MAX_FROM_LENGTH = 600;
 
 export interface RedirectInput {
     from?: string | null;
@@ -30,6 +33,21 @@ export interface RedirectsSnapshot {
     redirects: Record<string, SiteRedirect>;
 }
 
+/**
+ * An address as the router leaves it before anything is looked up (worker/index.ts): a blog address is
+ * sent to its lower-case form first, whether or not a post is there. Redirects are compared in this form,
+ * or /blog/hello → /blog/HELLO would pass as two addresses and loop for ever.
+ */
+export const routedPath = (path: string): string => {
+    const blog = /^\/blog\/([^/]+)$/.exec(path);
+    if (!blog) return path;
+    try {
+        return `/blog/${encodeURIComponent(decodeURIComponent(blog[1]).toLowerCase())}`;
+    } catch {
+        return path;
+    }
+};
+
 /** Addresses that never reach the redirect step: the applications and files answer them first. */
 const NEVER_REACHED = /^\/(admin|api|portal|media|wedding|_next|assets|brand)(\/|$)/;
 
@@ -45,34 +63,53 @@ export function redirectFrom(value: unknown): { path: string } | { problem: stri
     if (own) path = own[1] ?? "/";
     if (!path.startsWith("/") || path.startsWith("//")) return { problem: "needs an old address that starts with / (a path on this site)." };
     if (/[?#]/.test(path)) return { problem: "can't include a ? or # in the old address: only the path is matched." };
-    if (/[\s\\]/.test(path) || path.length > 300) return { problem: "has an old address with spaces in it, or one that's too long." };
+    if (/[\s\\]/.test(path)) return { problem: "has an old address with spaces in it." };
     // As the Worker sees an address: percent-encoded (so /café is stored as /caf%C3%A9 and matches).
     try {
         path = new URL(path, "https://daly.id.au").pathname;
     } catch {
         return { problem: "has an old address that isn't a valid path." };
     }
-    path = path.replace(/\/+$/, "");
+    // …and as the router has left it by the time redirects are looked at (blog addresses in lower case).
+    path = routedPath(path.replace(/\/+$/, ""));
     if (!path) return { problem: "can't redirect the homepage." };
+    // Measured once, as stored (an address in another script is several times longer encoded than typed).
+    if (path.length > MAX_FROM_LENGTH) return { problem: "has an old address that's too long." };
     if (NEVER_REACHED.test(path))
         return { problem: `can't redirect ${path}: addresses under /${NEVER_REACHED.exec(path)![1]} are answered before redirects are looked at.` };
     return { path };
 }
 
-/** A destination: a path on this site or a full http(s) address. */
+/**
+ * A destination: a path on this site or a full http(s) address, percent-encoded. A header can only carry
+ * single-byte characters, so /日本 kept as typed would make the redirect fail instead of redirecting.
+ */
 export function redirectTo(value: unknown): { to: string } | { problem: string } {
     const link = typeof value === "string" ? safeLink(value.trim()) : null;
     if (!link || !(link.startsWith("/") || /^https?:\/\//.test(link)))
         return { problem: "needs a destination: a path on this site (/blog) or a full https:// address." };
-    if (link.length > 1000) return { problem: "has a destination that's too long." };
-    return { to: link };
+    let to = link;
+    if (link.startsWith("/")) {
+        try {
+            const url = new URL(link, "https://daly.id.au");
+            to = `${url.pathname}${url.search}${url.hash}`;
+        } catch {
+            return { problem: "has a destination that isn't a valid address." };
+        }
+    }
+    // /a/..//b is a path as typed and //b once resolved, which a browser reads as another site's address.
+    if (to.startsWith("//")) return { problem: "has a destination that isn't a valid address." };
+    // Belt and braces: nothing but printable ASCII may be stored (URL encoding guarantees it).
+    if (!/^[\x21-\x7e]+$/.test(to)) return { problem: "has a destination that isn't a valid address." };
+    if (to.length > 1000) return { problem: "has a destination that's too long." };
+    return { to };
 }
 
 /** The path a destination has on this site (for spotting loops and chains), or null when it leads elsewhere. */
 const ownPath = (to: string): string | null => {
     try {
         const url = new URL(to, "https://daly.id.au");
-        return /^(www\.)?daly\.id\.au$/i.test(url.hostname) ? url.pathname.replace(/\/+$/, "") || "/" : null;
+        return /^(www\.)?daly\.id\.au$/i.test(url.hostname) ? routedPath(url.pathname.replace(/\/+$/, "") || "/") : null;
     } catch {
         return null;
     }
@@ -208,6 +245,11 @@ export async function publishRedirects(
         return snapshot;
     }
     await env.DB.batch([
+        // The list being replaced is kept (one back): Payload is the source, but a list written from a Payload
+        // database restored to an older state shouldn't leave no copy of what the site had.
+        env.DB.prepare(
+            "INSERT INTO meta (key, value) SELECT ?1, value FROM meta WHERE key = ?2 AND value != ?3 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ).bind(REDIRECTS_PREVIOUS_KEY, REDIRECTS_KEY, JSON.stringify(snapshot)),
         env.DB.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(
             REDIRECTS_KEY,
             JSON.stringify(snapshot),
@@ -227,7 +269,8 @@ export async function loadRedirects(db: D1Database): Promise<RedirectsSnapshot> 
 /** Where an address that nothing else answered should go, if a redirect is kept for it. Never throws. */
 export async function manualRedirect(db: D1Database, path: string): Promise<SiteRedirect | null> {
     try {
-        return (await loadRedirects(db)).redirects[path.replace(/\/+$/, "") || "/"] ?? null;
+        // Looked up in the form the keys are stored in (redirectFrom): /blog/c++-tips is kept as /blog/c%2B%2B-tips.
+        return (await loadRedirects(db)).redirects[routedPath(path.replace(/\/+$/, "") || "/")] ?? null;
     } catch (error) {
         console.error(JSON.stringify({ event: "redirects_unreadable", message: (error as Error).message }));
         return null;

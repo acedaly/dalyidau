@@ -4,7 +4,7 @@ import { MAX_REDIRECTS, type RedirectInput, publishRedirects, redirectFrom } fro
 import { contentEditor } from '../collections/Users'
 import { changedByField, recordChangedBy } from '../fields/changed-by'
 import { asEditorError, publisherEnv, writeToSite } from '../site/publishing'
-import { isRestore, resaveRestored } from '../site/restore'
+import { checkBeforeRestore, isRestore, resaveRestored } from '../site/restore'
 import type { PayloadRequest } from 'payload'
 
 // Redirects kept by hand (docs/AUDIT-2026-11.md, Phase 2b). A global, not a collection, so its API sits
@@ -41,6 +41,10 @@ export const Redirects: GlobalConfig = {
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
   hooks: {
+    // A version that today's rules would refuse is refused before it is restored (src/site/restore.ts).
+    beforeOperation: [
+      checkBeforeRestore('redirects', async (version) => void (await publishRedirects(await publisherEnv(), (version as RedirectsDoc).items ?? [], { mode: 'check' }))),
+    ],
     beforeChange: [
       recordChangedBy,
       // Checked in full before saving (duplicates, loops, addresses that already answer): nothing is stored on a mistake.
@@ -64,7 +68,7 @@ export const Redirects: GlobalConfig = {
       async ({ doc, req, context }) => {
         if (context?.skipPublicSync) return doc
         // A restore hands over a version row, not the list: it is saved again as itself (src/site/restore.ts).
-        if (isRestore(req)) await resaveRestored(req, 'redirects')
+        if (isRestore(req)) await resaveRestored(req, 'redirects', doc)
         else await syncRedirects(req, doc as RedirectsDoc)
         return doc
       },

@@ -5,7 +5,7 @@ import { settingsSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
 import { changedByField, recordChangedBy } from '../fields/changed-by'
 import { asEditorError, republishSettings, settingsInput } from '../site/publishing'
-import { isRestore, resaveRestored } from '../site/restore'
+import { checkBeforeRestore, isRestore, resaveRestored } from '../site/restore'
 import { removeOrphanedItem, republish, siteSyncReport, siteSyncStatus } from '../site/sync'
 import { discrepancies, inStep } from '../../../../worker/site/sync-check'
 
@@ -59,13 +59,15 @@ export const SiteSettings: GlobalConfig = {
     },
   ],
   hooks: {
+    // An earlier version that today's rules would refuse is refused before it is restored (src/site/restore.ts).
+    beforeOperation: [checkBeforeRestore('site-settings', (version) => void settingsSnapshot(settingsInput(version as never), []))],
     // Checked before saving, so a mistake is shown and nothing is stored.
     beforeChange: [recordChangedBy, async ({ data }) => (await asEditorError(async () => settingsSnapshot(settingsInput(data as never), [])), data)],
     afterChange: [
       async ({ doc, req, context }) => {
         if (context?.skipPublicSync) return doc
         // A restore hands over a version row, not the settings: they are saved again as themselves (src/site/restore.ts).
-        if (isRestore(req)) await resaveRestored(req, 'site-settings')
+        if (isRestore(req)) await resaveRestored(req, 'site-settings', doc)
         else await republishSettings(req, { settings: doc })
         return doc
       },
