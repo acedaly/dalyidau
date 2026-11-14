@@ -6,7 +6,7 @@ import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_PROJECTS_HOME, DEFAULT_SITE, pageSlugProblem, projectsMenus } from "../src/shared/site-content";
 import { publishPayloadPost } from "../worker/blog/payload-publisher";
-import { pageCacheKey } from "../worker/index";
+import { pageCacheKey } from "../worker/lib/page-cache";
 import { PublishError, projectProblem, publishProject, publishProjectsHome, unpublishProject } from "../worker/site/publisher";
 import { testEnv } from "./helpers";
 import { accessToken, apiCall, call, resetPortal } from "./portal-helpers";
