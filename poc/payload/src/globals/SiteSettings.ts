@@ -4,8 +4,8 @@ import { DEFAULT_SITE, SOCIAL_KINDS } from '../../../../src/shared/site-content'
 import { settingsSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
 import { asEditorError, republishSettings, settingsInput } from '../site/publishing'
-import { republish, siteSyncReport } from '../site/sync'
-import { inStep } from '../../../../worker/site/sync-check'
+import { republish, siteSyncReport, siteSyncStatus } from '../site/sync'
+import { discrepancies, inStep } from '../../../../worker/site/sync-check'
 
 // Site-wide settings for daly.id.au. Saving publishes them straight away (with the menu).
 export const SiteSettings: GlobalConfig = {
@@ -29,7 +29,7 @@ export const SiteSettings: GlobalConfig = {
       handler: async (req) => {
         if (!contentEditor(req.user as never)) return Response.json({ error: 'forbidden' }, { status: 403 })
         const report = await siteSyncReport(new URL(req.url ?? '', 'http://x').searchParams.get('recent') === '1')
-        return Response.json({ ...report, inStep: inStep(report) }, { headers: { 'Cache-Control': 'no-store' } })
+        return Response.json({ ...report, inStep: inStep(report), discrepancies: discrepancies(report), status: await siteSyncStatus() }, { headers: { 'Cache-Control': 'no-store' } })
       },
     },
     {

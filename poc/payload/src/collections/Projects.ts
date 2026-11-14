@@ -4,7 +4,7 @@ import { APIError } from 'payload'
 import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
-import { checkProject, projectPreview, syncProject, willBePublic } from '../site/publishing'
+import { checkProject, projectPreview, syncProject, statusAfter, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Projects on daly.id.au/projects (Phase 4). Publishing puts a project on the site straight away (while
@@ -50,7 +50,8 @@ export const Projects: CollectionConfig = {
           })
           if (others.totalDocs) throw new APIError(`daly.id.au/projects/${slug} is already used by another project.`, 400, undefined, true)
         }
-        if (data._status !== 'published') return data
+        // What the document will be after this save (a change that doesn't mention the status keeps it).
+        if (statusAfter(data, originalDoc) !== 'published') return data
         const merged = { ...originalDoc, ...data }
         const problem = projectProblem({
           slug,

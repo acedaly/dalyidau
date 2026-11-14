@@ -3,8 +3,8 @@
 // out of step it says what, and Republish puts it right. Shown to the people who edit the site.
 import type { TypedUser } from 'payload'
 
-import { inStep } from '../../../../worker/site/sync-check'
-import { siteSyncReport } from '../site/sync'
+import { discrepancies, inStep } from '../../../../worker/site/sync-check'
+import { siteSyncReport, siteSyncStatus } from '../site/sync'
 import { RepublishButton } from './republish-button'
 
 const KIND = { post: 'Blog post', page: 'Page', project: 'Project' } as const
@@ -17,8 +17,11 @@ const STATE = {
 export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
   const role = (user as { portalRole?: string } | null | undefined)?.portalRole
   if (role !== 'owner' && role !== 'admin') return null
-  const report = await siteSyncReport().catch(() => null)
+  const [report, status] = await Promise.all([siteSyncReport().catch(() => null), siteSyncStatus().catch(() => null)])
   const ok = report ? inStep(report) : false
+  const count = report ? discrepancies(report) : null
+  const when = (iso: string | null | undefined) =>
+    iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Australia/Sydney' }).format(new Date(iso)) : null
   return (
     <section aria-labelledby="daly-site-sync" className="daly-dashboard daly-sync" data-state={report ? (ok ? 'ok' : 'out') : 'unknown'}>
       <div className="daly-dashboard__head">
@@ -45,14 +48,44 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
                 <strong>
                   {KIND[item.kind]}: {item.title || item.slug || item.siteId}
                 </strong>{' '}
-                — {STATE[item.state]}
+                — {item.id === null ? 'on the website, but there’s no document for it here. Republish leaves it alone; remove it by hand only if it shouldn’t be there' : STATE[item.state]}
               </li>
             ))}
             {report.projectListStale ? <li>The list of projects on the website is out of date.</li> : null}
           </ul>
-          <RepublishButton />
+          {report.projectListStale || report.items.some((item) => item.id !== null) ? <RepublishButton /> : null}
         </div>
       )}
+      <dl className="daly-sync__facts">
+        <div>
+          <dt>Out of step now</dt>
+          <dd>{count === null ? 'Unknown' : count === 0 ? 'Nothing' : `${count} ${count === 1 ? 'item' : 'items'}`}</dd>
+        </div>
+        <div>
+          <dt>Last automatic check</dt>
+          <dd>
+            {status?.lastSuccessAt
+              ? `${when(status.lastSuccessAt)}: ${status.outstanding ? `${status.outstanding} out of step` : 'all in step'}`
+              : 'Not run yet (it runs every 15 minutes)'}
+          </dd>
+        </div>
+        <div>
+          <dt>Last check that failed</dt>
+          <dd>{status?.lastFailureAt ? `${when(status.lastFailureAt)}: ${status.lastFailureMessage ?? 'no details'}` : 'None'}</dd>
+        </div>
+        <div>
+          <dt>Last save the website missed</dt>
+          <dd>{status?.lastPublishFailure ? `${when(status.lastPublishFailure.at)}: ${status.lastPublishFailure.what}` : 'None'}</dd>
+        </div>
+        <div>
+          <dt>Last Republish</dt>
+          <dd>
+            {status?.lastRepair
+              ? `${when(status.lastRepair.at)}${status.lastRepair.by ? ` by ${status.lastRepair.by}` : ''}: ${status.lastRepair.fixed} fixed, ${status.lastRepair.failed} failed, ${status.lastRepair.leftAlone} left alone`
+              : 'Never'}
+          </dd>
+        </div>
+      </dl>
     </section>
   )
 }

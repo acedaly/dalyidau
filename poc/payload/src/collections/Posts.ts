@@ -5,7 +5,7 @@ import type { PayloadRequest } from 'payload'
 
 import { type PayloadPostInput, preparePayloadPost, unpublishPayloadPost } from '../../../../worker/blog/payload-publisher'
 import { isValidSlug, slugify } from '../../../../worker/lib/html'
-import { asEditorError, mediaLoader, previewEndpoint, publisherEnv, willBePublic, writeToSite } from '../site/publishing'
+import { asEditorError, mediaLoader, findOrNull, previewEndpoint, publisherEnv, settle, statusAfter, willBePublic, writeToSite } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // The blog's posts (docs/PAYLOAD-BLOG.md). Payload is where they're written and kept. The public
@@ -93,7 +93,8 @@ const assignPublicId: CollectionBeforeChangeHook = ({ data, operation }) => {
 
 /** Refuses a publish that would fail anyway, before anything is saved. */
 const validateBeforePublish: CollectionBeforeChangeHook = async ({ data, originalDoc, req }) => {
-  if (data._status !== 'published') return data
+  // What the post will be after this save (a change that doesn't mention the status keeps it).
+  if (statusAfter(data, originalDoc) !== 'published') return data
   const slug = slugify(String(data.slug ?? originalDoc?.slug ?? data.title ?? ''))
   if (!slug || !isValidSlug(slug)) throw new APIError('Give the post a web address made of lower-case letters, numbers and hyphens.', 400, undefined, true)
   data.slug = slug
@@ -117,22 +118,25 @@ const validateBeforePublish: CollectionBeforeChangeHook = async ({ data, origina
  * (site/sync.ts). `siteId` is the post's id on the site, for when Payload has no document any more.
  */
 export async function syncPost(req: PayloadRequest, id: number | string, options: { siteId?: string; deleted?: boolean } = {}) {
-  // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
-  const main = (await req.payload
-    .findByID({ collection: 'posts', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
-    .catch(() => null)) as PostDoc | null
   const env = await publisherEnv()
-  // In Trash (deleted, restorable) counts as unpublished.
-  if (main && main._status === 'published' && !main.deletedAt) {
-    const result = await writeToSite(req, `post ${id}`, () => preparePayloadPost(env, toPublisherInput(main), mediaLoader(req, env)))
-    req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome.outcome, slug: result.slug })
-    return
-  }
-  const siteId = main ? toPublisherInput(main).postId : options.siteId
-  if (!siteId) return
-  // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
-  if (await writeToSite(req, `post ${id}`, () => unpublishPayloadPost(env, siteId, { forget: !!options.deleted && !main })))
-    req.payload.logger.info({ msg: 'blog post unpublished', postId: siteId })
+  await settle(
+    // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
+    // Null only when the post really is gone; a read that fails is retried, then reported (never read as "gone").
+    () => writeToSite(req, `post ${id}`, () => findOrNull<PostDoc>(req, 'posts', id)),
+    async (main) => {
+      // In Trash (deleted, restorable) counts as unpublished.
+      if (main && main._status === 'published' && !main.deletedAt) {
+        const result = await writeToSite(req, `post ${id}`, () => preparePayloadPost(env, toPublisherInput(main), mediaLoader(req, env)))
+        req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome.outcome, slug: result.slug })
+        return
+      }
+      const siteId = main ? toPublisherInput(main).postId : options.siteId
+      if (!siteId) return
+      // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
+      if (await writeToSite(req, `post ${id}`, () => unpublishPayloadPost(env, siteId, { forget: !!options.deleted && !main })))
+        req.payload.logger.info({ msg: 'blog post unpublished', postId: siteId })
+    },
+  )
 }
 
 const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) => {

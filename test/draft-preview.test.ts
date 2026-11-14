@@ -43,6 +43,40 @@ describe("draft preview", () => {
         expect(html).toMatch(/<meta name="robots" content="noindex/);
     });
 
+    it("carries no credentials: nothing of the sign-in is in the address, the page or what the browser keeps", async () => {
+        await draftPage();
+        const token = await accessToken();
+        const response = await call(previewPath("page", 5), { token });
+        const html = await response.text();
+        // The address is the document's kind and number, nothing else: safe in history, logs and a Referer.
+        expect(previewPath("page", 5)).toBe("/portal/preview/draft/page/5");
+        expect(html).not.toContain(token);
+        expect(html).not.toContain(token.split(".")[1]);
+        expect(html.toLowerCase()).not.toContain("owner@example.com");
+        expect(html).not.toMatch(/Cf-Access|CF_Authorization|payload-token/i);
+        expect(response.headers.get("Set-Cookie")).toBeNull();
+        expect(response.headers.get("Referrer-Policy")).toBeTruthy();
+        // A token in the address is not a way in.
+        expect((await call(`${previewPath("page", 5)}?token=${token}`)).status).not.toBe(200);
+        expect((await call(`${previewPath("page", 5)}?jwt=${token}`)).status).not.toBe(200);
+        // Search engines are told to stay out of /portal (production), or out of everything (any other environment).
+        expect(await (await call("/robots.txt")).text()).toContain("Disallow: /");
+    });
+
+    it("is never served from a cache: after an owner has looked, the next visitor still gets nothing", async () => {
+        await draftPage();
+        const owner = await call(previewPath("page", 5), { token: await accessToken() });
+        expect(owner.status).toBe(200);
+        await owner.text();
+        for (let i = 0; i < 2; i++) {
+            const visitor = await call(previewPath("page", 5));
+            expect(visitor.status).not.toBe(200);
+            expect(await visitor.text()).not.toContain("Draft words");
+        }
+        expect(owner.headers.get("Cache-Control")).toBe("no-store");
+        expect(owner.headers.get("ETag")).toBeNull();
+    });
+
     it("changes nothing public: the address, the sitemap and the image stay unknown to everyone else", async () => {
         const page = await draftPage();
         expect((await call("/now")).status).toBe(404);

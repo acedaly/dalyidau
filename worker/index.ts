@@ -383,10 +383,8 @@ async function previewDraft(env: Env, role: string, kind: PreviewKind, id: strin
     if (preview.kind === "project")
         return renderPage(env, { route: "project", project: preview.data, related: [], context }, `/projects/${preview.data.slug}`, 200, true, PRIVATE_HEADERS);
     const { slug, record } = preview.data;
-    const summary = toSummary(
-        { ...record, slug, tags: JSON.stringify(record.tags), featured: record.featured ? 1 : 0 } as never,
-        env.IMAGE_TRANSFORMS === "on",
-    );
+    // No resizing service here: it couldn't load a private preview image.
+    const summary = toSummary({ ...record, slug, tags: JSON.stringify(record.tags), featured: record.featured ? 1 : 0 } as never, false);
     const post = { ...summary, bodyHtml: record.body_html, toc: record.toc };
     return renderPage(env, { route: "post", post, related: [], url: `/blog/${slug}`, context }, `/blog/${slug}`, 200, true, PRIVATE_HEADERS);
 }

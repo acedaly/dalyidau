@@ -3,7 +3,7 @@ import { APIError } from 'payload'
 
 import { pageProblem } from '../../../../worker/site/publisher'
 import { slugify } from '../../../../worker/lib/html'
-import { checkPage, pagePreview, publisherEnv, syncPage, willBePublic } from '../site/publishing'
+import { checkPage, pagePreview, publisherEnv, syncPage, statusAfter, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Pages on daly.id.au/<address> (the About page is one). Publishing puts a page on the site straight
@@ -49,7 +49,8 @@ export const Pages: CollectionConfig = {
           })
           if (others.totalDocs) throw new APIError(`daly.id.au/${slug} is already used by another page.`, 400, undefined, true)
         }
-        if (data._status !== 'published') return data
+        // What the document will be after this save (a change that doesn't mention the status keeps it).
+        if (statusAfter(data, originalDoc) !== 'published') return data
         const problem = pageProblem({ slug, title: String(data.title ?? originalDoc?.title ?? '') })
         if (problem) throw new APIError(problem, 400, undefined, true)
         const env = await publisherEnv()

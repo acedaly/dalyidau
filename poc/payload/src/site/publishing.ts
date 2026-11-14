@@ -1,5 +1,5 @@
 import type { Endpoint, PayloadRequest } from 'payload'
-import { APIError } from 'payload'
+import { APIError, NotFound } from 'payload'
 
 import type { MediaFile, PublisherEnv } from '../../../../worker/blog/payload-publisher'
 import {
@@ -19,6 +19,7 @@ import {
   type SiteSettingsInput,
 } from '../../../../worker/site/publisher'
 import { type DraftPreview, type PreviewKind, previewPath, storeDraftPreview } from '../../../../worker/site/preview'
+import { noteSyncStatus } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
 
 // The website's content (docs/PAYLOAD-FRONTEND-PLAN.md): Payload keeps it; these helpers publish what's
@@ -29,18 +30,49 @@ export const publisherEnv = async (): Promise<PublisherEnv & { R2: R2Bucket }> =
   return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2 }
 }
 
+/**
+ * A document, or null only when it doesn't exist. A read that fails for any other reason (the database
+ * having a bad moment) is thrown, never read as "gone": acting on "gone" takes things off the site.
+ */
+export async function findOrNull<T>(req: PayloadRequest, collection: 'pages' | 'projects' | 'posts' | 'media', id: string | number, draft = false): Promise<T | null> {
+  try {
+    return (await req.payload.findByID({ collection, id, draft, trash: true, depth: 0, overrideAccess: true, req })) as T
+  } catch (error) {
+    if (error instanceof NotFound || (error as { status?: number })?.status === 404) return null
+    throw error
+  }
+}
+
+type Versioned = { updatedAt?: string | null; _status?: string | null; deletedAt?: string | null; listed?: boolean | null } | null
+const sameVersion = (a: Versioned, b: Versioned) =>
+  (a === null) === (b === null) && a?.updatedAt === b?.updatedAt && a?._status === b?._status && (a?.deletedAt ?? null) === (b?.deletedAt ?? null) && (a?.listed ?? null) === (b?.listed ?? null)
+
+/**
+ * Makes the site match a document, and makes sure it still does when it's done. Two syncs of one document
+ * can overlap (a save and Republish, or two saves): each reads the document, then writes what it read, and
+ * the one that read the older version can be the one that writes last. So after writing, the document is
+ * read again; if it changed meanwhile (a newer save, an unpublish, a move to Trash) the sync runs again from
+ * what it is now. Whoever wrote something stale is therefore the one who puts it right, and a sync can never
+ * leave the site on an older version than Payload, or put back something that was unpublished meanwhile.
+ */
+export async function settle<D extends Versioned>(read: () => Promise<D>, apply: (doc: D) => Promise<void>): Promise<void> {
+  let doc = await read()
+  for (let round = 0; round < 4; round++) {
+    await apply(doc)
+    const now = await read()
+    if (sameVersion(doc, now)) return
+    doc = now
+  }
+}
+
 const idOf = (value: unknown): string | number | null =>
   value && typeof value === 'object' ? ((value as { id?: string | number }).id ?? null) : ((value as string | number | null | undefined) ?? null)
 
 /** Reads an image from Payload's own (private) media store, for copying into the public bucket. */
 export const mediaLoader = (req: PayloadRequest, env: { R2: R2Bucket }) => ({
   loadMedia: async (id: string | number): Promise<MediaFile | null> => {
-    const media = (await req.payload.findByID({ collection: 'media', id, depth: 0, overrideAccess: true, req }).catch(() => null)) as {
-      filename?: string
-      mimeType?: string
-      alt?: string
-      caption?: string | null
-    } | null
+    // Null only when the image really isn't there; a failed read is thrown (and retried by writeToSite).
+    const media = await findOrNull<{ filename?: string; mimeType?: string; alt?: string; caption?: string | null }>(req, 'media', id)
     if (!media?.filename) return null
     const object = await env.R2.get(media.filename)
     if (!object) return null
@@ -59,7 +91,7 @@ export const mediaLoader = (req: PayloadRequest, env: { R2: R2Bucket }) => ({
  * three times, and if it still fails the editor is told plainly that Payload has the change and the site
  * doesn't, instead of a bare error. The cron's sync check (worker/site/sync-check.ts) reports it until it's fixed.
  */
-export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>): Promise<T> {
+export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>, onRetry?: () => void): Promise<T> {
   let last: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -68,10 +100,17 @@ export async function writeToSite<T>(req: PayloadRequest, what: string, work: ()
       if (error instanceof PublishError) throw new APIError(error.message, 400, undefined, true)
       if (error instanceof APIError) throw error
       last = error
+      // A failed attempt may still have been written (the answer was lost, not the write): callers that
+      // act on "did this change anything?" must then assume it did.
+      onRetry?.()
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 150 * 4 ** attempt))
     }
   }
   req.payload.logger.error({ msg: 'site_sync_failed', what, message: (last as Error)?.message })
+  // Kept for the dashboard too (best effort: the site's database may be what's failing).
+  await publisherEnv()
+    .then((env) => noteSyncStatus(env.DB, { lastPublishFailure: { at: new Date().toISOString(), what, message: String((last as Error)?.message ?? last).slice(0, 300) } }))
+    .catch(() => undefined)
   throw new APIError(
     `Saved in Payload, but the website couldn't be updated, so it still shows the previous version. Nothing is lost: save again in a minute, or press Republish under "Website sync" on the dashboard.`,
     503,
@@ -167,20 +206,30 @@ export const pageInput = (doc: PageDoc): PageInput => ({
   updatedAt: doc.updatedAt ?? null,
 })
 
-/** Makes the public site match a page's main (published) document, then refreshes the menu. */
+/**
+ * Makes the public site match a page's main (published) document, then refreshes the menu when what's
+ * public changed (the menu shows a page only while it's published). A draft save of a page that isn't on the
+ * site changes nothing public and touches nothing.
+ */
 export async function syncPage(req: PayloadRequest, id: string | number, deleted = false) {
   const env = await publisherEnv()
-  const main = (await req.payload
-    .findByID({ collection: 'pages', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
-    .catch(() => null)) as PageDoc | null
-  if (main && main._status === 'published' && !main.deletedAt) {
-    const page = await writeToSite(req, `page ${id}`, () => publishPage(env, pageInput(main), mediaLoader(req, env)))
-    req.payload.logger.info({ msg: 'page published', slug: page.slug })
-  // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-  } else if (await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'page unpublished', id })
-  // The menu shows a page only while it's published, so it is rebuilt with every page change. If that fails
-  // the editor is told (the page itself is already right); it used to be logged and nothing more.
-  await republishSettings(req)
+  let changed = false
+  const assumeChanged = () => void (changed = true)
+  await settle(
+    () => writeToSite(req, `page ${id}`, () => findOrNull<PageDoc>(req, 'pages', id)),
+    async (main) => {
+      if (main && main._status === 'published' && !main.deletedAt) {
+        const page = await writeToSite(req, `page ${id}`, () => publishPage(env, pageInput(main), mediaLoader(req, env)))
+        req.payload.logger.info({ msg: 'page published', slug: page.slug })
+        changed = true
+        // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+      } else if (await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }), assumeChanged)) {
+        req.payload.logger.info({ msg: 'page unpublished', id })
+        changed = true
+      }
+    },
+  )
+  if (changed) await republishSettings(req)
 }
 
 // --- Projects (Phase 4) ---------------------------------------------------------------------------------
@@ -232,20 +281,22 @@ export const projectInput = (doc: ProjectDoc): ProjectInput => ({
 /** Makes the public site match a project's main (published) document. */
 export async function syncProject(req: PayloadRequest, id: string | number, deleted = false) {
   const env = await publisherEnv()
-  const main = (await req.payload
-    .findByID({ collection: 'projects', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
-    .catch(() => null)) as ProjectDoc | null
-  if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
-    const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))
-    req.payload.logger.info({ msg: 'project published', slug: project.slug })
-  // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-  } else if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'project unpublished', id })
+  await settle(
+    () => writeToSite(req, `project ${id}`, () => findOrNull<ProjectDoc>(req, 'projects', id)),
+    async (main) => {
+      if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
+        const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))
+        req.payload.logger.info({ msg: 'project published', slug: project.slug })
+        // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+      } else if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'project unpublished', id })
+    },
+  )
 }
 
 export async function republishProjectsHome(req: PayloadRequest, doc: Record<string, unknown>) {
   const env = await publisherEnv()
   const projectsHome = (doc.projectsHome ?? {}) as Record<string, unknown>
-  await asEditorError(() => publishProjectsHome(env, projectsHome))
+  await writeToSite(req, 'projects homepage', () => publishProjectsHome(env, projectsHome))
   req.payload.logger.info({ msg: 'projects homepage published' })
 }
 
@@ -253,7 +304,14 @@ export async function republishProjectsHome(req: PayloadRequest, doc: Record<str
 
 /** True when saving this would leave the document published and out of Trash. */
 export const willBePublic = (data: Record<string, unknown>, originalDoc?: Record<string, unknown> | null) =>
-  data._status === 'published' && !('deletedAt' in data ? data.deletedAt : originalDoc?.deletedAt)
+  statusAfter(data, originalDoc) === 'published' && !('deletedAt' in data ? data.deletedAt : originalDoc?.deletedAt)
+
+/**
+ * The status the document will have once this save is done. A change that doesn't mention the status (an
+ * API call that only swaps the featured image, say) leaves a published document published, so it is checked
+ * like a publish. A draft save always says "draft".
+ */
+export const statusAfter = (data: Record<string, unknown>, originalDoc?: Record<string, unknown> | null) => data._status ?? originalDoc?._status
 
 /**
  * Everything publishing this page would check, run before Payload saves it and writing nothing: an address
@@ -299,9 +357,12 @@ export function previewEndpoint<K extends PreviewKind>(
     handler: async (req) => {
       const role = (req.user as { portalRole?: string } | null)?.portalRole
       if (role !== 'owner' && role !== 'admin') return Response.json({ error: 'forbidden' }, { status: 403, headers: { 'Cache-Control': 'no-store' } })
+      // It stores a preview, so like a write it must be asked for from this site (the admin's Preview
+      // button, or the address typed in), not by a page somewhere else sending the editor here.
+      const from = req.headers.get('sec-fetch-site')
+      if (from && from !== 'same-origin' && from !== 'none') return Response.json({ error: 'cross_site' }, { status: 403, headers: { 'Cache-Control': 'no-store' } })
       const id = String(req.routeParams?.id ?? '')
-      const find = (draft: boolean) =>
-        req.payload.findByID({ collection, id, draft, trash: true, depth: 0, overrideAccess: true, req }).catch(() => null) as Promise<Record<string, unknown> | null>
+      const find = (draft: boolean) => findOrNull<Record<string, unknown>>(req, collection, id, draft)
       const [latest, main] = [await find(true), await find(false)]
       if (!latest) return previewProblem('That document no longer exists.', 404)
       const env = await publisherEnv()

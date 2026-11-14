@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { PREVIEW_MEDIA_PREFIX, PublishError, preparePayloadPost, publishPayloadPost, unpublishPayloadPost } from "../worker/blog/payload-publisher";
 import { publishPage, publishProject, republishProjectList, unpublishPage, unpublishProject } from "../worker/site/publisher";
-import { DRIFT_KEY, SYNC_GRACE_MS, inStep, recordSiteDrift, siteDrift } from "../worker/site/sync-check";
+import { DRIFT_KEY, SYNC_GRACE_MS, discrepancies, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from "../worker/site/sync-check";
 import { resetDb, testEnv } from "./helpers";
 import { sampleImage } from "./image-samples";
 
@@ -252,5 +252,53 @@ describe("the sync check", () => {
         expect(
             JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(DRIFT_KEY).first<{ value: string }>())!.value).items,
         ).toHaveLength(3);
+    });
+
+    it("keeps what the dashboard shows about the checks: last success and how many, last failure, last repair, last missed save", async () => {
+        expect(await readSyncStatus(testEnv.DB)).toMatchObject({
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            outstanding: null,
+            lastRepair: null,
+            lastPublishFailure: null,
+        });
+        const report = await recordSiteDrift(payload(inPayload()), testEnv.DB, LATER);
+        expect(discrepancies(report!)).toBe(3);
+        expect(await readSyncStatus(testEnv.DB)).toMatchObject({ lastSuccessAt: LATER.toISOString(), outstanding: 3, lastFailureAt: null });
+
+        // A check that can't run is recorded as a failure, and what was known before stays.
+        const broken = { prepare: () => ({ all: async () => Promise.reject(new Error("D1 is down")) }) } as never;
+        const failedAt = new Date("2026-11-03T00:00:00.000Z");
+        await recordSiteDrift(broken, testEnv.DB, failedAt);
+        expect(await readSyncStatus(testEnv.DB)).toMatchObject({
+            lastSuccessAt: LATER.toISOString(),
+            outstanding: 3,
+            lastFailureAt: failedAt.toISOString(),
+            lastFailureMessage: "D1 is down",
+        });
+        // A database Payload hasn't set up yet isn't a failure.
+        const fresh = { prepare: () => ({ all: async () => Promise.reject(new Error("D1_ERROR: no such table: posts")) }) } as never;
+        await recordSiteDrift(fresh, testEnv.DB, new Date("2026-11-04T00:00:00.000Z"));
+        expect((await readSyncStatus(testEnv.DB)).lastFailureAt).toBe(failedAt.toISOString());
+
+        // The parts are merged, never overwritten wholesale: a repair and a missed save sit beside the check's own.
+        await noteSyncStatus(testEnv.DB, {
+            lastRepair: { at: "2026-11-05T00:00:00.000Z", by: "owner@example.com", fixed: 2, failed: 0, leftAlone: 1, inStep: false },
+        });
+        await noteSyncStatus(testEnv.DB, { lastPublishFailure: { at: "2026-11-06T00:00:00.000Z", what: "page 4", message: "D1 is down" } });
+        await publishAll();
+        await recordSiteDrift(payload(inPayload()), testEnv.DB, new Date("2026-11-07T00:00:00.000Z"));
+        expect(await readSyncStatus(testEnv.DB)).toMatchObject({
+            lastSuccessAt: "2026-11-07T00:00:00.000Z",
+            outstanding: 0,
+            lastFailureAt: failedAt.toISOString(),
+            lastRepair: { fixed: 2, leftAlone: 1, by: "owner@example.com" },
+            lastPublishFailure: { what: "page 4" },
+        });
+        // A damaged status row reads as "nothing known" and is repaired by the next note.
+        await testEnv.DB.prepare("UPDATE meta SET value = '{broken' WHERE key = 'site:sync-status'").run();
+        expect((await readSyncStatus(testEnv.DB)).lastSuccessAt).toBeNull();
+        await noteSyncStatus(testEnv.DB, { outstanding: 0 });
+        expect((await readSyncStatus(testEnv.DB)).outstanding).toBe(0);
     });
 });

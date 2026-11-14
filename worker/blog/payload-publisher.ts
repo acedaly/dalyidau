@@ -312,7 +312,8 @@ export async function storePublicImage(
     const dims = imageDimensions(file.bytes, type);
     if (mode !== "publish") {
         // A check stores nothing. A preview keeps the file where only signed-in editors can read it.
-        if (mode === "preview" && !(await env.MEDIA.head(key)) && !(await env.MEDIA.head(PREVIEW_MEDIA_PREFIX + key)))
+        // Written again on every preview, so its age (which the clean-up goes by) is that of the latest preview using it.
+        if (mode === "preview" && !(await env.MEDIA.head(key)))
             await env.MEDIA.put(PREVIEW_MEDIA_PREFIX + key, file.bytes, { httpMetadata: { contentType: type } });
         return { key, alt: file.alt, width: dims?.width ?? null, height: dims?.height ?? null };
     }
@@ -399,7 +400,11 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
     const hasContent = lexicalHasContent(root);
     let body: { html: string; toc: TocEntry[]; text: string; wordCount: number; readingMinutes: number };
     if (hasContent) {
-        for (const id of uploadIds(root)) await copy(id);
+        for (const id of uploadIds(root))
+            if (!(await copy(id)))
+                throw new PublishError(
+                    "An image in the text couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB. Remove it or upload it again.",
+                );
         const rendered = renderLexical(root, {
             siteUrl: env.SITE_URL,
             image: (id) => {

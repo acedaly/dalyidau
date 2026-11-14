@@ -66,12 +66,18 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
         siteDb
             .prepare("SELECT id, slug, title, synced_at FROM posts WHERE source = 'payload'")
             .all<{ id: string; slug: string; title: string; synced_at: string | null }>(),
+        // Snapshots are read without their bodies: only what the comparison needs.
         siteDb
             .prepare(
-                "SELECT key, value FROM meta WHERE substr(key, 1, 5) = 'page:' OR substr(key, 1, 8) = 'page-id:' OR substr(key, 1, 8) = 'project:' OR substr(key, 1, 11) = 'project-id:' OR key = ?",
+                `SELECT key, CASE
+                     WHEN key = ?1 OR substr(key, 1, 8) = 'page-id:' OR substr(key, 1, 11) = 'project-id:' THEN value
+                     WHEN json_valid(value) THEN json_object('id', json_extract(value, '$.id'), 'updatedAt', json_extract(value, '$.updatedAt'), 'title', json_extract(value, '$.title'))
+                     ELSE NULL END AS value
+                 FROM meta
+                 WHERE substr(key, 1, 5) = 'page:' OR substr(key, 1, 8) = 'page-id:' OR substr(key, 1, 8) = 'project:' OR substr(key, 1, 11) = 'project-id:' OR key = ?1`,
             )
             .bind(SNAPSHOT.projects)
-            .all<{ key: string; value: string }>(),
+            .all<{ key: string; value: string | null }>(),
     ]);
     const items: DriftItem[] = [];
     const settled = (row: PayloadRow) => !(now.getTime() - time(row.updated_at) < SYNC_GRACE_MS);
@@ -103,7 +109,7 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
             });
 
     // Pages and projects: a snapshot per published item, carrying the updatedAt of the Payload save it was made from.
-    const metaBy = new Map(meta.results.map((r) => [r.key, r.value]));
+    const metaBy = new Map(meta.results.map((r) => [r.key, r.value ?? undefined]));
     const snapshots = (kind: "page" | "project", rows: PayloadRow[], published: (row: PayloadRow) => boolean) => {
         const expected = new Set<string>();
         for (const row of rows) {
@@ -165,11 +171,55 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
 export const inStep = (report: DriftReport) => report.items.length === 0 && !report.projectListStale;
 
 export const DRIFT_KEY = "site:sync-check";
+export const STATUS_KEY = "site:sync-status";
+
+/** What the dashboard shows about the checks themselves (the live comparison is separate). */
+export interface SyncStatus {
+    /** When the automatic check last ran to the end, and how many things it found out of step. */
+    lastSuccessAt: string | null;
+    outstanding: number | null;
+    /** When a check last couldn't run, and why. */
+    lastFailureAt: string | null;
+    lastFailureMessage: string | null;
+    /** The last time someone pressed Republish, and what happened to each kind of item. */
+    lastRepair: { at: string; by: string | null; fixed: number; failed: number; leftAlone: number; inStep: boolean } | null;
+    /** The last save whose copy to the site failed after every retry (Payload had it; the site didn't). */
+    lastPublishFailure: { at: string; what: string; message: string } | null;
+}
+const NO_STATUS: SyncStatus = {
+    lastSuccessAt: null,
+    outstanding: null,
+    lastFailureAt: null,
+    lastFailureMessage: null,
+    lastRepair: null,
+    lastPublishFailure: null,
+};
+
+export const discrepancies = (report: DriftReport) => report.items.length + (report.projectListStale ? 1 : 0);
+
+export async function readSyncStatus(db: D1Database): Promise<SyncStatus> {
+    try {
+        const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(STATUS_KEY).first<{ value: string }>();
+        return { ...NO_STATUS, ...(row ? (JSON.parse(row.value) as Partial<SyncStatus>) : {}) };
+    } catch {
+        return NO_STATUS;
+    }
+}
+
+/** Merges fields into the status in one statement, so the cron and a person pressing Republish can't lose each other's part. */
+export async function noteSyncStatus(db: D1Database, patch: Partial<SyncStatus>): Promise<void> {
+    await db
+        .prepare(
+            "INSERT INTO meta (key, value) VALUES (?1, json(?2)) ON CONFLICT(key) DO UPDATE SET value = json_patch(CASE WHEN json_valid(meta.value) THEN meta.value ELSE '{}' END, json(?2))",
+        )
+        .bind(STATUS_KEY, JSON.stringify(patch))
+        .run();
+}
 
 /**
  * Runs the check from the Worker's cron and keeps the result where the admin can read it. A site out of
  * step is logged as an error (it shows in the Worker's logs and alerts); a check that couldn't run is logged
- * too and leaves the last result alone.
+ * and recorded as a failure, and leaves the last result alone.
  */
 export async function recordSiteDrift(payloadDb: D1Database | undefined, siteDb: D1Database, now = new Date()): Promise<DriftReport | null> {
     if (!payloadDb) return null;
@@ -179,6 +229,7 @@ export async function recordSiteDrift(payloadDb: D1Database | undefined, siteDb:
             .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .bind(DRIFT_KEY, JSON.stringify(report))
             .run();
+        await noteSyncStatus(siteDb, { lastSuccessAt: report.checkedAt, outstanding: discrepancies(report) });
         if (!inStep(report))
             console.error(
                 JSON.stringify({
@@ -189,7 +240,13 @@ export async function recordSiteDrift(payloadDb: D1Database | undefined, siteDb:
             );
         return report;
     } catch (error) {
-        console.error(JSON.stringify({ event: "site_sync_check_failed", message: (error as Error).message }));
+        const message = (error as Error).message;
+        // Before Payload has created its tables (a fresh database) there is nothing to compare: not an error.
+        if (/no such table/i.test(message)) console.log(JSON.stringify({ event: "site_sync_check_skipped", message }));
+        else {
+            console.error(JSON.stringify({ event: "site_sync_check_failed", message }));
+            await noteSyncStatus(siteDb, { lastFailureAt: now.toISOString(), lastFailureMessage: message.slice(0, 300) }).catch(() => undefined);
+        }
         return null;
     }
 }

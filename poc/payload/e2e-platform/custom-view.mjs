@@ -65,21 +65,28 @@ check("Payload admin dashboard renders for an Access-verified owner", (await pag
 {
     const panel = page.locator(".daly-sync");
     check("The dashboard says the website matches what's published", (await panel.getAttribute("data-state")) === "ok" && (await panel.innerText()).includes("matches what’s published"), await panel.innerText().catch(() => "no panel"));
-    // Put a post on the site that Payload doesn't publish, as a failed write could leave behind.
-    execFileSync(
-        "npx",
-        ["wrangler", "d1", "execute", "DB", "--local", "--command", "INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('payload:stray', 'stray-post', 'A stray post', '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, '2026-11-01T00:00:00.000Z', 'h', '2026-11-01T00:00:00.000Z', 'payload')"],
-        { cwd: path.resolve(import.meta.dirname, ".."), stdio: "pipe" },
-    );
+    // Break the site behind Payload's back, as a failed write could: the published About page loses its
+    // snapshot, and a post appears that Payload has no document for.
+    const sql = (command) => execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", command], { cwd: path.resolve(import.meta.dirname, ".."), stdio: "pipe" });
+    sql("DELETE FROM meta WHERE key = 'page:about'; INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('payload:stray', 'stray-post', 'A stray post', '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, '2026-11-01T00:00:00.000Z', 'h', '2026-11-01T00:00:00.000Z', 'payload'); INSERT INTO meta (key, value) VALUES ('content_version', 'sync-panel-check') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    check("(the site is now wrong: About is gone)", (await page.request.get("http://daly.id.au/about")).status() === 404);
     await page.reload({ waitUntil: "networkidle" });
     const alert = page.locator(".daly-sync [role=alert]");
-    check("…and when it doesn't, it says what's wrong", (await panel.getAttribute("data-state")) === "out" && (await alert.innerText()).includes("A stray post") && (await alert.innerText()).includes("not published here"), await panel.innerText());
+    const said = await alert.innerText().catch(() => "");
+    check("…and when it doesn't, it says what's wrong", (await panel.getAttribute("data-state")) === "out" && /Page: About — published here, but not on the website/.test(said) && said.includes("A stray post"), said);
     await page.screenshot({ path: `${out}/payload-dashboard-out-of-sync.png` });
     await page.getByRole("button", { name: "Republish" }).click();
-    await page.waitForFunction(() => document.querySelector(".daly-sync")?.getAttribute("data-state") === "ok", null, { timeout: 20000 }).catch(() => {});
-    check("Republish puts it right, and the dashboard says so", (await panel.getAttribute("data-state")) === "ok", await panel.innerText());
-    const stray = await page.request.get("http://daly.id.au/blog/stray-post");
-    check("…the stray post is off the site", stray.status() === 404, String(stray.status()));
+    await page.waitForFunction(() => !document.querySelector(".daly-sync")?.textContent?.includes("Page: About"), null, { timeout: 20000 });
+    check("Republish (a real click) puts the page back on the site", (await page.request.get("http://daly.id.au/about")).status() === 200);
+    const after = await panel.innerText();
+    check(
+        "…and never removes what Payload has no document for: the stray post is still up, named, and left for a person to decide",
+        (await page.request.get("http://daly.id.au/blog/stray-post")).status() === 200 && after.includes("A stray post") && after.includes("leaves it alone") && (await page.getByRole("button", { name: "Republish" }).count()) === 0,
+        after,
+    );
+    sql("DELETE FROM posts WHERE id = 'payload:stray'; INSERT INTO meta (key, value) VALUES ('content_version', 'sync-panel-check-2') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    await page.reload({ waitUntil: "networkidle" });
+    check("With that removed by hand, the dashboard says the website matches again", (await panel.getAttribute("data-state")) === "ok", await panel.innerText());
     await page.screenshot({ path: `${out}/payload-dashboard-in-sync.png` });
 }
 

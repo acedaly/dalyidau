@@ -225,9 +225,35 @@ expect("the sync check names both problems", report.json?.inStep === false && fo
 const crossSiteRepublish = await fetch(`${BASE}/api/globals/site-settings/republish`, { method: "POST", headers: { Origin: "https://evil.example", "Cf-Access-Jwt-Assertion": token(OWNER) } });
 expect("Republish can't be triggered from another site, or by a viewer", crossSiteRepublish.status === 403 && (await call("POST", "/api/globals/site-settings/republish", people.viewer)).status === 403);
 const repaired = await call("POST", "/api/globals/site-settings/republish", people.admin);
-expect("Republish puts the site right", repaired.status === 200 && repaired.json?.inStep === true && repaired.json?.failed?.length === 0, repaired.text.slice(0, 300));
-expect("…the page is back and the stray post is gone", (await page("/sync-check")).text.includes("First version.") && (await page("/blog/ghost-post")).status === 404);
-expect("…and the check agrees", (await sync()).json?.inStep === true);
+expect("Republish puts the missing page back", repaired.status === 200 && repaired.json?.failed?.length === 0 && (repaired.json?.fixed ?? []).some((i) => i.slug === "sync-check") && (await page("/sync-check")).text.includes("First version."), repaired.text.slice(0, 300));
+expect(
+    "…and never removes what Payload has no document for: the stray post is left alone and still reported",
+    (repaired.json?.leftAlone ?? []).some((i) => i.slug === "ghost-post") && (await page("/blog/ghost-post")).status === 200 && (await sync()).json?.inStep === false,
+    JSON.stringify(repaired.json?.leftAlone),
+);
+siteSql(`DELETE FROM posts WHERE id = 'payload:ghost'; INSERT INTO meta (key, value) VALUES ('content_version', 'drift-test-2') ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
+expect("with that removed by hand, the check agrees the site matches", (await sync()).json?.inStep === true && (await page("/blog/ghost-post")).status === 404);
+// A published document that Payload then unpublishes behind a failed write: Republish takes it down (Payload has the document, as a draft).
+const p3 = await call("POST", "/api/pages?draft=false", people.admin, { title: "Taken down", slug: "taken-down", content: lexical("Up for now."), _status: "published" });
+const p3id = p3.json?.doc?.id;
+const p3snapshot = JSON.parse(siteSql(`SELECT value FROM meta WHERE key = 'page:taken-down'`).toString().match(/"value":\s*("(?:[^"\\]|\\.)*")/)?.[1] ?? '""');
+await call("PATCH", `/api/pages/${p3id}?draft=false`, people.admin, { _status: "draft" });
+expect("(unpublished in Payload: off the site)", (await page("/taken-down")).status === 404 && !!p3snapshot);
+siteSql(`INSERT INTO meta (key, value) VALUES ('page:taken-down', '${p3snapshot.replace(/'/g, "''")}'), ('page-id:${p3id}', '"taken-down"'), ('content_version', 'drift-test-3') ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
+expect("(the site is wrong again: an unpublished page is up)", (await page("/taken-down")).status === 200);
+const takenDown = await call("POST", "/api/globals/site-settings/republish", people.admin);
+expect("Republish takes down what Payload has as a draft", takenDown.json?.inStep === true && (await page("/taken-down")).status === 404, takenDown.text.slice(0, 300));
+await call("DELETE", `/api/pages/${p3id}`, OWNER);
+
+// A change that doesn't mention the status keeps a published page published, so it is checked like a publish.
+const silent = await call("PATCH", `/api/pages/${p2id}`, people.admin, { heroImage: cutShort?.id });
+const afterSilent = await call("GET", `/api/pages/${p2id}?draft=false&depth=0`, people.admin);
+expect("a change to a published page that would break it is refused before saving, even without a status", silent.status === 400 && !afterSilent.json?.heroImage && (await page("/sync-check")).text.includes("First version."), `${silent.status} ${JSON.stringify(afterSilent.json?.heroImage)}`);
+const inlineBroken = await call("PATCH", `/api/pages/${p2id}?draft=false`, people.admin, {
+    _status: "published",
+    content: { root: { ...lexical("With a picture.").root, children: [...lexical("With a picture.").root.children, { type: "upload", version: 3, format: "", relationTo: "media", value: cutShort?.id, fields: null }] } },
+});
+expect("an image in the text that can't be read is refused, not silently left out", inlineBroken.status === 400 && /image in the text/i.test(inlineBroken.text) && (await page("/sync-check")).text.includes("First version."), `${inlineBroken.status} ${inlineBroken.text.slice(0, 200)}`);
 
 // P3. Draft preview: the draft on the site's own page, privately; the public page unchanged.
 const draftEdit = await call("PATCH", `/api/pages/${p2id}?draft=true`, people.admin, { title: "Sync check, redrafted", content: lexical("Second version, not published <yet>."), _status: "draft" });
@@ -245,8 +271,10 @@ expect(
     "nobody else can preview: not a viewer, an editor or a visitor",
     (await call("GET", `/api/pages/${p2id}/preview`, people.viewer)).status === 403 &&
         (await call("GET", `/portal/preview/draft/page/${p2id}`, people.editor)).status === 404 &&
-        (await call("GET", `/portal/preview/draft/page/${p2id}`, null)).status !== 200,
+        [401, 403].includes((await call("GET", `/portal/preview/draft/page/${p2id}`, null)).status),
 );
+const crossSitePreview = await fetch(`${BASE}/api/pages/${p2id}/preview`, { redirect: "manual", headers: { "Sec-Fetch-Site": "cross-site", "Cf-Access-Jwt-Assertion": token(people.admin) } });
+expect("another site can't send an editor to make a preview", crossSitePreview.status === 403, crossSitePreview.status);
 const draftPost = await call("POST", "/api/posts?draft=true", people.admin, { title: "A post in draft", slug: "a-post-in-draft", content: lexical("Unpublished words."), _status: "draft" });
 const draftPostId = draftPost.json?.doc?.id;
 const postPreview = await call("GET", `/api/posts/${draftPostId}/preview`, people.admin);

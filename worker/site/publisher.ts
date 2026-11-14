@@ -258,7 +258,11 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
     const root = input.content?.root;
     let bodyHtml = "";
     if (lexicalHasContent(root)) {
-        for (const id of uploadIds(root)) await copy(id);
+        for (const id of uploadIds(root))
+            if (!(await copy(id)))
+                throw new PublishError(
+                    "An image in the text couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB. Remove it or upload it again.",
+                );
         bodyHtml = renderLexical(root, {
             siteUrl: env.SITE_URL,
             image: (id) => {
@@ -460,7 +464,11 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     const root = input.content?.root;
     let bodyHtml = "";
     if (lexicalHasContent(root)) {
-        for (const id of uploadIds(root)) await copy(id);
+        for (const id of uploadIds(root))
+            if (!(await copy(id)))
+                throw new PublishError(
+                    "An image in the text couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB. Remove it or upload it again.",
+                );
         bodyHtml = renderLexical(root, {
             siteUrl: env.SITE_URL,
             image: (id) => {

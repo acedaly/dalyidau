@@ -5,7 +5,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-type Result = { inStep: boolean; fixed: unknown[]; failed: Array<{ title?: string; slug?: string; message: string }> }
+type Result = { inStep: boolean; fixed: unknown[]; leftAlone: unknown[]; failed: Array<{ title?: string; slug?: string; message: string }> }
 
 export function RepublishButton() {
   const router = useRouter()
@@ -19,7 +19,8 @@ export function RepublishButton() {
       const response = await fetch('/api/globals/site-settings/republish', { method: 'POST', credentials: 'same-origin' })
       if (!response.ok) throw new Error(`The server answered ${response.status}.`)
       const result = (await response.json()) as Result
-      if (result.inStep) {
+      // Done when everything Republish may touch is right (what has no document here is listed, and left alone).
+      if (result.inStep || (!result.failed.length && result.leftAlone.length)) {
         setState('idle')
         router.refresh()
         return
