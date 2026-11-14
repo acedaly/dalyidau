@@ -8,6 +8,7 @@
 
 import { routeRequest, type HostConfig } from "./hosts";
 import { handleBridge } from "./bridge";
+import { recordSiteDrift } from "../../../worker/site/sync-check";
 
 export interface FetchWorker<E> {
     fetch(request: Request, env: E, ctx: ExecutionContext): Promise<Response> | Response;
@@ -20,8 +21,10 @@ export interface PlatformEnv extends HostConfig {
     ASSETS: Fetcher;
     /** Shared secret for Payload's job runner route, called only from `scheduled` below (never from outside). */
     PAYLOAD_JOBS_SECRET?: string;
-    /** Payload's own database. Read here only to see whether its job queue has anything due. */
+    /** Payload's own database. Read here only to see whether its job queue has anything due, and for the sync check. */
     D1?: D1Database;
+    /** The site's database (the existing Worker's). */
+    DB?: D1Database;
 }
 
 /**
@@ -192,6 +195,10 @@ export function createPlatformWorker<E extends PlatformEnv>(apps: {
         async scheduled(controller: ScheduledController, env: E, ctx: ExecutionContext): Promise<void> {
             // Every existing job (wedding message queue, calendar, centre, assets, intelligence) runs exactly as today.
             await apps.legacy.scheduled?.(controller, env, ctx);
+            // Does the public site show what Payload says is published? A few small reads of both databases,
+            // without starting Payload; the result is kept for the admin's dashboard and a mismatch is logged
+            // as an error (worker/site/sync-check.ts).
+            if (env.D1 && env.DB) ctx.waitUntil(recordSiteDrift(env.D1 as never, env.DB as never));
             // Payload's job queue, only when something is due: run through its own route handler with a secret
             // only this code knows. Otherwise Payload isn't touched, so it costs this invocation nothing.
             if (env.PAYLOAD_JOBS_SECRET && (await payloadHasDueJobs(env.D1))) {

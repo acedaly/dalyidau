@@ -4,7 +4,7 @@ import { APIError } from 'payload'
 import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
-import { syncProject } from '../site/publishing'
+import { checkProject, syncProject, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Projects on daly.id.au/projects (Phase 4). Publishing puts a project on the site straight away (while
@@ -60,6 +60,8 @@ export const Projects: CollectionConfig = {
           links: merged.links,
         })
         if (problem) throw new APIError(problem, 400, undefined, true)
+        // Then everything else a publish checks (the address, the cover and screenshots), still before saving.
+        if (willBePublic(data, originalDoc) && merged.listed !== false) await checkProject(req, { ...merged, slug, id: originalDoc?.id ?? 'new' })
         return data
       },
     ],

@@ -52,6 +52,33 @@ export const mediaLoader = (req: PayloadRequest, env: { R2: R2Bucket }) => ({
   },
 })
 
+/**
+ * A write to the public site, after Payload has already saved. A refusal (PublishError) is the editor's to
+ * fix and is shown as it is. Anything else is the database or the bucket having a bad moment: it is tried
+ * three times, and if it still fails the editor is told plainly that Payload has the change and the site
+ * doesn't, instead of a bare error. The cron's sync check (worker/site/sync-check.ts) reports it until it's fixed.
+ */
+export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>): Promise<T> {
+  let last: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await work()
+    } catch (error) {
+      if (error instanceof PublishError) throw new APIError(error.message, 400, undefined, true)
+      if (error instanceof APIError) throw error
+      last = error
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 150 * 4 ** attempt))
+    }
+  }
+  req.payload.logger.error({ msg: 'site_sync_failed', what, message: (last as Error)?.message })
+  throw new APIError(
+    `Saved in Payload, but the website couldn't be updated, so it still shows the previous version. Nothing is lost: save again in a minute, or press Republish under "Website sync" on the dashboard.`,
+    503,
+    undefined,
+    true,
+  )
+}
+
 /** A publish refusal becomes a message the editor sees, not a 500. */
 export async function asEditorError<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -96,13 +123,13 @@ export async function republishSettings(req: PayloadRequest, docs: { settings?: 
   const env = await publisherEnv()
   const settings = docs.settings ?? ((await req.payload.findGlobal({ slug: 'site-settings', depth: 0, overrideAccess: true, req })) as SettingsDoc)
   const nav = resolveNavigation(await navigationInput(req, docs.navigation), await publishedSlugs(env.DB))
-  await asEditorError(() => publishSiteSettings(env, settingsInput(settings), nav, mediaLoader(req, env)))
+  await writeToSite(req, 'site settings', () => publishSiteSettings(env, settingsInput(settings), nav, mediaLoader(req, env)))
   req.payload.logger.info({ msg: 'site settings published', menuItems: nav.length })
 }
 
 export async function republishHome(req: PayloadRequest, doc: Record<string, unknown>) {
   const env = await publisherEnv()
-  await asEditorError(() => publishHome(env, homeInput(doc)))
+  await writeToSite(req, 'homepage', () => publishHome(env, homeInput(doc)))
   req.payload.logger.info({ msg: 'homepage published' })
 }
 
@@ -146,11 +173,13 @@ export async function syncPage(req: PayloadRequest, id: string | number, deleted
     .findByID({ collection: 'pages', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
     .catch(() => null)) as PageDoc | null
   if (main && main._status === 'published' && !main.deletedAt) {
-    const page = await asEditorError(() => publishPage(env, pageInput(main), mediaLoader(req, env)))
+    const page = await writeToSite(req, `page ${id}`, () => publishPage(env, pageInput(main), mediaLoader(req, env)))
     req.payload.logger.info({ msg: 'page published', slug: page.slug })
   // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-  } else if (await unpublishPage(env, id, { forget: deleted && !main })) req.payload.logger.info({ msg: 'page unpublished', id })
-  await republishSettings(req).catch((error) => req.payload.logger.error({ msg: 'menu refresh failed', message: (error as Error).message }))
+  } else if (await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'page unpublished', id })
+  // The menu shows a page only while it's published, so it is rebuilt with every page change. If that fails
+  // the editor is told (the page itself is already right); it used to be logged and nothing more.
+  await republishSettings(req)
 }
 
 // --- Projects (Phase 4) ---------------------------------------------------------------------------------
@@ -206,10 +235,10 @@ export async function syncProject(req: PayloadRequest, id: string | number, dele
     .findByID({ collection: 'projects', id, draft: false, trash: true, depth: 0, overrideAccess: true, req })
     .catch(() => null)) as ProjectDoc | null
   if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
-    const project = await asEditorError(() => publishProject(env, projectInput(main), mediaLoader(req, env)))
+    const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))
     req.payload.logger.info({ msg: 'project published', slug: project.slug })
   // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-  } else if (await unpublishProject(env, id, { forget: deleted && !main })) req.payload.logger.info({ msg: 'project unpublished', id })
+  } else if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'project unpublished', id })
 }
 
 export async function republishProjectsHome(req: PayloadRequest, doc: Record<string, unknown>) {
@@ -217,4 +246,25 @@ export async function republishProjectsHome(req: PayloadRequest, doc: Record<str
   const projectsHome = (doc.projectsHome ?? {}) as Record<string, unknown>
   await asEditorError(() => publishProjectsHome(env, projectsHome))
   req.payload.logger.info({ msg: 'projects homepage published' })
+}
+
+// --- Checks before saving (docs/AUDIT-2026-11.md, H3) -----------------------------------------------------
+
+/** True when saving this would leave the document published and out of Trash. */
+export const willBePublic = (data: Record<string, unknown>, originalDoc?: Record<string, unknown> | null) =>
+  data._status === 'published' && !('deletedAt' in data ? data.deletedAt : originalDoc?.deletedAt)
+
+/**
+ * Everything publishing this page would check, run before Payload saves it and writing nothing: an address
+ * in use, a featured image that can't be read or is damaged. What can be known in advance is refused here,
+ * while nothing has been saved, rather than after.
+ */
+export async function checkPage(req: PayloadRequest, doc: PageDoc) {
+  const env = await publisherEnv()
+  await asEditorError(() => publishPage(env, pageInput(doc), { ...mediaLoader(req, env), mode: 'check' }))
+}
+
+export async function checkProject(req: PayloadRequest, doc: ProjectDoc) {
+  const env = await publisherEnv()
+  await asEditorError(() => publishProject(env, projectInput(doc), { ...mediaLoader(req, env), mode: 'check' }))
 }

@@ -4,6 +4,8 @@ import { DEFAULT_SITE, SOCIAL_KINDS } from '../../../../src/shared/site-content'
 import { settingsSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
 import { asEditorError, republishSettings, settingsInput } from '../site/publishing'
+import { republish, siteSyncReport } from '../site/sync'
+import { inStep } from '../../../../worker/site/sync-check'
 
 // Site-wide settings for daly.id.au. Saving publishes them straight away (with the menu).
 export const SiteSettings: GlobalConfig = {
@@ -17,6 +19,28 @@ export const SiteSettings: GlobalConfig = {
     read: ({ req }) => contentEditor(req.user as never),
     update: ({ req }) => contentEditor(req.user as never),
   },
+  // Website sync (src/site/sync.ts), here because /api/globals is already behind the admin's sign-in:
+  // GET  /api/globals/site-settings/sync       does the public site match what's published in Payload?
+  // POST /api/globals/site-settings/republish  publish again whatever it has wrong.
+  endpoints: [
+    {
+      path: '/sync',
+      method: 'get',
+      handler: async (req) => {
+        if (!contentEditor(req.user as never)) return Response.json({ error: 'forbidden' }, { status: 403 })
+        const report = await siteSyncReport()
+        return Response.json({ ...report, inStep: inStep(report) }, { headers: { 'Cache-Control': 'no-store' } })
+      },
+    },
+    {
+      path: '/republish',
+      method: 'post',
+      handler: async (req) => {
+        if (!contentEditor(req.user as never)) return Response.json({ error: 'forbidden' }, { status: 403 })
+        return Response.json(await republish(req), { headers: { 'Cache-Control': 'no-store' } })
+      },
+    },
+  ],
   hooks: {
     // Checked before saving, so a mistake is shown and nothing is stored.
     beforeChange: [async ({ data }) => (await asEditorError(async () => settingsSnapshot(settingsInput(data as never), [])), data)],

@@ -3,7 +3,7 @@ import { APIError } from 'payload'
 
 import { pageProblem } from '../../../../worker/site/publisher'
 import { slugify } from '../../../../worker/lib/html'
-import { publisherEnv, syncPage } from '../site/publishing'
+import { checkPage, publisherEnv, syncPage, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Pages on daly.id.au/<address> (the About page is one). Publishing puts a page on the site straight
@@ -55,6 +55,8 @@ export const Pages: CollectionConfig = {
         const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined
         if (ownerId !== undefined && String(ownerId) !== String(originalDoc?.id))
           throw new APIError(`daly.id.au/${slug} is already used by another page.`, 400, undefined, true)
+        // Then everything else a publish checks (the featured image, the rendered page), still before saving.
+        if (willBePublic(data, originalDoc)) await checkPage(req, { ...originalDoc, ...data, slug, id: originalDoc?.id ?? 'new' })
         return data
       },
     ],

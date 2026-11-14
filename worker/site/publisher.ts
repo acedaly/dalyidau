@@ -28,6 +28,7 @@ import {
     type LexicalNode,
     type MediaFile,
     PublishError,
+    type PublishMode,
     type PublisherEnv,
     lexicalHasContent,
     renderLexical,
@@ -94,6 +95,8 @@ export interface MediaLoader {
     loadMedia(id: string | number): Promise<MediaFile | null>;
     now?: () => Date;
     transforms?: boolean;
+    /** `publish` (default), `check` or `preview`: see PublishMode in ../blog/payload-publisher. */
+    mode?: PublishMode;
 }
 
 const strict = (value: unknown, what: string, max: number): string => {
@@ -233,9 +236,14 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
     const problem = pageProblem(input);
     if (problem) throw new PublishError(problem);
     const slug = input.slug;
-    const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SNAPSHOT.page(slug)).first<{ value: string }>();
-    const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
-    if (owner && ownerId !== undefined && String(ownerId) !== String(input.id)) throw new PublishError(`daly.id.au/${slug} is already used by another page.`);
+    const mode = ctx.mode ?? "publish";
+    // A preview claims no address; a check and a publish refuse one another item holds.
+    if (mode !== "preview") {
+        const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SNAPSHOT.page(slug)).first<{ value: string }>();
+        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
+        if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
+            throw new PublishError(`daly.id.au/${slug} is already used by another page.`);
+    }
 
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
     const copy = async (id: string | number) => {
@@ -243,7 +251,7 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         if (stored.has(key)) return stored.get(key)!;
         const file = await ctx.loadMedia(id);
         if (!file) return null;
-        const image = await storePublicImage(env, `payload-media:${key}`, file, now);
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode);
         if (image) stored.set(key, { ...image, caption: file.caption ?? null });
         return image;
     };
@@ -279,6 +287,7 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
     };
     const page = normalisePage(snapshot);
     if (!page) throw new PublishError("This page can't be published as it is.");
+    if (mode !== "publish") return page;
 
     const previousSlug = await currentSlug(env.DB, pageIdKey(input.id));
     const statements = [
@@ -398,16 +407,25 @@ const rebuildProjectIndex = (db: D1Database) =>
         )
         .bind(SNAPSHOT.projects);
 
+/** Rebuilds the project list on its own (the Republish action, when only the list is out of step). */
+export async function republishProjectList(env: Pick<PublisherEnv, "DB">, now = new Date()): Promise<void> {
+    await env.DB.batch([rebuildProjectIndex(env.DB), bump(env.DB, now.toISOString())]);
+}
+
 /** Publishes a project at daly.id.au/projects/<slug>. A renamed project's old address redirects. */
 export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx: MediaLoader): Promise<Project> {
     const now = (ctx.now?.() ?? new Date()).toISOString();
     const problem = projectProblem(input);
     if (problem) throw new PublishError(problem);
     const slug = input.slug;
-    const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectKey(slug)).first<{ value: string }>();
-    const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
-    if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
-        throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
+    const mode = ctx.mode ?? "publish";
+    // A preview claims no address; a check and a publish refuse one another item holds.
+    if (mode !== "preview") {
+        const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectKey(slug)).first<{ value: string }>();
+        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
+        if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
+            throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
+    }
 
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
     const copy = async (id: string | number) => {
@@ -415,7 +433,7 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
         if (stored.has(key)) return stored.get(key)!;
         const file = await ctx.loadMedia(id);
         if (!file) return null;
-        const image = await storePublicImage(env, `payload-media:${key}`, file, now);
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode);
         if (image) stored.set(key, { ...image, caption: file.caption ?? null });
         return image;
     };
@@ -473,6 +491,7 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     };
     const project = normaliseProject(snapshot);
     if (!project) throw new PublishError("This project can't be published as it is.");
+    if (mode !== "publish") return project;
 
     const previousSlug = await currentSlug(env.DB, projectIdKey(input.id));
     const statements = [
