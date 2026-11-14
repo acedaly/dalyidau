@@ -19,12 +19,10 @@ import {
     normaliseHome,
     normalisePage,
     normaliseProject,
-    normaliseProjectSummary,
     normaliseProjectsHome,
     normaliseSite,
     pageSlugProblem,
     safeLink,
-    sortProjects,
 } from "../../src/shared/site-content";
 import {
     type LexicalNode,
@@ -375,26 +373,30 @@ export function projectProblem(input: Pick<ProjectInput, "slug" | "title" | "sta
 }
 
 /**
- * The list of public projects (cards, the index, the sitemap) as it will be once a change is written:
- * the published snapshots, minus the addresses being removed, plus the one being written. Built before
- * the write so the project and the list go out in one batch (all or nothing) and can't disagree.
+ * Rebuilds the list of public projects (cards, the index, the sitemap) from the published snapshots, inside
+ * the database: the statement goes last in the same batch as the change, so it reads the rows as that batch
+ * has just left them. D1 runs a batch as one transaction and one write at a time, so:
+ * - the project and the list are written together or not at all, and
+ * - two projects published at the same moment can't each write a list that misses the other (a list built
+ *   in the Worker from an earlier read could).
+ * The list holds each snapshot without its long fields; the readers normalise and sort it (projectList).
  */
-async function rebuildProjectIndex(db: D1Database, change: { remove?: string[]; add?: unknown } = {}) {
-    const { results } = await db.prepare("SELECT key, value FROM meta WHERE key LIKE 'project:%'").all<{ key: string; value: string }>();
-    const removed = new Set((change.remove ?? []).map(projectKey));
-    const values: unknown[] = [];
-    for (const r of results) {
-        if (removed.has(r.key)) continue;
-        try {
-            values.push(JSON.parse(r.value));
-        } catch {
-            // A damaged snapshot is left out of the list, as before.
-        }
-    }
-    if (change.add !== undefined) values.push(change.add);
-    const summaries = sortProjects(values.map((v) => normaliseProjectSummary(v)).filter((p): p is NonNullable<typeof p> => Boolean(p)));
-    return put(db, SNAPSHOT.projects, summaries);
-}
+const rebuildProjectIndex = (db: D1Database) =>
+    db
+        .prepare(
+            `INSERT INTO meta (key, value)
+             SELECT ?1, (
+                 SELECT json_group_array(json(summary)) FROM (
+                     SELECT json_remove(value, '$.bodyHtml', '$.gallery', '$.links', '$.seoTitle', '$.seoDescription') AS summary
+                     FROM meta
+                     WHERE substr(key, 1, 8) = 'project:' AND json_valid(value)
+                     ORDER BY json_extract(value, '$.featured') DESC, json_extract(value, '$.order'), json_extract(value, '$.title') COLLATE NOCASE
+                 )
+             )
+             WHERE true
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        )
+        .bind(SNAPSHOT.projects);
 
 /** Publishes a project at daly.id.au/projects/<slug>. A renamed project's old address redirects. */
 export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx: MediaLoader): Promise<Project> {
@@ -485,14 +487,14 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     }
     // Last, so it wins over the lines above: an address a project now owns never redirects.
     statements.push(del(env.DB, projectRedirectKey(slug)));
-    const remove = previousSlug && previousSlug !== slug ? [slug, previousSlug] : [slug];
-    statements.push(await rebuildProjectIndex(env.DB, { remove, add: snapshot }), bump(env.DB, now));
+    statements.push(rebuildProjectIndex(env.DB), bump(env.DB, now));
     await env.DB.batch(statements);
     return project;
 }
 
 /**
- * Takes a project off the site (unpublished, hidden or in Trash), in one batch with the project list.
+ * Takes a project off the site (unpublished, hidden or in Trash), in one batch with the project list
+ * (rebuildProjectIndex).
  * Its addresses, the current one included, are kept for it (see offSite): they answer 404 while it's off
  * the site and lead to it again when it's back, even at a new address. `forget` is for a project deleted
  * for good: its addresses are released.
@@ -507,7 +509,7 @@ export async function unpublishProject(env: PublisherEnv, id: string | number, o
     } else if (slug) {
         statements.push(repoint(env.DB, "project-redirect:", slug, marker), put(env.DB, projectRedirectKey(slug), marker));
     }
-    statements.push(await rebuildProjectIndex(env.DB, { remove: slug ? [slug] : [] }), bump(env.DB, (options.now ?? new Date()).toISOString()));
+    statements.push(rebuildProjectIndex(env.DB), bump(env.DB, (options.now ?? new Date()).toISOString()));
     await env.DB.batch(statements);
     return Boolean(slug);
 }

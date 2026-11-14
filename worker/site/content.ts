@@ -19,6 +19,7 @@ import {
     normaliseProjectSummary,
     normaliseProjectsHome,
     normaliseSite,
+    sortProjects,
 } from "../../src/shared/site-content";
 
 export const SNAPSHOT = {
@@ -126,7 +127,8 @@ export async function listPages(db: D1Database): Promise<{ slug: string; lastmod
 
 const projectList = (value: string | undefined): ProjectSummary[] => {
     const parsed = parse(value);
-    return Array.isArray(parsed) ? (parsed.map(normaliseProjectSummary).filter(Boolean) as ProjectSummary[]) : [];
+    // Sorted here, not trusted from storage: the list is built inside the database (publisher.ts rebuildProjectIndex).
+    return Array.isArray(parsed) ? sortProjects(parsed.map(normaliseProjectSummary).filter(Boolean) as ProjectSummary[]) : [];
 };
 
 /** Everything the projects-first homepage needs except posts, in one query. */

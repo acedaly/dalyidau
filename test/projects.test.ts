@@ -248,6 +248,71 @@ describe("with the switch on", () => {
         expect(await consistent()).toEqual([]);
     });
 
+    it("two projects published at the same moment both end up in the list", async () => {
+        await setSwitch(true);
+        // Hold every publish at the point of writing until all of them have got there, so each has done
+        // all its reading before any has written: the interleaving in which a list built from an earlier
+        // read loses a project.
+        const publishers = 4;
+        let waiting = 0;
+        let release!: () => void;
+        const allReady = new Promise<void>((resolve) => (release = resolve));
+        const gated = {
+            ...testEnv,
+            DB: new Proxy(testEnv.DB, {
+                get(target, prop) {
+                    if (prop === "batch")
+                        return async (statements: Parameters<typeof target.batch>[0]) => {
+                            if (++waiting === publishers) release();
+                            await allReady;
+                            return target.batch(statements);
+                        };
+                    const value = Reflect.get(target, prop);
+                    return typeof value === "function" ? value.bind(target) : value;
+                },
+            }),
+        } as never;
+        await Promise.all(
+            Array.from({ length: publishers }, (_, i) =>
+                publishProject(gated, project({ id: i + 1, slug: `lamp-${i + 1}`, title: `Lamp ${i + 1}`, featured: false, order: i }), media),
+            ),
+        );
+        const stored = JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:projects'").first<{ value: string }>())!.value) as Array<{
+            slug: string;
+            bodyHtml?: string;
+        }>;
+        expect(stored.map((p) => p.slug).sort()).toEqual(["lamp-1", "lamp-2", "lamp-3", "lamp-4"]);
+        expect(
+            stored.every((p) => p.bodyHtml === undefined),
+            "the list carries summaries, not whole projects",
+        ).toBe(true);
+        const index = (await get("/projects")).html;
+        for (let i = 1; i <= publishers; i++) expect(index).toContain(`/projects/lamp-${i}`);
+        expect(index.indexOf("Lamp 1")).toBeLessThan(index.indexOf("Lamp 4"));
+        expect((await get("/sitemap.xml")).html).toContain("/projects/lamp-3");
+
+        // The same for taking projects down at the same moment as another goes up.
+        waiting = 0;
+        await Promise.all([
+            unpublishProject(gated, 1),
+            unpublishProject(gated, 2),
+            publishProject(gated, project({ id: 5, slug: "lamp-5", title: "Lamp 5" }), media),
+            unpublishProject(gated, 3),
+        ]);
+        const after = JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:projects'").first<{ value: string }>())!.value) as Array<{
+            slug: string;
+        }>;
+        expect(after.map((p) => p.slug).sort()).toEqual(["lamp-4", "lamp-5"]);
+    });
+
+    it("leaves a damaged snapshot out of the list instead of failing the publish", async () => {
+        await setSwitch(true);
+        await testEnv.DB.prepare("INSERT INTO meta (key, value) VALUES ('project:broken', '{not json')").run();
+        await publishProject(testEnv, project(), media);
+        expect((await get("/projects")).html).toContain("/projects/lamp");
+        expect((await get("/projects/broken")).status).toBe(404);
+    });
+
     it("switches on and off on the next request, through the edge cache", async () => {
         await publishProject(testEnv, project(), media);
         const design = async () => ((await get("/")).html.includes('class="site-v2"') ? "projects" : "classic");
