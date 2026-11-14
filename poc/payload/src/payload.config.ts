@@ -85,7 +85,7 @@ export default buildConfig({
       // The wedding first (used most), Administration last; the Wedding section heads the dashboard.
       beforeNavLinks: ['/views/wedding-nav#WeddingNav'],
       afterNavLinks: ['/views/wedding-nav#AdministrationNav'],
-      beforeDashboard: ['/views/dashboard-wedding#DashboardWedding'],
+      beforeDashboard: ['/views/dashboard-wedding#DashboardWedding', '/views/dashboard-site-sync#DashboardSiteSync'],
       graphics: { Icon: '/views/brand#DalyIcon', Logo: '/views/brand#DalyLogo' },
     },
   },

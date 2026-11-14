@@ -2,6 +2,7 @@
 //   node e2e-platform/custom-view.mjs   (with `wrangler dev --port 8790` running and invented data seeded)
 // Chromium resolves daly.id.au to the local Worker, so hostname rules apply exactly as in production.
 import { chromium } from "../../../node_modules/playwright/index.mjs";
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { token, OWNER } from "../scripts/test-identity.mjs";
@@ -58,6 +59,67 @@ const payloadStyle = () =>
 const before = await payloadStyle();
 await page.screenshot({ path: `${out}/payload-dashboard.png` });
 check("Payload admin dashboard renders for an Access-verified owner", (await page.locator("text=Wedding").count()) > 0, "Wedding links in Payload's nav");
+
+// "Website sync" on the dashboard (Phase 2): says the site matches Payload; when it doesn't, names what's
+// wrong and Republish (a real click) puts it right.
+{
+    const panel = page.locator(".daly-sync");
+    check("The dashboard says the website matches what's published", (await panel.getAttribute("data-state")) === "ok" && (await panel.innerText()).includes("matches what’s published"), await panel.innerText().catch(() => "no panel"));
+    // A page published through Payload, then the site broken behind Payload's back as a failed write could:
+    // the page loses its snapshot, and a post appears that Payload has no document for.
+    // Every request is made by the browser itself (fetch in the page), never page.request: that one runs
+    // outside the browser, ignores the host mapping above and would reach the real daly.id.au.
+    // From a tab of its own, so the 404s these checks expect aren't counted as errors on the admin's page.
+    const probe = await page.context().newPage();
+    await probe.goto("http://daly.id.au/admin", { waitUntil: "domcontentloaded" });
+    const ask = (method, url, data) =>
+        probe.evaluate(
+            async ([method, url, data]) => {
+                const response = await fetch(url, { method, credentials: "same-origin", redirect: "manual", headers: data ? { "Content-Type": "application/json" } : {}, body: data ? JSON.stringify(data) : undefined });
+                const text = await response.text();
+                let json = null;
+                try {
+                    json = JSON.parse(text);
+                } catch {}
+                return { status: response.status, ok: response.ok, text, json };
+            },
+            [method, url, data ?? null],
+        );
+    const statusOf = async (path) => (await ask("GET", path)).status;
+    const sql = (command) => execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", command], { cwd: path.resolve(import.meta.dirname, ".."), stdio: "pipe" });
+    const made = await ask("POST", "/api/pages?draft=false", {
+        ...{ title: "Sync panel check", slug: "sync-panel-check", _status: "published", content: { root: { type: "root", format: "", indent: 0, version: 1, direction: "ltr", children: [{ type: "paragraph", format: "", indent: 0, version: 1, direction: "ltr", textFormat: 0, children: [{ type: "text", text: "On the site.", format: 0, detail: 0, mode: "normal", style: "", version: 1 }] }] } } },
+    });
+    const madeId = made.json?.doc?.id;
+    check("(a page published through Payload is on the site)", made.ok && !!madeId && (await statusOf("/sync-panel-check")) === 200, `${made.status} ${made.text.slice(0, 200)}`);
+    sql(`DELETE FROM meta WHERE key IN ('page:sync-panel-check', 'page-id:${madeId}'); INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('payload:stray', 'stray-post', 'A stray post', '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, '2026-11-01T00:00:00.000Z', 'h', '2026-11-01T00:00:00.000Z', 'payload'); INSERT INTO meta (key, value) VALUES ('content_version', 'sync-panel-check') ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+    check("(the site is now wrong: the page is gone)", (await statusOf("/sync-panel-check")) === 404);
+    await page.reload({ waitUntil: "networkidle" });
+    const alert = page.locator(".daly-sync [role=alert]");
+    const said = await alert.innerText().catch(() => "");
+    check("…and when it doesn't, it says what's wrong", (await panel.getAttribute("data-state")) === "out" && /Page: Sync panel check — published here, but not on the website/.test(said) && said.includes("A stray post"), said);
+    await page.screenshot({ path: `${out}/payload-dashboard-out-of-sync.png` });
+    await page.getByRole("button", { name: "Republish" }).click();
+    await page.waitForFunction(() => !document.querySelector(".daly-sync")?.textContent?.includes("Page: Sync panel check"), null, { timeout: 20000 });
+    check("Republish (a real click) puts the page back on the site", (await statusOf("/sync-panel-check")) === 200);
+    const after = await panel.innerText();
+    check(
+        "…and never removes what Payload has no document for: the stray post is still up, named, and left for a person to decide",
+        (await statusOf("/blog/stray-post")) === 200 && after.includes("A stray post") && after.includes("leaves it alone") && (await page.getByRole("button", { name: "Republish" }).count()) === 0,
+        after,
+    );
+    check("…and the panel records the repair: who, when, and what happened to each item", /Last Republish\s+.*owner@example\.test: 1 fixed, 0 failed, 1 left alone/s.test(after) && /Out of step now\s+1 item/.test(after), after);
+    // The owner removes the stray post on purpose: two presses, never one.
+    await page.getByRole("button", { name: "Remove from the website…" }).click();
+    check("Removing asks first", (await statusOf("/blog/stray-post")) === 200 && (await page.getByRole("button", { name: /Yes, remove/ }).count()) === 1);
+    await page.getByRole("button", { name: /Yes, remove/ }).click();
+    await page.waitForFunction(() => document.querySelector(".daly-sync")?.getAttribute("data-state") === "ok", null, { timeout: 20000 });
+    check("…then takes it off the website", (await statusOf("/blog/stray-post")) === 404);
+    await ask("DELETE", `/api/pages/${madeId}`);
+    await page.reload({ waitUntil: "networkidle" });
+    check("…and the dashboard says the website matches again", (await panel.getAttribute("data-state")) === "ok", await panel.innerText());
+    await page.screenshot({ path: `${out}/payload-dashboard-in-sync.png` });
+}
 
 // The wedding menu is in collapsible groups (Payload's NavGroup): clicking a label closes and reopens it.
 {

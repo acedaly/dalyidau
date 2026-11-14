@@ -70,6 +70,8 @@ export interface PublicSiteContext {
     design?: "projects";
     /** The private preview's address prefix ("/portal/preview"); links to the redesigned pages keep it. */
     base?: string;
+    /** Set only on a draft preview (worker/site/preview.ts): the page says so, above everything else. */
+    preview?: { published: boolean; createdAt: string };
 }
 
 export type PageData = PageRoute & { context: PublicSiteContext };

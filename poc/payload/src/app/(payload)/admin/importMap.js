@@ -26,6 +26,7 @@ import { DalyIcon as DalyIcon_e471d128ae4ef759453ad66e6584d35a } from '../../../
 import { DalyLogo as DalyLogo_e471d128ae4ef759453ad66e6584d35a } from '../../../views/brand'
 import { AdministrationNav as AdministrationNav_d62215a7b9cd8f32f71e06a9fc3d512f } from '../../../views/wedding-nav'
 import { DashboardWedding as DashboardWedding_9c801c3e8a9453ecb7e9ac2ce2977439 } from '../../../views/dashboard-wedding'
+import { DashboardSiteSync as DashboardSiteSync_5b1f0c8e2a7d4f6e9c3b1a2d4e6f8a0b } from '../../../views/dashboard-site-sync'
 import { WeddingNav as WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f } from '../../../views/wedding-nav'
 import { WeddingView as WeddingView_89f3776151e178f7bd4678261c83a692 } from '../../../views/wedding-view'
 import { AdministrationView as AdministrationView_31a20551262206fdc11c96539bce98be } from '../../../views/administration-view'
@@ -62,6 +63,7 @@ export const importMap = {
   "/views/brand#DalyLogo": DalyLogo_e471d128ae4ef759453ad66e6584d35a,
   "/views/wedding-nav#AdministrationNav": AdministrationNav_d62215a7b9cd8f32f71e06a9fc3d512f,
   "/views/dashboard-wedding#DashboardWedding": DashboardWedding_9c801c3e8a9453ecb7e9ac2ce2977439,
+  "/views/dashboard-site-sync#DashboardSiteSync": DashboardSiteSync_5b1f0c8e2a7d4f6e9c3b1a2d4e6f8a0b,
   "/views/wedding-nav#WeddingNav": WeddingNav_d62215a7b9cd8f32f71e06a9fc3d512f,
   "/views/wedding-view#WeddingView": WeddingView_89f3776151e178f7bd4678261c83a692,
   "/views/administration-view#AdministrationView": AdministrationView_31a20551262206fdc11c96539bce98be,

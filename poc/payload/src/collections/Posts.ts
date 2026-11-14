@@ -1,26 +1,17 @@
 import type { CollectionAfterChangeHook, CollectionAfterDeleteHook, CollectionBeforeChangeHook, CollectionConfig } from 'payload'
 import { APIError } from 'payload'
 
-import {
-  type PayloadPostInput,
-  type PublisherEnv,
-  PublishError,
-  publishPayloadPost,
-  unpublishPayloadPost,
-} from '../../../../worker/blog/payload-publisher'
+import type { PayloadRequest } from 'payload'
+
+import { type PayloadPostInput, preparePayloadPost, unpublishPayloadPost } from '../../../../worker/blog/payload-publisher'
 import { isValidSlug, slugify } from '../../../../worker/lib/html'
-import { cloudflareEnv } from '../cloudflare-env'
+import { DELETED_NOT_ON_SITE, asEditorError, mediaLoader, previewEndpoint, publisherEnv, reader, settle, statusAfter, willBePublic, writeToSite } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // The blog's posts (docs/PAYLOAD-BLOG.md). Payload is where they're written and kept. The public
 // site keeps rendering them from the `posts` table, which this collection's hooks keep in step with
 // Payload's main (published) document: publishing writes the post there, unpublishing or deleting
 // removes it. Saving a draft changes nothing public.
-
-const publisherEnv = async (): Promise<PublisherEnv & { R2: R2Bucket }> => {
-  const e = await cloudflareEnv<PublisherEnv & { R2: R2Bucket }>()
-  return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2 }
-}
 
 type PostDoc = {
   id: number | string
@@ -36,6 +27,7 @@ type PostDoc = {
   content?: PayloadPostInput['content']
   publishedAt?: string | null
   updatedDate?: string | null
+  updatedAt?: string | null
   legacy?: {
     bodyHtml?: string | null
     toc?: unknown
@@ -75,6 +67,7 @@ export const toPublisherInput = (doc: PostDoc): PayloadPostInput => {
     featured: doc.featured,
     publishedAt: doc.publishedAt ?? null,
     updatedAt: doc.updatedDate ?? null,
+    sourceUpdatedAt: doc.updatedAt ?? null,
     content: doc.content ?? null,
     legacy,
     heroMediaId: idOf(doc.heroImage),
@@ -100,7 +93,8 @@ const assignPublicId: CollectionBeforeChangeHook = ({ data, operation }) => {
 
 /** Refuses a publish that would fail anyway, before anything is saved. */
 const validateBeforePublish: CollectionBeforeChangeHook = async ({ data, originalDoc, req }) => {
-  if (data._status !== 'published') return data
+  // What the post will be after this save (a change that doesn't mention the status keeps it).
+  if (statusAfter(data, originalDoc) !== 'published') return data
   const slug = slugify(String(data.slug ?? originalDoc?.slug ?? data.title ?? ''))
   if (!slug || !isValidSlug(slug)) throw new APIError('Give the post a web address made of lower-case letters, numbers and hyphens.', 400, undefined, true)
   data.slug = slug
@@ -109,63 +103,54 @@ const validateBeforePublish: CollectionBeforeChangeHook = async ({ data, origina
   const publicId = String(data.publicId ?? originalDoc?.publicId ?? '')
   const clash = await env.DB.prepare('SELECT id FROM posts WHERE slug = ? AND id != ?').bind(slug, publicId).first<{ id: string }>()
   if (clash) throw new APIError(`/blog/${slug} is already used by another post.`, 400, undefined, true)
+  // Then everything else a publish checks (some content, a featured image that can be read, a row another
+  // publisher owns), run in full and writing nothing, while nothing has been saved yet.
+  if (willBePublic(data, originalDoc)) {
+    const merged = { ...originalDoc, ...data, slug, publicId, id: originalDoc?.id ?? 'new' } as PostDoc
+    await asEditorError(() => preparePayloadPost(env, toPublisherInput(merged), { ...mediaLoader(req, env), mode: 'check' }))
+  }
   req.payload.logger.info({ msg: 'post publish validated', slug })
   return data
 }
 
-/** Makes the public site match Payload's main (published) document. */
-const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) => {
-  if (context?.skipPublicSync) return doc
-  // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
-  const main = (await req.payload.findByID({
-    collection: 'posts',
-    id: doc.id,
-    draft: false,
-    trash: true,
-    depth: 0,
-    overrideAccess: true,
-    req,
-  })) as PostDoc
+/**
+ * Makes the public site match Payload's main (published) document of a post. Also what Republish runs
+ * (site/sync.ts). `siteId` is the post's id on the site, for when Payload has no document any more.
+ */
+export async function syncPost(req: PayloadRequest, id: number | string, options: { siteId?: string; deleted?: boolean } = {}) {
   const env = await publisherEnv()
-  const input = toPublisherInput(main)
-  try {
+  // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
+  // Null only when the post really is gone; a read that fails is retried, then reported (never read as "gone").
+  await settle(reader<PostDoc>(req, `post ${id}`, 'posts', id), async (main) => {
     // In Trash (deleted, restorable) counts as unpublished.
-    if (main._status === 'published' && !main.deletedAt) {
-      const result = await publishPayloadPost(env, input, {
-        loadMedia: async (id) => {
-          const media = (await req.payload.findByID({ collection: 'media', id, depth: 0, overrideAccess: true, req }).catch(() => null)) as {
-            filename?: string
-            mimeType?: string
-            alt?: string
-            caption?: string | null
-          } | null
-          if (!media?.filename) return null
-          const object = await env.R2.get(media.filename)
-          if (!object) return null
-          return {
-            bytes: new Uint8Array(await object.arrayBuffer()),
-            contentType: media.mimeType ?? object.httpMetadata?.contentType ?? '',
-            alt: media.alt ?? '',
-            caption: media.caption ?? null,
-          }
-        },
-      })
-      req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome, slug: result.slug })
-    } else if (await unpublishPayloadPost(env, input.postId)) {
-      req.payload.logger.info({ msg: 'blog post unpublished', postId: input.postId })
+    if (main && main._status === 'published' && !main.deletedAt) {
+      const result = await writeToSite(req, `post ${id}`, () => preparePayloadPost(env, toPublisherInput(main), mediaLoader(req, env)))
+      req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome.outcome, slug: result.slug })
+      return
     }
-  } catch (error) {
-    if (error instanceof PublishError) throw new APIError(error.message, 400, undefined, true)
-    throw error
-  }
+    // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
+    if (!main && !options.deleted) return
+    const siteId = main ? toPublisherInput(main).postId : options.siteId
+    if (!siteId) return
+    // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
+    const removed = await writeToSite(
+      req,
+      `post ${id}`,
+      () => unpublishPayloadPost(env, siteId, { forget: !!options.deleted && !main }),
+      undefined,
+      options.deleted ? DELETED_NOT_ON_SITE : undefined,
+    )
+    if (removed) req.payload.logger.info({ msg: 'blog post unpublished', postId: siteId })
+  })
+}
+
+const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) => {
+  if (!context?.skipPublicSync) await syncPost(req, doc.id)
   return doc
 }
 
 const removePublicPost: CollectionAfterDeleteHook = async ({ doc, req, context }) => {
-  if (context?.skipPublicSync) return
-  const env = await publisherEnv()
-  // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
-  if (await unpublishPayloadPost(env, toPublisherInput(doc as PostDoc).postId, { forget: true })) req.payload.logger.info({ msg: 'blog post removed', id: doc.id })
+  if (!context?.skipPublicSync) await syncPost(req, doc.id, { siteId: toPublisherInput(doc as PostDoc).postId, deleted: true })
 }
 
 export const Posts: CollectionConfig = {
@@ -176,7 +161,8 @@ export const Posts: CollectionConfig = {
     group: 'Blog and Media',
     defaultColumns: ['title', 'slug', '_status', 'publishedAt'],
     description: 'Posts on daly.id.au/blog. Publishing puts a post on the site straight away; Unpublish takes it down.',
-    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/blog/${doc.slug}` : null),
+    // The latest saved version, draft or not, as it will look on the site (src/site/publishing.ts previewEndpoint).
+    preview: (doc) => (doc?.id ? `/api/posts/${doc.id}/preview` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
   // Trash: moving a post there (an update) takes it off the site and keeps it restorable. Deleting permanently is owners only.
@@ -189,6 +175,12 @@ export const Posts: CollectionConfig = {
     delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
+  endpoints: [
+    previewEndpoint('post', 'posts', async (env, doc, loader) => {
+      const prepared = await preparePayloadPost(env, toPublisherInput(doc as PostDoc), loader)
+      return { slug: prepared.slug, record: prepared.record }
+    }),
+  ],
   hooks: {
     beforeChange: [assignPublicId, validateBeforePublish],
     afterChange: [syncPublicPost],

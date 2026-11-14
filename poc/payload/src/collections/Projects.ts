@@ -4,7 +4,7 @@ import { APIError } from 'payload'
 import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
-import { syncProject } from '../site/publishing'
+import { checkProject, projectPreview, syncProject, statusAfter, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Projects on daly.id.au/projects (Phase 4). Publishing puts a project on the site straight away (while
@@ -19,8 +19,8 @@ export const Projects: CollectionConfig = {
     defaultColumns: ['title', 'status', 'featured', 'order', '_status', 'updatedAt'],
     description:
       'Projects at daly.id.au/projects. Featured projects lead the homepage; Display order sorts the rest (lower first). Nothing is public until you publish, and only while "Show on the public site" is ticked.',
-    // The preview shows the published version (drafts stay private everywhere).
-    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/portal/preview/projects/${doc.slug}` : null),
+    // The latest saved version, draft or not, as it will look on the site (src/site/publishing.ts previewEndpoint).
+    preview: (doc) => (doc?.id ? `/api/projects/${doc.id}/preview` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
   trash: true,
@@ -32,6 +32,7 @@ export const Projects: CollectionConfig = {
     delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
+  endpoints: [projectPreview],
   hooks: {
     beforeChange: [
       async ({ data, originalDoc, req }) => {
@@ -49,7 +50,8 @@ export const Projects: CollectionConfig = {
           })
           if (others.totalDocs) throw new APIError(`daly.id.au/projects/${slug} is already used by another project.`, 400, undefined, true)
         }
-        if (data._status !== 'published') return data
+        // What the document will be after this save (a change that doesn't mention the status keeps it).
+        if (statusAfter(data, originalDoc) !== 'published') return data
         const merged = { ...originalDoc, ...data }
         const problem = projectProblem({
           slug,
@@ -60,6 +62,8 @@ export const Projects: CollectionConfig = {
           links: merged.links,
         })
         if (problem) throw new APIError(problem, 400, undefined, true)
+        // Then everything else a publish checks (the address, the cover and screenshots), still before saving.
+        if (willBePublic(data, originalDoc) && merged.listed !== false) await checkProject(req, { ...merged, slug, id: originalDoc?.id ?? 'new' })
         return data
       },
     ],

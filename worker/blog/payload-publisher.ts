@@ -56,6 +56,8 @@ export interface PayloadPostInput {
     featured?: boolean | null;
     publishedAt?: string | null;
     updatedAt?: string | null;
+    /** When Payload last saved the published document (its updatedAt): recorded so the sync check can tell which save the site shows. */
+    sourceUpdatedAt?: string | null;
     /** Lexical rich text. When empty and `legacy` is present, the stored HTML is kept as it is. */
     content?: { root?: LexicalNode } | null;
     /** What an imported post had in `posts`, kept verbatim. */
@@ -77,13 +79,28 @@ export interface PublisherEnv {
     SITE_URL: string;
 }
 
+/**
+ * What a publisher call does with its result:
+ * - `publish` (the default) writes it to the public site;
+ * - `check` does everything a publish does except write: every refusal a publish could give for this
+ *   content (an address in use, an image that can't be read, no content) is given, and nothing is stored.
+ *   Payload runs it before it saves, so a publish that can't succeed is refused before anything is saved;
+ * - `preview` builds the same result for a private preview: nothing public is written, addresses aren't
+ *   claimed, and images go to a private part of the bucket only signed-in editors can read.
+ */
+export type PublishMode = "publish" | "check" | "preview";
+
 export interface PublishContext {
     /** Reads a Payload media document's file; null when it doesn't exist or isn't an image. */
     loadMedia(id: string | number): Promise<MediaFile | null>;
     now?: () => Date;
     /** Image transformations (srcset) — off unless the zone has them. */
     transforms?: boolean;
+    mode?: PublishMode;
 }
+
+/** Where a preview's images are kept: never served by the public /media route (worker/index.ts media). */
+export const PREVIEW_MEDIA_PREFIX = "preview/";
 
 export class PublishError extends Error {}
 
@@ -280,13 +297,26 @@ export const lexicalHasContent = (root: LexicalNode | null | undefined): boolean
  * Copies an image into the public bucket under its content hash (the same scheme as the Capacities
  * sync) and records it in `media`. Returns null for anything that isn't an allowed image type.
  */
-export async function storePublicImage(env: PublisherEnv, mediaId: string, file: MediaFile, now: string): Promise<StoredImage | null> {
+export async function storePublicImage(
+    env: PublisherEnv,
+    mediaId: string,
+    file: MediaFile,
+    now: string,
+    mode: PublishMode = "publish",
+): Promise<StoredImage | null> {
     const type = file.contentType.split(";")[0].trim().toLowerCase();
     const ext = ALLOWED_IMAGE_TYPES[type];
     // Only a whole, well-formed image of a sane size is ever copied to the public bucket (lib/image.ts imageProblem).
     if (!ext || imageProblem(file.bytes, type)) return null;
     const key = `${(await sha256(file.bytes)).slice(0, 24)}.${ext}`;
     const dims = imageDimensions(file.bytes, type);
+    if (mode !== "publish") {
+        // A check stores nothing. A preview keeps the file where only signed-in editors can read it.
+        // Written again on every preview, so its age (which the clean-up goes by) is that of the latest preview using it.
+        if (mode === "preview" && !(await env.MEDIA.head(key)))
+            await env.MEDIA.put(PREVIEW_MEDIA_PREFIX + key, file.bytes, { httpMetadata: { contentType: type } });
+        return { key, alt: file.alt, width: dims?.width ?? null, height: dims?.height ?? null };
+    }
     if (!(await env.MEDIA.head(key)))
         await env.MEDIA.put(key, file.bytes, { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" } });
     await env.DB.prepare(
@@ -307,6 +337,37 @@ export type PublishOutcome = { outcome: "published" | "updated" | "unchanged"; p
  * by another post, or a row owned by another publisher is refused and nothing is written.
  */
 export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostInput, ctx: PublishContext): Promise<PublishOutcome> {
+    return (await preparePayloadPost(env, input, ctx)).outcome;
+}
+
+export type PreparedPost = {
+    outcome: PublishOutcome;
+    slug: string;
+    /** The row as it is (or would be) in `posts`. */
+    record: {
+        title: string;
+        subtitle: string | null;
+        summary: string | null;
+        category: string | null;
+        tags: string[];
+        featured: boolean;
+        image_key: string | null;
+        image_alt: string | null;
+        image_width: number | null;
+        image_height: number | null;
+        body_html: string;
+        toc: TocEntry[];
+        search_text: string;
+        word_count: number;
+        reading_minutes: number;
+        published_at: string;
+        updated_at: string | null;
+    };
+};
+
+/** Builds a post's public row and, in `publish` mode, writes it. See PublishMode for `check` and `preview`. */
+export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostInput, ctx: PublishContext): Promise<PreparedPost> {
+    const mode = ctx.mode ?? "publish";
     const now = (ctx.now?.() ?? new Date()).toISOString();
     const title = input.title?.trim();
     if (!title) throw new PublishError("A published post needs a title.");
@@ -317,9 +378,11 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
         .bind(input.postId)
         .first<{ id: string; slug: string; source: string; content_hash: string }>();
     // An imported post is claimed by its import (payload-import.ts) before it's published from here.
-    if (existing && existing.source !== "payload") throw new PublishError(`Post ${input.postId} belongs to the ${existing.source} publisher.`);
-    const clash = await env.DB.prepare("SELECT id FROM posts WHERE slug = ? AND id != ?").bind(slug, input.postId).first<{ id: string }>();
-    if (clash) throw new PublishError(`/blog/${slug} is already used by another post.`);
+    if (mode !== "preview") {
+        if (existing && existing.source !== "payload") throw new PublishError(`Post ${input.postId} belongs to the ${existing.source} publisher.`);
+        const clash = await env.DB.prepare("SELECT id FROM posts WHERE slug = ? AND id != ?").bind(slug, input.postId).first<{ id: string }>();
+        if (clash) throw new PublishError(`/blog/${slug} is already used by another post.`);
+    }
 
     // Images first, so the HTML only ever points at files that exist.
     const stored = new Map<string, StoredImage & { caption?: string | null }>();
@@ -328,7 +391,7 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
         if (stored.has(key)) return stored.get(key)!;
         const file = await ctx.loadMedia(id);
         if (!file) return null;
-        const image = await storePublicImage(env, `payload-media:${key}`, file, now);
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode);
         if (image) stored.set(key, { ...image, caption: file.caption ?? null });
         return image;
     };
@@ -337,7 +400,11 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
     const hasContent = lexicalHasContent(root);
     let body: { html: string; toc: TocEntry[]; text: string; wordCount: number; readingMinutes: number };
     if (hasContent) {
-        for (const id of uploadIds(root)) await copy(id);
+        for (const id of uploadIds(root))
+            if (!(await copy(id)))
+                throw new PublishError(
+                    "An image in the text couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB. Remove it or upload it again.",
+                );
         const rendered = renderLexical(root, {
             siteUrl: env.SITE_URL,
             image: (id) => {
@@ -388,7 +455,15 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
         updated_at: input.updatedAt ?? null,
     };
     const content_hash = await sha256(JSON.stringify({ slug, ...record }));
-    if (existing && existing.content_hash === content_hash && existing.slug === slug) return { outcome: "unchanged", postId: input.postId, slug };
+    const prepared = (outcome: PublishOutcome["outcome"]): PreparedPost => ({ outcome: { outcome, postId: input.postId, slug }, slug, record });
+    if (mode !== "publish") return prepared(existing ? "updated" : "published");
+    if (existing && existing.content_hash === content_hash && existing.slug === slug) {
+        // Nothing public changes, but the row records which Payload save it matches (the sync check compares it).
+        await env.DB.prepare("UPDATE posts SET source_updated_at = ?, synced_at = ? WHERE id = ? AND source = 'payload'")
+            .bind(input.sourceUpdatedAt ?? now, now, input.postId)
+            .run();
+        return prepared("unchanged");
+    }
 
     const statements = [
         env.DB.prepare(
@@ -422,7 +497,7 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
             record.reading_minutes,
             record.published_at,
             record.updated_at,
-            input.updatedAt ?? now,
+            input.sourceUpdatedAt ?? now,
             content_hash,
             now,
         ),
@@ -438,7 +513,7 @@ export async function publishPayloadPost(env: PublisherEnv, input: PayloadPostIn
             ).bind(existing.slug, input.postId, now),
         );
     await env.DB.batch(statements);
-    return { outcome: existing ? "updated" : "published", postId: input.postId, slug };
+    return prepared(existing ? "updated" : "published");
 }
 
 /**
