@@ -55,7 +55,12 @@ export const Pages: CollectionConfig = {
         if (problem) throw new APIError(problem, 400, undefined, true)
         const env = await publisherEnv()
         const owner = await env.DB.prepare('SELECT value FROM meta WHERE key = ?').bind(`page:${slug}`).first<{ value: string }>()
-        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined
+        let ownerId: unknown
+        try {
+          ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown } | null)?.id : undefined
+        } catch {
+          ownerId = undefined // a damaged snapshot belongs to nobody
+        }
         if (ownerId !== undefined && String(ownerId) !== String(originalDoc?.id))
           throw new APIError(`daly.id.au/${slug} is already used by another page.`, 400, undefined, true)
         // Then everything else a publish checks (the featured image, the rendered page), still before saving.

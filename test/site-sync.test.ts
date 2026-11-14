@@ -4,6 +4,7 @@
 //   whatever differs, from the two databases alone.
 import { beforeEach, describe, expect, it } from "vitest";
 import { PREVIEW_MEDIA_PREFIX, PublishError, preparePayloadPost, publishPayloadPost, unpublishPayloadPost } from "../worker/blog/payload-publisher";
+import { removeOrphan, removedKey } from "../worker/site/orphans";
 import { publishPage, publishProject, republishProjectList, unpublishPage, unpublishProject } from "../worker/site/publisher";
 import { DRIFT_KEY, SYNC_GRACE_MS, discrepancies, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from "../worker/site/sync-check";
 import { resetDb, testEnv } from "./helpers";
@@ -300,5 +301,71 @@ describe("the sync check", () => {
         expect((await readSyncStatus(testEnv.DB)).lastSuccessAt).toBeNull();
         await noteSyncStatus(testEnv.DB, { outstanding: 0 });
         expect((await readSyncStatus(testEnv.DB)).outstanding).toBe(0);
+    });
+
+    it("removing an orphan takes one item off the site and keeps a full copy first", async () => {
+        await publishAll();
+        await publishPayloadPost(
+            testEnv,
+            { postId: "payload:1", slug: "hello-again", title: "Hello", content: words("Words."), publishedAt: T0, sourceUpdatedAt: T0 },
+            { ...media, now: () => new Date(T0) },
+        );
+        const before = await state();
+        expect(await removeOrphan(testEnv, "post", "payload:nope", "owner@example.com")).toBeNull();
+        expect(await state()).toEqual(before);
+
+        expect(await removeOrphan(testEnv, "post", "payload:1", "owner@example.com", LATER)).toBe("hello-again");
+        expect((await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM posts").first<{ n: number }>())!.n).toBe(0);
+        const post = JSON.parse(
+            (await testEnv.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(removedKey("post", "payload:1")).first<{ value: string }>())!.value,
+        );
+        expect(post).toMatchObject({ kind: "post", slug: "hello-again", by: "owner@example.com", removedAt: LATER.toISOString() });
+        expect(post.copy.row.body_html).toContain("Words.");
+        expect(post.copy.redirects.map((r: { from_slug: string }) => r.from_slug)).toEqual(["hello"]);
+
+        expect(await removeOrphan(testEnv, "page", "1", null)).toBe("now");
+        expect(await removeOrphan(testEnv, "project", "1", null)).toBe("lamp");
+        const left = (
+            await testEnv.DB.prepare(
+                "SELECT key FROM meta WHERE substr(key, 1, 5) = 'page:' OR substr(key, 1, 8) = 'project:' OR substr(key, 1, 8) = 'page-id:' OR substr(key, 1, 11) = 'project-id:'",
+            ).all()
+        ).results;
+        expect(left).toEqual([]);
+        expect(JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = 'site:projects'").first<{ value: string }>())!.value)).toEqual([]);
+        expect(
+            JSON.parse((await testEnv.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(removedKey("page", "1")).first<{ value: string }>())!.value).copy
+                .snapshots[0].value,
+        ).toContain("Now");
+        // The kept copies aren't site content: the checker doesn't count them.
+        expect(inStep(await siteDrift(payload({}), testEnv.DB, LATER))).toBe(true);
+        // Another publisher's post can't be removed this way.
+        await testEnv.DB.prepare(
+            "INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('cap-1', 'older', 'Older', '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, ?1, 'h', ?1, 'capacities')",
+        )
+            .bind(T0)
+            .run();
+        expect(await removeOrphan(testEnv, "post", "cap-1", null)).toBeNull();
+        expect((await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM posts").first<{ n: number }>())!.n).toBe(1);
+    });
+
+    it("sees a post that an older write left behind, even though it was written recently", async () => {
+        await publishAll();
+        const saved = inPayload();
+        saved.posts[0].updated_at = "2026-11-01T06:00:00.000Z";
+        // The site's row was written a moment ago (synced_at is fresh) but from the earlier save.
+        await testEnv.DB.prepare("UPDATE posts SET synced_at = '2026-11-01T23:00:00.000Z'").run();
+        expect((await siteDrift(payload(saved), testEnv.DB, LATER)).items.map((i) => `${i.kind}:${i.state}`)).toEqual(["post:stale"]);
+    });
+
+    it("a damaged snapshot can be replaced, and doesn't keep the project list looking wrong", async () => {
+        await publishAll();
+        await testEnv.DB.prepare("INSERT INTO meta (key, value) VALUES ('project:broken', '{not json'), ('page:broken', '{not json')").run();
+        expect((await siteDrift(payload(inPayload()), testEnv.DB, LATER)).projectListStale).toBe(false);
+        await publishPage(testEnv, { id: 2, slug: "broken", title: "Mended", updatedAt: T0 }, media);
+        await publishProject(testEnv, { id: 2, slug: "broken", title: "Mended", updatedAt: T0 }, media);
+        const mended = inPayload();
+        mended.pages.push(row({ id: 2, slug: "broken" }));
+        mended.projects.push(row({ id: 2, slug: "broken", listed: 1 }));
+        expect(inStep(await siteDrift(payload(mended), testEnv.DB, LATER))).toBe(true);
     });
 });

@@ -4,7 +4,8 @@ import { republishProjectList } from '../../../../worker/site/publisher'
 import { type DriftItem, type DriftReport, SYNC_GRACE_MS, type SyncStatus, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
 import { syncPost } from '../collections/Posts'
-import { syncPage, syncProject } from './publishing'
+import { removeOrphan } from '../../../../worker/site/orphans'
+import { publisherEnv, republishSettings, syncPage, syncProject } from './publishing'
 
 // "Website sync" (docs/AUDIT-2026-11.md, H3): whether the public site shows what Payload says is published,
 // and the Republish action that makes it so. The comparison itself is worker/site/sync-check.ts.
@@ -12,12 +13,12 @@ import { syncPage, syncProject } from './publishing'
 type Databases = { D1: D1Database; DB: D1Database }
 
 /**
- * The comparison, live. Saves made in the last two minutes are left out (they may still be on their way)
- * unless `includeRecent` is set.
+ * The comparison, live, for a person looking at it: every save counts, however recent. (Only the cron
+ * leaves out the last two minutes, so a save that is still on its way isn't logged as a fault.)
  */
-export async function siteSyncReport(includeRecent = false): Promise<DriftReport> {
+export async function siteSyncReport(): Promise<DriftReport> {
   const env = await cloudflareEnv<Databases>()
-  return siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + (includeRecent ? SYNC_GRACE_MS : 0)))
+  return siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
 }
 
 /** What's known about the checks themselves: the last automatic run, the last failure, the last repair. */
@@ -68,6 +69,8 @@ export async function republish(req: PayloadRequest): Promise<RepublishResult> {
     }
   }
   if (before.projectListStale) await republishProjectList({ DB: env.DB as never })
+  // The menu and settings aren't compared item by item, so a repair always rebuilds them from Payload.
+  await republishSettings(req).catch((error) => failed.push({ kind: 'page', id: null, siteId: 'menu', title: 'The menu and site settings', slug: '', state: 'stale', message: (error as Error).message }))
   const report = (await recordSiteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))) ?? before
   await noteSyncStatus(env.DB as never, {
     lastRepair: {
@@ -81,4 +84,22 @@ export async function republish(req: PayloadRequest): Promise<RepublishResult> {
   }).catch(() => undefined)
   req.payload.logger.info({ msg: 'site republished', fixed: fixed.length, failed: failed.length, leftAlone: leftAlone.length, inStep: inStep(report) })
   return { fixed, failed, leftAlone, report, inStep: inStep(report) }
+}
+
+/**
+ * Takes one item off the site that Payload has no document for. Owners only, one item at a time, and only
+ * if the comparison, made again now, still says Payload has no document for it. A full copy of what was on
+ * the site is kept first (worker/site/orphans.ts). Republish never does this.
+ */
+export async function removeOrphanedItem(req: PayloadRequest, kind: DriftItem['kind'], siteId: string): Promise<{ removed: boolean; slug: string | null; reason?: string }> {
+  const env = await cloudflareEnv<Databases>()
+  const report = await siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
+  const item = report.items.find((i) => i.kind === kind && i.siteId === siteId)
+  if (!item || item.state !== 'extra' || item.id !== null) return { removed: false, slug: null, reason: 'Payload has a document for that, or it isn’t on the website. Use Republish instead.' }
+  const by = (req.user as { email?: string } | null)?.email ?? null
+  const slug = await removeOrphan(await publisherEnv(), kind, siteId, by)
+  if (kind === 'page') await republishSettings(req)
+  await recordSiteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + SYNC_GRACE_MS))
+  req.payload.logger.info({ msg: 'orphan removed from the site', kind, siteId, slug, by })
+  return { removed: slug !== null, slug }
 }

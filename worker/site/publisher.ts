@@ -70,6 +70,13 @@ const repoint = (db: D1Database, prefix: "page-redirect:" | "project-redirect:",
     db.prepare("UPDATE meta SET value = ? WHERE substr(key, 1, ?) = ? AND value = ?").bind(JSON.stringify(to), prefix.length, prefix, JSON.stringify(from));
 const dropRedirectsTo = (db: D1Database, prefix: "page-redirect:" | "project-redirect:", to: string) =>
     db.prepare("DELETE FROM meta WHERE substr(key, 1, ?) = ? AND value = ?").bind(prefix.length, prefix, JSON.stringify(to));
+const ownerOf = (value: string): unknown => {
+    try {
+        return (JSON.parse(value) as { id?: unknown } | null)?.id;
+    } catch {
+        return undefined;
+    }
+};
 const pageIdKey = (id: string | number) => `page-id:${id}`;
 
 export interface SiteSettingsInput {
@@ -240,7 +247,8 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
     // A preview claims no address; a check and a publish refuse one another item holds.
     if (mode !== "preview") {
         const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SNAPSHOT.page(slug)).first<{ value: string }>();
-        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
+        // A damaged snapshot belongs to nobody: it can be replaced.
+        const ownerId = owner ? ownerOf(owner.value) : undefined;
         if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
             throw new PublishError(`daly.id.au/${slug} is already used by another page.`);
     }
@@ -328,7 +336,9 @@ export async function unpublishPage(env: PublisherEnv, id: string | number, opti
     } else if (slug) {
         statements.push(repoint(env.DB, "page-redirect:", slug, marker), put(env.DB, SNAPSHOT.redirect(slug), marker));
     }
-    statements.push(put(env.DB, SNAPSHOT.pagesManaged, true), bump(env.DB, (options.now ?? new Date()).toISOString()));
+    statements.push(put(env.DB, SNAPSHOT.pagesManaged, true));
+    // Nothing public changes when the page wasn't on the site: cached pages stay as they are.
+    if (slug || options.forget) statements.push(bump(env.DB, (options.now ?? new Date()).toISOString()));
     await env.DB.batch(statements);
     return Boolean(slug);
 }
@@ -426,7 +436,8 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     // A preview claims no address; a check and a publish refuse one another item holds.
     if (mode !== "preview") {
         const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectKey(slug)).first<{ value: string }>();
-        const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
+        // A damaged snapshot belongs to nobody: it can be replaced.
+        const ownerId = owner ? ownerOf(owner.value) : undefined;
         if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
             throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
     }

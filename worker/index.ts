@@ -812,6 +812,8 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
  */
 async function previewMedia(request: Request, env: Env, key: string): Promise<Response> {
     const missing = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+    // An ordinary visitor's missing image: no sign-in to check, and nothing to log.
+    if (!request.headers.get("Cf-Access-Jwt-Assertion") && !/(?:^|;\s*)CF_Authorization=/.test(request.headers.get("Cookie") ?? "")) return missing();
     const auth = await authenticate(request, env);
     if (!auth.ok || (auth.user.role !== "owner" && auth.user.role !== "admin")) return missing();
     const object = await env.MEDIA.get(PREVIEW_MEDIA_PREFIX + key);

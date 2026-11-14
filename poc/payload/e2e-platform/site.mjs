@@ -193,7 +193,7 @@ const upload = async (name, bytes) => {
     return (await response.json().catch(() => null))?.doc ?? null;
 };
 const PNG_OK = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
-const sync = async (email = OWNER) => call("GET", "/api/globals/site-settings/sync?recent=1", email);
+const sync = async (email = OWNER) => call("GET", "/api/globals/site-settings/sync", email);
 
 // P1. A publish that can't succeed is refused before Payload saves anything.
 const cutShort = await upload("cut-short.png", PNG_OK.subarray(0, 58));
@@ -231,8 +231,19 @@ expect(
     (repaired.json?.leftAlone ?? []).some((i) => i.slug === "ghost-post") && (await page("/blog/ghost-post")).status === 200 && (await sync()).json?.inStep === false,
     JSON.stringify(repaired.json?.leftAlone),
 );
-siteSql(`DELETE FROM posts WHERE id = 'payload:ghost'; INSERT INTO meta (key, value) VALUES ('content_version', 'drift-test-2') ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
-expect("with that removed by hand, the check agrees the site matches", (await sync()).json?.inStep === true && (await page("/blog/ghost-post")).status === 404);
+const orphan = { kind: "post", siteId: "payload:ghost" };
+expect("only an owner may remove it from the website", (await call("POST", "/api/globals/site-settings/remove-orphan", people.admin, orphan)).status === 403 && (await page("/blog/ghost-post")).status === 200);
+const notOrphan = await call("POST", "/api/globals/site-settings/remove-orphan", OWNER, { kind: "page", siteId: String(p2id) });
+expect("…and never something Payload has a document for", notOrphan.json?.removed === false && (await page("/sync-check")).status === 200, notOrphan.text.slice(0, 200));
+const removedOrphan = await call("POST", "/api/globals/site-settings/remove-orphan", OWNER, orphan);
+const keptCopy = siteSql(`SELECT value FROM meta WHERE key = 'removed:post:payload:ghost'`).toString();
+expect(
+    "the owner removes it: it leaves the website, a full copy is kept, and the check agrees the site matches",
+    removedOrphan.json?.removed === true && (await page("/blog/ghost-post")).status === 404 && keptCopy.includes("ghost-post") && keptCopy.includes("<p>ghost</p>") && (await sync()).json?.inStep === true,
+    `${removedOrphan.text.slice(0, 200)} copy=${keptCopy.length}`,
+);
+const status = (await sync()).json?.status;
+expect("the status records the repair and the automatic check's place", status?.lastRepair?.fixed === 1 && status?.lastRepair?.leftAlone === 1 && typeof status?.lastRepair?.at === "string" && "lastSuccessAt" in status && "lastFailureAt" in status, JSON.stringify(status));
 // A published document that Payload then unpublishes behind a failed write: Republish takes it down (Payload has the document, as a draft).
 const p3 = await call("POST", "/api/pages?draft=false", people.admin, { title: "Taken down", slug: "taken-down", content: lexical("Up for now."), _status: "published" });
 const p3id = p3.json?.doc?.id;

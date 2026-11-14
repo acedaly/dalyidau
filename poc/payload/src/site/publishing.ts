@@ -55,15 +55,25 @@ const sameVersion = (a: Versioned, b: Versioned) =>
  * what it is now. Whoever wrote something stale is therefore the one who puts it right, and a sync can never
  * leave the site on an older version than Payload, or put back something that was unpublished meanwhile.
  */
-export async function settle<D extends Versioned>(read: () => Promise<D>, apply: (doc: D) => Promise<void>): Promise<void> {
-  let doc = await read()
+export { DELETED_NOT_ON_SITE, NOT_CONFIRMED, SAVED_NOT_ON_SITE, reader }
+
+export async function settle<D extends Versioned>(read: (verifying: boolean) => Promise<D>, apply: (doc: D) => Promise<void>): Promise<void> {
+  let doc = await read(false)
   for (let round = 0; round < 4; round++) {
     await apply(doc)
-    const now = await read()
+    const now = await read(true)
     if (sameVersion(doc, now)) return
     doc = now
   }
+  // The document changed under every attempt. Never left unsaid: the editor is told, and the sync check will show it.
+  throw new APIError(`The document kept changing while the website was being updated. Check "Website sync" on the dashboard in a minute, and press Republish if it's listed.`, 503, undefined, true)
 }
+
+/** A document read for a sync: retried like a write; a failed check-back says so truthfully (the site was written). */
+const reader =
+  <T>(req: PayloadRequest, what: string, collection: 'pages' | 'projects' | 'posts', id: string | number) =>
+  (verifying: boolean) =>
+    writeToSite(req, what, () => findOrNull<T>(req, collection, id), undefined, verifying ? NOT_CONFIRMED : SAVED_NOT_ON_SITE)
 
 const idOf = (value: unknown): string | number | null =>
   value && typeof value === 'object' ? ((value as { id?: string | number }).id ?? null) : ((value as string | number | null | undefined) ?? null)
@@ -85,13 +95,17 @@ export const mediaLoader = (req: PayloadRequest, env: { R2: R2Bucket }) => ({
   },
 })
 
+const SAVED_NOT_ON_SITE = `Saved in Payload, but the website couldn't be updated, so it still shows the previous version. Nothing is lost: save again in a minute, or press Republish under "Website sync" on the dashboard.`
+const DELETED_NOT_ON_SITE = `Deleted in Payload, but the website couldn't be updated, so it may still be showing. It's listed under "Website sync" on the dashboard, where an owner can remove it from the website.`
+const NOT_CONFIRMED = `Saved, and the website was updated, but it couldn't be confirmed that it shows the latest version. Check "Website sync" on the dashboard in a minute.`
+
 /**
  * A write to the public site, after Payload has already saved. A refusal (PublishError) is the editor's to
  * fix and is shown as it is. Anything else is the database or the bucket having a bad moment: it is tried
  * three times, and if it still fails the editor is told plainly that Payload has the change and the site
  * doesn't, instead of a bare error. The cron's sync check (worker/site/sync-check.ts) reports it until it's fixed.
  */
-export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>, onRetry?: () => void): Promise<T> {
+export async function writeToSite<T>(req: PayloadRequest, what: string, work: () => Promise<T>, onRetry?: () => void, failure: string = SAVED_NOT_ON_SITE): Promise<T> {
   let last: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -111,12 +125,7 @@ export async function writeToSite<T>(req: PayloadRequest, what: string, work: ()
   await publisherEnv()
     .then((env) => noteSyncStatus(env.DB, { lastPublishFailure: { at: new Date().toISOString(), what, message: String((last as Error)?.message ?? last).slice(0, 300) } }))
     .catch(() => undefined)
-  throw new APIError(
-    `Saved in Payload, but the website couldn't be updated, so it still shows the previous version. Nothing is lost: save again in a minute, or press Republish under "Website sync" on the dashboard.`,
-    503,
-    undefined,
-    true,
-  )
+  throw new APIError(failure, 503, undefined, true)
 }
 
 /** A publish refusal becomes a message the editor sees, not a 500. */
@@ -139,11 +148,7 @@ export async function navigationInput(req: PayloadRequest, doc?: NavDoc): Promis
     if (item.type === 'page') {
       const id = idOf(item.page)
       const page = id
-        ? ((await req.payload.findByID({ collection: 'pages', id, depth: 0, draft: false, overrideAccess: true, req }).catch(() => null)) as {
-            slug?: string
-            _status?: string
-            deletedAt?: string | null
-          } | null)
+        ? await findOrNull<{ slug?: string; _status?: string; deletedAt?: string | null }>(req, 'pages', id)
         : null
       items.push({ label: item.label, pageSlug: page?.slug ?? '__missing__' })
     } else items.push({ label: item.label, url: item.url })
@@ -161,10 +166,14 @@ export const settingsInput = (doc: SettingsDoc): SiteSettingsInput => ({ ...doc,
 /** Republishes the settings and the menu together (the menu depends on which pages are published). */
 export async function republishSettings(req: PayloadRequest, docs: { settings?: SettingsDoc; navigation?: NavDoc } = {}) {
   const env = await publisherEnv()
-  const settings = docs.settings ?? ((await req.payload.findGlobal({ slug: 'site-settings', depth: 0, overrideAccess: true, req })) as SettingsDoc)
-  const nav = resolveNavigation(await navigationInput(req, docs.navigation), await publishedSlugs(env.DB))
-  await writeToSite(req, 'site settings', () => publishSiteSettings(env, settingsInput(settings), nav, mediaLoader(req, env)))
-  req.payload.logger.info({ msg: 'site settings published', menuItems: nav.length })
+  // Read and written as one retried step: a failed read of the menu's pages never becomes a shorter menu.
+  const count = await writeToSite(req, 'site settings', async () => {
+    const settings = docs.settings ?? ((await req.payload.findGlobal({ slug: 'site-settings', depth: 0, overrideAccess: true, req })) as SettingsDoc)
+    const nav = resolveNavigation(await navigationInput(req, docs.navigation), await publishedSlugs(env.DB))
+    await publishSiteSettings(env, settingsInput(settings), nav, mediaLoader(req, env))
+    return nav.length
+  })
+  req.payload.logger.info({ msg: 'site settings published', menuItems: count })
 }
 
 export async function republishHome(req: PayloadRequest, doc: Record<string, unknown>) {
@@ -215,21 +224,27 @@ export async function syncPage(req: PayloadRequest, id: string | number, deleted
   const env = await publisherEnv()
   let changed = false
   const assumeChanged = () => void (changed = true)
-  await settle(
-    () => writeToSite(req, `page ${id}`, () => findOrNull<PageDoc>(req, 'pages', id)),
-    async (main) => {
+  try {
+    await settle(reader<PageDoc>(req, `page ${id}`, 'pages', id), async (main) => {
       if (main && main._status === 'published' && !main.deletedAt) {
+        changed = true // even if the write's answer is lost
         const page = await writeToSite(req, `page ${id}`, () => publishPage(env, pageInput(main), mediaLoader(req, env)))
         req.payload.logger.info({ msg: 'page published', slug: page.slug })
-        changed = true
-        // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-      } else if (await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }), assumeChanged)) {
+        return
+      }
+      // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
+      if (!main && !deleted) return
+      // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+      const removed = await writeToSite(req, `page ${id}`, () => unpublishPage(env, id, { forget: deleted && !main }), assumeChanged, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE)
+      if (removed) {
         req.payload.logger.info({ msg: 'page unpublished', id })
         changed = true
       }
-    },
-  )
-  if (changed) await republishSettings(req)
+    })
+  } finally {
+    // Whatever happened above, a page that went on or came off the site gets the menu rebuilt.
+    if (changed) await republishSettings(req)
+  }
 }
 
 // --- Projects (Phase 4) ---------------------------------------------------------------------------------
@@ -281,16 +296,18 @@ export const projectInput = (doc: ProjectDoc): ProjectInput => ({
 /** Makes the public site match a project's main (published) document. */
 export async function syncProject(req: PayloadRequest, id: string | number, deleted = false) {
   const env = await publisherEnv()
-  await settle(
-    () => writeToSite(req, `project ${id}`, () => findOrNull<ProjectDoc>(req, 'projects', id)),
-    async (main) => {
-      if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
-        const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))
-        req.payload.logger.info({ msg: 'project published', slug: project.slug })
-        // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
-      } else if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }))) req.payload.logger.info({ msg: 'project unpublished', id })
-    },
-  )
+  await settle(reader<ProjectDoc>(req, `project ${id}`, 'projects', id), async (main) => {
+    if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
+      const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))
+      req.payload.logger.info({ msg: 'project published', slug: project.slug })
+      return
+    }
+    // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
+    if (!main && !deleted) return
+    // Deleted for good (afterDelete; Trash is an update): the addresses kept for it are released.
+    if (await writeToSite(req, `project ${id}`, () => unpublishProject(env, id, { forget: deleted && !main }), undefined, deleted ? DELETED_NOT_ON_SITE : SAVED_NOT_ON_SITE))
+      req.payload.logger.info({ msg: 'project unpublished', id })
+  })
 }
 
 export async function republishProjectsHome(req: PayloadRequest, doc: Record<string, unknown>) {

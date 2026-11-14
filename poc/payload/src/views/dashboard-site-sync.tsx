@@ -5,6 +5,7 @@ import type { TypedUser } from 'payload'
 
 import { discrepancies, inStep } from '../../../../worker/site/sync-check'
 import { siteSyncReport, siteSyncStatus } from '../site/sync'
+import { RemoveOrphanButton } from './remove-orphan-button'
 import { RepublishButton } from './republish-button'
 
 const KIND = { post: 'Blog post', page: 'Page', project: 'Project' } as const
@@ -48,7 +49,9 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
                 <strong>
                   {KIND[item.kind]}: {item.title || item.slug || item.siteId}
                 </strong>{' '}
-                — {item.id === null ? 'on the website, but there’s no document for it here. Republish leaves it alone; remove it by hand only if it shouldn’t be there' : STATE[item.state]}
+                — {item.id === null ? 'on the website, but there’s no document for it here. Republish leaves it alone, because the website’s copy may be the only one' : STATE[item.state]}
+                {item.id === null && role === 'owner' ? <RemoveOrphanButton kind={item.kind} siteId={item.siteId} title={item.title || item.slug || item.siteId} /> : null}
+                {item.id === null && role !== 'owner' ? ' An owner can remove it from the website.' : null}
               </li>
             ))}
             {report.projectListStale ? <li>The list of projects on the website is out of date.</li> : null}

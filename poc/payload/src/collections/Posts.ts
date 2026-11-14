@@ -5,7 +5,7 @@ import type { PayloadRequest } from 'payload'
 
 import { type PayloadPostInput, preparePayloadPost, unpublishPayloadPost } from '../../../../worker/blog/payload-publisher'
 import { isValidSlug, slugify } from '../../../../worker/lib/html'
-import { asEditorError, mediaLoader, findOrNull, previewEndpoint, publisherEnv, settle, statusAfter, willBePublic, writeToSite } from '../site/publishing'
+import { DELETED_NOT_ON_SITE, asEditorError, mediaLoader, previewEndpoint, publisherEnv, reader, settle, statusAfter, willBePublic, writeToSite } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // The blog's posts (docs/PAYLOAD-BLOG.md). Payload is where they're written and kept. The public
@@ -119,24 +119,29 @@ const validateBeforePublish: CollectionBeforeChangeHook = async ({ data, origina
  */
 export async function syncPost(req: PayloadRequest, id: number | string, options: { siteId?: string; deleted?: boolean } = {}) {
   const env = await publisherEnv()
-  await settle(
-    // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
-    // Null only when the post really is gone; a read that fails is retried, then reported (never read as "gone").
-    () => writeToSite(req, `post ${id}`, () => findOrNull<PostDoc>(req, 'posts', id)),
-    async (main) => {
-      // In Trash (deleted, restorable) counts as unpublished.
-      if (main && main._status === 'published' && !main.deletedAt) {
-        const result = await writeToSite(req, `post ${id}`, () => preparePayloadPost(env, toPublisherInput(main), mediaLoader(req, env)))
-        req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome.outcome, slug: result.slug })
-        return
-      }
-      const siteId = main ? toPublisherInput(main).postId : options.siteId
-      if (!siteId) return
-      // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
-      if (await writeToSite(req, `post ${id}`, () => unpublishPayloadPost(env, siteId, { forget: !!options.deleted && !main })))
-        req.payload.logger.info({ msg: 'blog post unpublished', postId: siteId })
-    },
-  )
+  // The main document, never a draft version: a draft save leaves it (and the public site) as it was.
+  // Null only when the post really is gone; a read that fails is retried, then reported (never read as "gone").
+  await settle(reader<PostDoc>(req, `post ${id}`, 'posts', id), async (main) => {
+    // In Trash (deleted, restorable) counts as unpublished.
+    if (main && main._status === 'published' && !main.deletedAt) {
+      const result = await writeToSite(req, `post ${id}`, () => preparePayloadPost(env, toPublisherInput(main), mediaLoader(req, env)))
+      req.payload.logger.info({ msg: 'blog post published', outcome: result.outcome.outcome, slug: result.slug })
+      return
+    }
+    // No document, and not because it was just deleted: nothing is known, so nothing is taken down.
+    if (!main && !options.deleted) return
+    const siteId = main ? toPublisherInput(main).postId : options.siteId
+    if (!siteId) return
+    // Deleted for good: the addresses kept for it while it was unpublished or in Trash are released.
+    const removed = await writeToSite(
+      req,
+      `post ${id}`,
+      () => unpublishPayloadPost(env, siteId, { forget: !!options.deleted && !main }),
+      undefined,
+      options.deleted ? DELETED_NOT_ON_SITE : undefined,
+    )
+    if (removed) req.payload.logger.info({ msg: 'blog post unpublished', postId: siteId })
+  })
 }
 
 const syncPublicPost: CollectionAfterChangeHook = async ({ doc, req, context }) => {

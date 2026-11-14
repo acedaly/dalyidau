@@ -64,8 +64,8 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
         payloadDb.prepare("SELECT id, slug, title, updated_at, deleted_at, _status FROM pages").all<PayloadRow>(),
         payloadDb.prepare("SELECT id, slug, title, listed, updated_at, deleted_at, _status FROM projects").all<PayloadRow>(),
         siteDb
-            .prepare("SELECT id, slug, title, synced_at FROM posts WHERE source = 'payload'")
-            .all<{ id: string; slug: string; title: string; synced_at: string | null }>(),
+            .prepare("SELECT id, slug, title, source_updated_at FROM posts WHERE source = 'payload'")
+            .all<{ id: string; slug: string; title: string; source_updated_at: string | null }>(),
         // Snapshots are read without their bodies: only what the comparison needs.
         siteDb
             .prepare(
@@ -83,7 +83,7 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
     const settled = (row: PayloadRow) => !(now.getTime() - time(row.updated_at) < SYNC_GRACE_MS);
     const live = (row: PayloadRow) => row._status === "published" && !row.deleted_at;
 
-    // Posts: one row in the site's `posts` per published post, written at or after Payload's last save of it.
+    // Posts: one row in the site's `posts` per published post, made from Payload's last save of it.
     const sitePostById = new Map(sitePosts.results.map((r) => [r.id, r]));
     const expectedPostIds = new Set<string>();
     for (const row of posts.results) {
@@ -94,7 +94,10 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
         const base = { kind: "post" as const, id: row.id, siteId, title: row.title ?? "", slug: row.slug ?? "" };
         if (!onSite) {
             if (settled(row)) items.push({ ...base, state: "missing" });
-        } else if ((onSite.slug !== row.slug || !(time(onSite.synced_at) >= time(row.updated_at))) && settled(row)) items.push({ ...base, state: "stale" });
+        }
+        // The row records which Payload save it was made from: anything but that exact save is stale, whether
+        // the site is behind or an older write landed late.
+        else if ((onSite.slug !== row.slug || time(onSite.source_updated_at) !== time(row.updated_at)) && settled(row)) items.push({ ...base, state: "stale" });
     }
     const unsettledPosts = new Set(posts.results.filter((r) => !settled(r)).map((r) => r.public_id || `payload:${r.id}`));
     for (const row of sitePosts.results)
@@ -109,7 +112,7 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
             });
 
     // Pages and projects: a snapshot per published item, carrying the updatedAt of the Payload save it was made from.
-    const metaBy = new Map(meta.results.map((r) => [r.key, r.value ?? undefined]));
+    const metaBy = new Map<string, string | undefined>(meta.results.map((r) => [r.key, r.value ?? undefined]));
     const snapshots = (kind: "page" | "project", rows: PayloadRow[], published: (row: PayloadRow) => boolean) => {
         const expected = new Set<string>();
         for (const row of rows) {
@@ -159,8 +162,10 @@ export async function siteDrift(payloadDb: D1Database, siteDb: D1Database, now =
             return ["?"];
         }
     })();
-    const have = [...metaBy.keys()]
-        .filter((k) => k.startsWith("project:"))
+    // A damaged snapshot (read as nothing above) is in neither: the list is built without it.
+    const have = [...metaBy.entries()]
+        .filter(([k, v]) => k.startsWith("project:") && v !== undefined)
+        .map(([k]) => k)
         .map((k) => k.slice(8))
         .sort();
     const projectListStale = listed.length !== have.length || listed.some((slug, i) => slug !== have[i]);

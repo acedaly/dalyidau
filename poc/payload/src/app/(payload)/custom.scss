@@ -157,6 +157,19 @@
     color: var(--theme-error-600);
   }
 
+  &__remove {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--base) / 2);
+    margin-inline-start: calc(var(--base) / 2);
+    vertical-align: middle;
+
+    .btn {
+      margin: 0;
+    }
+  }
+
   &__facts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
