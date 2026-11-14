@@ -48,6 +48,21 @@ python3 -I scripts/d1-export-reorder.py export.sql > restore.sql
 
 Verified on 12 Nov 2026 against production (25 tables, every count matched).
 
+## Rehearsing a migration
+
+Before a change to Payload's collections or globals reaches production, run its migration on a copy:
+
+```sh
+npm run payload:backup
+node scripts/payload-migration-rehearsal.mjs backups/dalyidau-payload-<time>.sql
+```
+
+It restores the backup into a throwaway local database, runs Payload's own migration runner (what production
+runs when `/admin` first opens after a deploy) and compares every table that existed before, row for row and
+value for value. It fails if a row is lost or changed, a table or index is gone, or SQLite's integrity or
+foreign-key checks fail. Nothing on Cloudflare is touched, and your local development state is set aside and
+put back.
+
 ## Restoring
 
 ### A mistake in the last 30 days (most cases)

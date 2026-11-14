@@ -56,6 +56,24 @@ export interface HomeContent {
     seoDescription: string | null;
 }
 
+/**
+ * What a post, page or project says about itself to search engines and link previews. Every part is
+ * optional: anything left out falls back to the content's own title, summary and image (worker/seo.ts).
+ */
+export interface Seo {
+    title: string | null;
+    description: string | null;
+    /** The address search engines should treat as the original: a path on this site or a full https address. */
+    canonical: string | null;
+    socialTitle: string | null;
+    socialDescription: string | null;
+    image: { src: string; alt: string; width?: number; height?: number } | null;
+    /** Ask search engines not to list it (it is also left out of the sitemap). */
+    noindex: boolean;
+}
+export const NO_SEO: Seo = { title: null, description: null, canonical: null, socialTitle: null, socialDescription: null, image: null, noindex: false };
+export const SEO_LIMITS = { title: 120, description: 300 } as const;
+
 /** A published CMS page as the renderer gets it. `bodyHtml` was built by the escaping Lexical renderer. */
 export interface PublicPage {
     slug: string;
@@ -68,6 +86,7 @@ export interface PublicPage {
     showButtons: boolean;
     seoTitle: string | null;
     seoDescription: string | null;
+    seo: Seo;
     updatedAt: string | null;
 }
 
@@ -136,6 +155,7 @@ export const DEFAULT_ABOUT: PublicPage = {
     showButtons: true,
     seoTitle: null,
     seoDescription: "Hi, I'm Aidan. I write about leadership and learning, building useful things, personal projects, and life in general.",
+    seo: { ...NO_SEO, description: "Hi, I'm Aidan. I write about leadership and learning, building useful things, personal projects, and life in general." },
     updatedAt: null,
 };
 
@@ -198,6 +218,39 @@ export const safeLink = (value: unknown): string | null => {
     }
 };
 
+/** A canonical address: a path on this site, or a full http(s) address. Anything else is dropped. */
+export const canonicalLink = (value: unknown): string | null => {
+    const link = safeLink(value);
+    return link && (link.startsWith("/") || /^https?:\/\//.test(link)) ? link : null;
+};
+
+/**
+ * Search and sharing settings as stored in a snapshot. `earlier` is the title and description snapshots
+ * carried before the rest existed (seoTitle, seoDescription): still honoured.
+ */
+export function normaliseSeo(input: unknown, earlier: { title?: unknown; description?: unknown } = {}): Seo {
+    const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+    const image = o.image && typeof o.image === "object" ? (o.image as Record<string, unknown>) : null;
+    const src = image ? safeLink(image.src) : null;
+    return {
+        title: optStr(o.title, SEO_LIMITS.title) ?? optStr(earlier.title, SEO_LIMITS.title),
+        description: optStr(o.description, SEO_LIMITS.description) ?? optStr(earlier.description, SEO_LIMITS.description),
+        canonical: canonicalLink(o.canonical),
+        socialTitle: optStr(o.socialTitle, SEO_LIMITS.title),
+        socialDescription: optStr(o.socialDescription, SEO_LIMITS.description),
+        image:
+            image && src && src.startsWith("/media/")
+                ? {
+                      src,
+                      alt: typeof image.alt === "string" ? image.alt.slice(0, 300) : "",
+                      width: typeof image.width === "number" ? image.width : undefined,
+                      height: typeof image.height === "number" ? image.height : undefined,
+                  }
+                : null,
+        noindex: o.noindex === true,
+    };
+}
+
 const isEmail = (value: unknown): value is string => typeof value === "string" && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(value.trim());
 
 export function normaliseSite(input: unknown): SiteSettings {
@@ -258,7 +311,10 @@ export function normaliseHome(input: unknown): HomeContent {
     const d = DEFAULT_HOME;
     const count = typeof o.latestCount === "number" && Number.isInteger(o.latestCount) ? Math.min(Math.max(o.latestCount, 0), 12) : d.latestCount;
     const paragraphs = Array.isArray(o.aboutParagraphs)
-        ? (o.aboutParagraphs as unknown[]).map((p) => optStr(p, 2000)).filter((p): p is string => Boolean(p)).slice(0, 10)
+        ? (o.aboutParagraphs as unknown[])
+              .map((p) => optStr(p, 2000))
+              .filter((p): p is string => Boolean(p))
+              .slice(0, 10)
         : d.aboutParagraphs;
     return {
         eyebrow: str(o.eyebrow, d.eyebrow, 80),
@@ -302,6 +358,7 @@ export function normalisePage(input: unknown): PublicPage | null {
         showButtons: o.showButtons === true,
         seoTitle: optStr(o.seoTitle, 120),
         seoDescription: optStr(o.seoDescription, 300),
+        seo: normaliseSeo(o.seo, { title: o.seoTitle, description: o.seoDescription }),
         updatedAt: optStr(o.updatedAt, 40),
     };
 }
@@ -337,6 +394,8 @@ export interface ProjectSummary {
     websiteUrl: string | null;
     githubUrl: string | null;
     updatedAt: string | null;
+    /** Kept out of the sitemap (and search engines are asked not to list it). */
+    noindex: boolean;
 }
 
 export interface Project extends ProjectSummary {
@@ -346,6 +405,7 @@ export interface Project extends ProjectSummary {
     links: { label: string; url: string }[];
     seoTitle: string | null;
     seoDescription: string | null;
+    seo: Seo;
     publishedAt: string | null;
 }
 
@@ -429,13 +489,19 @@ export function normaliseProjectSummary(input: unknown): ProjectSummary | null {
         title: o.title.trim().slice(0, 160),
         summary: typeof o.summary === "string" ? o.summary.trim().slice(0, 600) : "",
         status: STATUS_VALUES.has(o.status as ProjectStatus) ? (o.status as ProjectStatus) : "active",
-        tags: Array.isArray(o.tags) ? (o.tags as unknown[]).filter((t): t is string => typeof t === "string" && !!t.trim()).map((t) => t.trim().slice(0, 40)).slice(0, 12) : [],
+        tags: Array.isArray(o.tags)
+            ? (o.tags as unknown[])
+                  .filter((t): t is string => typeof t === "string" && !!t.trim())
+                  .map((t) => t.trim().slice(0, 40))
+                  .slice(0, 12)
+            : [],
         featured: o.featured === true,
         order: typeof o.order === "number" && Number.isFinite(o.order) ? o.order : 0,
         image: siteImage(o.image),
         websiteUrl: httpsLink(o.websiteUrl),
         githubUrl: httpsLink(o.githubUrl),
         updatedAt: optStr(o.updatedAt, 40),
+        noindex: o.noindex === true,
     };
 }
 
@@ -469,6 +535,7 @@ export function normaliseProject(input: unknown): Project | null {
             : [],
         seoTitle: optStr(o.seoTitle, 120),
         seoDescription: optStr(o.seoDescription, 300),
+        seo: normaliseSeo(o.seo, { title: o.seoTitle, description: o.seoDescription }),
         publishedAt: optStr(o.publishedAt, 40),
     };
 }

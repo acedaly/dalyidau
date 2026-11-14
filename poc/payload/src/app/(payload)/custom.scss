@@ -187,3 +187,39 @@
     }
   }
 }
+
+// Website → Redirects: the read-only table of redirects the site keeps by itself (views/automatic-redirects.tsx).
+.daly-redirects {
+  margin-block-start: calc(var(--base) * 2);
+  padding-block-start: var(--base);
+  border-block-start: 1px solid var(--theme-elevation-150);
+
+  &__lede {
+    max-width: 70ch;
+    color: var(--theme-elevation-650);
+  }
+
+  // The table scrolls sideways on a phone; the page never does.
+  &__scroll {
+    overflow-x: auto;
+  }
+
+  &__table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th,
+    td {
+      padding: calc(var(--base) / 2.5) calc(var(--base) / 2);
+      border-block-end: 1px solid var(--theme-elevation-100);
+      text-align: start;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+  }
+}

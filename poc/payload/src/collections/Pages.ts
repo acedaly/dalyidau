@@ -4,6 +4,7 @@ import { APIError } from 'payload'
 import { pageProblem } from '../../../../worker/site/publisher'
 import { slugify } from '../../../../worker/lib/html'
 import { checkPage, pagePreview, publisherEnv, syncPage, statusAfter, willBePublic } from '../site/publishing'
+import { seoFields } from '../fields/seo'
 import { contentEditor } from './Users'
 
 // Pages on daly.id.au/<address> (the About page is one). Publishing puts a page on the site straight
@@ -68,7 +69,7 @@ export const Pages: CollectionConfig = {
         return data
       },
     ],
-    afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await syncPage(req, doc.id), doc))],
+    afterChange: [async ({ doc, req, context, operation }) => (context?.skipPublicSync ? doc : (await syncPage(req, doc.id, false, operation === 'create'), doc))],
     afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncPage(req, doc.id, true))],
   },
   fields: [
@@ -89,14 +90,6 @@ export const Pages: CollectionConfig = {
     { name: 'heroImage', label: 'Featured image', type: 'upload', relationTo: 'media', admin: { description: 'Optional, shown above the text (JPEG, PNG, GIF, WebP or AVIF, up to 15 MB).' } },
     { name: 'content', type: 'richText' },
     { name: 'showButtons', label: 'End with "Read the blog" and "Say hello" buttons', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
-    {
-      name: 'seo',
-      label: 'Search and link previews',
-      type: 'group',
-      fields: [
-        { name: 'title', type: 'text', admin: { description: 'Leave empty to use "<title> — <site name>".' } },
-        { name: 'description', type: 'textarea', admin: { description: 'Leave empty to use the introduction.' } },
-      ],
-    },
+    seoFields({ title: '"<title> — <site name>"', description: 'the introduction', image: 'the featured image' }),
   ],
 }

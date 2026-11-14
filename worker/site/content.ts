@@ -113,6 +113,8 @@ export async function listPages(db: D1Database): Promise<{ slug: string; lastmod
             .filter((r) => r.key.startsWith("page:"))
             .map((r) => normalisePage(parse(r.value)))
             .filter((p): p is PublicPage => Boolean(p))
+            // A page that asks not to be listed by search engines stays out of the sitemap.
+            .filter((p) => !p.seo.noindex)
             .map((p) => ({ slug: p.slug, lastmod: p.updatedAt }))
             .sort((a, b) => a.slug.localeCompare(b.slug));
         if (!managed && !pages.some((p) => p.slug === "about")) pages.unshift({ slug: "about", lastmod: null });

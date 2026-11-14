@@ -4,6 +4,7 @@ import { republishProjectList } from '../../../../worker/site/publisher'
 import { type DriftItem, type DriftReport, type SyncStatus, adoptEarlierPosts, inStep, noteSyncStatus, readSyncStatus, recordSiteDrift, siteDrift } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
 import { syncPost } from '../collections/Posts'
+import { syncRedirects } from '../globals/Redirects'
 import { removeOrphan } from '../../../../worker/site/orphans'
 import { publisherEnv, republishSettings, syncPage, syncProject } from './publishing'
 
@@ -72,6 +73,7 @@ export async function republish(req: PayloadRequest): Promise<RepublishResult> {
     }
   }
   if (before.projectListStale) await republishProjectList({ DB: env.DB as never })
+  if (before.redirectsStale) await syncRedirects(req).catch((error) => failed.push({ kind: 'page', id: null, siteId: 'redirects', title: 'The redirects', slug: '', state: 'stale', message: (error as Error).message }))
   // The menu and settings aren't compared item by item, so a repair always rebuilds them from Payload.
   await republishSettings(req).catch((error) => failed.push({ kind: 'page', id: null, siteId: 'menu', title: 'The menu and site settings', slug: '', state: 'stale', message: (error as Error).message }))
   // If the comparison can't be made again, nothing is known to be fixed: say so rather than assume.

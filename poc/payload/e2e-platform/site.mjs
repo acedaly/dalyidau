@@ -298,6 +298,159 @@ expect("a draft that can't be published yet says why instead of previewing", emp
 for (const [collection, docId] of [["pages", p2id], ["posts", draftPostId], ["posts", emptyPost.json?.doc?.id], ["media", cutShort?.id]]) if (docId) await call("DELETE", `/api/${collection}/${docId}`, OWNER);
 expect("cleaned up, and the site still matches Payload", (await page("/sync-check")).status === 404 && (await sync()).json?.inStep === true);
 
+// P4. Phase 2b: search and sharing settings, redirects kept by hand, and history for the menu and settings.
+const headOf = (html) => ({
+    title: /<title>([^<]*)<\/title>/.exec(html)?.[1],
+    description: /<meta name="description" content="([^"]*)">/.exec(html)?.[1],
+    canonical: /<link rel="canonical" href="([^"]*)">/.exec(html)?.[1],
+    robots: /<meta name="robots" content="([^"]*)">/.exec(html)?.[1],
+    ogTitle: /<meta property="og:title" content="([^"]*)">/.exec(html)?.[1],
+    ogImage: /<meta property="og:image" content="([^"]*)">/.exec(html)?.[1],
+});
+const share = await upload("share.png", PNG_OK);
+const plain = await call("POST", "/api/pages?draft=false", people.admin, { title: "Search check", slug: "search-check", lede: "Its introduction.", content: lexical("Words."), _status: "published" });
+const plainId = plain.json?.doc?.id;
+const plainHead = headOf((await page("/search-check")).text);
+expect(
+    "a page with no search settings gets them from its own title and introduction",
+    plain.status === 201 && plainHead.title?.startsWith("Search check — ") && plainHead.description === "Its introduction." && plainHead.canonical?.endsWith("/search-check"),
+    `${plain.status} ${JSON.stringify(plainHead)}`,
+);
+const tuned = await call("PATCH", `/api/pages/${plainId}?draft=false`, people.admin, {
+    seo: { title: "A search title", description: "A search description.", socialTitle: "A sharing title", image: share?.id, canonical: "https://example.com/original", noindex: true },
+});
+const tunedHead = headOf((await page("/search-check")).text);
+expect(
+    "search title, description, sharing title and image, canonical address and 'hide from search engines' all reach the page",
+    tuned.status === 200 &&
+        tunedHead.title === "A search title" &&
+        tunedHead.description === "A search description." &&
+        tunedHead.ogTitle === "A sharing title" &&
+        /\/media\/[a-f0-9]{24}\.png$/.test(tunedHead.ogImage ?? "") &&
+        tunedHead.canonical === "https://example.com/original" &&
+        tunedHead.robots === "noindex, follow",
+    `${tuned.status} ${tuned.text.slice(0, 200)} ${JSON.stringify(tunedHead)}`,
+);
+expect("…and a hidden page is left out of the sitemap", !(await page("/sitemap.xml")).text.includes("/search-check"));
+const badCanonical = await call("PATCH", `/api/pages/${plainId}?draft=false`, people.admin, { seo: { canonical: "javascript:alert(1)" } });
+const afterBad = await call("GET", `/api/pages/${plainId}?draft=false`, OWNER);
+expect("a canonical address that isn't one is refused before saving", badCanonical.status === 400 && /canonical/i.test(badCanonical.text) && afterBad.json?.seo?.canonical === "https://example.com/original", `${badCanonical.status} ${badCanonical.text.slice(0, 200)}`);
+const seoPost = await call("POST", "/api/posts?draft=false", people.admin, { title: "Search check post", slug: "search-check-post", content: lexical("Post words."), _status: "published", seo: { description: "A post's own search description." } });
+expect("a post takes the same settings", seoPost.status === 201 && headOf((await page("/blog/search-check-post")).text).description === "A post's own search description.".replace("'", "&#39;"), `${seoPost.status} ${seoPost.text.slice(0, 200)}`);
+
+const redirects = (email, items) => call("POST", "/api/globals/redirects", email, { items });
+expect("only owners and admins may read or change redirects", (await redirects(people.editor, [])).status === 403 && (await call("GET", "/api/globals/redirects", people.viewer)).status === 403 && (await call("GET", "/api/globals/redirects", null)).status !== 200);
+const saved = await redirects(people.admin, [
+    { from: "https://daly.id.au/old-address/", to: "/search-check", status: "301", enabled: true, note: "The page's first address" },
+    { from: "/away", to: "https://example.com/there", status: "302", enabled: true },
+    { from: "/parked", to: "/search-check", status: "301", enabled: false },
+]);
+const oldAddress = await page("/old-address");
+const away = await page("/away");
+expect(
+    "a saved redirect works on the next request, with the type chosen; one switched off doesn't",
+    saved.status === 200 && oldAddress.status === 301 && oldAddress.location?.endsWith("/search-check") && away.status === 302 && away.location === "https://example.com/there" && (await page("/parked")).status === 404,
+    `${saved.status} ${saved.text.slice(0, 200)} ${oldAddress.status} ${oldAddress.location} ${away.status}`,
+);
+const storedItems = saved.json?.result?.items ?? [];
+expect(
+    "the old address is stored as the site compares it, with when it was added and who saved the list",
+    storedItems[0]?.from === "/old-address" && typeof storedItems[0]?.createdAt === "string" && saved.json?.result?.changedBy === people.admin,
+    JSON.stringify(saved.json?.result).slice(0, 300),
+);
+const keep = storedItems.map(({ id, from, to, status, enabled, note }) => ({ id, from, to, status, enabled, note }));
+for (const [label, extra, why] of [
+    ["the same old address twice", { from: "/old-address", to: "/blog", status: "301", enabled: true }, /repeats/],
+    // (Any redirect from /search-check also makes the first row a chain; either reason refuses it.)
+    ["a live page's address", { from: "/search-check", to: "/blog", status: "301", enabled: true }, /published page|itself redirected/],
+    ["a loop written as a full address on this site", { from: "/loop2", to: "https://daly.id.au/loop2?x=1", status: "301", enabled: true }, /itself/],
+    ["a redirect to itself", { from: "/loop", to: "/loop/", status: "301", enabled: true }, /itself/],
+    ["a destination that isn't an address", { from: "/bad", to: "javascript:alert(1)", status: "301", enabled: true }, /destination/],
+    ["an address under /admin", { from: "/admin/old", to: "/blog", status: "301", enabled: true }, /answered before redirects/],
+]) {
+    const refused = await redirects(people.admin, [...keep, extra]);
+    expect(`refused before saving: ${label}`, refused.status === 400 && why.test(refused.text), `${refused.status} ${refused.text.slice(0, 200)}`);
+}
+const stillThree = await call("GET", "/api/globals/redirects", OWNER);
+expect("…and the list is as it was, with the dates it was given", stillThree.json?.items?.length === 3 && stillThree.json.items[0].createdAt === storedItems[0].createdAt, JSON.stringify(stillThree.json?.items).slice(0, 300));
+const crossSiteRedirect = await fetch(`${BASE}/api/globals/redirects`, { method: "POST", headers: { Origin: "https://evil.example", "Cf-Access-Jwt-Assertion": token(OWNER), "Content-Type": "application/json" }, body: JSON.stringify({ items: [] }) });
+expect("another site can't change the redirects", crossSiteRedirect.status === 403, crossSiteRedirect.status);
+// The list on the site broken behind Payload's back: the check sees it and Republish puts it back.
+siteSql(`DELETE FROM meta WHERE key = 'site:redirects'; INSERT INTO meta (key, value) VALUES ('content_version', 'redirect-drift') ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
+const redirectDrift = await sync();
+expect("the sync check notices redirects missing from the site", (await page("/old-address")).status === 404 && redirectDrift.json?.redirectsStale === true && redirectDrift.json?.inStep === false, redirectDrift.text.slice(0, 200));
+const redirectRepair = await call("POST", "/api/globals/site-settings/republish", OWNER);
+expect("…and Republish puts them back", redirectRepair.json?.inStep === true && (await page("/old-address")).status === 301, redirectRepair.text.slice(0, 300));
+
+// History: every save of the redirects, the menu and the settings is kept, with who made it.
+const redirectVersions = await call("GET", "/api/globals/redirects/versions?limit=10", OWNER);
+expect("the redirects keep their history, with who made each change", (redirectVersions.json?.docs?.length ?? 0) >= 1 && redirectVersions.json.docs[0].version?.changedBy === people.admin, redirectVersions.text.slice(0, 300));
+const footer = await call("POST", "/api/globals/site-settings", people.admin, { footerText: "History check" });
+const settingsVersions = await call("GET", "/api/globals/site-settings/versions?limit=10", OWNER);
+expect(
+    "site settings keep their history too",
+    footer.status === 200 && settingsVersions.json?.docs?.[0]?.version?.footerText === "History check" && settingsVersions.json.docs[0].version?.changedBy === people.admin,
+    `${footer.status} ${settingsVersions.text.slice(0, 300)}`,
+);
+const navNow = await call("GET", "/api/globals/navigation", OWNER);
+const navSave = await call("POST", "/api/globals/navigation", OWNER, { items: [...navNow.json.items.map(({ id: _id, ...item }) => item), { label: "Menu history check", type: "url", url: "/blog" }] });
+const navVersions = await call("GET", "/api/globals/navigation/versions?limit=10", OWNER);
+expect(
+    "the menu keeps its history too",
+    navSave.status === 200 && navVersions.json?.docs?.[0]?.version?.items?.some((i) => i.label === "Menu history check") && navVersions.json.docs[0].version?.changedBy === OWNER,
+    `${navSave.status} ${navVersions.text.slice(0, 300)}`,
+);
+// Restoring an earlier version publishes what was restored (Payload hands the hook a version row, not the
+// document: a hook that trusted it would publish an empty menu, empty redirects and default settings).
+const restore = async (slug, pick) => {
+    const versions = await call("GET", `/api/globals/${slug}/versions?limit=20`, OWNER);
+    const target = (versions.json?.docs ?? []).find(pick);
+    return target ? call("POST", `/api/globals/${slug}/versions/${target.id}`, people.admin) : { status: 0, text: "no version to restore" };
+};
+await redirects(OWNER, [{ from: "/only-this", to: "/blog", status: "301", enabled: true }]);
+expect("(the redirects were replaced: the old address is gone)", (await page("/old-address")).status === 404 && (await page("/only-this")).status === 301);
+const restoredRedirects = await restore("redirects", (v) => v.version?.items?.length === 3);
+const afterRestore = await call("GET", "/api/globals/redirects", OWNER);
+expect(
+    "restoring earlier redirects puts them back on the site, and the check agrees",
+    restoredRedirects.status === 200 && afterRestore.json?.items?.length === 3 && (await page("/old-address")).status === 301 && (await page("/only-this")).status === 404 && (await sync()).json?.inStep === true,
+    `${restoredRedirects.status} ${restoredRedirects.text.slice(0, 200)} items=${afterRestore.json?.items?.length} old=${(await page("/old-address")).status}`,
+);
+expect("…and the restore is recorded against the person who restored it", afterRestore.json?.changedBy === people.admin, afterRestore.json?.changedBy);
+const restoredNav = await restore("navigation", (v) => !v.version?.items?.some((i) => i.label === "Menu history check") && (v.version?.items?.length ?? 0) > 0);
+const menuAfter = (await page("/")).text;
+const restoredLinks = (restoredNav.json?.doc?.version?.items ?? []).filter((i) => i.type === "url");
+expect(
+    "restoring an earlier menu publishes that menu, not an empty one",
+    // Its links to addresses are all there (a link to a page shows only while that page is published).
+    restoredNav.status === 200 && !menuAfter.includes("Menu history check") && restoredLinks.length > 0 && restoredLinks.every((i) => menuAfter.includes(`>${i.label}<`)),
+    `${restoredNav.status} links=${restoredLinks.map((i) => i.label).join(",")}`,
+);
+await call("POST", "/api/globals/site-settings", OWNER, { footerText: "After the history check" });
+const restoredSettings = await restore("site-settings", (v) => v.version?.footerText === "History check");
+const footerAfter = (await page("/")).text;
+expect(
+    "restoring earlier settings publishes those settings, not the built-in defaults",
+    restoredSettings.status === 200 && footerAfter.includes("History check") && !footerAfter.includes("After the history check"),
+    `${restoredSettings.status} ${restoredSettings.text.slice(0, 200)}`,
+);
+const homeBefore = await call("POST", "/api/globals/homepage?draft=false", OWNER, { heading: "A heading to come back to", _status: "published" });
+await call("POST", "/api/globals/homepage?draft=false", OWNER, { heading: "A later heading", _status: "published" });
+const restoredHome = await restore("homepage", (v) => v.version?.heading === "A heading to come back to" && v.version?._status === "published");
+expect(
+    "restoring an earlier published homepage publishes it (before, Payload changed and the site didn't)",
+    homeBefore.status === 200 && restoredHome.status === 200 && (await page("/")).text.includes("A heading to come back to"),
+    `${restoredHome.status} ${restoredHome.text.slice(0, 200)}`,
+);
+
+const forged = await call("POST", "/api/globals/site-settings", people.admin, { footerText: "", changedBy: "someone-else@example.test" });
+expect("who made a change is recorded by the server, never taken from the request", forged.json?.result?.changedBy === people.admin, JSON.stringify(forged.json?.result?.changedBy));
+expect("a viewer can't read the history", (await call("GET", "/api/globals/navigation/versions", people.viewer)).status === 403);
+
+await redirects(OWNER, []);
+for (const [collection, docId] of [["pages", plainId], ["posts", seoPost.json?.doc?.id], ["media", share?.id]]) if (docId) await call("DELETE", `/api/${collection}/${docId}`, OWNER);
+expect("cleaned up after the Phase 2b checks, and the site still matches Payload", (await page("/old-address")).status === 404 && (await page("/search-check")).status === 404 && (await sync()).json?.inStep === true);
+
 // Put the homepage and settings back for later suites.
 await call("POST", "/api/globals/homepage?draft=false", OWNER, { heading: "Some things are worth", _status: "published" });
 await call("POST", "/api/globals/site-settings", OWNER, { footerText: "", contact: { heading: "Get in touch" } });

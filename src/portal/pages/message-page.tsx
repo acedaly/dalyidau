@@ -146,7 +146,7 @@ export const MessagePage = ({ data }: { data: PageData<"message"> }) => {
                                             headers: { "Content-Type": "application/json" },
                                             body: JSON.stringify({ kind: message.category, householdIds: households.map((h) => h.id) }),
                                         });
-                                        if (!response.ok) throw new Error((await response.json().catch(() => null))?.message ?? "The cards couldn't be made");
+                                        if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { message?: string } | null)?.message ?? "The cards couldn't be made");
                                         const url = URL.createObjectURL(await response.blob());
                                         const link = document.createElement("a");
                                         link.href = url;

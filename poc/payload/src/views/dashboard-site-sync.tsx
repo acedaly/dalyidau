@@ -66,8 +66,9 @@ export async function DashboardSiteSync({ user }: { user?: TypedUser | null }) {
               </li>
             ))}
             {report.projectListStale ? <li>The list of projects on the website is out of date.</li> : null}
+            {report.redirectsStale ? <li>The redirects on the website aren’t the ones last saved here.</li> : null}
           </ul>
-          {report.projectListStale || missedSince || report.items.some((item) => item.id !== null) ? <RepublishButton /> : null}
+          {report.projectListStale || report.redirectsStale || missedSince || report.items.some((item) => item.id !== null) ? <RepublishButton /> : null}
         </div>
       )}
       <dl className="daly-sync__facts">

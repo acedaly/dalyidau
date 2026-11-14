@@ -8,6 +8,7 @@ import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 // rendered from Lexical's JSON node by node, unknown nodes contribute only their escaped text, and
 // links are limited to http(s), mailto and site-relative paths. Posts imported from the earlier
 // publishers keep their stored HTML byte for byte until someone edits their content in Payload.
+import { SEO_LIMITS, type Seo, canonicalLink } from "../../src/shared/site-content";
 import type { TocEntry } from "../../src/shared/types";
 import { codeBlock, imageFigure, quote } from "../lib/article-html";
 import { escapeHtml, isExternal, isValidSlug, safeUrl, slugify } from "../lib/html";
@@ -71,6 +72,53 @@ export interface PayloadPostInput {
     /** The featured image: an id in Payload's media collection, or one already in the public bucket. */
     heroMediaId?: string | number | null;
     legacyImage?: StoredImage | null;
+    seo?: SeoInput | null;
+}
+
+/** Search and sharing settings as Payload holds them (the sharing image is an id in its media collection). */
+export interface SeoInput {
+    title?: string | null;
+    description?: string | null;
+    canonical?: string | null;
+    socialTitle?: string | null;
+    socialDescription?: string | null;
+    imageMediaId?: string | number | null;
+    noindex?: boolean | null;
+}
+
+/**
+ * Validates search and sharing settings and copies the sharing image to the public bucket (through `copy`,
+ * the publisher's own image step, so a check or a preview stores what a publish would). Null when nothing is
+ * set: the defaults apply and nothing is stored.
+ */
+export async function resolveSeo(
+    input: SeoInput | null | undefined,
+    copy: (id: string | number) => Promise<{ key: string; alt: string; width: number | null; height: number | null } | null>,
+): Promise<Seo | null> {
+    if (!input) return null;
+    // Over-long text is cut, not refused: Payload's own limit tells the editor, and content saved before the
+    // limit existed must still publish (and republish).
+    const text = (value: string | null | undefined, max: number) => value?.trim().slice(0, max) || null;
+    const canonical = input.canonical?.trim() || null;
+    if (canonical && !canonicalLink(canonical))
+        throw new PublishError("The canonical address needs to be a path on this site (/blog/…) or a full https:// address.");
+    let image: Seo["image"] = null;
+    if (input.imageMediaId !== undefined && input.imageMediaId !== null) {
+        const stored = await copy(input.imageMediaId);
+        if (!stored) throw new PublishError("The sharing image couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.");
+        image = { src: `/media/${stored.key}`, alt: stored.alt, width: stored.width ?? undefined, height: stored.height ?? undefined };
+    }
+    const seo: Seo = {
+        title: text(input.title, SEO_LIMITS.title),
+        description: text(input.description, SEO_LIMITS.description),
+        canonical: canonical ? canonicalLink(canonical) : null,
+        socialTitle: text(input.socialTitle, SEO_LIMITS.title),
+        socialDescription: text(input.socialDescription, SEO_LIMITS.description),
+        image,
+        noindex: input.noindex === true,
+    };
+    const empty = !seo.title && !seo.description && !seo.canonical && !seo.socialTitle && !seo.socialDescription && !seo.image && !seo.noindex;
+    return empty ? null : seo;
 }
 
 export interface PublisherEnv {
@@ -435,6 +483,7 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
         if (!image) throw new PublishError("The featured image couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.");
     }
 
+    const seo = await resolveSeo(input.seo, copy);
     const record = {
         title,
         subtitle: input.subtitle?.trim() || null,
@@ -453,6 +502,8 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
         reading_minutes: body.readingMinutes,
         published_at: input.publishedAt ?? now,
         updated_at: input.updatedAt ?? null,
+        // Left out entirely when the post sets none, so a post without any hashes as it always has.
+        seo: seo ?? undefined,
     };
     const content_hash = await sha256(JSON.stringify({ slug, ...record }));
     const prepared = (outcome: PublishOutcome["outcome"]): PreparedPost => ({ outcome: { outcome, postId: input.postId, slug }, slug, record });
@@ -468,14 +519,14 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
     const statements = [
         env.DB.prepare(
             `INSERT INTO posts (id, slug, title, subtitle, summary, category, tags, featured, image_key, image_alt, image_width, image_height,
-                body_html, toc, search_text, word_count, reading_minutes, published_at, updated_at, source_updated_at, content_hash, render_context, synced_at, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'payload')
+                body_html, toc, search_text, word_count, reading_minutes, published_at, updated_at, source_updated_at, content_hash, render_context, synced_at, source, seo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'payload', ?)
              ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, title = excluded.title, subtitle = excluded.subtitle, summary = excluded.summary,
                 category = excluded.category, tags = excluded.tags, featured = excluded.featured, image_key = excluded.image_key, image_alt = excluded.image_alt,
                 image_width = excluded.image_width, image_height = excluded.image_height, body_html = excluded.body_html, toc = excluded.toc,
                 search_text = excluded.search_text, word_count = excluded.word_count, reading_minutes = excluded.reading_minutes,
                 published_at = excluded.published_at, updated_at = excluded.updated_at, source_updated_at = excluded.source_updated_at,
-                content_hash = excluded.content_hash, synced_at = excluded.synced_at
+                content_hash = excluded.content_hash, synced_at = excluded.synced_at, seo = excluded.seo
              WHERE posts.source = 'payload'`,
         ).bind(
             input.postId,
@@ -500,6 +551,7 @@ export async function preparePayloadPost(env: PublisherEnv, input: PayloadPostIn
             input.sourceUpdatedAt ?? now,
             content_hash,
             now,
+            seo ? JSON.stringify(seo) : null,
         ),
         // A slug that now belongs to this post must not redirect anywhere.
         env.DB.prepare("DELETE FROM slug_redirects WHERE from_slug = ?").bind(slug),

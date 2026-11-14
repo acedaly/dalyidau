@@ -179,7 +179,10 @@ describe("the archive", () => {
         // The archived copy is the published row, column for column.
         const live = await testEnv.DB.prepare("SELECT * FROM posts WHERE slug = ?").bind(NOTEBOOK).first<Record<string, unknown>>();
         const copy = await testEnv.DB.prepare("SELECT * FROM capacities_archive WHERE id = ?").bind(live!.id).first<Record<string, unknown>>();
-        for (const [column, value] of Object.entries(live!)) if (column !== "source") expect(copy![column], column).toEqual(value);
+        // (`seo` is written only by Payload's publisher, for Payload's posts: a Capacities article never has one,
+        // so the archive has no column for it.)
+        expect(live!.seo).toBeNull();
+        for (const [column, value] of Object.entries(live!)) if (column !== "source" && column !== "seo") expect(copy![column], column).toEqual(value);
         expect(JSON.parse(String(copy!.media_keys))).toContain(live!.image_key);
 
         // Archiving changed nothing public.

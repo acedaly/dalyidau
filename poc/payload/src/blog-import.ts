@@ -109,6 +109,9 @@ export async function importLegacyPosts(payload: Payload, req?: PayloadRequest):
 
 /** Puts a `posts` row back exactly as it was before the import. */
 export async function restoreRow(DB: D1Database, row: Record<string, unknown>) {
+  // `seo` is Payload's alone: a row captured before the column existed has no key for it, and the earlier
+  // publisher never had one, so it is always cleared.
+  row = { ...row, seo: null }
   const columns = Object.keys(row).filter((c) => /^[a-z_]+$/.test(c))
   await DB.prepare(
     `INSERT INTO posts (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')}) ON CONFLICT(id) DO UPDATE SET ${columns

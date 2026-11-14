@@ -1,4 +1,4 @@
-import type { SiteSettings } from "../src/shared/site-content";
+import { NO_SEO, type Seo, type SiteSettings } from "../src/shared/site-content";
 import type { PageData, PostSummary } from "../src/shared/types";
 import { escapeHtml, jsonForScript } from "./lib/html";
 
@@ -13,8 +13,14 @@ const absolute = (siteUrl: string, path: string) => new URL(path, siteUrl).toStr
 
 const DEFAULT_IMAGE = "/og-default.png";
 
+/** The search and sharing settings of whatever this page shows (a post, page or project), or none. */
+export const seoOf = (data: PageData): Seo =>
+    (data.route === "post" ? data.post.seo : data.route === "page" ? data.page.seo : data.route === "project" ? data.project.seo : null) ?? NO_SEO;
+
 export const pageTitle = (data: PageData) => {
     const site = data.context.site;
+    const seo = seoOf(data);
+    if (seo.title) return seo.title;
     switch (data.route) {
         case "home":
             return data.home.seoTitle ?? site.title;
@@ -44,6 +50,8 @@ export const pageTitle = (data: PageData) => {
 
 const pageDescription = (data: PageData) => {
     const site = data.context.site;
+    const seo = seoOf(data);
+    if (seo.description) return seo.description;
     switch (data.route) {
         case "post":
             return data.post.summary ?? data.post.subtitle ?? site.description;
@@ -88,39 +96,38 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
     const site = data.context.site;
     const title = pageTitle(data);
     const description = pageDescription(data);
-    const canonical = absolute(siteUrl, canonicalPath(data, path));
+    const seo = seoOf(data);
+    // A canonical address set by hand wins: a path on this site or a full address elsewhere (already validated).
+    const canonical = absolute(siteUrl, seo.canonical ?? canonicalPath(data, path));
     const isPost = data.route === "post";
-    const image =
-        isPost && data.post.image
-            ? absolute(siteUrl, data.post.image.src)
-            : data.route === "page" && data.page.image
-              ? absolute(siteUrl, data.page.image.src)
-              : data.route === "project" && data.project.image
-                ? absolute(siteUrl, data.project.image.src)
-                : absolute(siteUrl, site.seoImage ?? DEFAULT_IMAGE);
+    const own =
+        seo.image ?? (isPost ? data.post.image : data.route === "page" ? data.page.image : data.route === "project" ? data.project.image : null) ?? null;
+    const image = absolute(siteUrl, own?.src ?? site.seoImage ?? DEFAULT_IMAGE);
+    const socialTitle = seo.socialTitle ?? (isPost && !seo.title ? data.post.title : title);
+    const socialDescription = seo.socialDescription ?? description;
     const searchNoindex = data.route === "blog" && !!data.filters.q;
 
     const tags = [
         `<title>${escapeHtml(title)}</title>`,
         `<meta name="description" content="${escapeHtml(description)}">`,
         data.route !== "not-found" ? `<link rel="canonical" href="${escapeHtml(canonical)}">` : "",
-        noindex || searchNoindex || data.route === "not-found"
+        noindex || searchNoindex || seo.noindex || data.route === "not-found"
             ? `<meta name="robots" content="noindex, follow">`
             : `<meta name="robots" content="index, follow, max-image-preview:large">`,
         `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(`${site.name} — ${site.blogTitle}`)}" href="${escapeHtml(absolute(siteUrl, "/feed.xml"))}">`,
         `<meta property="og:site_name" content="${escapeHtml(site.name)}">`,
         `<meta property="og:locale" content="${site.locale}">`,
         `<meta property="og:type" content="${isPost ? "article" : "website"}">`,
-        `<meta property="og:title" content="${escapeHtml(isPost ? data.post.title : title)}">`,
-        `<meta property="og:description" content="${escapeHtml(description)}">`,
+        `<meta property="og:title" content="${escapeHtml(socialTitle)}">`,
+        `<meta property="og:description" content="${escapeHtml(socialDescription)}">`,
         `<meta property="og:url" content="${escapeHtml(canonical)}">`,
         `<meta property="og:image" content="${escapeHtml(image)}">`,
-        isPost && data.post.image?.alt ? `<meta property="og:image:alt" content="${escapeHtml(data.post.image.alt)}">` : "",
-        isPost && data.post.image?.width ? `<meta property="og:image:width" content="${data.post.image.width}">` : "",
-        isPost && data.post.image?.height ? `<meta property="og:image:height" content="${data.post.image.height}">` : "",
+        own?.alt ? `<meta property="og:image:alt" content="${escapeHtml(own.alt)}">` : "",
+        own?.width ? `<meta property="og:image:width" content="${own.width}">` : "",
+        own?.height ? `<meta property="og:image:height" content="${own.height}">` : "",
         `<meta name="twitter:card" content="summary_large_image">`,
-        `<meta name="twitter:title" content="${escapeHtml(isPost ? data.post.title : title)}">`,
-        `<meta name="twitter:description" content="${escapeHtml(description)}">`,
+        `<meta name="twitter:title" content="${escapeHtml(socialTitle)}">`,
+        `<meta name="twitter:description" content="${escapeHtml(socialDescription)}">`,
         `<meta name="twitter:image" content="${escapeHtml(image)}">`,
     ];
 
@@ -190,7 +197,15 @@ const structuredData = (data: PageData, siteUrl: string, canonical: string, imag
         };
     }
     if (data.route === "page") {
-        return { "@context": "https://schema.org", "@type": "WebPage", name: data.page.title, url: canonical, description, inLanguage: site.language, author: person(site, siteUrl) };
+        return {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            name: data.page.title,
+            url: canonical,
+            description,
+            inLanguage: site.language,
+            author: person(site, siteUrl),
+        };
     }
     return {
         "@context": "https://schema.org",

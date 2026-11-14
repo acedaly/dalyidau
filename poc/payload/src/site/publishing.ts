@@ -4,6 +4,7 @@ import { APIError, NotFound } from 'payload'
 import type { MediaFile, PublisherEnv } from '../../../../worker/blog/payload-publisher'
 import {
   PublishError,
+  forgetEarlierDocument,
   publishHome,
   publishPage,
   publishProject,
@@ -22,6 +23,7 @@ import { type DraftPreview, type PreviewKind, previewPath, storeDraftPreview } f
 import { GaveUp, Unsettled, retried, settle as settleLoop } from '../../../../worker/site/settle'
 import { noteSyncStatus } from '../../../../worker/site/sync-check'
 import { cloudflareEnv } from '../cloudflare-env'
+import { seoInput } from '../fields/seo'
 
 // The website's content (docs/PAYLOAD-FRONTEND-PLAN.md): Payload keeps it; these helpers publish what's
 // published in Payload to the public site's snapshots (worker/site/publisher.ts). Drafts change nothing public.
@@ -192,7 +194,7 @@ type PageDoc = {
   content?: PageInput['content']
   heroImage?: unknown
   showButtons?: boolean | null
-  seo?: { title?: string | null; description?: string | null } | null
+  seo?: Parameters<typeof seoInput>[0]
   createdAt?: string | null
   updatedAt?: string | null
   _status?: 'draft' | 'published'
@@ -209,6 +211,7 @@ export const pageInput = (doc: PageDoc): PageInput => ({
   showButtons: doc.showButtons,
   seoTitle: doc.seo?.title,
   seoDescription: doc.seo?.description,
+  seo: seoInput(doc.seo),
   createdAt: doc.createdAt ?? null,
   updatedAt: doc.updatedAt ?? null,
 })
@@ -218,8 +221,10 @@ export const pageInput = (doc: PageDoc): PageInput => ({
  * public changed (the menu shows a page only while it's published). A draft save of a page that isn't on the
  * site changes nothing public and touches nothing.
  */
-export async function syncPage(req: PayloadRequest, id: string | number, deleted = false) {
+export async function syncPage(req: PayloadRequest, id: string | number, deleted = false, created = false) {
   const env = await publisherEnv()
+  // A new document may have been given a deleted one's number: it starts with no kept addresses.
+  if (created) await writeToSite(req, `page ${id}`, () => forgetEarlierDocument(env, 'page', id))
   let changed = false
   const assumeChanged = () => void (changed = true)
   try {
@@ -263,7 +268,7 @@ type ProjectDoc = {
   githubUrl?: string | null
   links?: Array<{ label?: string | null; url?: string | null }> | null
   listed?: boolean | null
-  seo?: { title?: string | null; description?: string | null } | null
+  seo?: Parameters<typeof seoInput>[0]
   createdAt?: string | null
   updatedAt?: string | null
   _status?: 'draft' | 'published'
@@ -287,14 +292,17 @@ export const projectInput = (doc: ProjectDoc): ProjectInput => ({
   links: doc.links,
   seoTitle: doc.seo?.title,
   seoDescription: doc.seo?.description,
+  seo: seoInput(doc.seo),
   publishedAt: doc.createdAt ?? null,
   createdAt: doc.createdAt ?? null,
   updatedAt: doc.updatedAt ?? null,
 })
 
 /** Makes the public site match a project's main (published) document. */
-export async function syncProject(req: PayloadRequest, id: string | number, deleted = false) {
+export async function syncProject(req: PayloadRequest, id: string | number, deleted = false, created = false) {
   const env = await publisherEnv()
+  // A new document may have been given a deleted one's number: it starts with no kept addresses.
+  if (created) await writeToSite(req, `project ${id}`, () => forgetEarlierDocument(env, 'project', id))
   await settle(reader<ProjectDoc>(req, `project ${id}`, 'projects', id), async (main) => {
     if (main && main._status === 'published' && !main.deletedAt && main.listed !== false) {
       const project = await writeToSite(req, `project ${id}`, () => publishProject(env, projectInput(main), mediaLoader(req, env)))

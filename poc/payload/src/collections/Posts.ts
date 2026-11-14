@@ -6,6 +6,7 @@ import type { PayloadRequest } from 'payload'
 import { type PayloadPostInput, preparePayloadPost, unpublishPayloadPost } from '../../../../worker/blog/payload-publisher'
 import { isValidSlug, slugify } from '../../../../worker/lib/html'
 import { DELETED_NOT_ON_SITE, asEditorError, mediaLoader, previewEndpoint, publisherEnv, reader, settle, statusAfter, willBePublic, writeToSite } from '../site/publishing'
+import { seoFields, seoInput } from '../fields/seo'
 import { contentEditor } from './Users'
 
 // The blog's posts (docs/PAYLOAD-BLOG.md). Payload is where they're written and kept. The public
@@ -28,6 +29,7 @@ type PostDoc = {
   publishedAt?: string | null
   updatedDate?: string | null
   updatedAt?: string | null
+  seo?: Parameters<typeof seoInput>[0]
   legacy?: {
     bodyHtml?: string | null
     toc?: unknown
@@ -71,6 +73,7 @@ export const toPublisherInput = (doc: PostDoc): PayloadPostInput => {
     content: doc.content ?? null,
     legacy,
     heroMediaId: idOf(doc.heroImage),
+    seo: seoInput(doc.seo),
     legacyImage: doc.legacy?.imageKey
       ? {
           key: doc.legacy.imageKey,
@@ -205,6 +208,7 @@ export const Posts: CollectionConfig = {
     { name: 'category', type: 'text', admin: { position: 'sidebar' } },
     { name: 'tags', type: 'array', admin: { position: 'sidebar' }, fields: [{ name: 'tag', type: 'text', required: true }] },
     { name: 'featured', type: 'checkbox', admin: { position: 'sidebar' } },
+    seoFields({ title: '"<title> — <site name>"', description: 'the summary', image: 'the featured image' }),
     {
       name: 'publicId',
       type: 'text',
