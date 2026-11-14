@@ -37,7 +37,11 @@ async function signedIn(email, theme = "light") {
     const page = await context.newPage();
     page.errors = [];
     page.on("pageerror", (e) => page.errors.push(e.message));
-    page.on("console", (m) => (m.type() === "error" || /Content Security Policy/i.test(m.text())) && page.errors.push(m.text()));
+    // Test-only: the hosts are mapped over plain http here, where Chrome ignores Cross-Origin-Opener-Policy and
+    // says so as a console error. On https (always, for real users) the header is honoured; that it is sent
+    // is checked in test-platform/platform.test.ts. Nothing else is excused.
+    const httpOnlyNotice = (text) => /^The Cross-Origin-Opener-Policy header has been ignored, because the URL's origin was untrustworthy\./.test(text);
+    page.on("console", (m) => (m.type() === "error" || /Content Security Policy/i.test(m.text())) && !httpOnlyNotice(m.text()) && page.errors.push(m.text()));
     return page;
 }
 

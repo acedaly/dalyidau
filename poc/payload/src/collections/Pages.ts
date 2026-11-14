@@ -59,7 +59,7 @@ export const Pages: CollectionConfig = {
       },
     ],
     afterChange: [async ({ doc, req, context }) => (context?.skipPublicSync ? doc : (await syncPage(req, doc.id), doc))],
-    afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncPage(req, doc.id))],
+    afterDelete: [async ({ doc, req, context }) => void (context?.skipPublicSync ? null : await syncPage(req, doc.id, true))],
   },
   fields: [
     { name: 'title', type: 'text', required: true },

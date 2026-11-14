@@ -23,7 +23,17 @@ export function classifyHost(url: URL, config: HostConfig): Host {
 }
 
 /** Payload and Next.js own these on the site host only. Everything else stays with the existing Worker. */
-const PAYLOAD_PREFIXES = ["/admin", "/_next/", "/cms", "/poc/"];
+const PAYLOAD_PREFIXES = ["/admin", "/_next/"];
+
+/**
+ * Never served on any host:
+ * - /cms and /poc/: Phase 0 experiment prefixes. Nothing lives there any more, and they reached Next.js
+ *   without the portal sign-in check, so they're closed rather than left as surface.
+ * - The page templates (shell*.html): the Worker reads them through the asset binding; served raw they're a
+ *   half-built page without the Worker's security headers.
+ */
+const CLOSED_PREFIXES = ["/cms/", "/poc/"];
+const CLOSED_FILES = /^\/shell(?:-[a-z]+)?\.html$/i;
 
 /**
  * Payload's REST API lives under /api/<collection>. These /api prefixes belong to the existing Worker
@@ -54,6 +64,15 @@ export function routeRequest(url: URL, config: HostConfig): { host: Host; target
     const path = url.pathname;
     // Normalise before deciding: encoded slashes and dot segments never smuggle a path past the lists.
     if (/%2f|%5c|\\|\/\.\.?(?:\/|$)/i.test(path)) return { host, target: "deny" };
+    // Compared as the asset layer and Next.js would read it: decoded, lower-case, without doubled slashes,
+    // so /%73hell.html or //shell.html is the same closed file. A path that can't be decoded goes nowhere.
+    let plain: string;
+    try {
+        plain = decodeURIComponent(path).toLowerCase().replace(/\/{2,}/g, "/");
+    } catch {
+        return { host, target: "deny" };
+    }
+    if (startsWithAny(plain, CLOSED_PREFIXES) || CLOSED_FILES.test(plain)) return { host, target: "deny" };
 
     if (host === "wedding" || host === "planner") {
         // The guest site and the phone app: the existing Worker's own narrow surface, plus its static files.

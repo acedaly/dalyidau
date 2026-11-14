@@ -163,5 +163,78 @@ expect("the imported post can be rewritten in Payload", edit.status === 200, edi
 live = await page(`/blog/${LEGACY_SLUG}`);
 expect("…and its page shows the new content at the same address", live.status === 200 && body(live.text)?.includes("Rewritten in Payload.") && !body(live.text)?.includes("Written before Payload"));
 
+// 6. Phase 1 hardening (docs/AUDIT-2026-11.md): nothing a request sends can put raw HTML on the site,
+// uploads are images the site can publish (checked by their bytes) and no bigger than it accepts, and a
+// page on another site can't make the signed-in owner write.
+const INJECTED = '<p id="injected">INJECTED <img src=x onerror=alert(1)></p>';
+const sneaky = await call("POST", "/api/posts?draft=false", OWNER, {
+    title: "Sneaky legacy",
+    slug: "sneaky-legacy",
+    _status: "published",
+    publicId: "payload:chosen-by-the-request",
+    legacy: { source: "capacities", bodyHtml: INJECTED },
+});
+// Read back what Payload stored, whatever the create answered (a publish refused after saving still saves).
+const stored = await call("GET", "/api/posts?where[slug][equals]=sneaky-legacy&depth=0&trash=true&draft=true", OWNER);
+const sneakyDoc = stored.json?.docs?.[0] ?? sneaky.json?.doc;
+expect("the create was answered (saved or refused), not an error", sneaky.status < 500, `${sneaky.status} ${sneaky.text}`);
+expect(
+    "a request can't set an imported post's stored HTML (legacy) on create",
+    sneakyDoc ? !sneakyDoc.legacy?.bodyHtml : sneaky.status >= 400,
+    `${sneaky.status} ${sneaky.text.slice(0, 200)} | stored: ${JSON.stringify(sneakyDoc?.legacy ?? null)}`,
+);
+expect("…or choose the post's public id", sneakyDoc ? sneakyDoc.publicId !== "payload:chosen-by-the-request" : true, sneakyDoc?.publicId);
+const sneakyPage = await page("/blog/sneaky-legacy");
+expect("…and nothing of it reaches the public site", !sneakyPage.text.includes("INJECTED"), sneakyPage.status);
+if (sneakyDoc?.id) await call("DELETE", `/api/posts/${sneakyDoc.id}`, OWNER);
+
+// Duplicate copies a document on the server, so the group's own rule isn't enough: every field inside is refused too.
+const copy = await call("POST", `/api/posts/${imported?.id}/duplicate?draft=true`, OWNER, {});
+const copyDoc = copy.json?.doc;
+expect("the imported post still carries its stored HTML (so the next check means something)", !!(await call("GET", `/api/posts/${imported?.id}?depth=0`, OWNER)).json?.legacy?.bodyHtml);
+expect("duplicating an imported post doesn't copy its stored HTML or its public id", copy.status < 500 && (!copyDoc || (!copyDoc.legacy?.bodyHtml && copyDoc.publicId !== imported?.publicId)), `${copy.status} ${copy.text.slice(0, 300)}`);
+if (copyDoc?.id) await call("DELETE", `/api/posts/${copyDoc.id}`, OWNER);
+
+const PNG_BYTES = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+async function upload(name, type, bytes, headers = SITE) {
+    const form = new FormData();
+    form.set("file", new Blob([bytes], { type }), name);
+    form.set("_payload", JSON.stringify({ alt: `Upload check ${name}` }));
+    const response = await fetch(`${BASE}/api/media`, { method: "POST", headers: { ...headers, "Cf-Access-Jwt-Assertion": token(OWNER) }, body: form });
+    const text = await response.text();
+    let json = null;
+    try {
+        json = JSON.parse(text);
+    } catch {}
+    return { status: response.status, text, json };
+}
+const png = await upload("dot.png", "image/png", PNG_BYTES);
+expect("a PNG uploads", png.status === 201 && png.json?.doc?.mimeType === "image/png", `${png.status} ${png.text}`);
+if (png.json?.doc?.id) {
+    const file = await fetch(`${BASE}${png.json.doc.url}`, { headers: { "Cf-Access-Jwt-Assertion": token(OWNER) } });
+    const csp = file.headers.get("content-security-policy") ?? "";
+    expect("an uploaded file is served with a no-script sandbox policy and nosniff", file.status === 200 && /sandbox/.test(csp) && /default-src 'none'/.test(csp) && file.headers.get("x-content-type-options") === "nosniff", `${file.status} ${csp}`);
+    await call("DELETE", `/api/media/${png.json.doc.id}`, OWNER);
+}
+const svg = await upload("drawing.svg", "image/svg+xml", new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'));
+expect("an SVG is refused at upload", svg.status >= 400 && svg.status < 500, `${svg.status} ${svg.text}`);
+const disguised = await upload("page.png", "image/png", new TextEncoder().encode("<!doctype html><script>alert(1)</script>"));
+expect("an HTML file named and labelled as a PNG is refused (the browser's label isn't trusted)", disguised.status >= 400 && disguised.status < 500, `${disguised.status} ${disguised.text}`);
+const script = await upload("tool.mjs", "application/javascript", new TextEncoder().encode("alert(1)"));
+expect("a script is refused at upload", script.status >= 400 && script.status < 500, `${script.status} ${script.text}`);
+const big = new Uint8Array(16 * 1024 * 1024);
+big.set(PNG_BYTES);
+const tooBig = await upload("big.png", "image/png", big);
+expect("an image over 15 MB is refused", tooBig.status === 413 || (tooBig.status >= 400 && /size|large|limit/i.test(tooBig.text)), `${tooBig.status} ${tooBig.text.slice(0, 200)}`);
+const media = await call("GET", "/api/media?limit=100&depth=0", OWNER);
+expect("…and none of the refused files is in the library", !(media.json?.docs ?? []).some((d) => /drawing|page\.png|tool|big\.png/.test(d.filename ?? "")), media.text.slice(0, 300));
+
+const crossSite = await upload("dot.png", "image/png", PNG_BYTES, { Origin: "https://evil.example" });
+expect("a cross-site upload is refused even for the signed-in owner", crossSite.status === 403, `${crossSite.status} ${crossSite.text}`);
+const crossForm = new FormData();
+crossForm.set("_payload", JSON.stringify({ title: "Cross-site", slug: "cross-site", _status: "published", content: lexical("x") }));
+const crossPost = await fetch(`${BASE}/api/posts?draft=false`, { method: "POST", headers: { Origin: "https://evil.example", "Cf-Access-Jwt-Assertion": token(OWNER) }, body: crossForm });
+expect("a cross-site form can't publish a post as the owner", crossPost.status === 403 && (await page("/blog/cross-site")).status === 404, crossPost.status);
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

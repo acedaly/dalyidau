@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
     test:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04 # pinned: Playwright 1.56 has no Chromium for ubuntu-latest (26.04) yet
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@v4

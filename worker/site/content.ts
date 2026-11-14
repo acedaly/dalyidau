@@ -3,22 +3,23 @@ import type { D1Database } from "@cloudflare/workers-types";
 // uncached page; anything missing or malformed falls back to the built-in content, field by field,
 // so a bad snapshot can never break the public site (docs/PAYLOAD-FRONTEND-PLAN.md).
 import {
+    DEFAULT_ABOUT,
+    DEFAULT_HOME,
     DEFAULT_PROJECTS_HOME,
+    DEFAULT_SITE,
+    type HomeContent,
     type Project,
     type ProjectSummary,
     type ProjectsHomeContent,
-    normaliseProject,
-    normaliseProjectSummary,
-    normaliseProjectsHome,
-    DEFAULT_ABOUT,
-    DEFAULT_HOME,
-    DEFAULT_SITE,
-    type HomeContent,
     type PublicPage,
     type SiteSettings,
     normaliseHome,
     normalisePage,
+    normaliseProject,
+    normaliseProjectSummary,
+    normaliseProjectsHome,
     normaliseSite,
+    sortProjects,
 } from "../../src/shared/site-content";
 
 export const SNAPSHOT = {
@@ -44,7 +45,8 @@ const parse = (value: string | null | undefined): unknown => {
     }
 };
 
-const logFailure = (what: string, error: unknown) => console.error(JSON.stringify({ event: "site_content_unavailable", what, message: (error as Error).message }));
+const logFailure = (what: string, error: unknown) =>
+    console.error(JSON.stringify({ event: "site_content_unavailable", what, message: (error as Error).message }));
 
 export async function loadSite(db: D1Database): Promise<SiteSettings> {
     try {
@@ -84,7 +86,11 @@ export async function loadPage(db: D1Database, slug: string): Promise<PageLookup
         if (page && page.slug === slug) return { page };
         const target = parse(by.get(SNAPSHOT.redirect(slug)));
         const moved = typeof target === "string" ? target : null;
-        if (moved && moved !== slug && normalisePage(parse((await db.prepare("SELECT value FROM meta WHERE key = ?").bind(SNAPSHOT.page(moved)).first<{ value: string }>())?.value)))
+        if (
+            moved &&
+            moved !== slug &&
+            normalisePage(parse((await db.prepare("SELECT value FROM meta WHERE key = ?").bind(SNAPSHOT.page(moved)).first<{ value: string }>())?.value))
+        )
             return { redirect: moved };
         // Until Payload has published its pages, /about is the built-in one.
         if (slug === "about" && !by.has(SNAPSHOT.pagesManaged)) return { page: DEFAULT_ABOUT };
@@ -98,7 +104,10 @@ export async function loadPage(db: D1Database, slug: string): Promise<PageLookup
 /** Published pages for the sitemap: address and last change. */
 export async function listPages(db: D1Database): Promise<{ slug: string; lastmod: string | null }[]> {
     try {
-        const { results } = await db.prepare("SELECT key, value FROM meta WHERE key LIKE 'page:%' OR key = ?").bind(SNAPSHOT.pagesManaged).all<{ key: string; value: string }>();
+        const { results } = await db
+            .prepare("SELECT key, value FROM meta WHERE key LIKE 'page:%' OR key = ?")
+            .bind(SNAPSHOT.pagesManaged)
+            .all<{ key: string; value: string }>();
         const managed = results.some((r) => r.key === SNAPSHOT.pagesManaged);
         const pages = results
             .filter((r) => r.key.startsWith("page:"))
@@ -118,7 +127,8 @@ export async function listPages(db: D1Database): Promise<{ slug: string; lastmod
 
 const projectList = (value: string | undefined): ProjectSummary[] => {
     const parsed = parse(value);
-    return Array.isArray(parsed) ? (parsed.map(normaliseProjectSummary).filter(Boolean) as ProjectSummary[]) : [];
+    // Sorted here, not trusted from storage: the list is built inside the database (publisher.ts rebuildProjectIndex).
+    return Array.isArray(parsed) ? sortProjects(parsed.map(normaliseProjectSummary).filter(Boolean) as ProjectSummary[]) : [];
 };
 
 /** Everything the projects-first homepage needs except posts, in one query. */
@@ -168,7 +178,9 @@ export async function loadProject(db: D1Database, slug: string): Promise<Project
             return { project, related };
         }
         const target = parse(by.get(SNAPSHOT.projectRedirect(slug)));
-        if (typeof target === "string" && target !== slug) return { redirect: target };
+        // Only to a project that's on the site: a project taken off it keeps its old addresses (for when
+        // it comes back) but they answer 404 meanwhile, without revealing where it lived.
+        if (typeof target === "string" && target !== slug && projectList(by.get(SNAPSHOT.projects)).some((p) => p.slug === target)) return { redirect: target };
         return null;
     } catch (error) {
         logFailure("project", error);

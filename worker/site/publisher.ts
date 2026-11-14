@@ -19,14 +19,21 @@ import {
     normaliseHome,
     normalisePage,
     normaliseProject,
-    normaliseProjectSummary,
     normaliseProjectsHome,
     normaliseSite,
     pageSlugProblem,
     safeLink,
-    sortProjects,
 } from "../../src/shared/site-content";
-import { type LexicalNode, type MediaFile, PublishError, type PublisherEnv, lexicalHasContent, renderLexical, storePublicImage, uploadIds } from "../blog/payload-publisher";
+import {
+    type LexicalNode,
+    type MediaFile,
+    PublishError,
+    type PublisherEnv,
+    lexicalHasContent,
+    renderLexical,
+    storePublicImage,
+    uploadIds,
+} from "../blog/payload-publisher";
 import { mediaUrls } from "../lib/image";
 import { SNAPSHOT } from "./content";
 
@@ -37,6 +44,31 @@ const bump = (db: D1Database, now: string) =>
 const put = (db: D1Database, key: string, value: unknown) =>
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, JSON.stringify(value));
 const del = (db: D1Database, key: string) => db.prepare("DELETE FROM meta WHERE key = ?").bind(key);
+/**
+ * Old addresses belong to an item, not to the address it happened to live at. While an item is off the
+ * site its redirects point at this marker instead of an address: it can never be a real address (addresses
+ * are lower-case letters, numbers and hyphens), so they answer 404 and reveal nothing, a different item
+ * that publishes at the old address inherits none of them, and when the item is published again, wherever,
+ * they are pointed at its new address.
+ */
+const offSite = (kind: "page" | "project", id: string | number) => `@${kind}:${id}`;
+
+/** The address an item is published at now, if any. */
+async function currentSlug(db: D1Database, idKey: string): Promise<string | null> {
+    const raw = (await db.prepare("SELECT value FROM meta WHERE key = ?").bind(idKey).first<{ value: string }>())?.value;
+    try {
+        const slug: unknown = raw ? JSON.parse(raw) : null;
+        return typeof slug === "string" ? slug : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Points every redirect that leads to `from` at `to` instead. `prefix` is the kind's redirect key prefix. */
+const repoint = (db: D1Database, prefix: "page-redirect:" | "project-redirect:", from: string, to: string) =>
+    db.prepare("UPDATE meta SET value = ? WHERE substr(key, 1, ?) = ? AND value = ?").bind(JSON.stringify(to), prefix.length, prefix, JSON.stringify(from));
+const dropRedirectsTo = (db: D1Database, prefix: "page-redirect:" | "project-redirect:", to: string) =>
+    db.prepare("DELETE FROM meta WHERE substr(key, 1, ?) = ? AND value = ?").bind(prefix.length, prefix, JSON.stringify(to));
 const pageIdKey = (id: string | number) => `page-id:${id}`;
 
 export interface SiteSettingsInput {
@@ -146,10 +178,19 @@ export function homeSnapshot(input: Partial<Record<keyof HomeContent, unknown>>)
         headingEmphasis: typeof input.headingEmphasis === "string" ? input.headingEmphasis.trim() : "",
         intro: strict(input.intro, "Introduction", 1000),
         ctaLabel: strict(input.ctaLabel, "Button label", 60),
-        ctaHref: safeLink(input.ctaHref) ?? (() => { throw new PublishError("The button needs a link: a path such as /blog, or a full https:// address."); })(),
+        ctaHref:
+            safeLink(input.ctaHref) ??
+            (() => {
+                throw new PublishError("The button needs a link: a path such as /blog, or a full https:// address.");
+            })(),
         latestEyebrow: strict(input.latestEyebrow, "Latest posts label", 80),
         latestHeading: strict(input.latestHeading, "Latest posts heading", 120),
-        latestCount: typeof input.latestCount === "number" && Number.isInteger(input.latestCount) && input.latestCount >= 0 && input.latestCount <= 12 ? input.latestCount : (() => { throw new PublishError("Show between 0 and 12 latest posts."); })(),
+        latestCount:
+            typeof input.latestCount === "number" && Number.isInteger(input.latestCount) && input.latestCount >= 0 && input.latestCount <= 12
+                ? input.latestCount
+                : (() => {
+                      throw new PublishError("Show between 0 and 12 latest posts.");
+                  })(),
         aboutHeading: strict(input.aboutHeading, "About section heading", 200),
         aboutParagraphs: paragraphs.map((p, i) => strict(p, `About paragraph ${i + 1}`, 2000)),
         showContactLine: input.showContactLine !== false,
@@ -239,42 +280,43 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
     const page = normalisePage(snapshot);
     if (!page) throw new PublishError("This page can't be published as it is.");
 
-    const previous = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(pageIdKey(input.id)).first<{ value: string }>())?.value;
-    const previousSlug = previous ? (JSON.parse(previous) as string) : null;
+    const previousSlug = await currentSlug(env.DB, pageIdKey(input.id));
     const statements = [
         put(env.DB, SNAPSHOT.page(slug), snapshot),
         put(env.DB, pageIdKey(input.id), slug),
-        // An address a page now owns never redirects.
-        del(env.DB, SNAPSHOT.redirect(slug)),
+        // Addresses this page had before it was last taken off the site lead to it again.
+        repoint(env.DB, "page-redirect:", offSite("page", input.id), slug),
         put(env.DB, SNAPSHOT.pagesManaged, true),
         bump(env.DB, now),
     ];
     if (previousSlug && previousSlug !== slug) {
         statements.push(del(env.DB, SNAPSHOT.page(previousSlug)), put(env.DB, SNAPSHOT.redirect(previousSlug), slug));
         // Earlier addresses of this page follow it to its new one.
-        statements.push(
-            env.DB.prepare("UPDATE meta SET value = ? WHERE key LIKE 'page-redirect:%' AND value = ?").bind(JSON.stringify(slug), JSON.stringify(previousSlug)),
-        );
+        statements.push(repoint(env.DB, "page-redirect:", previousSlug, slug));
     }
+    // Last, so it wins over the lines above: an address a page now owns never redirects.
+    statements.push(del(env.DB, SNAPSHOT.redirect(slug)));
     await env.DB.batch(statements);
     return page;
 }
 
-/** Takes a page off the site (unpublished, in Trash or deleted). Its old addresses stop redirecting. */
-export async function unpublishPage(env: PublisherEnv, id: string | number, now = new Date()): Promise<boolean> {
-    const current = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(pageIdKey(id)).first<{ value: string }>())?.value;
-    const slug = current ? (JSON.parse(current) as string) : null;
-    await env.DB.batch([
-        ...(slug
-            ? [
-                  del(env.DB, SNAPSHOT.page(slug)),
-                  env.DB.prepare("DELETE FROM meta WHERE key LIKE 'page-redirect:%' AND value = ?").bind(JSON.stringify(slug)),
-              ]
-            : []),
-        del(env.DB, pageIdKey(id)),
-        put(env.DB, SNAPSHOT.pagesManaged, true),
-        bump(env.DB, now.toISOString()),
-    ]);
+/**
+ * Takes a page off the site (unpublished or in Trash). Its addresses, the current one included, are kept
+ * for it (see offSite): they answer 404 while it's off the site and lead to it again when it's back, even
+ * at a new address. `forget` is for a page deleted for good: its addresses are released.
+ */
+export async function unpublishPage(env: PublisherEnv, id: string | number, options: { forget?: boolean; now?: Date } = {}): Promise<boolean> {
+    const slug = await currentSlug(env.DB, pageIdKey(id));
+    const marker = offSite("page", id);
+    const statements = slug ? [del(env.DB, SNAPSHOT.page(slug)), del(env.DB, pageIdKey(id))] : [];
+    if (options.forget) {
+        statements.push(dropRedirectsTo(env.DB, "page-redirect:", marker));
+        if (slug) statements.push(dropRedirectsTo(env.DB, "page-redirect:", slug));
+    } else if (slug) {
+        statements.push(repoint(env.DB, "page-redirect:", slug, marker), put(env.DB, SNAPSHOT.redirect(slug), marker));
+    }
+    statements.push(put(env.DB, SNAPSHOT.pagesManaged, true), bump(env.DB, (options.now ?? new Date()).toISOString()));
+    await env.DB.batch(statements);
     return Boolean(slug);
 }
 
@@ -315,7 +357,8 @@ export const projectRedirectKey = (slug: string) => `project-redirect:${slug}`;
 /** Why this project can't be published, or null. Pure: used before saving too. */
 export function projectProblem(input: Pick<ProjectInput, "slug" | "title" | "status" | "websiteUrl" | "githubUrl" | "links">): string | null {
     if (!input.title?.trim()) return "A published project needs a title.";
-    if (!PAGE_SLUG.test(input.slug ?? "") || (input.slug ?? "").length > 80) return "Give the project an address made of lower-case letters, numbers and single hyphens.";
+    if (!PAGE_SLUG.test(input.slug ?? "") || (input.slug ?? "").length > 80)
+        return "Give the project an address made of lower-case letters, numbers and single hyphens.";
     if (input.status && !PROJECT_STATUSES.some((s) => s.value === input.status)) return "Choose a status: Active, Completed, Experimental or Archived.";
     for (const [label, url] of [
         ["Website", input.websiteUrl],
@@ -329,22 +372,31 @@ export function projectProblem(input: Pick<ProjectInput, "slug" | "title" | "sta
     return null;
 }
 
-/** Rebuilds the list of public projects (cards, the index, the sitemap) from the published snapshots. */
-async function rebuildProjectIndex(db: D1Database) {
-    const { results } = await db.prepare("SELECT value FROM meta WHERE key LIKE 'project:%'").all<{ value: string }>();
-    const summaries = sortProjects(
-        results
-            .map((r) => {
-                try {
-                    return normaliseProjectSummary(JSON.parse(r.value));
-                } catch {
-                    return null;
-                }
-            })
-            .filter((p): p is NonNullable<typeof p> => Boolean(p)),
-    );
-    return put(db, SNAPSHOT.projects, summaries);
-}
+/**
+ * Rebuilds the list of public projects (cards, the index, the sitemap) from the published snapshots, inside
+ * the database: the statement goes last in the same batch as the change, so it reads the rows as that batch
+ * has just left them. D1 runs a batch as one transaction and one write at a time, so:
+ * - the project and the list are written together or not at all, and
+ * - two projects published at the same moment can't each write a list that misses the other (a list built
+ *   in the Worker from an earlier read could).
+ * The list holds each snapshot without its long fields; the readers normalise and sort it (projectList).
+ */
+const rebuildProjectIndex = (db: D1Database) =>
+    db
+        .prepare(
+            `INSERT INTO meta (key, value)
+             SELECT ?1, (
+                 SELECT json_group_array(json(summary)) FROM (
+                     SELECT json_remove(value, '$.bodyHtml', '$.gallery', '$.links', '$.seoTitle', '$.seoDescription') AS summary
+                     FROM meta
+                     WHERE substr(key, 1, 8) = 'project:' AND json_valid(value)
+                     ORDER BY json_extract(value, '$.featured') DESC, json_extract(value, '$.order'), json_extract(value, '$.title') COLLATE NOCASE
+                 )
+             )
+             WHERE true
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        )
+        .bind(SNAPSHOT.projects);
 
 /** Publishes a project at daly.id.au/projects/<slug>. A renamed project's old address redirects. */
 export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx: MediaLoader): Promise<Project> {
@@ -354,7 +406,8 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     const slug = input.slug;
     const owner = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectKey(slug)).first<{ value: string }>();
     const ownerId = owner ? (JSON.parse(owner.value) as { id?: unknown }).id : undefined;
-    if (owner && ownerId !== undefined && String(ownerId) !== String(input.id)) throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
+    if (owner && ownerId !== undefined && String(ownerId) !== String(input.id))
+        throw new PublishError(`daly.id.au/projects/${slug} is already used by another project.`);
 
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
     const copy = async (id: string | number) => {
@@ -421,35 +474,43 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
     const project = normaliseProject(snapshot);
     if (!project) throw new PublishError("This project can't be published as it is.");
 
-    const previous = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectIdKey(input.id)).first<{ value: string }>())?.value;
-    const previousSlug = previous ? (JSON.parse(previous) as string) : null;
+    const previousSlug = await currentSlug(env.DB, projectIdKey(input.id));
     const statements = [
         put(env.DB, projectKey(slug), snapshot),
         put(env.DB, projectIdKey(input.id), slug),
-        del(env.DB, projectRedirectKey(slug)),
+        // Addresses this project had before it was last taken off the site lead to it again.
+        repoint(env.DB, "project-redirect:", offSite("project", input.id), slug),
     ];
     if (previousSlug && previousSlug !== slug) {
         statements.push(del(env.DB, projectKey(previousSlug)), put(env.DB, projectRedirectKey(previousSlug), slug));
-        statements.push(
-            env.DB.prepare("UPDATE meta SET value = ? WHERE key LIKE 'project-redirect:%' AND value = ?").bind(JSON.stringify(slug), JSON.stringify(previousSlug)),
-        );
+        statements.push(repoint(env.DB, "project-redirect:", previousSlug, slug));
     }
+    // Last, so it wins over the lines above: an address a project now owns never redirects.
+    statements.push(del(env.DB, projectRedirectKey(slug)));
+    statements.push(rebuildProjectIndex(env.DB), bump(env.DB, now));
     await env.DB.batch(statements);
-    await env.DB.batch([await rebuildProjectIndex(env.DB), bump(env.DB, now)]);
     return project;
 }
 
-/** Takes a project off the site (unpublished, hidden, in Trash or deleted). Its old addresses stop redirecting. */
-export async function unpublishProject(env: PublisherEnv, id: string | number, now = new Date()): Promise<boolean> {
-    const current = (await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(projectIdKey(id)).first<{ value: string }>())?.value;
-    const slug = current ? (JSON.parse(current) as string) : null;
-    if (slug)
-        await env.DB.batch([
-            del(env.DB, projectKey(slug)),
-            env.DB.prepare("DELETE FROM meta WHERE key LIKE 'project-redirect:%' AND value = ?").bind(JSON.stringify(slug)),
-            del(env.DB, projectIdKey(id)),
-        ]);
-    await env.DB.batch([await rebuildProjectIndex(env.DB), bump(env.DB, now.toISOString())]);
+/**
+ * Takes a project off the site (unpublished, hidden or in Trash), in one batch with the project list
+ * (rebuildProjectIndex).
+ * Its addresses, the current one included, are kept for it (see offSite): they answer 404 while it's off
+ * the site and lead to it again when it's back, even at a new address. `forget` is for a project deleted
+ * for good: its addresses are released.
+ */
+export async function unpublishProject(env: PublisherEnv, id: string | number, options: { forget?: boolean; now?: Date } = {}): Promise<boolean> {
+    const slug = await currentSlug(env.DB, projectIdKey(id));
+    const marker = offSite("project", id);
+    const statements = slug ? [del(env.DB, projectKey(slug)), del(env.DB, projectIdKey(id))] : [];
+    if (options.forget) {
+        statements.push(dropRedirectsTo(env.DB, "project-redirect:", marker));
+        if (slug) statements.push(dropRedirectsTo(env.DB, "project-redirect:", slug));
+    } else if (slug) {
+        statements.push(repoint(env.DB, "project-redirect:", slug, marker), put(env.DB, projectRedirectKey(slug), marker));
+    }
+    statements.push(rebuildProjectIndex(env.DB), bump(env.DB, (options.now ?? new Date()).toISOString()));
+    await env.DB.batch(statements);
     return Boolean(slug);
 }
 
@@ -478,7 +539,11 @@ export function projectsHomeSnapshot(input: Partial<Record<keyof ProjectsHomeCon
     return snapshot;
 }
 
-export async function publishProjectsHome(env: PublisherEnv, input: Partial<Record<keyof ProjectsHomeContent, unknown>>, now = new Date()): Promise<ProjectsHomeContent> {
+export async function publishProjectsHome(
+    env: PublisherEnv,
+    input: Partial<Record<keyof ProjectsHomeContent, unknown>>,
+    now = new Date(),
+): Promise<ProjectsHomeContent> {
     const snapshot = projectsHomeSnapshot(input);
     await env.DB.batch([put(env.DB, SNAPSHOT.projectsHome, snapshot), bump(env.DB, now.toISOString())]);
     return normaliseProjectsHome(snapshot);

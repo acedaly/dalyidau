@@ -55,18 +55,47 @@ const SECURITY_HEADERS: Record<string, string> = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=31536000",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), interest-cohort=(), browsing-topics=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
 };
 
+/**
+ * Payload's API answers with JSON or, under /api/media/file/, an uploaded file. None of it is a page, so
+ * if a browser is ever made to open one as a document (an upload that slipped past the type check, a JSON
+ * body sniffed as HTML) it runs nothing: no scripts, no plugins, no framing, its own sandboxed origin.
+ * The admin's pages keep their own nonce-based policy (src/middleware.ts).
+ */
+export const API_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox";
+
 /** Payload's responses get the same baseline headers the existing Worker sets; the admin is never framed or indexed. */
-function harden(response: Response, admin: boolean): Response {
+export function harden(response: Response, admin: boolean, api = false): Response {
     const out = new Response(response.body, response);
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) if (!out.headers.has(key)) out.headers.set(key, value);
+    if (api) out.headers.set("Content-Security-Policy", API_CSP);
     if (admin) {
         out.headers.set("X-Frame-Options", "DENY");
         out.headers.set("X-Robots-Tag", "noindex, nofollow");
         if (!out.headers.has("Cache-Control") || !/immutable/.test(out.headers.get("Cache-Control") ?? "")) out.headers.set("Cache-Control", "no-store");
     }
     return out;
+}
+
+/**
+ * Cross-site write protection for Payload, the same rule /api/portal applies (worker/portal/http.ts).
+ * Access's cookie identifies the person on every request, so without this a page on another site could
+ * submit a form (Payload accepts multipart bodies) that publishes or deletes as them. A browser always
+ * labels a write with its Origin and, today, Sec-Fetch-Site; either one pointing elsewhere is refused.
+ * A request with neither isn't from a browser page (scripts, the CI checks) and still needs the Access
+ * sign-in like everything else here.
+ */
+export function crossSiteWrite(request: Request, siteUrl: string): boolean {
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return false;
+    const site = request.headers.get("Sec-Fetch-Site");
+    if (site && site !== "same-origin" && site !== "none") return true;
+    const origin = request.headers.get("Origin");
+    if (origin === null) return false;
+    const allowed = new Set([new URL(request.url).origin, new URL(siteUrl).origin]);
+    return !allowed.has(origin);
 }
 
 /** The existing portal sign-in (worker/portal/auth.ts authenticate): verified Access JWT + an active portal role. */
@@ -147,8 +176,15 @@ export function createPlatformWorker<E extends PlatformEnv>(apps: {
                 }
             }
             if (target === "payload") {
+                if (crossSiteWrite(request, env.SITE_URL)) {
+                    return new Response(JSON.stringify({ error: "cross_site", message: "Cross-site request refused" }), {
+                        status: 403,
+                        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" },
+                    });
+                }
                 const response = await apps.payload.fetch(withoutPayloadCredentials(request), env, ctx);
-                return harden(withoutPayloadSession(response), url.pathname.startsWith("/admin") || url.pathname.startsWith("/api/"));
+                const api = url.pathname.startsWith("/api/");
+                return harden(withoutPayloadSession(response), url.pathname.startsWith("/admin") || api, api);
             }
             return apps.legacy.fetch(request, env, ctx);
         },

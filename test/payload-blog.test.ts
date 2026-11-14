@@ -8,7 +8,9 @@ import { type LexicalNode, PublishError, publishPayloadPost, renderLexical, unpu
 import { createMock, publishedSlugs, resetDb, setCapacitiesSync, sync, testEnv } from "./helpers";
 
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
-const ctx = { loadMedia: async (id: string | number) => (String(id) === "7" ? { bytes: PNG, contentType: "image/png", alt: "A dot", caption: "<b>tiny</b>" } : null) };
+const ctx = {
+    loadMedia: async (id: string | number) => (String(id) === "7" ? { bytes: PNG, contentType: "image/png", alt: "A dot", caption: "<b>tiny</b>" } : null),
+};
 
 const text = (value: string, format = 0): LexicalNode => ({ type: "text", text: value, format });
 const para = (...children: LexicalNode[]): LexicalNode => ({ type: "paragraph", children });
@@ -66,7 +68,14 @@ describe("rendering rich text", () => {
                 { type: "heading", tag: "h2", children: [text("Plan")] },
                 { type: "heading", tag: "h3", children: [text("Plan")] },
                 { type: "heading", tag: "h1", children: [text("Top")] },
-                { type: "list", listType: "bullet", children: [{ type: "listitem", children: [text("one")] }, { type: "listitem", children: [text("two", 2)] }] },
+                {
+                    type: "list",
+                    listType: "bullet",
+                    children: [
+                        { type: "listitem", children: [text("one")] },
+                        { type: "listitem", children: [text("two", 2)] },
+                    ],
+                },
                 { type: "list", listType: "check", children: [{ type: "listitem", checked: true, children: [text("done")] }] },
                 { type: "quote", children: [text("Said")] },
                 { type: "code", language: "ts<x>", children: [text("a < b")] },
@@ -107,7 +116,11 @@ describe("publishing from Payload", () => {
     });
 
     it("copies images into the public bucket under their content hash and links them", async () => {
-        await publishPayloadPost(testEnv, post({ heroMediaId: 7, content: doc(para(text("Pic:")), { type: "upload", relationTo: "media", value: { id: 7 } }) }), ctx);
+        await publishPayloadPost(
+            testEnv,
+            post({ heroMediaId: 7, content: doc(para(text("Pic:")), { type: "upload", relationTo: "media", value: { id: 7 } }) }),
+            ctx,
+        );
         const row = await testEnv.DB.prepare("SELECT image_key, image_alt, image_width, body_html FROM posts WHERE id = 'payload:test-1'").first<{
             image_key: string;
             image_alt: string;
@@ -137,6 +150,54 @@ describe("publishing from Payload", () => {
         expect((await get("/blog/renamed")).status).toBe(404);
         expect((await get("/blog/hello-payload")).status).toBe(404);
         expect(await unpublishPayloadPost(testEnv, "payload:test-1")).toBe(false);
+    });
+
+    it("keeps every old address through an unpublish: they 404 while it's off and lead to it again when it's back, even at a new address", async () => {
+        await publishPayloadPost(testEnv, post(), ctx);
+        await publishPayloadPost(testEnv, post({ slug: "renamed" }), ctx);
+        await unpublishPayloadPost(testEnv, "payload:test-1");
+        // Off the site: nothing answers, and nothing reveals where it lived.
+        for (const path of ["/blog/hello-payload", "/blog/renamed"]) {
+            const off = await get(path);
+            expect(off.status, path).toBe(404);
+            expect(off.location, path).toBeNull();
+        }
+        // Back, at a third address: both earlier ones lead to it.
+        await publishPayloadPost(testEnv, post({ slug: "third" }), ctx);
+        expect((await get("/blog/hello-payload")).location).toMatch(/\/blog\/third$/);
+        expect((await get("/blog/renamed")).location).toMatch(/\/blog\/third$/);
+        expect((await get("/blog/third")).status).toBe(200);
+        // Back at an address it had before: that one is the post again, not a redirect.
+        await unpublishPayloadPost(testEnv, "payload:test-1");
+        await publishPayloadPost(testEnv, post({ slug: "renamed" }), ctx);
+        expect((await get("/blog/renamed")).status).toBe(200);
+        expect((await get("/blog/third")).location).toMatch(/\/blog\/renamed$/);
+        expect((await get("/blog/hello-payload")).location).toMatch(/\/blog\/renamed$/);
+    });
+
+    it("a post deleted for good releases its addresses, whether it was still published or already off the site", async () => {
+        const redirects = async () =>
+            (await testEnv.DB.prepare("SELECT from_slug FROM slug_redirects").all<{ from_slug: string }>()).results.map((r) => r.from_slug);
+        await publishPayloadPost(testEnv, post(), ctx);
+        await publishPayloadPost(testEnv, post({ slug: "renamed" }), ctx);
+        await unpublishPayloadPost(testEnv, "payload:test-1"); // into Trash
+        expect((await redirects()).sort()).toEqual(["hello-payload", "renamed"]);
+        expect(await unpublishPayloadPost(testEnv, "payload:test-1", { forget: true })).toBe(false);
+        expect(await redirects()).toEqual([]);
+        await publishPayloadPost(testEnv, post(), ctx);
+        await publishPayloadPost(testEnv, post({ slug: "renamed" }), ctx);
+        expect(await unpublishPayloadPost(testEnv, "payload:test-1", { forget: true })).toBe(true);
+        expect(await redirects()).toEqual([]);
+        expect((await get("/blog/renamed")).status).toBe(404);
+    });
+
+    it("lets another post take an address an unpublished post left behind", async () => {
+        await publishPayloadPost(testEnv, post(), ctx);
+        await unpublishPayloadPost(testEnv, "payload:test-1");
+        await publishPayloadPost(testEnv, post({ postId: "payload:other", title: "Someone else" }), ctx);
+        const page = await get("/blog/hello-payload");
+        expect(page.status).toBe(200);
+        expect(page.html).toContain("Someone else");
     });
 
     it("fails closed: an invalid slug, a slug another post uses, or another publisher's row", async () => {
@@ -198,7 +259,26 @@ describe("importing an existing post", () => {
         // Same content hash as the Capacities render: nothing about the post itself changed.
         expect(result.outcome).toBe("unchanged");
         const after = await testEnv.DB.prepare("SELECT * FROM posts WHERE id = ?").bind(row!.id).first<Record<string, unknown>>();
-        for (const column of ["slug", "title", "subtitle", "summary", "category", "tags", "featured", "image_key", "image_alt", "image_width", "image_height", "body_html", "toc", "search_text", "word_count", "reading_minutes", "published_at", "updated_at"])
+        for (const column of [
+            "slug",
+            "title",
+            "subtitle",
+            "summary",
+            "category",
+            "tags",
+            "featured",
+            "image_key",
+            "image_alt",
+            "image_width",
+            "image_height",
+            "body_html",
+            "toc",
+            "search_text",
+            "word_count",
+            "reading_minutes",
+            "published_at",
+            "updated_at",
+        ])
             expect(after![column], column).toEqual(row![column]);
         expect(await snapshot(row!.slug)).toEqual(before);
 

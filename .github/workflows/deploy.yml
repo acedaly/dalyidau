@@ -20,7 +20,7 @@ permissions:
 
 jobs:
     test:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04 # pinned: Playwright 1.56 has no Chromium for ubuntu-latest (26.04) yet
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
     platform:
         # The combined Worker: the whole suite through its router, Payload's authorisation matrix and
         # the blog end to end, against a local Worker with invented data.
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04 # pinned: Playwright 1.56 has no Chromium for ubuntu-latest (26.04) yet
         timeout-minutes: 40
         steps:
             - uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
 
     deploy:
         needs: [test, platform]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04 # pinned: Playwright 1.56 has no Chromium for ubuntu-latest (26.04) yet
         timeout-minutes: 30
         environment: production
         env:

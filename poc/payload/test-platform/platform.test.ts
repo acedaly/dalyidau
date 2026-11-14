@@ -4,7 +4,7 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LEGACY_API_PREFIXES, PAYLOAD_API_SLUGS, routeRequest } from "../platform/hosts";
-import { payloadHasDueJobs } from "../platform/compose";
+import { API_CSP, crossSiteWrite, payloadHasDueJobs } from "../platform/compose";
 import { OWNER, accessToken, apiCall, call, db, portalEnv, resetPortal } from "../../../test/portal-helpers";
 import worker, { payloadCalls, payloadSeen } from "./platform-under-test";
 
@@ -286,5 +286,100 @@ describe("identity comes only from Cloudflare Access, never from Payload's own s
         await worker.scheduled({ cron: "*/15 * * * *", scheduledTime: Date.now(), noRetry() {} } as ScheduledController, { ...(await portalEnv({ PAYLOAD_JOBS_SECRET: "jobs-secret-0123456789abcdef" } as never)), D1: db() } as never, ctx);
         await waitOnExecutionContext(ctx);
         expect(payloadSeen).toEqual([{ cookie: null, authorization: "Bearer jobs-secret-0123456789abcdef" }]);
+    });
+});
+
+describe("Phase 1 hardening: cross-site writes, closed paths and headers", () => {
+    it("refuses a Payload write a page on another site triggered, before Payload sees it, even for the signed-in owner", async () => {
+        const token = await accessToken();
+        const attacks: Array<Record<string, string>> = [
+            { Origin: "https://evil.example" },
+            { Origin: "null" },
+            { Origin: "https://wedding.daly.id.au" },
+            { "Sec-Fetch-Site": "cross-site" },
+            { "Sec-Fetch-Site": "same-site", Origin: "https://daly.id.au" },
+        ];
+        for (const path of ["/api/posts", "/api/posts/1", "/api/media", "/api/globals/navigation", "/admin/collections/posts/1"]) {
+            for (const method of ["POST", "PATCH", "DELETE"]) {
+                for (const headers of attacks) {
+                    const form = new FormData();
+                    form.set("_payload", JSON.stringify({ title: "x", _status: "published" }));
+                    const response = await call(path, { method, token, headers, body: method === "DELETE" ? undefined : form });
+                    expect(response.status, `${method} ${path} ${JSON.stringify(headers)}`).toBe(403);
+                    expect(((await response.json()) as { error: string }).error).toBe("cross_site");
+                }
+            }
+        }
+        expect(payloadCalls).toEqual([]);
+    });
+
+    it("still lets the admin itself, and scripts that aren't a browser page, write", async () => {
+        const token = await accessToken();
+        const sameOrigin = await call("/api/posts", { method: "POST", token, headers: { Origin: "https://daly.id.au", "Sec-Fetch-Site": "same-origin" }, body: "{}" });
+        expect(sameOrigin.status).toBe(200);
+        const script = await call("/api/posts", { method: "POST", token, body: "{}" });
+        expect(script.status).toBe(200);
+        // Reads are unaffected by where they come from (Access still decides who may read).
+        const read = await call("/api/posts", { token, headers: { "Sec-Fetch-Site": "cross-site" } });
+        expect(read.status).toBe(200);
+        expect(payloadCalls).toEqual(["daly.id.au/api/posts", "daly.id.au/api/posts", "daly.id.au/api/posts"]);
+    });
+
+    it("a cross-site write without a sign-in is still refused by the sign-in check, not let through", async () => {
+        const response = await call("/api/posts", { method: "POST", headers: { Origin: "https://evil.example" }, body: "{}" });
+        expect(response.status).toBe(401);
+        expect(payloadCalls).toEqual([]);
+    });
+
+    it("closes /cms, /poc and the raw page templates on every host, signed in or not", async () => {
+        const token = await accessToken();
+        for (const host of ["daly.id.au", "wedding.daly.id.au", "weddingplanner.daly.id.au", "dalyidau.example.workers.dev"]) {
+            for (const path of ["/cms", "/cms/", "/cms/x", "/CMS/x", "/poc/", "/poc/pdf", "/shell.html", "/shell-portal.html", "/shell-wedding.html", "/shell-planner.html", "/SHELL.HTML", "/%73hell.html", "/shell%2ehtml", "//shell.html", "/%63ms/x", "/shell.html%"]) {
+                const response = await call(path, { token, host });
+                expect(response.status, `${host}${path}`).toBe(404);
+                expect(await response.text(), `${host}${path}`).not.toContain("<!doctype");
+            }
+        }
+        expect(payloadCalls).toEqual([]);
+        // An ordinary page whose address merely starts with those letters is the site's, not closed.
+        const config = { SITE_URL: "https://daly.id.au" };
+        expect(routeRequest(new URL("https://daly.id.au/cmstuff"), config).target).toBe("legacy");
+        expect(routeRequest(new URL("https://daly.id.au/pocket"), config).target).toBe("legacy");
+    });
+
+    it("gives Payload's API a no-script sandbox policy and the site's baseline headers; the admin keeps its own policy", async () => {
+        const token = await accessToken();
+        const api = await call("/api/media/file/picture.png", { token });
+        expect(api.headers.get("Content-Security-Policy")).toBe(API_CSP);
+        expect(api.headers.get("Content-Security-Policy")).toContain("sandbox");
+        expect(api.headers.get("X-Content-Type-Options")).toBe("nosniff");
+        expect(api.headers.get("Permissions-Policy")).toContain("camera=()");
+        expect(api.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
+        expect(api.headers.get("X-Frame-Options")).toBe("DENY");
+        const admin = await call("/admin", { token });
+        // The stand-in sets none; the real admin's nonce policy comes from Payload's middleware and is left alone.
+        expect(admin.headers.get("Content-Security-Policy")).toBeNull();
+        expect(admin.headers.get("Permissions-Policy")).toContain("camera=()");
+    });
+});
+
+describe("crossSiteWrite", () => {
+    const site = "https://daly.id.au";
+    const req = (method: string, headers: Record<string, string> = {}) => new Request("https://daly.id.au/api/posts", { method, headers });
+    it("treats reads as never cross-site writes", () => {
+        for (const method of ["GET", "HEAD", "OPTIONS"]) expect(crossSiteWrite(req(method, { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }), site)).toBe(false);
+    });
+    it("refuses writes labelled as coming from elsewhere, by either header", () => {
+        expect(crossSiteWrite(req("POST", { Origin: "https://evil.example" }), site)).toBe(true);
+        expect(crossSiteWrite(req("POST", { "Sec-Fetch-Site": "cross-site" }), site)).toBe(true);
+        expect(crossSiteWrite(req("PUT", { "Sec-Fetch-Site": "same-site", Origin: site }), site)).toBe(true);
+        expect(crossSiteWrite(req("PATCH", { Origin: "http://daly.id.au" }), site)).toBe(true);
+        expect(crossSiteWrite(req("POST", { Origin: "null", "Sec-Fetch-Site": "same-origin" }), site)).toBe(true);
+        expect(crossSiteWrite(req("POST", { Origin: "https://daly.id.au:8443" }), site)).toBe(true);
+    });
+    it("accepts same-origin writes and writes with no browser labels", () => {
+        expect(crossSiteWrite(req("POST", { Origin: site, "Sec-Fetch-Site": "same-origin" }), site)).toBe(false);
+        expect(crossSiteWrite(req("DELETE", { Origin: site }), site)).toBe(false);
+        expect(crossSiteWrite(req("POST"), site)).toBe(false);
     });
 });
