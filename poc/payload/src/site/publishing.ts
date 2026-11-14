@@ -1,4 +1,4 @@
-import type { PayloadRequest } from 'payload'
+import type { Endpoint, PayloadRequest } from 'payload'
 import { APIError } from 'payload'
 
 import type { MediaFile, PublisherEnv } from '../../../../worker/blog/payload-publisher'
@@ -18,6 +18,7 @@ import {
   type PageInput,
   type SiteSettingsInput,
 } from '../../../../worker/site/publisher'
+import { type DraftPreview, type PreviewKind, previewPath, storeDraftPreview } from '../../../../worker/site/preview'
 import { cloudflareEnv } from '../cloudflare-env'
 
 // The website's content (docs/PAYLOAD-FRONTEND-PLAN.md): Payload keeps it; these helpers publish what's
@@ -268,3 +269,55 @@ export async function checkProject(req: PayloadRequest, doc: ProjectDoc) {
   const env = await publisherEnv()
   await asEditorError(() => publishProject(env, projectInput(doc), { ...mediaLoader(req, env), mode: 'check' }))
 }
+
+// --- Draft preview (docs/AUDIT-2026-11.md, H5) ------------------------------------------------------------
+
+type PreviewData<K extends PreviewKind> = Extract<DraftPreview, { kind: K }>['data']
+type PreviewLoader = ReturnType<typeof mediaLoader> & { mode: 'preview' }
+
+const previewProblem = (message: string, status: number) =>
+  new Response(
+    `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Can’t preview yet</title>
+<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:15vh auto;padding:0 1rem;line-height:1.5}</style></head>
+<body><h1>This can’t be previewed yet</h1><p>${message.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</p><p>Fix that in the admin, save the draft, and press Preview again.</p></body></html>`,
+    { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } },
+  )
+
+/**
+ * GET /api/<collection>/:id/preview: builds the latest saved version of a document (a draft, if there is one)
+ * exactly as publishing would, keeps the result privately and sends the editor to see it on the site's own
+ * pages (worker/site/preview.ts). Nothing public changes. Owners and admins only.
+ */
+export function previewEndpoint<K extends PreviewKind>(
+  kind: K,
+  collection: 'pages' | 'projects' | 'posts',
+  build: (env: Awaited<ReturnType<typeof publisherEnv>>, doc: Record<string, unknown>, loader: PreviewLoader) => Promise<PreviewData<K>>,
+): Endpoint {
+  return {
+    path: '/:id/preview',
+    method: 'get',
+    handler: async (req) => {
+      const role = (req.user as { portalRole?: string } | null)?.portalRole
+      if (role !== 'owner' && role !== 'admin') return Response.json({ error: 'forbidden' }, { status: 403, headers: { 'Cache-Control': 'no-store' } })
+      const id = String(req.routeParams?.id ?? '')
+      const find = (draft: boolean) =>
+        req.payload.findByID({ collection, id, draft, trash: true, depth: 0, overrideAccess: true, req }).catch(() => null) as Promise<Record<string, unknown> | null>
+      const [latest, main] = [await find(true), await find(false)]
+      if (!latest) return previewProblem('That document no longer exists.', 404)
+      const env = await publisherEnv()
+      let data: PreviewData<K>
+      try {
+        data = await build(env, latest, { ...mediaLoader(req, env), mode: 'preview' })
+      } catch (error) {
+        if (error instanceof PublishError) return previewProblem(error.message, 422)
+        throw error
+      }
+      const preview = { kind, createdAt: new Date().toISOString(), published: main?._status === 'published' && !main?.deletedAt, data } as DraftPreview
+      await storeDraftPreview(env.DB, preview, id)
+      return new Response(null, { status: 302, headers: { Location: previewPath(kind, id), 'Cache-Control': 'no-store' } })
+    },
+  }
+}
+
+export const pagePreview = previewEndpoint('page', 'pages', (env, doc, loader) => publishPage(env, pageInput(doc as PageDoc), loader))
+export const projectPreview = previewEndpoint('project', 'projects', (env, doc, loader) => publishProject(env, projectInput(doc as ProjectDoc), loader))

@@ -5,7 +5,7 @@ import type { PayloadRequest } from 'payload'
 
 import { type PayloadPostInput, preparePayloadPost, unpublishPayloadPost } from '../../../../worker/blog/payload-publisher'
 import { isValidSlug, slugify } from '../../../../worker/lib/html'
-import { asEditorError, mediaLoader, publisherEnv, willBePublic, writeToSite } from '../site/publishing'
+import { asEditorError, mediaLoader, previewEndpoint, publisherEnv, willBePublic, writeToSite } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // The blog's posts (docs/PAYLOAD-BLOG.md). Payload is where they're written and kept. The public
@@ -152,7 +152,8 @@ export const Posts: CollectionConfig = {
     group: 'Blog and Media',
     defaultColumns: ['title', 'slug', '_status', 'publishedAt'],
     description: 'Posts on daly.id.au/blog. Publishing puts a post on the site straight away; Unpublish takes it down.',
-    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/blog/${doc.slug}` : null),
+    // The latest saved version, draft or not, as it will look on the site (src/site/publishing.ts previewEndpoint).
+    preview: (doc) => (doc?.id ? `/api/posts/${doc.id}/preview` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
   // Trash: moving a post there (an update) takes it off the site and keeps it restorable. Deleting permanently is owners only.
@@ -165,6 +166,12 @@ export const Posts: CollectionConfig = {
     delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
+  endpoints: [
+    previewEndpoint('post', 'posts', async (env, doc, loader) => {
+      const prepared = await preparePayloadPost(env, toPublisherInput(doc as PostDoc), loader)
+      return { slug: prepared.slug, record: prepared.record }
+    }),
+  ],
   hooks: {
     beforeChange: [assignPublicId, validateBeforePublish],
     afterChange: [syncPublicPost],

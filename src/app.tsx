@@ -47,6 +47,12 @@ export const App = ({ data, path }: PageProps) => (
                 >
                     Skip to content
                 </a>
+                {data.context.preview && (
+                    <p role="status" className="bg-warning-secondary px-4 py-2 text-center text-sm font-medium text-primary">
+                        Draft preview: only you can see this.{" "}
+                        {data.context.preview.published ? "The published page stays as it is until you publish." : "It isn’t on the website yet."}
+                    </p>
+                )}
                 <div className="flex min-h-dvh flex-col">
                     <SiteHeader path={path} weddingPublished={data.context.weddingPublished} />
                     <main id="main" className="flex-1">

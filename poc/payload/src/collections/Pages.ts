@@ -3,7 +3,7 @@ import { APIError } from 'payload'
 
 import { pageProblem } from '../../../../worker/site/publisher'
 import { slugify } from '../../../../worker/lib/html'
-import { checkPage, publisherEnv, syncPage, willBePublic } from '../site/publishing'
+import { checkPage, pagePreview, publisherEnv, syncPage, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Pages on daly.id.au/<address> (the About page is one). Publishing puts a page on the site straight
@@ -16,7 +16,8 @@ export const Pages: CollectionConfig = {
     group: 'Website',
     defaultColumns: ['title', 'slug', '_status', 'updatedAt'],
     description: 'Pages at daly.id.au/<address>. Publishing puts a page on the site straight away; add it to Navigation to show it in the menu.',
-    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/${doc.slug}` : null),
+    // The latest saved version, draft or not, as it will look on the site (src/site/publishing.ts previewEndpoint).
+    preview: (doc) => (doc?.id ? `/api/pages/${doc.id}/preview` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
   trash: true,
@@ -28,6 +29,7 @@ export const Pages: CollectionConfig = {
     delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
+  endpoints: [pagePreview],
   hooks: {
     beforeChange: [
       async ({ data, originalDoc, req }) => {

@@ -4,7 +4,7 @@ import { APIError } from 'payload'
 import { PROJECT_STATUSES } from '../../../../src/shared/site-content'
 import { slugify } from '../../../../worker/lib/html'
 import { projectProblem } from '../../../../worker/site/publisher'
-import { checkProject, syncProject, willBePublic } from '../site/publishing'
+import { checkProject, projectPreview, syncProject, willBePublic } from '../site/publishing'
 import { contentEditor } from './Users'
 
 // Projects on daly.id.au/projects (Phase 4). Publishing puts a project on the site straight away (while
@@ -19,8 +19,8 @@ export const Projects: CollectionConfig = {
     defaultColumns: ['title', 'status', 'featured', 'order', '_status', 'updatedAt'],
     description:
       'Projects at daly.id.au/projects. Featured projects lead the homepage; Display order sorts the rest (lower first). Nothing is public until you publish, and only while "Show on the public site" is ticked.',
-    // The preview shows the published version (drafts stay private everywhere).
-    preview: (doc) => (doc?.slug && doc?._status === 'published' ? `/portal/preview/projects/${doc.slug}` : null),
+    // The latest saved version, draft or not, as it will look on the site (src/site/publishing.ts previewEndpoint).
+    preview: (doc) => (doc?.id ? `/api/projects/${doc.id}/preview` : null),
   },
   versions: { drafts: true, maxPerDoc: 50 },
   trash: true,
@@ -32,6 +32,7 @@ export const Projects: CollectionConfig = {
     delete: ({ req }) => (req.user as { portalRole?: string } | null)?.portalRole === 'owner',
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
+  endpoints: [projectPreview],
   hooks: {
     beforeChange: [
       async ({ data, originalDoc, req }) => {

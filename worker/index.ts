@@ -9,6 +9,7 @@ import { SAVE_THE_DATE_CALENDAR_PATH, icsFilename } from "../src/shared/portal/c
 import type { GuestInvitationPageData, PortalUser, SaveTheDatePageData, WeddingPageData } from "../src/shared/portal/types";
 import { RESERVED_SLUGS, type SiteSettings } from "../src/shared/site-content";
 import type { BlogFilters, PageData, PageRoute } from "../src/shared/types";
+import { PREVIEW_MEDIA_PREFIX } from "./blog/payload-publisher";
 import { handleCommsWebhook } from "./comms/webhooks";
 import type { Env } from "./env";
 import { bearerMatches } from "./lib/bearer";
@@ -23,9 +24,10 @@ import { loadFlags } from "./portal/flags";
 import { json as apiJson, checkMutation, errorResponse, readJson } from "./portal/http";
 import { isRetiredPublicPath, retiredPageMessage, retiredPublicResponse } from "./portal/retired";
 import { getSettings } from "./portal/settings";
-import { PostStore } from "./posts";
+import { PostStore, toSummary } from "./posts";
 import { buildHead, robotsTxt, rssXml, sitemapXml } from "./seo";
 import { listPages, loadPage, loadProject, loadProjects, loadProjectsHome, loadSite, loadSiteAndHome } from "./site/content";
+import { type PreviewKind, cleanPreviews, loadDraftPreview } from "./site/preview";
 import { SYNC_OFF_MESSAGE, type SyncSummary, capacitiesSyncEnabled, runSync } from "./sync";
 import { guestInvitationPage, guestInvitationPdf, saveTheDateAvailable, saveTheDateCalendar, saveTheDatePage } from "./wedding/guest-pages";
 import { weddingOrigin } from "./wedding/invitations";
@@ -56,6 +58,13 @@ export default {
     async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
         ctx.waitUntil(guardedSync(env, "cron", false).then(() => undefined));
         ctx.waitUntil(processDueMessages(env).then(() => undefined));
+        // Draft previews are for looking at now: old ones, and their private images, are removed (worker/site/preview.ts).
+        ctx.waitUntil(
+            cleanPreviews(env.DB, env.MEDIA).then(
+                () => undefined,
+                (error) => console.error(JSON.stringify({ event: "preview_cleanup_failed", message: (error as Error).message })),
+            ),
+        );
     },
 };
 
@@ -341,12 +350,45 @@ async function portalPage(request: Request, env: Env, url: URL): Promise<Respons
         return renderWeddingDocument(env, data, path, 200, true, PRIVATE_HEADERS);
     }
     // The projects-first design before it's switched on (Phase 4): owners and admins only, never cached or indexed.
+    // A draft, as it will look once published (worker/site/preview.ts): owners and admins only, never cached or indexed.
+    const draft = /^\/portal\/preview\/draft\/(page|project|post)\/([^/]+)$/.exec(path);
+    if (draft) return previewDraft(env, auth.user.role, draft[1] as PreviewKind, draft[2]);
     const preview2 = /^\/portal\/preview(\/.*)?$/.exec(path);
     if (preview2) return previewSite(env, auth.user.role, preview2[1] ?? "/");
     // Applications retired earlier keep their own message (worker/portal/retired.ts) rather than a redirect.
     const retired = retiredPageMessage(path);
     if (retired) return retiredPage(retired);
     return privateRedirect(`${url.origin}${adminPathForPortal(`${path}${url.search}`) ?? "/admin"}`);
+}
+
+/** A draft from Payload, rendered by the same components as the public page it will become. */
+async function previewDraft(env: Env, role: string, kind: PreviewKind, id: string): Promise<Response> {
+    if (role !== "owner" && role !== "admin") return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
+    const preview = await loadDraftPreview(env.DB, kind, id);
+    if (!preview) {
+        const html = `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Preview expired</title>
+<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#181d27}a{color:#b8401c}@media(prefers-color-scheme:dark){body{background:#10203a;color:#f3f5f8}a{color:#f0a48c}}</style></head>
+<body><h1>This preview isn’t available</h1><p>Previews last a day. Open the document in the admin and press Preview again.</p><p><a href="/admin">Open the admin</a></p></body></html>`;
+        return new Response(html, { status: 404, headers: { "Content-Type": "text/html; charset=utf-8", ...PRIVATE_HEADERS } });
+    }
+    const [site, flags] = await Promise.all([loadSite(env.DB), loadFlags(env.DB)]);
+    const design = preview.kind === "project" || flags["website.projects_home"] ? { design: "projects" as const } : {};
+    const context = {
+        weddingPublished: flags["wedding.site.public"],
+        site,
+        ...design,
+        preview: { published: preview.published, createdAt: preview.createdAt },
+    };
+    if (preview.kind === "page") return renderPage(env, { route: "page", page: preview.data, context }, `/${preview.data.slug}`, 200, true, PRIVATE_HEADERS);
+    if (preview.kind === "project")
+        return renderPage(env, { route: "project", project: preview.data, related: [], context }, `/projects/${preview.data.slug}`, 200, true, PRIVATE_HEADERS);
+    const { slug, record } = preview.data;
+    const summary = toSummary(
+        { ...record, slug, tags: JSON.stringify(record.tags), featured: record.featured ? 1 : 0 } as never,
+        env.IMAGE_TRANSFORMS === "on",
+    );
+    const post = { ...summary, bodyHtml: record.body_html, toc: record.toc };
+    return renderPage(env, { route: "post", post, related: [], url: `/blog/${slug}`, context }, `/blog/${slug}`, 200, true, PRIVATE_HEADERS);
 }
 
 /** The redesigned public pages at /portal/preview, /portal/preview/projects and /portal/preview/projects/<slug>. */
@@ -755,7 +797,7 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
     if (hit) return hit;
 
     const object = await env.MEDIA.get(key);
-    if (!object) return new Response("Not found", { status: 404 });
+    if (!object) return previewMedia(request, env, key);
     const headers = new Headers();
     headers.set("Content-Type", object.httpMetadata?.contentType ?? "application/octet-stream");
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
@@ -764,6 +806,21 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
     const response = new Response(object.body as unknown as ReadableStream, { headers });
     if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
+}
+
+/**
+ * An image that isn't public: it may belong to a draft preview (worker/site/preview.ts), kept under a private
+ * prefix. Only a signed-in owner or admin gets it, never from a cache; to anyone else it doesn't exist.
+ */
+async function previewMedia(request: Request, env: Env, key: string): Promise<Response> {
+    const missing = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+    const auth = await authenticate(request, env);
+    if (!auth.ok || (auth.user.role !== "owner" && auth.user.role !== "admin")) return missing();
+    const object = await env.MEDIA.get(PREVIEW_MEDIA_PREFIX + key);
+    if (!object) return missing();
+    return new Response(object.body as unknown as ReadableStream, {
+        headers: { "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream", "Content-Disposition": "inline", ...PRIVATE_HEADERS },
+    });
 }
 
 async function api(request: Request, env: Env, url: URL): Promise<Response> {
