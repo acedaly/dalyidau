@@ -9,3 +9,50 @@ export const SAMPLE_IMAGES = {
 } as const;
 
 export const sampleImage = (name: keyof typeof SAMPLE_IMAGES) => Uint8Array.from(atob(SAMPLE_IMAGES[name]), (c) => c.charCodeAt(0));
+
+const crc32 = (bytes: Uint8Array) => {
+    let crc = ~0;
+    for (const byte of bytes) {
+        crc ^= byte;
+        for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return ~crc >>> 0;
+};
+const chunk = (type: string, data: Uint8Array) => {
+    const out = new Uint8Array(12 + data.length);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, data.length);
+    out.set(
+        [...type].map((c) => c.charCodeAt(0)),
+        4,
+    );
+    out.set(data, 8);
+    view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+    return out;
+};
+
+/** A real, whole PNG of any size (plain grey), for tests that need an image wider than the 4×3 samples. */
+export async function pngOfSize(width: number, height: number): Promise<Uint8Array> {
+    const header = new Uint8Array(13);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, width);
+    view.setUint32(4, height);
+    header.set([8, 0, 0, 0, 0], 8); // 8-bit greyscale
+    // Each row: a filter byte (none) and one grey byte per pixel.
+    const raw = new Uint8Array(height * (width + 1)).fill(0x80);
+    for (let y = 0; y < height; y++) raw[y * (width + 1)] = 0;
+    const deflated = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+    const parts = [
+        Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk("IHDR", header),
+        chunk("IDAT", deflated),
+        chunk("IEND", new Uint8Array(0)),
+    ];
+    const png = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
+    let at = 0;
+    for (const part of parts) {
+        png.set(part, at);
+        at += part.length;
+    }
+    return png;
+}

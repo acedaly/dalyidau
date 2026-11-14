@@ -1,6 +1,6 @@
 # daly.id.au
 
-Personal website and blog for Aidan Daly. The blog is written in [Capacities](https://capacities.io) and published automatically to a Cloudflare Worker ([docs/CAPACITIES.md](docs/CAPACITIES.md)) while the Capacities sync is switched on; every published article lives in Cloudflare (D1 and R2), so it stays online either way ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)). Articles published earlier from Amplenote stay online too. No CMS, no paid hosting, no manual deploys for new posts.
+Personal website for Aidan Daly: projects, writing and an About page, on a single Cloudflare Worker. Content is written in Payload CMS at `daly.id.au/admin` and published straight to the site, with no deploy ([docs/WEBSITE-GUIDE.md](docs/WEBSITE-GUIDE.md)). Articles published earlier from Capacities and Amplenote stay online as stored ([docs/CAPACITIES_RETIREMENT.md](docs/CAPACITIES_RETIREMENT.md)).
 
 The same Worker hosts the public wedding website (`wedding.daly.id.au`) and a private portal at `/portal` (behind Cloudflare Access) whose one application is the Wedding Planner, also installable as a phone app at `weddingplanner.daly.id.au` ([docs/PLANNER.md](docs/PLANNER.md)). See [docs/PORTAL.md](docs/PORTAL.md). The portal's other applications are retired: Daly Knowledge and Daly Tasks ([docs/DECOMMISSION_KNOWLEDGE_TASKS.md](docs/DECOMMISSION_KNOWLEDGE_TASKS.md)), Home & Assets and Household Finance ([docs/DECOMMISSION_ASSETS_FINANCE.md](docs/DECOMMISSION_ASSETS_FINANCE.md)), and Daly Calendar, Today, Daly Intelligence, the Intelligence Centre and Amplenote publishing ([docs/DECOMMISSION_PORTAL_APPS.md](docs/DECOMMISSION_PORTAL_APPS.md)).
 
@@ -65,7 +65,10 @@ docs/                Setup, deployment and operations
 
 ## Documentation
 
+- [Running the website from Payload](docs/WEBSITE-GUIDE.md): publishing, projects, images, search settings, the menu, redirects, history
+- [Backup, deployment, rollback and recovery](docs/RECOVERY.md): what to do when something goes wrong, and the known limitations
 - [Architecture](docs/ARCHITECTURE.md): how it fits together and why
+- [Findings register](docs/AUDIT-2026-11.md): the November 2026 audit, and what each phase fixed
 - [Capacities setup and publishing](docs/CAPACITIES.md): the Blog Post type, publishing and unpublishing
 - [The Capacities sync switch and archive](docs/CAPACITIES_RETIREMENT.md): keeping articles online without Capacities, and when it's safe to cancel
 - [Deployment](docs/DEPLOYMENT.md): Cloudflare resources, secrets, CI, DNS cut-over and rollback

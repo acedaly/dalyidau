@@ -12,6 +12,8 @@ export interface HeadInput {
 const absolute = (siteUrl: string, path: string) => new URL(path, siteUrl).toString();
 
 const DEFAULT_IMAGE = "/og-default.png";
+/** The projects-first design's own: the Daly wordmark on navy, 1200×630 (scripts/make-sharing-image.mjs). */
+const BRAND_IMAGE = "/brand/og-default.png";
 
 /** The search and sharing settings of whatever this page shows (a post, page or project), or none. */
 export const seoOf = (data: PageData): Seo =>
@@ -102,7 +104,10 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
     const isPost = data.route === "post";
     const own =
         seo.image ?? (isPost ? data.post.image : data.route === "page" ? data.page.image : data.route === "project" ? data.project.image : null) ?? null;
-    const image = absolute(siteUrl, own?.src ?? site.seoImage ?? DEFAULT_IMAGE);
+    const fallback = data.context.design === "projects" ? BRAND_IMAGE : DEFAULT_IMAGE;
+    const image = absolute(siteUrl, own?.src ?? site.seoImage ?? fallback);
+    // The built-in images' sizes are known; an image set in Site settings is whatever was uploaded.
+    const fallbackSize = !own && !site.seoImage ? (fallback === BRAND_IMAGE ? { width: 1200, height: 630 } : null) : null;
     const socialTitle = seo.socialTitle ?? (isPost && !seo.title ? data.post.title : title);
     const socialDescription = seo.socialDescription ?? description;
     // Search results, and a projects page with nothing on it yet, aren't for search engines.
@@ -124,8 +129,9 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
         `<meta property="og:url" content="${escapeHtml(canonical)}">`,
         `<meta property="og:image" content="${escapeHtml(image)}">`,
         own?.alt ? `<meta property="og:image:alt" content="${escapeHtml(own.alt)}">` : "",
-        own?.width ? `<meta property="og:image:width" content="${own.width}">` : "",
-        own?.height ? `<meta property="og:image:height" content="${own.height}">` : "",
+        (own?.width ?? fallbackSize?.width) ? `<meta property="og:image:width" content="${own?.width ?? fallbackSize?.width}">` : "",
+        (own?.height ?? fallbackSize?.height) ? `<meta property="og:image:height" content="${own?.height ?? fallbackSize?.height}">` : "",
+        !own && !site.seoImage ? `<meta property="og:image:alt" content="${escapeHtml(site.name)}">` : "",
         `<meta name="twitter:card" content="summary_large_image">`,
         `<meta name="twitter:title" content="${escapeHtml(socialTitle)}">`,
         `<meta name="twitter:description" content="${escapeHtml(socialDescription)}">`,

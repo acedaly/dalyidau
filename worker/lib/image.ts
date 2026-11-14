@@ -1,4 +1,5 @@
 // Reads pixel dimensions from image headers so <img> tags can reserve space (no layout shift).
+import { variantWidths } from "./image-variants";
 
 export const ALLOWED_IMAGE_TYPES: Record<string, string> = {
     "image/jpeg": "jpg",
@@ -209,10 +210,24 @@ export function imageProblem(bytes: Uint8Array, type: string): string | null {
 
 const WIDTHS = [480, 768, 1200, 1600];
 
-/** Public URL for an R2 media key, plus a srcset when Cloudflare image transformations are enabled. */
-export const mediaUrls = (key: string, width: number | null | undefined, transforms: boolean) => {
+/** How smaller copies of an image are offered: not at all, by Cloudflare's URL transformations, or by the site's own copies. */
+export type ImageMode = boolean | "variants";
+export const imageMode = (setting: string | undefined): ImageMode => (setting === "variants" ? "variants" : setting === "on");
+
+/**
+ * Public URL for an R2 media key, plus a srcset of smaller copies:
+ * - `"variants"`: the site's own (worker/lib/image-variants.ts), `/media/<key>?w=<width>`, made at publish time;
+ * - `true`: Cloudflare's URL transformations (`/cdn-cgi/image/…`), a paid feature that is switched off;
+ * - `false`: none.
+ */
+export const mediaUrls = (key: string, width: number | null | undefined, transforms: ImageMode) => {
     const src = `/media/${key}`;
     if (!transforms) return { src };
+    if (transforms === "variants") {
+        const smaller = variantWidths(key, width);
+        // The original closes the list at its own width, so a wide screen still gets every pixel.
+        return smaller.length ? { src, srcSet: [...smaller.map((w) => `${src}?w=${w} ${w}w`), `${src} ${width}w`].join(", ") } : { src };
+    }
     const widths = WIDTHS.filter((w) => !width || w < width);
     if (width) widths.push(Math.min(width, 2000));
     const srcSet = widths.map((w) => `/cdn-cgi/image/width=${w},format=auto,quality=82${src} ${w}w`).join(", ");

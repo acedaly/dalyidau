@@ -39,7 +39,7 @@ const Page = ({ data }: PageProps) => {
 
 export const App = ({ data, path }: PageProps) => (
     <SiteContentProvider value={data.context.site}>
-        <SiteFrameProvider projects={data.context.design === "projects"} base={data.context.base ?? ""}>
+        <SiteFrameProvider projects={data.context.design === "projects"} base={data.context.base ?? ""} imageVariants={data.context.imageVariants}>
             <ThemeProvider>
                 <a
                     href="#main"
@@ -55,7 +55,8 @@ export const App = ({ data, path }: PageProps) => (
                 )}
                 <div className="flex min-h-dvh flex-col">
                     <SiteHeader path={path} weddingPublished={data.context.weddingPublished} />
-                    <main id="main" className="flex-1">
+                    {/* Focusable only by the skip link, so "Skip to content" really moves the keyboard there. */}
+                    <main id="main" tabIndex={-1} className="flex-1 outline-none">
                         <Page data={data} path={path} />
                     </main>
                     <SiteFooter />

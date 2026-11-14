@@ -4,7 +4,7 @@
 // is ever served.
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PROJECTS_HOME, pageSlugProblem } from "../src/shared/site-content";
+import { DEFAULT_PROJECTS_HOME, DEFAULT_SITE, pageSlugProblem, projectsMenus } from "../src/shared/site-content";
 import { publishPayloadPost } from "../worker/blog/payload-publisher";
 import { pageCacheKey } from "../worker/lib/page-cache";
 import { PublishError, projectProblem, publishProject, publishProjectsHome, unpublishProject } from "../worker/site/publisher";
@@ -419,6 +419,81 @@ describe("with the switch on", () => {
         const home = await get("/");
         expect(home.status).toBe(200);
         expect(home.html).toContain(DEFAULT_PROJECTS_HOME.heroTitle);
+    });
+});
+
+describe("the projects-first menus", () => {
+    const labels = (items: { label: string }[]) => items.map((i) => i.label);
+
+    it("header: Projects, Writing, About, Wedding; Contact is in the footer", () => {
+        const nav = [
+            { label: "Home", href: "/" },
+            { label: "Blog", href: "/blog" },
+            { label: "About", href: "/about" },
+            { label: "Contact", href: "/contact" },
+        ];
+        const { header, footer } = projectsMenus(nav, true);
+        expect(labels(header)).toEqual(["Projects", "Writing", "About", "Wedding"]);
+        expect(labels(footer)).toEqual(["Projects", "Writing", "About", "Contact"]);
+        expect(labels(projectsMenus(nav, false).header)).toEqual(["Projects", "Writing", "About"]);
+        // The menu as the site ships it, before anything is saved in Payload.
+        expect(labels(projectsMenus(DEFAULT_SITE.nav, false).footer).at(-1)).toBe("Contact");
+    });
+
+    it("keeps what the editor chose: their own name for the blog, their own Projects label, extra items, the order", () => {
+        const nav = [
+            { label: "Notes", href: "/blog" },
+            { label: "Work", href: "/projects" },
+            { label: "Uses", href: "/uses" },
+            { label: "Say hello", href: "/contact" },
+        ];
+        const { header, footer } = projectsMenus(nav, false);
+        expect(labels(header)).toEqual(["Work", "Notes", "Uses"]);
+        expect(labels(footer)).toEqual(["Work", "Notes", "Uses", "Say hello"]);
+    });
+
+    it("renders them: no Contact in the header, Contact in the footer", async () => {
+        await setSwitch(true);
+        const html = (await get("/")).html;
+        const header = /<nav aria-label="Main"[\s\S]*?<\/nav>/.exec(html)![0];
+        const footer = /<nav aria-label="Footer"[\s\S]*?<\/nav>/.exec(html)![0];
+        expect(header).toContain(">Projects<");
+        expect(header).toContain(">Writing<");
+        expect(header).not.toContain("/contact");
+        expect(footer).toContain('href="/contact"');
+        expect(footer).not.toContain("Wedding");
+        // The classic design's menu is untouched.
+        await setSwitch(false);
+        const classic = /<nav aria-label="Main"[\s\S]*?<\/nav>/.exec((await get("/")).html)![0];
+        expect(classic).toContain(">Blog<");
+    });
+});
+
+describe("fonts and the sharing image", () => {
+    // The fonts' preloads (a page may also preload its leading image, which is React's own doing).
+    const preloads = (html: string) => [...html.matchAll(/<link rel="preload"[^>]*>/g)].map((m) => m[0]).filter((link) => link.includes('as="font"'));
+
+    it("preloads the body font everywhere and the headings' font only where it's used", async () => {
+        await setSwitch(true);
+        const v2 = preloads((await get("/")).html);
+        expect(v2.some((l) => /inter-latin-wght-normal-[\w-]+\.woff2/.test(l))).toBe(true);
+        expect(v2.some((l) => /space-grotesk-latin-600-normal-[\w-]+\.woff2/.test(l))).toBe(true);
+        // Fonts are fetched without credentials: a preload must say so or the browser fetches the file twice.
+        for (const link of v2) expect(link).toMatch(/as="font"[^>]*crossorigin/);
+        await setSwitch(false);
+        const classic = preloads((await get("/")).html);
+        expect(classic.some((l) => /inter-latin/.test(l))).toBe(true);
+        expect(classic.some((l) => /space-grotesk/.test(l))).toBe(false);
+    });
+
+    it("shares the brand's image by default in the projects-first design, with its size", async () => {
+        await setSwitch(true);
+        const html = (await get("/")).html;
+        expect(html).toContain('<meta property="og:image" content="https://daly.id.au/brand/og-default.png">');
+        expect(html).toContain('<meta property="og:image:width" content="1200">');
+        expect(html).toContain('<meta property="og:image:height" content="630">');
+        await setSwitch(false);
+        expect((await get("/")).html).toContain('<meta property="og:image" content="https://daly.id.au/og-default.png">');
     });
 });
 

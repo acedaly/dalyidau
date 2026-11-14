@@ -37,7 +37,8 @@ import {
     storePublicImage,
     uploadIds,
 } from "../blog/payload-publisher";
-import { mediaUrls } from "../lib/image";
+import { imageMode, mediaUrls } from "../lib/image";
+import { PUBLISH_VARIANT_BUDGET } from "../lib/image-variants";
 import { SNAPSHOT } from "./content";
 
 export { PublishError };
@@ -159,7 +160,7 @@ export interface NavigationInput {
 export interface MediaLoader {
     loadMedia(id: string | number): Promise<MediaFile | null>;
     now?: () => Date;
-    transforms?: boolean;
+    transforms?: import("../lib/image").ImageMode;
     /** `publish` (default), `check` or `preview`: see PublishMode in ../blog/payload-publisher. */
     mode?: PublishMode;
 }
@@ -228,7 +229,8 @@ export async function publishSiteSettings(env: PublisherEnv, input: SiteSettings
     let seoImage: string | null = null;
     if (input.seoImageMediaId !== undefined && input.seoImageMediaId !== null) {
         const file = await ctx.loadMedia(input.seoImageMediaId);
-        const stored = file ? await storePublicImage(env, `payload-media:${input.seoImageMediaId}`, file, now) : null;
+        // Only ever shown whole, in link previews: no smaller copies.
+        const stored = file ? await storePublicImage(env, `payload-media:${input.seoImageMediaId}`, file, now, "publish", { left: 0 }) : null;
         if (!stored) throw new PublishError("The social preview image couldn't be read, or isn't a JPEG, PNG, GIF, WebP or AVIF under 15 MB.");
         seoImage = `/media/${stored.key}`;
     }
@@ -317,13 +319,15 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
         if (earlier) throw new PublishError(EARLIER("page", earlier));
     }
 
+    // Shared by every image in this publish (worker/lib/image-variants.ts prepareVariants).
+    const variantBudget = { left: PUBLISH_VARIANT_BUDGET };
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
     const copy = async (id: string | number) => {
         const key = String(id);
         if (stored.has(key)) return stored.get(key)!;
         const file = await ctx.loadMedia(id);
         if (!file) return null;
-        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode);
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode, variantBudget);
         if (image) stored.set(key, { ...image, caption: file.caption ?? null });
         return image;
     };
@@ -339,7 +343,7 @@ export async function publishPage(env: PublisherEnv, input: PageInput, ctx: Medi
             siteUrl: env.SITE_URL,
             image: (id) => {
                 const image = stored.get(String(id));
-                return image ? { ...image, ...mediaUrls(image.key, image.width, !!ctx.transforms) } : null;
+                return image ? { ...image, ...mediaUrls(image.key, image.width, ctx.transforms ?? imageMode(env.IMAGE_TRANSFORMS)) } : null;
             },
         }).html;
     }
@@ -529,13 +533,15 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
         if (earlier) throw new PublishError(EARLIER("project", earlier));
     }
 
+    // Shared by every image in this publish (worker/lib/image-variants.ts prepareVariants).
+    const variantBudget = { left: PUBLISH_VARIANT_BUDGET };
     const stored = new Map<string, { key: string; alt: string; width: number | null; height: number | null; caption?: string | null }>();
     const copy = async (id: string | number) => {
         const key = String(id);
         if (stored.has(key)) return stored.get(key)!;
         const file = await ctx.loadMedia(id);
         if (!file) return null;
-        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode);
+        const image = await storePublicImage(env, `payload-media:${key}`, file, now, mode, variantBudget);
         if (image) stored.set(key, { ...image, caption: file.caption ?? null });
         return image;
     };
@@ -571,7 +577,7 @@ export async function publishProject(env: PublisherEnv, input: ProjectInput, ctx
             siteUrl: env.SITE_URL,
             image: (id) => {
                 const img = stored.get(String(id));
-                return img ? { ...img, ...mediaUrls(img.key, img.width, !!ctx.transforms) } : null;
+                return img ? { ...img, ...mediaUrls(img.key, img.width, ctx.transforms ?? imageMode(env.IMAGE_TRANSFORMS)) } : null;
             },
         }).html;
     }

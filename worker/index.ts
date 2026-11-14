@@ -15,6 +15,8 @@ import type { Env } from "./env";
 import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
+import { imageMode } from "./lib/image";
+import { ensureVariant, isVariantWidth, variantFormat } from "./lib/image-variants";
 import { loggablePath } from "./lib/log";
 import { pageCacheKey } from "./lib/page-cache";
 import { PLANNER_PATH, RETIRED_APP_WORKER, offlineDocument, plannerFiles, plannerManifest, plannerView, serviceWorkerScript } from "./planner/pwa";
@@ -105,7 +107,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
     // Only the configured production host is indexable; workers.dev and staging are not.
     const indexable = env.ENVIRONMENT === "production" && url.hostname === siteUrl.hostname;
-    const store = new PostStore(env.DB, env.IMAGE_TRANSFORMS === "on");
+    const store = new PostStore(env.DB, imageMode(env.IMAGE_TRANSFORMS));
 
     if (path.startsWith("/media/")) return media(request, env, ctx, path.slice(7));
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
@@ -307,6 +309,8 @@ async function renderDocument(env: Env, input: DocumentInput): Promise<Response>
             `<script type="application/json" id="page-data">${jsonForScript({ area: input.area, data: input.data, path: input.path })}</script>`,
         );
     if (input.htmlAttributes) html = html.replace('<html lang="en-AU">', `<html lang="en-AU" ${input.htmlAttributes}>`);
+    // The headings' font is preloaded (vite.config.ts preloadFonts) only where it's used: the projects-first design.
+    if (!input.htmlAttributes?.includes("site-v2")) html = html.replace(/\s*<link rel="preload"[^>]*data-design="projects"[^>]*>/g, "");
     // The projects-first design uses the Daly logo pack's icons (public/brand) and navy browser chrome in dark mode.
     if (input.htmlAttributes?.includes("site-v2"))
         html = html
@@ -317,7 +321,9 @@ async function renderDocument(env: Env, input: DocumentInput): Promise<Response>
     return new Response(html, { status: input.status, headers: { "Content-Type": "text/html; charset=utf-8", ...input.headers } });
 }
 
-async function renderPage(env: Env, data: PageData, path: string, status: number, noindex: boolean, headers: Record<string, string> = {}): Promise<Response> {
+async function renderPage(env: Env, page: PageData, path: string, status: number, noindex: boolean, headers: Record<string, string> = {}): Promise<Response> {
+    // Every public page is told, in one place, whether smaller copies of images are on offer.
+    const data: PageData = imageMode(env.IMAGE_TRANSFORMS) === "variants" ? { ...page, context: { ...page.context, imageVariants: true } } : page;
     const body = render(data, path);
     const head = buildHead({ data, siteUrl: env.SITE_URL, path, noindex });
     // The article body is already in the markup; the client reads it back from the DOM instead of duplicating it here.
@@ -410,7 +416,7 @@ async function previewDraft(env: Env, role: string, kind: PreviewKind, id: strin
 async function previewSite(env: Env, role: string, rest: string): Promise<Response> {
     if (role !== "owner" && role !== "admin") return new Response("Not found", { status: 404, headers: PRIVATE_HEADERS });
     const base = "/portal/preview";
-    const store = new PostStore(env.DB, env.IMAGE_TRANSFORMS === "on");
+    const store = new PostStore(env.DB, imageMode(env.IMAGE_TRANSFORMS));
     const result = (await projectRoute(rest, store, env.DB, base)) ?? notFound(`${base}${rest}`);
     if ("redirect" in result) return privateRedirect(`${new URL(env.SITE_URL).origin}${result.redirect}`);
     const [site, flags] = await Promise.all([result.site ?? loadSite(env.DB), loadFlags(env.DB)]);
@@ -803,9 +809,37 @@ async function cachedPage(
 async function media(request: Request, env: Env, ctx: ExecutionContext, key: string): Promise<Response> {
     if (!/^[a-f0-9]{24}\.(jpg|png|gif|webp|avif)$/.test(key)) return new Response("Not found", { status: 404 });
     const cache = (globalThis as unknown as { caches: { default: Cache } }).caches?.default;
-    const cacheKey = new Request(new URL(request.url).toString());
+    const url = new URL(request.url);
+    // A smaller copy (worker/lib/image-variants.ts): only at the widths, and in the formats, the site itself
+    // offers. Anything else in the query string is ignored, so it can't split the cache or make work.
+    const width = Number(url.searchParams.get("w"));
+    const format = isVariantWidth(width) && imageMode(env.IMAGE_TRANSFORMS) === "variants" ? variantFormat(key, request.headers.get("Accept")) : null;
+    const cacheKey = new Request(`${url.origin}${url.pathname}${format ? `?w=${width}&f=${format}` : ""}`);
     const hit = cache ? await cache.match(cacheKey) : undefined;
     if (hit) return hit;
+
+    let fallback = false;
+    if (format) {
+        // Only smaller than the original, as the pages' own srcset is: nothing is enlarged or merely re-encoded.
+        const known = await env.DB.prepare("SELECT width FROM media WHERE r2_key = ? LIMIT 1").bind(key).first<{ width: number | null }>();
+        const variant = known?.width && width < known.width ? await ensureVariant(env, key, width as never, format) : null;
+        if (variant) {
+            const headers = new Headers({
+                "Content-Type": variant.contentType,
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Content-Disposition": "inline",
+                // The same address answers in different formats: caches must keep them apart.
+                Vary: "Accept",
+            });
+            if (variant.etag) headers.set("ETag", variant.etag);
+            const response = new Response(variant.body as never, { headers });
+            if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+            return response;
+        }
+        // No such copy (too wide for this image, not one of the site's, or it couldn't be made): the original
+        // answers, remembered for five minutes so a copy that can't be made isn't attempted on every request.
+        fallback = true;
+    }
 
     const object = await env.MEDIA.get(key);
     if (!object) return previewMedia(request, env, key);
@@ -814,6 +848,10 @@ async function media(request: Request, env: Env, ctx: ExecutionContext, key: str
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("ETag", object.httpEtag);
     headers.set("Content-Disposition", "inline");
+    if (fallback) {
+        headers.set("Vary", "Accept");
+        headers.set("Cache-Control", "public, max-age=300");
+    }
     const response = new Response(object.body as unknown as ReadableStream, { headers });
     if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;

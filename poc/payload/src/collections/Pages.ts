@@ -32,6 +32,13 @@ export const Pages: CollectionConfig = {
   },
   endpoints: [pagePreview],
   hooks: {
+    // The address fills in from the title when it is left empty, drafts included (it is required, and checked before the hooks below run).
+    beforeValidate: [
+      ({ data, originalDoc }) => {
+        if (data && !data.slug && !originalDoc?.slug && typeof data.title === 'string' && data.title.trim()) data.slug = slugify(data.title)
+        return data
+      },
+    ],
     beforeChange: [
       async ({ data, originalDoc, req }) => {
         const slug = slugify(String(data.slug ?? originalDoc?.slug ?? data.title ?? ''))
@@ -89,7 +96,7 @@ export const Pages: CollectionConfig = {
     { name: 'lede', label: 'Introduction', type: 'textarea', admin: { description: 'Shown under the title, and in search results unless a description is set below.' } },
     { name: 'heroImage', label: 'Featured image', type: 'upload', relationTo: 'media', admin: { description: 'Optional, shown above the text (JPEG, PNG, GIF, WebP or AVIF, up to 15 MB).' } },
     { name: 'content', type: 'richText' },
-    { name: 'showButtons', label: 'End with "Read the blog" and "Say hello" buttons', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
+    { name: 'showButtons', label: 'End with links to the projects, the writing and Contact', type: 'checkbox', defaultValue: false, admin: { position: 'sidebar' } },
     seoFields({ title: '"<title> — <site name>"', description: 'the introduction', image: 'the featured image' }),
   ],
 }

@@ -17,7 +17,10 @@ export interface Env {
     CAPACITIES_STRUCTURE_ID?: string;
     SYNC_MAX_REQUESTS: string;
     SYNC_REQUEST_SPACING_MS: string;
+    /** "variants": the site's own smaller copies (worker/lib/image-variants.ts). "on": Cloudflare URL transformations. Anything else: originals only. */
     IMAGE_TRANSFORMS: string;
+    /** Cloudflare's Images binding (makes the smaller copies). Optional: without it images are served as published. */
+    IMAGES?: import("./lib/image-variants").ImagesBinding;
 
     // Secrets (wrangler secret put …)
     CAPACITIES_API_TOKEN?: string;

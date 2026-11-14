@@ -30,7 +30,8 @@ import { seoInput } from '../fields/seo'
 
 export const publisherEnv = async (): Promise<PublisherEnv & { R2: R2Bucket }> => {
   const e = await cloudflareEnv<PublisherEnv & { R2: R2Bucket }>()
-  return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2 }
+  // IMAGES and IMAGE_TRANSFORMS: smaller copies of each image are made as it is published (worker/lib/image-variants.ts).
+  return { DB: e.DB, MEDIA: e.MEDIA, SITE_URL: e.SITE_URL, R2: e.R2, IMAGES: e.IMAGES, IMAGE_TRANSFORMS: e.IMAGE_TRANSFORMS }
 }
 
 /**
@@ -275,12 +276,38 @@ type ProjectDoc = {
   deletedAt?: string | null
 }
 
+type Node = { type?: string; tag?: string; text?: string; children?: Node[] }
+const hasText = (node: Node): boolean => (node.type === 'text' ? Boolean(node.text?.trim()) : node.type === 'upload' || (node.children ?? []).some(hasText))
+const textOf = (node: Node): string => (node.type === 'text' ? (node.text ?? '') : (node.children ?? []).map(textOf).join(''))
+
+/** The headings a new project's write-up starts with (collections/Projects.ts): suggestions, for the editor to fill in or delete. */
+export const PROJECT_TEMPLATE_HEADINGS = ['What it is and why', 'What I did', 'How it’s built', 'How it turned out']
+
+/**
+ * A project's write-up without the suggested headings nobody wrote under. Only a heading that is still
+ * exactly one of the template's, with nothing between it and the next main heading, is left out, and only
+ * the heading itself: nothing the editor wrote is ever removed, whatever shape the write-up has.
+ */
+export function withoutEmptySections(content: ProjectInput['content']): ProjectInput['content'] {
+  const nodes = (content?.root?.children ?? []) as Node[]
+  const suggested = (node: Node) => node.type === 'heading' && node.tag === 'h2' && PROJECT_TEMPLATE_HEADINGS.includes(textOf(node).trim())
+  if (!nodes.some(suggested)) return content
+  const kept = nodes.filter((node, i) => {
+    if (!suggested(node)) return true
+    // Its section runs to the next main heading (sub-headings and everything under them belong to it).
+    let end = i + 1
+    while (end < nodes.length && !(nodes[end].type === 'heading' && (nodes[end].tag === 'h2' || nodes[end].tag === 'h1'))) end++
+    return nodes.slice(i + 1, end).some(hasText)
+  })
+  return { ...content, root: { ...content!.root, children: kept } } as ProjectInput['content']
+}
+
 export const projectInput = (doc: ProjectDoc): ProjectInput => ({
   id: doc.id,
   slug: doc.slug ?? '',
   title: doc.title ?? '',
   summary: doc.summary,
-  content: doc.content ?? null,
+  content: withoutEmptySections(doc.content ?? null),
   heroMediaId: idOf(doc.heroImage),
   gallery: (doc.gallery ?? []).map((g) => ({ mediaId: idOf(g.image), caption: g.caption })),
   status: doc.status,

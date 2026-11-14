@@ -49,7 +49,8 @@ const MATRIX = [
     ["Payload forgot password", "POST", "/api/users/forgot-password", { email: OWNER }, []],
     ["Payload first register", "POST", "/api/users/first-register", { email: "x@example.test", password: "xxxxxxxx" }, []],
     ["Payload refresh token", "POST", "/api/users/refresh-token", null, []],
-    ["read media", "GET", "/api/media", null, ["owner", "admin", "editor", "viewer"]],
+    // Only the people who edit the website: file names and alt text can give away drafts (audit L5).
+    ["read media", "GET", "/api/media", null, writers],
     ["create media", "POST", "/api/media", { alt: "x" }, writers],
     // Pages are read through the site, never this API: only the people who edit them read them here.
     ["read pages", "GET", "/api/pages", null, writers],

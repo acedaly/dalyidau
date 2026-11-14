@@ -5,6 +5,7 @@ import { SiteLogo } from "@/components/site/site-logo";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 import { useSite } from "@/providers/site-content";
 import { usePreviewHref, useSiteFrame } from "@/providers/site-frame";
+import { projectsMenus } from "@/shared/site-content";
 import { cx } from "@/utils/cx";
 
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
@@ -15,12 +16,13 @@ export const SiteHeader = ({ path, weddingPublished }: { path: string; weddingPu
     const site = useSite();
     const { projects } = useSiteFrame();
     const previewHref = usePreviewHref();
-    // The projects-first design always offers Projects; the menu's own items are kept as they are in Payload.
-    const base =
-        projects && !site.nav.some((item) => item.href === "/projects")
-            ? [{ label: "Projects", href: "/projects" }, ...site.nav.filter((item) => item.href !== "/")]
-            : site.nav;
-    const navigation = (weddingPublished ? [...base, { label: "Wedding", href: "https://wedding.daly.id.au" }] : base).map((item) => ({
+    // The projects-first design: Projects, the menu's own items (the blog as "Writing"), Wedding; Contact is in the footer.
+    const base = projects
+        ? projectsMenus(site.nav, weddingPublished).header
+        : weddingPublished
+          ? [...site.nav, { label: "Wedding", href: "https://wedding.daly.id.au" }]
+          : site.nav;
+    const navigation = base.map((item) => ({
         ...item,
         href: projects ? previewHref(item.href) : item.href,
     }));

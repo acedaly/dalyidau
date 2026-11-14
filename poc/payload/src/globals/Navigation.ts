@@ -13,7 +13,7 @@ export const Navigation: GlobalConfig = {
   admin: {
     group: 'Website',
     description:
-      'The menu in the header and footer, in this order (drag to reorder). A link to a page appears only while that page is published. The Wedding link is added automatically while the wedding website is public.',
+      'The menu, in this order (drag to reorder). A link to a page appears only while that page is published. The site adds the rest itself: Projects comes first, Wedding is added while the wedding website is public, a link to /contact is shown in the footer rather than the header, and a link to /blog named "Blog" is shown as "Writing" (give it any other name to use that instead).',
   },
   // Every save is kept, with who made it: Versions shows what changed and when, and can restore an earlier menu.
   versions: { max: 50 },
