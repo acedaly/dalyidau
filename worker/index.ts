@@ -16,6 +16,7 @@ import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { loggablePath } from "./lib/log";
+import { pageCacheKey } from "./lib/page-cache";
 import { PLANNER_PATH, RETIRED_APP_WORKER, offlineDocument, plannerFiles, plannerManifest, plannerView, serviceWorkerScript } from "./planner/pwa";
 import { handlePortalApi } from "./portal/api";
 import { type AuthResult, authenticate } from "./portal/auth";
@@ -225,11 +226,15 @@ async function projectRoute(path: string, store: PostStore, db: D1Database, base
     if (path === "/") {
         const { site, content, projects } = await loadProjectsHome(db);
         const latest = content.showWriting && content.writingCount ? await store.latest(content.writingCount) : [];
-        return { data: { route: "projects-home", content, projects, latest }, status: 200, site };
+        // Whether a link to the writing leads somewhere: it's shown, and there is an article (even when the
+        // homepage itself is set to list none).
+        const hasWriting = content.showWriting && (latest.length > 0 || (await store.latest(1)).length > 0);
+        return { data: { route: "projects-home", content, projects, latest, hasWriting }, status: 200, site };
     }
     if (path === "/projects") {
         const [{ site, content, projects }] = await Promise.all([loadProjectsHome(db)]);
-        return { data: { route: "projects", projects, intro: content.projectsIntro }, status: 200, site };
+        const hasWriting = content.showWriting && (await store.latest(1)).length > 0;
+        return { data: { route: "projects", projects, intro: content.projectsIntro, hasWriting }, status: 200, site };
     }
     const match = /^\/projects\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(path);
     if (match) {
@@ -777,11 +782,7 @@ async function cachedPage(
         shell(env),
         env.DB.prepare("SELECT value FROM meta WHERE key = 'content_version'").first<{ value: string }>(),
     ]);
-    const params = new URLSearchParams(url.search);
-    params.set("__b", build);
-    params.set("__c", content?.value ?? "0");
-    params.set("__v", variant);
-    const key = new Request(`${url.origin}${url.pathname}?${params}`);
+    const key = new Request(pageCacheKey(url, build, content?.value ?? "0", variant));
 
     const hit = await cache.match(key);
     if (hit) {

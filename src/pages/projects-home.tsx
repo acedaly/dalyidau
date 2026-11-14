@@ -15,7 +15,7 @@ const ON_HOME = 4;
  * a quiet list of recent writing, and a few words about me. Every word comes from Payload.
  */
 export const ProjectsHomePage = ({ data }: { data: Data }) => {
-    const { content, projects, latest } = data;
+    const { content, projects, latest, hasWriting } = data;
     const href = usePreviewHref();
     const [lead, ...rest] = projects.slice(0, ON_HOME);
     const more = projects.length - ON_HOME;
@@ -29,10 +29,18 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                     </h1>
                     <p className="mt-5 max-w-2xl text-lg leading-relaxed text-tertiary md:mt-6 md:text-xl">{content.heroIntro}</p>
                     <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-                        <Button href={href("/projects")} size="lg" iconTrailing={ArrowRight}>
-                            {content.heroCtaLabel}
-                        </Button>
-                        {content.showWriting && (
+                        {projects.length > 0 ? (
+                            <Button href={href("/projects")} size="lg" iconTrailing={ArrowRight}>
+                                {content.heroCtaLabel}
+                            </Button>
+                        ) : (
+                            hasWriting && (
+                                <Button href="/blog" size="lg" iconTrailing={ArrowRight}>
+                                    Read the writing
+                                </Button>
+                            )
+                        )}
+                        {hasWriting && projects.length > 0 && (
                             <a
                                 href="/blog"
                                 className="v2-link rounded-xs text-md font-semibold text-secondary underline-offset-4 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -77,8 +85,21 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                         )}
                     </div>
                 ) : (
-                    <p className="mt-10 max-w-xl rounded-xl border border-dashed border-primary px-6 py-10 text-md text-tertiary">
-                        Projects are on their way. In the meantime, there's some writing below.
+                    <p className="mt-10 max-w-xl text-md text-tertiary">
+                        Nothing is written up here yet.
+                        {hasWriting ? (
+                            <>
+                                {" "}
+                                For now, the{" "}
+                                <a
+                                    href="/blog"
+                                    className="font-semibold text-secondary underline underline-offset-4 outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                                >
+                                    writing
+                                </a>{" "}
+                                is the best place to see what I've been working on.
+                            </>
+                        ) : null}
                     </p>
                 )}
 

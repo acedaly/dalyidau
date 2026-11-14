@@ -5,6 +5,8 @@
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_PROJECTS_HOME, pageSlugProblem } from "../src/shared/site-content";
+import { publishPayloadPost } from "../worker/blog/payload-publisher";
+import { pageCacheKey } from "../worker/lib/page-cache";
 import { PublishError, projectProblem, publishProject, publishProjectsHome, unpublishProject } from "../worker/site/publisher";
 import { testEnv } from "./helpers";
 import { accessToken, apiCall, call, resetPortal } from "./portal-helpers";
@@ -96,6 +98,72 @@ describe("with the switch off", () => {
 });
 
 describe("with the switch on", () => {
+    it("before any project is published, says so plainly and points at what there is", async () => {
+        await setSwitch(true);
+        const home = await get("/");
+        expect(home.html).toContain("Nothing is written up here yet.");
+        // No button promising projects that aren't there, and nothing about writing "below" when none is shown.
+        // (What's rendered, not the page's embedded data, which carries every label.)
+        const shown = home.html.split('id="page-data"')[0];
+        expect(shown).not.toContain("Explore projects");
+        expect(shown).not.toContain("below");
+        const index = await get("/projects");
+        expect(index.status).toBe(200);
+        expect(index.html).toContain("Nothing is written up here yet.");
+        expect(index.html).not.toContain("0 projects");
+        // An empty list isn't a page for search engines: not in the sitemap, and marked noindex.
+        expect((await get("/sitemap.xml")).html).not.toContain("/projects");
+        expect(index.html).toContain('<meta name="robots" content="noindex, follow">');
+        // With nothing written either, no link promises writing: not in the sentence, not as the hero button.
+        const main = (html: string) => /<main[\s\S]*?<\/main>/.exec(html)?.[0] ?? "";
+        expect(main(home.html)).not.toContain('href="/blog"');
+        expect(main(index.html)).not.toContain('href="/blog"');
+    });
+
+    it("points at the writing from the empty states only when there is some, and it's shown", async () => {
+        await setSwitch(true);
+        const main = (html: string) => /<main[\s\S]*?<\/main>/.exec(html)?.[0] ?? "";
+        await publishPayloadPost(
+            testEnv,
+            {
+                postId: "payload:w",
+                slug: "a-post",
+                title: "A post",
+                content: { root: { type: "root", children: [{ type: "paragraph", children: [{ type: "text", text: "Words." }] }] } },
+            },
+            media,
+        );
+        // An article exists and writing is shown: both empty states link to it, and the hero button leads there.
+        expect(main((await get("/")).html)).toContain("Read the writing");
+        expect(main((await get("/projects")).html)).toContain('href="/blog"');
+        // The homepage set to list no articles still has writing to point at.
+        await publishProjectsHome(testEnv, { ...DEFAULT_PROJECTS_HOME, writingCount: 0 });
+        expect(main((await get("/")).html)).toContain("Read the writing");
+        // Writing switched off for the site: nothing points at it, although the article exists.
+        await publishProjectsHome(testEnv, { ...DEFAULT_PROJECTS_HOME, showWriting: false });
+        expect(main((await get("/")).html)).not.toContain('href="/blog"');
+        expect(main((await get("/projects")).html)).not.toContain('href="/blog"');
+        // Once a project is published, /projects is in the sitemap and indexable like any page.
+        await publishProject(testEnv, project(), media);
+        expect((await get("/sitemap.xml")).html).toContain("<loc>https://daly.id.au/projects</loc>");
+        expect((await get("/projects")).html).not.toContain('content="noindex');
+        await testEnv.DB.prepare("DELETE FROM posts WHERE id = 'payload:w'").run();
+    });
+
+    it("the page for an address that doesn't exist offers the projects as well as the writing", async () => {
+        await setSwitch(true);
+        const missing = await get("/no-such-page");
+        expect(missing.status).toBe(404);
+        // The page's own buttons, not the header's links (which are there on every page).
+        const main = (html: string) => /<main[\s\S]*?<\/main>/.exec(html)?.[0] ?? "";
+        expect(main(missing.html)).toMatch(/href="\/projects"[^>]*>(?:<[^>]+>)*See the projects/);
+        expect(main(missing.html)).toMatch(/href="\/blog"[^>]*>(?:<[^>]+>)*Read the writing/);
+        await setSwitch(false);
+        const classic = await get("/no-such-page");
+        expect(main(classic.html)).toContain("Browse the blog");
+        expect(main(classic.html)).not.toContain("See the projects");
+    });
+
     it("shows the projects-first homepage, the index and each project, escaped", async () => {
         await setSwitch(true);
         await publishProject(testEnv, project(), media);
@@ -130,7 +198,7 @@ describe("with the switch on", () => {
         expect((await get("/projects/desk-lamp")).status).toBe(404);
         expect((await get("/projects/lamp")).status).toBe(404);
         expect((await get("/projects")).html).not.toContain("lamp");
-        expect((await get("/")).html).toContain("Projects are on their way");
+        expect((await get("/")).html).toContain("Nothing is written up here yet.");
     });
 
     it("keeps a project's old addresses through an unpublish: 404 while it's off, redirecting again once it's back", async () => {
@@ -351,5 +419,44 @@ describe("with the switch on", () => {
         const home = await get("/");
         expect(home.status).toBe(200);
         expect(home.html).toContain(DEFAULT_PROJECTS_HOME.heroTitle);
+    });
+});
+
+describe("the page cache's key", () => {
+    const key = (address: string, build = "b1", content = "c1", variant = "v1") => pageCacheKey(new URL(address), build, content, variant);
+
+    it("is the same for one page however the link was shared", () => {
+        const plain = key("https://daly.id.au/blog/a-post");
+        for (const shared of [
+            "https://daly.id.au/blog/a-post?utm_source=newsletter&utm_medium=email",
+            "https://daly.id.au/blog/a-post?fbclid=abc123",
+            "https://daly.id.au/blog/a-post?ref=somewhere&gclid=x",
+            // A visitor can't write the internal parts of the key themselves.
+            "https://daly.id.au/blog/a-post?__b=other&__c=other&__v=other",
+        ])
+            expect(key(shared), shared).toBe(plain);
+    });
+
+    it("differs for everything that changes what a page shows", () => {
+        const keys = [
+            "https://daly.id.au/blog",
+            "https://daly.id.au/blog?page=2",
+            "https://daly.id.au/blog?category=Notes",
+            "https://daly.id.au/blog?tag=cloudflare",
+            "https://daly.id.au/blog?tag=cloudflare&page=2",
+            "https://daly.id.au/projects",
+        ].map((address) => key(address));
+        expect(new Set(keys).size).toBe(keys.length);
+        // The order parameters arrive in doesn't matter; tracking parameters beside real ones are dropped.
+        expect(key("https://daly.id.au/blog?page=2&tag=cloudflare&utm_source=x")).toBe(key("https://daly.id.au/blog?tag=cloudflare&page=2"));
+        // A parameter a page doesn't read under another spelling isn't a filter (readFilters reads `page`, not `Page`).
+        expect(key("https://daly.id.au/blog?Page=2")).toBe(key("https://daly.id.au/blog"));
+    });
+
+    it("changes when the code, the content or the design does, so nothing stale is served", () => {
+        const base = key("https://daly.id.au/");
+        expect(key("https://daly.id.au/", "b2")).not.toBe(base);
+        expect(key("https://daly.id.au/", "b1", "c2")).not.toBe(base);
+        expect(key("https://daly.id.au/", "b1", "c1", "v2")).not.toBe(base);
     });
 });

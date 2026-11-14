@@ -130,6 +130,15 @@
     --color-neutral-950: rgb(16 32 58); /* navy */
     --color-brand-300: rgb(245 160 132);
     --color-brand-400: rgb(240 122 85);
+    /* Icons and placeholder text were neutral-600 and -500 on navy: 2.2:1 and 3.0:1. WCAG asks 3:1 for
+       icons and 4.5:1 for text, so both use the lighter grey above (6.5:1 on navy, 5.8:1 on raised navy). */
+    --color-fg-quaternary: var(--color-neutral-400);
+    --color-fg-quaternary_hover: var(--color-neutral-300);
+    --color-text-placeholder: var(--color-neutral-400);
+    /* The accent stays vermilion in dark mode (the stock theme turns it grey). */
+    --color-fg-brand-primary_alt: var(--color-brand-400);
+    --color-text-brand-secondary: var(--color-brand-300);
+    --color-text-brand-secondary_hover: var(--color-brand-200);
     background-color: var(--color-neutral-950);
 }
 .site-v2 body {

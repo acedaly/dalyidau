@@ -105,7 +105,8 @@ export const buildHead = ({ data, siteUrl, path, noindex }: HeadInput) => {
     const image = absolute(siteUrl, own?.src ?? site.seoImage ?? DEFAULT_IMAGE);
     const socialTitle = seo.socialTitle ?? (isPost && !seo.title ? data.post.title : title);
     const socialDescription = seo.socialDescription ?? description;
-    const searchNoindex = data.route === "blog" && !!data.filters.q;
+    // Search results, and a projects page with nothing on it yet, aren't for search engines.
+    const searchNoindex = (data.route === "blog" && !!data.filters.q) || (data.route === "projects" && data.projects.length === 0);
 
     const tags = [
         `<title>${escapeHtml(title)}</title>`,
@@ -234,6 +235,7 @@ export const sitemapXml = (
         // No lastmod for pages: a page's own edits are rare, and the sitemap stays stable across republishing.
         ...pages.map((p) => ({ loc: `/${p.slug}` })),
         { loc: "/contact" },
+        // /projects is listed once it has something on it: an empty list isn't a page worth indexing.
         ...(projects.length ? [{ loc: "/projects" }, ...projects.map((p) => ({ loc: `/projects/${p.slug}`, lastmod: p.updatedAt ?? undefined }))] : []),
         ...posts.map((p) => ({ loc: `/blog/${p.slug}`, lastmod: p.lastmod })),
     ];

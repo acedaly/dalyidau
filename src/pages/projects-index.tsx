@@ -14,12 +14,29 @@ export const ProjectsIndexPage = ({ data }: { data: Data }) => {
             <header className="max-w-3xl">
                 <h1 className="v2-display text-display-md text-primary md:text-display-lg">Projects</h1>
                 {data.intro && <p className="mt-4 text-lg leading-relaxed text-tertiary md:text-xl">{data.intro}</p>}
-                <p className="mt-3 text-sm text-quaternary">
-                    {data.projects.length} {data.projects.length === 1 ? "project" : "projects"}
-                </p>
+                {data.projects.length > 0 && (
+                    <p className="mt-3 text-sm text-quaternary">
+                        {data.projects.length} {data.projects.length === 1 ? "project" : "projects"}
+                    </p>
+                )}
             </header>
             {data.projects.length === 0 ? (
-                <p className="mt-12 max-w-xl rounded-xl border border-dashed border-primary px-6 py-10 text-md text-tertiary">Projects are on their way.</p>
+                <p className="mt-12 max-w-xl border-t border-secondary pt-8 text-md text-tertiary">
+                    Nothing is written up here yet.
+                    {data.hasWriting && (
+                        <>
+                            {" "}
+                            The{" "}
+                            <a
+                                href="/blog"
+                                className="font-semibold text-secondary underline underline-offset-4 outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
+                                writing
+                            </a>{" "}
+                            is the best place to see what I've been working on in the meantime.
+                        </>
+                    )}
+                </p>
             ) : (
                 <div className="mt-12 flex flex-col gap-14 border-t border-secondary pt-12 md:gap-20">
                     {lead && <FeaturedProjectCard project={lead} headingLevel="h2" />}
