@@ -15,7 +15,7 @@ const ON_HOME = 4;
  * a quiet list of recent writing, and a few words about me. Every word comes from Payload.
  */
 export const ProjectsHomePage = ({ data }: { data: Data }) => {
-    const { content, projects, latest } = data;
+    const { content, projects, latest, hasWriting } = data;
     const href = usePreviewHref();
     const [lead, ...rest] = projects.slice(0, ON_HOME);
     const more = projects.length - ON_HOME;
@@ -34,13 +34,13 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                                 {content.heroCtaLabel}
                             </Button>
                         ) : (
-                            content.showWriting && (
+                            hasWriting && (
                                 <Button href="/blog" size="lg" iconTrailing={ArrowRight}>
                                     Read the writing
                                 </Button>
                             )
                         )}
-                        {content.showWriting && projects.length > 0 && (
+                        {hasWriting && projects.length > 0 && (
                             <a
                                 href="/blog"
                                 className="v2-link rounded-xs text-md font-semibold text-secondary underline-offset-4 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -87,7 +87,7 @@ export const ProjectsHomePage = ({ data }: { data: Data }) => {
                 ) : (
                     <p className="mt-10 max-w-xl text-md text-tertiary">
                         Nothing is written up here yet.
-                        {content.showWriting && latest.length > 0 ? (
+                        {hasWriting ? (
                             <>
                                 {" "}
                                 For now, the{" "}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Monitor01, Moon01, Sun } from "@untitledui/icons";
 import { Button as AriaButton } from "react-aria-components";
 import { useTheme } from "@/providers/theme-provider";
@@ -14,7 +14,7 @@ const next = (theme: Theme, deviceIsDark: boolean): Theme => {
     const opposite = deviceIsDark ? "light" : "dark";
     return theme === "system" ? opposite : theme === opposite ? same : "system";
 };
-const NAME = { system: "following your device", light: "light", dark: "dark" } as const;
+const NAME = { system: "Following your device", light: "Light", dark: "Dark" } as const;
 
 /**
  * Cycles the theme: follow the device, light, dark, and back to following the device (before, a visitor who
@@ -23,6 +23,7 @@ const NAME = { system: "following your device", light: "light", dark: "dark" } a
  */
 export const ThemeToggle = ({ className }: { className?: string }) => {
     const { theme, setTheme } = useTheme();
+    const id = useId();
     const [ready, setReady] = useState(false);
     const [deviceIsDark, setDeviceIsDark] = useState(false);
     useEffect(() => {
@@ -35,23 +36,31 @@ export const ThemeToggle = ({ className }: { className?: string }) => {
     }, []);
     const upcoming = next(theme, deviceIsDark);
 
+    // A name that stays the same (voice control, and screen readers that don't re-read a changed name), with
+    // the state and what the next press does as its description, announced politely when it changes.
     return (
-        <AriaButton
-            onPress={() => setTheme(upcoming)}
-            aria-label={ready ? `Theme: ${NAME[theme]}. Switch to ${NAME[upcoming]}.` : "Change theme"}
-            className={cx(
-                "inline-flex size-10 cursor-pointer items-center justify-center rounded-lg text-fg-quaternary outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover hover:text-fg-quaternary_hover focus-visible:outline-2 focus-visible:outline-offset-2",
-                className,
-            )}
-        >
-            {ready && theme === "system" ? (
-                <Monitor01 aria-hidden="true" className="size-5" />
-            ) : (
-                <>
-                    <Moon01 aria-hidden="true" className="size-5 dark:hidden" />
-                    <Sun aria-hidden="true" className="hidden size-5 dark:block" />
-                </>
-            )}
-        </AriaButton>
+        <>
+            <AriaButton
+                onPress={() => setTheme(upcoming)}
+                aria-label="Theme"
+                aria-describedby={ready ? id : undefined}
+                className={cx(
+                    "inline-flex size-10 cursor-pointer items-center justify-center rounded-lg text-fg-quaternary outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover hover:text-fg-quaternary_hover focus-visible:outline-2 focus-visible:outline-offset-2",
+                    className,
+                )}
+            >
+                {ready && theme === "system" ? (
+                    <Monitor01 aria-hidden="true" className="size-5" />
+                ) : (
+                    <>
+                        <Moon01 aria-hidden="true" className="size-5 dark:hidden" />
+                        <Sun aria-hidden="true" className="hidden size-5 dark:block" />
+                    </>
+                )}
+            </AriaButton>
+            <span id={id} role="status" className="sr-only">
+                {ready ? `${NAME[theme]}. Press to switch to ${NAME[upcoming].toLowerCase()}.` : ""}
+            </span>
+        </>
     );
 };

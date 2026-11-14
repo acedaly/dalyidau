@@ -47,30 +47,65 @@ test("the theme toggles, persists across pages, and can go back to following the
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/");
     const html = page.locator("html");
-    const toggle = page.getByRole("button", { name: /^Theme: / });
+    // One name that never changes; the state, and what the next press does, is its description.
+    const toggle = page.getByRole("button", { name: "Theme", exact: true });
+    const themeColors = () => page.locator('meta[name="theme-color"]').evaluateAll((metas) => metas.map((m) => (m as HTMLMetaElement).content));
+    const [lightChrome, darkChrome] = await themeColors();
+    expect(lightChrome).not.toBe(darkChrome);
     await expect(html).not.toHaveClass(/dark-mode/);
-    await expect(toggle).toHaveAccessibleName("Theme: following your device. Switch to dark.");
+    await expect(toggle).toHaveAccessibleDescription("Following your device. Press to switch to dark.");
     // The first press always changes something: on a light device, to dark.
     await toggle.click();
     await expect(html).toHaveClass(/dark-mode/);
-    // The browser's own chrome follows the choice, not the device.
-    expect(await page.locator('meta[name="theme-color"]').evaluateAll((metas) => new Set(metas.map((m) => (m as HTMLMetaElement).content)).size)).toBe(1);
+    // The browser's own chrome follows the choice, not the device: both tags carry the dark colour.
+    expect(await themeColors()).toEqual([darkChrome, darkChrome]);
+    // On the next page the choice is applied before React runs (theme-init.js): checked with scripts held back.
+    await page.route("**/*.js", (route) => (route.request().url().endsWith("/theme-init.js") ? route.continue() : route.abort()));
     await page.goto("/blog");
     await expect(html).toHaveClass(/dark-mode/);
-    await expect(toggle).toHaveAccessibleName("Theme: dark. Switch to light.");
+    expect(await themeColors()).toEqual([darkChrome, darkChrome]);
+    await page.unroute("**/*.js");
+    await page.goto("/blog");
+    await expect(html).toHaveClass(/dark-mode/);
+    await expect(toggle).toHaveAccessibleDescription("Dark. Press to switch to light.");
     await toggle.click();
     await expect(html).not.toHaveClass(/dark-mode/);
+    expect(await themeColors()).toEqual([lightChrome, lightChrome]);
     // Chosen by hand, so it holds even when the device says otherwise…
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(html).not.toHaveClass(/dark-mode/);
     await page.emulateMedia({ colorScheme: "light" });
     // …until the third press hands it back to the device, which is then followed.
     await toggle.click();
-    await expect(toggle).toHaveAccessibleName(/^Theme: following your device\./);
+    await expect(toggle).toHaveAccessibleDescription(/^Following your device\./);
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(html).toHaveClass(/dark-mode/);
     expect(await page.evaluate(() => localStorage.getItem("ui-theme"))).toBeNull();
-    expect(await page.locator('meta[name="theme-color"]').evaluateAll((metas) => new Set(metas.map((m) => (m as HTMLMetaElement).content)).size)).toBe(2);
+    expect(await themeColors()).toEqual([lightChrome, darkChrome]);
+});
+
+test("a stored theme this site didn't write, or storage that refuses, doesn't break the page", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.addInitScript(() => localStorage.setItem("ui-theme", "purple"));
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveClass(/dark-mode/);
+    await expect(page.getByRole("button", { name: "Theme", exact: true })).toHaveAccessibleDescription(/^Following your device\./);
+
+    const blocked = await page.context().newPage();
+    await blocked.emulateMedia({ colorScheme: "dark" });
+    await blocked.addInitScript(() => {
+        const refuse = () => {
+            throw new DOMException("denied", "SecurityError");
+        };
+        Object.defineProperty(window, "localStorage", { get: refuse });
+    });
+    await blocked.goto("/");
+    const toggle = blocked.getByRole("button", { name: "Theme", exact: true });
+    await expect(toggle).toHaveAccessibleDescription(/^Following your device\./);
+    // It still works for this visit; it just isn't remembered.
+    await toggle.click();
+    await expect(blocked.locator("html")).not.toHaveClass(/dark-mode/);
+    await blocked.close();
 });
 
 test("follows the system colour scheme by default", async ({ page }) => {

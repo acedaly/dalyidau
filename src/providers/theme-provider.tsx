@@ -39,6 +39,23 @@ interface ThemeProviderProps {
     storageKey?: string;
 }
 
+// Storage can be unavailable or refuse (private windows, blocked site data): the theme then simply isn't remembered.
+const readStored = (key: string): string | null => {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+};
+const writeStored = (key: string, value: string | null) => {
+    try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+    } catch {
+        // Not remembered; nothing else depends on it.
+    }
+};
+
 /**
  * The browser's own chrome (the address bar on a phone) takes its colour from two <meta name="theme-color">
  * tags, one per device colour scheme. When the visitor picks a theme by hand, both are given that theme's
@@ -53,11 +70,9 @@ const syncThemeColor = (theme: Theme) => {
 
 export const ThemeProvider = ({ children, defaultTheme = "system", storageKey = "ui-theme", darkModeClass = "dark-mode" }: ThemeProviderProps) => {
     const [theme, setTheme] = useState<Theme>(() => {
-        if (typeof window !== "undefined") {
-            const savedTheme = localStorage.getItem(storageKey) as Theme | null;
-            return savedTheme || defaultTheme;
-        }
-        return defaultTheme;
+        // Only a theme this site wrote is honoured; anything else (or storage that can't be read) follows the device.
+        const saved = typeof window === "undefined" ? null : readStored(storageKey);
+        return saved === "light" || saved === "dark" ? saved : defaultTheme;
     });
 
     useEffect(() => {
@@ -68,10 +83,10 @@ export const ThemeProvider = ({ children, defaultTheme = "system", storageKey = 
                 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
                 root.classList.toggle(darkModeClass, systemTheme === "dark");
-                localStorage.removeItem(storageKey);
+                writeStored(storageKey, null);
             } else {
                 root.classList.toggle(darkModeClass, theme === "dark");
-                localStorage.setItem(storageKey, theme);
+                writeStored(storageKey, theme);
             }
         };
 

@@ -2,11 +2,13 @@ import { ArrowLeft, FileSearch02 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { Circle } from "@/components/shared-assets/background-patterns/circle";
-import { useSiteFrame } from "@/providers/site-frame";
+import { usePreviewHref, useSiteFrame } from "@/providers/site-frame";
 
 // Follows the Untitled UI empty-state layout.
 export const NotFoundPage = () => {
     const { projects } = useSiteFrame();
+    // Inside the private preview, the homepage and the projects are the preview's own.
+    const href = usePreviewHref();
     return (
         <section className="flex min-h-[60vh] items-center justify-center overflow-hidden px-4 py-16 md:py-24">
             <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
@@ -20,7 +22,7 @@ export const NotFoundPage = () => {
                     Sorry, that page doesn't exist or has moved. {projects ? "Try the projects or the writing" : "Try the blog"}, or head back to the homepage.
                 </p>
                 <div className="relative mt-8 flex w-full flex-col-reverse gap-3 sm:w-auto sm:flex-row">
-                    <Button href="/" color="secondary" size="lg" iconLeading={ArrowLeft}>
+                    <Button href={href("/")} color="secondary" size="lg" iconLeading={ArrowLeft}>
                         Go home
                     </Button>
                     {projects && (
@@ -28,7 +30,7 @@ export const NotFoundPage = () => {
                             Read the writing
                         </Button>
                     )}
-                    <Button href={projects ? "/projects" : "/blog"} size="lg">
+                    <Button href={projects ? href("/projects") : "/blog"} size="lg">
                         {projects ? "See the projects" : "Browse the blog"}
                     </Button>
                 </div>

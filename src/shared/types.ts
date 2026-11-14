@@ -57,8 +57,9 @@ export type PageRoute =
       }
     | { route: "post"; post: Post; related: PostSummary[]; url: string }
     | { route: "page"; page: PublicPage }
-    | { route: "projects-home"; content: ProjectsHomeContent; projects: ProjectSummary[]; latest: PostSummary[] }
-    | { route: "projects"; projects: ProjectSummary[]; intro: string }
+    /** `hasWriting`: the writing is shown on this site and there is at least one article (so a link to it leads somewhere). */
+    | { route: "projects-home"; content: ProjectsHomeContent; projects: ProjectSummary[]; latest: PostSummary[]; hasWriting: boolean }
+    | { route: "projects"; projects: ProjectSummary[]; intro: string; hasWriting: boolean }
     | { route: "project"; project: Project; related: ProjectSummary[] }
     | { route: "contact" }
     | { route: "not-found"; path: string };

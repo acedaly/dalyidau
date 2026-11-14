@@ -110,9 +110,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     if (path === "/robots.txt") return text(robotsTxt(env.SITE_URL, indexable), "text/plain", 3600);
     if (path === "/sitemap.xml") {
         const [posts, pages, flags] = await Promise.all([store.sitemapEntries(), listPages(env.DB), loadFlags(env.DB)]);
-        const projectsOn = flags["website.projects_home"];
-        const projects = projectsOn ? (await loadProjects(env.DB)).filter((p) => !p.noindex) : [];
-        return text(sitemapXml(env.SITE_URL, posts, pages, projects, projectsOn), "application/xml", HTML_EDGE_TTL);
+        const projects = flags["website.projects_home"] ? (await loadProjects(env.DB)).filter((p) => !p.noindex) : [];
+        return text(sitemapXml(env.SITE_URL, posts, pages, projects), "application/xml", HTML_EDGE_TTL);
     }
     if (path === "/feed.xml" || path === "/rss.xml") {
         const [posts, site] = await Promise.all([store.all(), loadSite(env.DB)]);
@@ -226,11 +225,15 @@ async function projectRoute(path: string, store: PostStore, db: D1Database, base
     if (path === "/") {
         const { site, content, projects } = await loadProjectsHome(db);
         const latest = content.showWriting && content.writingCount ? await store.latest(content.writingCount) : [];
-        return { data: { route: "projects-home", content, projects, latest }, status: 200, site };
+        // Whether a link to the writing leads somewhere: it's shown, and there is an article (even when the
+        // homepage itself is set to list none).
+        const hasWriting = content.showWriting && (latest.length > 0 || (await store.latest(1)).length > 0);
+        return { data: { route: "projects-home", content, projects, latest, hasWriting }, status: 200, site };
     }
     if (path === "/projects") {
         const [{ site, content, projects }] = await Promise.all([loadProjectsHome(db)]);
-        return { data: { route: "projects", projects, intro: content.projectsIntro }, status: 200, site };
+        const hasWriting = content.showWriting && (await store.latest(1)).length > 0;
+        return { data: { route: "projects", projects, intro: content.projectsIntro, hasWriting }, status: 200, site };
     }
     const match = /^\/projects\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(path);
     if (match) {
@@ -763,6 +766,21 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
 /** The query parameters a public page's content depends on (readFilters; `q` is never cached). */
 const PAGE_PARAMS = ["category", "page", "tag"];
 
+/**
+ * The address a page is cached under: its path, the parameters pages read (in a fixed order), and what the
+ * copy was built from (the code, the content, the design). Everything else in the query string is left
+ * out: tracking parameters (utm_*, fbclid…) would otherwise give every shared link its own copy, and a
+ * visitor could never write the three internal parts themselves.
+ */
+export function pageCacheKey(url: URL, build: string, content: string, variant: string): string {
+    const params = new URLSearchParams();
+    for (const name of PAGE_PARAMS) for (const value of url.searchParams.getAll(name)) params.append(name, value);
+    params.set("__b", build);
+    params.set("__c", content);
+    params.set("__v", variant);
+    return `${url.origin}${url.pathname}?${params}`;
+}
+
 async function cachedPage(
     request: Request,
     env: Env,
@@ -781,14 +799,7 @@ async function cachedPage(
         shell(env),
         env.DB.prepare("SELECT value FROM meta WHERE key = 'content_version'").first<{ value: string }>(),
     ]);
-    // Only what the pages read (the blog's filters). Tracking parameters (utm_*, fbclid…) would otherwise
-    // give every shared link its own copy in the cache.
-    const params = new URLSearchParams();
-    for (const name of PAGE_PARAMS) for (const value of url.searchParams.getAll(name)) params.append(name, value);
-    params.set("__b", build);
-    params.set("__c", content?.value ?? "0");
-    params.set("__v", variant);
-    const key = new Request(`${url.origin}${url.pathname}?${params}`);
+    const key = new Request(pageCacheKey(url, build, content?.value ?? "0", variant));
 
     const hit = await cache.match(key);
     if (hit) {

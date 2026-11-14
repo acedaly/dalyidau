@@ -22,14 +22,20 @@ export const ProjectsIndexPage = ({ data }: { data: Data }) => {
             </header>
             {data.projects.length === 0 ? (
                 <p className="mt-12 max-w-xl border-t border-secondary pt-8 text-md text-tertiary">
-                    Nothing is written up here yet. The{" "}
-                    <a
-                        href="/blog"
-                        className="font-semibold text-secondary underline underline-offset-4 outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
-                    >
-                        writing
-                    </a>{" "}
-                    is the best place to see what I've been working on in the meantime.
+                    Nothing is written up here yet.
+                    {data.hasWriting && (
+                        <>
+                            {" "}
+                            The{" "}
+                            <a
+                                href="/blog"
+                                className="font-semibold text-secondary underline underline-offset-4 outline-focus-ring hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
+                                writing
+                            </a>{" "}
+                            is the best place to see what I've been working on in the meantime.
+                        </>
+                    )}
                 </p>
             ) : (
                 <div className="mt-12 flex flex-col gap-14 border-t border-secondary pt-12 md:gap-20">

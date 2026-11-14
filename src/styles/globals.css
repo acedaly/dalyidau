@@ -135,10 +135,10 @@
     --color-fg-quaternary: var(--color-neutral-400);
     --color-fg-quaternary_hover: var(--color-neutral-300);
     --color-text-placeholder: var(--color-neutral-400);
-    --color-text-quaternary: var(--color-neutral-400);
     /* The accent stays vermilion in dark mode (the stock theme turns it grey). */
     --color-fg-brand-primary_alt: var(--color-brand-400);
     --color-text-brand-secondary: var(--color-brand-300);
+    --color-text-brand-secondary_hover: var(--color-brand-200);
     background-color: var(--color-neutral-950);
 }
 .site-v2 body {
