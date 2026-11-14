@@ -16,6 +16,7 @@ import { bearerMatches } from "./lib/bearer";
 import { withSecurityHeaders } from "./lib/headers";
 import { escapeHtml, jsonForScript } from "./lib/html";
 import { loggablePath } from "./lib/log";
+import { pageCacheKey } from "./lib/page-cache";
 import { PLANNER_PATH, RETIRED_APP_WORKER, offlineDocument, plannerFiles, plannerManifest, plannerView, serviceWorkerScript } from "./planner/pwa";
 import { handlePortalApi } from "./portal/api";
 import { type AuthResult, authenticate } from "./portal/auth";
@@ -763,24 +764,6 @@ async function rsvpEndpoint(request: Request, env: Env, action: "lookup" | "subm
  * Edge-caches successful HTML. The key includes the app build and the content version, which
  * every sync that changes public content bumps, so new and edited posts show up immediately.
  */
-/** The query parameters a public page's content depends on (readFilters; `q` is never cached). */
-const PAGE_PARAMS = ["category", "page", "tag"];
-
-/**
- * The address a page is cached under: its path, the parameters pages read (in a fixed order), and what the
- * copy was built from (the code, the content, the design). Everything else in the query string is left
- * out: tracking parameters (utm_*, fbclid…) would otherwise give every shared link its own copy, and a
- * visitor could never write the three internal parts themselves.
- */
-export function pageCacheKey(url: URL, build: string, content: string, variant: string): string {
-    const params = new URLSearchParams();
-    for (const name of PAGE_PARAMS) for (const value of url.searchParams.getAll(name)) params.append(name, value);
-    params.set("__b", build);
-    params.set("__c", content);
-    params.set("__v", variant);
-    return `${url.origin}${url.pathname}?${params}`;
-}
-
 async function cachedPage(
     request: Request,
     env: Env,
