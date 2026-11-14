@@ -447,6 +447,41 @@ const forged = await call("POST", "/api/globals/site-settings", people.admin, { 
 expect("who made a change is recorded by the server, never taken from the request", forged.json?.result?.changedBy === people.admin, JSON.stringify(forged.json?.result?.changedBy));
 expect("a viewer can't read the history", (await call("GET", "/api/globals/navigation/versions", people.viewer)).status === 403);
 
+// A version that today's rules would refuse is refused BEFORE it is restored: Payload has no transactions
+// here, so a restore refused afterwards would leave Payload holding it and the site not.
+const beforeRefusal = await call("GET", "/api/globals/redirects", OWNER);
+const withDoomed = await redirects(OWNER, [{ from: "/will-be-a-page", to: "/blog", status: "301", enabled: true }]);
+const doomedPage = await call("POST", "/api/pages?draft=false", people.admin, { title: "Will be a page", slug: "will-be-a-page", content: lexical("Now a page."), _status: "published" });
+const withoutDoomed = await redirects(OWNER, [{ from: "/kept", to: "/blog", status: "301", enabled: true }]);
+const refusedRestore = await restore("redirects", (v) => v.version?.items?.length === 1 && v.version.items[0].from === "/will-be-a-page");
+const afterRefusedRestore = await call("GET", "/api/globals/redirects", OWNER);
+expect(
+    "restoring redirects that include a now-live page's address is refused, and nothing changes here or on the site",
+    withDoomed.status === 200 &&
+        doomedPage.status === 201 &&
+        withoutDoomed.status === 200 &&
+        refusedRestore.status === 400 &&
+        /published page/.test(refusedRestore.text) &&
+        afterRefusedRestore.json?.items?.length === 1 &&
+        afterRefusedRestore.json.items[0].from === "/kept" &&
+        (await page("/kept")).status === 301 &&
+        (await page("/will-be-a-page")).status === 200 &&
+        (await sync()).json?.inStep === true,
+    `${refusedRestore.status} ${refusedRestore.text.slice(0, 200)} items=${JSON.stringify(afterRefusedRestore.json?.items?.map((i) => i.from))} (list before: ${beforeRefusal.json?.items?.length})`,
+);
+// The same for a menu that links to a page since deleted for good.
+const navBase = (await call("GET", "/api/globals/navigation", OWNER)).json.items.map(({ id: _id, ...item }) => item);
+const withLink = await call("POST", "/api/globals/navigation", OWNER, { items: [...navBase, { label: "Soon gone", type: "page", page: doomedPage.json?.doc?.id }] });
+await call("POST", "/api/globals/navigation", OWNER, { items: navBase });
+await call("DELETE", `/api/pages/${doomedPage.json?.doc?.id}`, OWNER);
+const refusedNav = await restore("navigation", (v) => v.version?.items?.some((i) => i.label === "Soon gone"));
+const navAfterRefusal = await call("GET", "/api/globals/navigation", OWNER);
+expect(
+    "restoring a menu that links to a deleted page is refused, saying which link, and the menu is unchanged",
+    withLink.status === 200 && refusedNav.status === 400 && /Soon gone/.test(refusedNav.text) && !navAfterRefusal.json?.items?.some((i) => i.label === "Soon gone") && navAfterRefusal.json?.items?.length === navBase.length,
+    `${withLink.status} ${refusedNav.status} ${refusedNav.text.slice(0, 200)}`,
+);
+
 await redirects(OWNER, []);
 for (const [collection, docId] of [["pages", plainId], ["posts", seoPost.json?.doc?.id], ["media", share?.id]]) if (docId) await call("DELETE", `/api/${collection}/${docId}`, OWNER);
 expect("cleaned up after the Phase 2b checks, and the site still matches Payload", (await page("/old-address")).status === 404 && (await page("/search-check")).status === 404 && (await sync()).json?.inStep === true);

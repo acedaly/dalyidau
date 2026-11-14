@@ -4,7 +4,7 @@ import { DEFAULT_HOME, DEFAULT_PROJECTS_HOME } from '../../../../src/shared/site
 import { homeSnapshot, projectsHomeSnapshot } from '../../../../worker/site/publisher'
 import { contentEditor } from '../collections/Users'
 import { asEditorError, homeInput, republishHome, republishProjectsHome } from '../site/publishing'
-import { isRestore, resaveRestored } from '../site/restore'
+import { checkBeforeRestore, isRestore, resaveRestored } from '../site/restore'
 
 // The homepage's words. "Save draft" keeps changes here; "Publish changes" puts them on the site.
 export const Homepage: GlobalConfig = {
@@ -23,6 +23,14 @@ export const Homepage: GlobalConfig = {
     readVersions: ({ req }) => contentEditor(req.user as never),
   },
   hooks: {
+    // A published version that today's rules would refuse is refused before it is restored (src/site/restore.ts).
+    beforeOperation: [
+      checkBeforeRestore('homepage', (version) => {
+        if (version._status !== 'published') return
+        homeSnapshot(homeInput(version))
+        projectsHomeSnapshot({ ...DEFAULT_PROJECTS_HOME, ...((version.projectsHome ?? {}) as object) })
+      }),
+    ],
     beforeChange: [
       async ({ data }) => {
         if (data._status === 'published') {
@@ -37,7 +45,7 @@ export const Homepage: GlobalConfig = {
         // A restore hands over a version row, not the homepage: it is saved again as itself (src/site/restore.ts).
         // Before this, restoring a published version changed Payload and left the site as it was.
         if (!context?.skipPublicSync && isRestore(req)) {
-          await resaveRestored(req, 'homepage')
+          await resaveRestored(req, 'homepage', doc)
           return doc
         }
         if (!context?.skipPublicSync && doc._status === 'published') {
