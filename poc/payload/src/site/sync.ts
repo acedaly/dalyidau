@@ -11,10 +11,13 @@ import { syncPage, syncProject } from './publishing'
 
 type Databases = { D1: D1Database; DB: D1Database }
 
-/** The comparison, live. Saves made in the last two minutes are left out (they may still be on their way). */
-export async function siteSyncReport(): Promise<DriftReport> {
+/**
+ * The comparison, live. Saves made in the last two minutes are left out (they may still be on their way)
+ * unless `includeRecent` is set.
+ */
+export async function siteSyncReport(includeRecent = false): Promise<DriftReport> {
   const env = await cloudflareEnv<Databases>()
-  return siteDrift(env.D1 as never, env.DB as never)
+  return siteDrift(env.D1 as never, env.DB as never, new Date(Date.now() + (includeRecent ? SYNC_GRACE_MS : 0)))
 }
 
 export type RepublishResult = { fixed: DriftItem[]; failed: Array<DriftItem & { message: string }>; report: DriftReport; inStep: boolean }

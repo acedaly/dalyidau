@@ -5,6 +5,8 @@
 // owners and admins can write; the admin and its API need an identity. Also: the wedding by path.
 //
 // Run before blog.mjs, on a fresh local state (see .github/workflows/payload.yml). Local only.
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { OWNER, token } from "../scripts/test-identity.mjs";
 
 const BASE = process.env.POC_BASE ?? "http://localhost:8790";
@@ -180,6 +182,82 @@ await call("POST", "/api/globals/homepage?draft=false", OWNER, { projectsHome: {
 
 // 8. Admin view of the wedding module still there.
 expect("wedding admin still opens", (await call("GET", "/admin/wedding", OWNER)).status === 200);
+
+// --- Phase 2 (docs/AUDIT-2026-11.md): publishing can't silently leave Payload and the site out of step ---
+const siteSql = (sql) => execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", sql], { cwd: path.resolve(import.meta.dirname, ".."), stdio: "pipe" });
+const upload = async (name, bytes) => {
+    const form = new FormData();
+    form.set("file", new Blob([bytes], { type: "image/png" }), name);
+    form.set("_payload", JSON.stringify({ alt: `Phase 2 check ${name}` }));
+    const response = await fetch(`${BASE}/api/media`, { method: "POST", headers: { Origin: BASE, "Cf-Access-Jwt-Assertion": token(OWNER) }, body: form });
+    return (await response.json().catch(() => null))?.doc ?? null;
+};
+const PNG_OK = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+const sync = async (email = OWNER) => call("GET", "/api/globals/site-settings/sync?recent=1", email);
+
+// P1. A publish that can't succeed is refused before Payload saves anything.
+const cutShort = await upload("cut-short.png", PNG_OK.subarray(0, 58));
+expect("a PNG that's cut short still uploads (its type is right; its structure is checked at publish)", !!cutShort?.id, JSON.stringify(cutShort));
+const p2 = await call("POST", "/api/pages?draft=true", people.admin, { title: "Sync check", slug: "sync-check", content: lexical("First version."), _status: "draft" });
+const p2id = p2.json?.doc?.id;
+expect("a page draft for the checks", p2.status === 201 && p2id, p2.text);
+const refused = await call("PATCH", `/api/pages/${p2id}?draft=false`, people.admin, { _status: "published", heroImage: cutShort?.id });
+expect("publishing with a damaged featured image is refused with a message", refused.status === 400 && /featured image/i.test(refused.text), `${refused.status} ${refused.text.slice(0, 200)}`);
+const afterRefusal = await call("GET", `/api/pages/${p2id}?draft=false&depth=0`, people.admin);
+expect("…and Payload did NOT save it as published (before, it did, and the site stayed on the old version)", afterRefusal.json?._status === "draft" && !afterRefusal.json?.heroImage, `${afterRefusal.json?._status} ${JSON.stringify(afterRefusal.json?.heroImage)}`);
+expect("…and nothing is on the site", (await page("/sync-check")).status === 404);
+const refusedPost = await call("POST", "/api/posts?draft=false", people.admin, { title: "No content", slug: "no-content-post", _status: "published" });
+const refusedPostStored = await call("GET", "/api/posts?where[slug][equals]=no-content-post&depth=0&draft=true&trash=true", OWNER);
+expect("a post with no content is refused before saving, not saved as published", refusedPost.status === 400 && (refusedPostStored.json?.docs ?? []).length === 0, `${refusedPost.status} ${refusedPost.text.slice(0, 160)} stored=${refusedPostStored.json?.docs?.length}`);
+
+// P2. The sync check and Republish.
+const okPublish = await call("PATCH", `/api/pages/${p2id}?draft=false`, people.admin, { _status: "published" });
+expect("the page publishes without the damaged image", okPublish.status === 200 && (await page("/sync-check")).text.includes("First version."), okPublish.text.slice(0, 200));
+let report = await sync();
+expect("the sync check says the site matches Payload", report.status === 200 && report.json?.inStep === true, report.text.slice(0, 300));
+expect("only owners and admins may run it", (await sync(people.viewer)).status === 403 && (await sync(people.editor)).status === 403 && (await sync(null)).status === 401);
+// Break the site behind Payload's back, as a failed write would: lose the page, and leave a post Payload doesn't publish.
+siteSql(`DELETE FROM meta WHERE key IN ('page:sync-check', 'page-id:${p2id}'); INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('payload:ghost', 'ghost-post', 'Ghost', '[]', 0, '<p>ghost</p>', '[]', 'ghost', 1, 1, '2026-11-01T00:00:00.000Z', 'h', '2026-11-01T00:00:00.000Z', 'payload'); INSERT INTO meta (key, value) VALUES ('content_version', 'drift-test') ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
+expect("(the site is now wrong: the page is gone and a stray post is up)", (await page("/sync-check")).status === 404 && (await page("/blog/ghost-post")).status === 200);
+report = await sync();
+const found = (report.json?.items ?? []).map((i) => `${i.kind}:${i.slug}:${i.state}`).sort();
+expect("the sync check names both problems", report.json?.inStep === false && found.includes("page:sync-check:missing") && found.includes("post:ghost-post:extra"), JSON.stringify(found));
+const crossSiteRepublish = await fetch(`${BASE}/api/globals/site-settings/republish`, { method: "POST", headers: { Origin: "https://evil.example", "Cf-Access-Jwt-Assertion": token(OWNER) } });
+expect("Republish can't be triggered from another site, or by a viewer", crossSiteRepublish.status === 403 && (await call("POST", "/api/globals/site-settings/republish", people.viewer)).status === 403);
+const repaired = await call("POST", "/api/globals/site-settings/republish", people.admin);
+expect("Republish puts the site right", repaired.status === 200 && repaired.json?.inStep === true && repaired.json?.failed?.length === 0, repaired.text.slice(0, 300));
+expect("…the page is back and the stray post is gone", (await page("/sync-check")).text.includes("First version.") && (await page("/blog/ghost-post")).status === 404);
+expect("…and the check agrees", (await sync()).json?.inStep === true);
+
+// P3. Draft preview: the draft on the site's own page, privately; the public page unchanged.
+const draftEdit = await call("PATCH", `/api/pages/${p2id}?draft=true`, people.admin, { title: "Sync check, redrafted", content: lexical("Second version, not published <yet>."), _status: "draft" });
+expect("a draft change to the published page", draftEdit.status === 200, draftEdit.text.slice(0, 200));
+const toPreview = await call("GET", `/api/pages/${p2id}/preview`, people.admin);
+expect("Preview sends the editor to the private preview", toPreview.status === 302 && toPreview.location === `/portal/preview/draft/page/${p2id}`, `${toPreview.status} ${toPreview.location} ${toPreview.text.slice(0, 120)}`);
+const previewed = await call("GET", `/portal/preview/draft/page/${p2id}`, people.admin);
+expect(
+    "the preview shows the draft, escaped, marked as a preview",
+    previewed.status === 200 && previewed.text.includes("Second version, not published &lt;yet&gt;.") && previewed.text.includes("Draft preview") && previewed.text.includes("The published page stays as it is"),
+    `${previewed.status}`,
+);
+expect("the public page still shows the published version", (await page("/sync-check")).text.includes("First version.") && !(await page("/sync-check")).text.includes("Second version"));
+expect(
+    "nobody else can preview: not a viewer, an editor or a visitor",
+    (await call("GET", `/api/pages/${p2id}/preview`, people.viewer)).status === 403 &&
+        (await call("GET", `/portal/preview/draft/page/${p2id}`, people.editor)).status === 404 &&
+        (await call("GET", `/portal/preview/draft/page/${p2id}`, null)).status !== 200,
+);
+const draftPost = await call("POST", "/api/posts?draft=true", people.admin, { title: "A post in draft", slug: "a-post-in-draft", content: lexical("Unpublished words."), _status: "draft" });
+const draftPostId = draftPost.json?.doc?.id;
+const postPreview = await call("GET", `/api/posts/${draftPostId}/preview`, people.admin);
+const postPreviewed = postPreview.location ? await call("GET", postPreview.location, people.admin) : { status: 0, text: "" };
+expect("a draft post previews too, and isn't on the blog", postPreviewed.status === 200 && postPreviewed.text.includes("Unpublished words.") && (await page("/blog/a-post-in-draft")).status === 404, `${postPreview.status} ${postPreviewed.status}`);
+const emptyPost = await call("POST", "/api/posts?draft=true", people.admin, { title: "Empty", slug: "empty-draft", _status: "draft" });
+const emptyPreview = await call("GET", `/api/posts/${emptyPost.json?.doc?.id}/preview`, people.admin);
+expect("a draft that can't be published yet says why instead of previewing", emptyPreview.status === 422 && /content/i.test(emptyPreview.text), `${emptyPreview.status}`);
+
+for (const [collection, docId] of [["pages", p2id], ["posts", draftPostId], ["posts", emptyPost.json?.doc?.id], ["media", cutShort?.id]]) if (docId) await call("DELETE", `/api/${collection}/${docId}`, OWNER);
+expect("cleaned up, and the site still matches Payload", (await page("/sync-check")).status === 404 && (await sync()).json?.inStep === true);
 
 // Put the homepage and settings back for later suites.
 await call("POST", "/api/globals/homepage?draft=false", OWNER, { heading: "Some things are worth", _status: "published" });

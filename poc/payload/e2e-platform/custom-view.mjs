@@ -2,6 +2,7 @@
 //   node e2e-platform/custom-view.mjs   (with `wrangler dev --port 8790` running and invented data seeded)
 // Chromium resolves daly.id.au to the local Worker, so hostname rules apply exactly as in production.
 import { chromium } from "../../../node_modules/playwright/index.mjs";
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { token, OWNER } from "../scripts/test-identity.mjs";
@@ -58,6 +59,29 @@ const payloadStyle = () =>
 const before = await payloadStyle();
 await page.screenshot({ path: `${out}/payload-dashboard.png` });
 check("Payload admin dashboard renders for an Access-verified owner", (await page.locator("text=Wedding").count()) > 0, "Wedding links in Payload's nav");
+
+// "Website sync" on the dashboard (Phase 2): says the site matches Payload; when it doesn't, names what's
+// wrong and Republish (a real click) puts it right.
+{
+    const panel = page.locator(".daly-sync");
+    check("The dashboard says the website matches what's published", (await panel.getAttribute("data-state")) === "ok" && (await panel.innerText()).includes("matches what’s published"), await panel.innerText().catch(() => "no panel"));
+    // Put a post on the site that Payload doesn't publish, as a failed write could leave behind.
+    execFileSync(
+        "npx",
+        ["wrangler", "d1", "execute", "DB", "--local", "--command", "INSERT INTO posts (id, slug, title, tags, featured, body_html, toc, search_text, word_count, reading_minutes, published_at, content_hash, synced_at, source) VALUES ('payload:stray', 'stray-post', 'A stray post', '[]', 0, '<p>x</p>', '[]', 'x', 1, 1, '2026-11-01T00:00:00.000Z', 'h', '2026-11-01T00:00:00.000Z', 'payload')"],
+        { cwd: path.resolve(import.meta.dirname, ".."), stdio: "pipe" },
+    );
+    await page.reload({ waitUntil: "networkidle" });
+    const alert = page.locator(".daly-sync [role=alert]");
+    check("…and when it doesn't, it says what's wrong", (await panel.getAttribute("data-state")) === "out" && (await alert.innerText()).includes("A stray post") && (await alert.innerText()).includes("not published here"), await panel.innerText());
+    await page.screenshot({ path: `${out}/payload-dashboard-out-of-sync.png` });
+    await page.getByRole("button", { name: "Republish" }).click();
+    await page.waitForFunction(() => document.querySelector(".daly-sync")?.getAttribute("data-state") === "ok", null, { timeout: 20000 }).catch(() => {});
+    check("Republish puts it right, and the dashboard says so", (await panel.getAttribute("data-state")) === "ok", await panel.innerText());
+    const stray = await page.request.get("http://daly.id.au/blog/stray-post");
+    check("…the stray post is off the site", stray.status() === 404, String(stray.status()));
+    await page.screenshot({ path: `${out}/payload-dashboard-in-sync.png` });
+}
 
 // The wedding menu is in collapsible groups (Payload's NavGroup): clicking a label closes and reopens it.
 {

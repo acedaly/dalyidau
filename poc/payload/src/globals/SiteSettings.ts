@@ -20,7 +20,7 @@ export const SiteSettings: GlobalConfig = {
     update: ({ req }) => contentEditor(req.user as never),
   },
   // Website sync (src/site/sync.ts), here because /api/globals is already behind the admin's sign-in:
-  // GET  /api/globals/site-settings/sync       does the public site match what's published in Payload?
+  // GET  /api/globals/site-settings/sync       does the public site match what's published in Payload? (?recent=1 counts saves from the last two minutes too)
   // POST /api/globals/site-settings/republish  publish again whatever it has wrong.
   endpoints: [
     {
@@ -28,7 +28,7 @@ export const SiteSettings: GlobalConfig = {
       method: 'get',
       handler: async (req) => {
         if (!contentEditor(req.user as never)) return Response.json({ error: 'forbidden' }, { status: 403 })
-        const report = await siteSyncReport()
+        const report = await siteSyncReport(new URL(req.url ?? '', 'http://x').searchParams.get('recent') === '1')
         return Response.json({ ...report, inStep: inStep(report) }, { headers: { 'Cache-Control': 'no-store' } })
       },
     },
