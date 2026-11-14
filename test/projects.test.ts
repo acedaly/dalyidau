@@ -469,6 +469,34 @@ describe("the projects-first menus", () => {
     });
 });
 
+describe("fonts and the sharing image", () => {
+    // The fonts' preloads (a page may also preload its leading image, which is React's own doing).
+    const preloads = (html: string) => [...html.matchAll(/<link rel="preload"[^>]*>/g)].map((m) => m[0]).filter((link) => link.includes('as="font"'));
+
+    it("preloads the body font everywhere and the headings' font only where it's used", async () => {
+        await setSwitch(true);
+        const v2 = preloads((await get("/")).html);
+        expect(v2.some((l) => /inter-latin-wght-normal-[\w-]+\.woff2/.test(l))).toBe(true);
+        expect(v2.some((l) => /space-grotesk-latin-600-normal-[\w-]+\.woff2/.test(l))).toBe(true);
+        // Fonts are fetched without credentials: a preload must say so or the browser fetches the file twice.
+        for (const link of v2) expect(link).toMatch(/as="font"[^>]*crossorigin/);
+        await setSwitch(false);
+        const classic = preloads((await get("/")).html);
+        expect(classic.some((l) => /inter-latin/.test(l))).toBe(true);
+        expect(classic.some((l) => /space-grotesk/.test(l))).toBe(false);
+    });
+
+    it("shares the brand's image by default in the projects-first design, with its size", async () => {
+        await setSwitch(true);
+        const html = (await get("/")).html;
+        expect(html).toContain('<meta property="og:image" content="https://daly.id.au/brand/og-default.png">');
+        expect(html).toContain('<meta property="og:image:width" content="1200">');
+        expect(html).toContain('<meta property="og:image:height" content="630">');
+        await setSwitch(false);
+        expect((await get("/")).html).toContain('<meta property="og:image" content="https://daly.id.au/og-default.png">');
+    });
+});
+
 describe("the page cache's key", () => {
     const key = (address: string, build = "b1", content = "c1", variant = "v1") => pageCacheKey(new URL(address), build, content, variant);
 

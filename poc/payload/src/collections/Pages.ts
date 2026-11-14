@@ -32,6 +32,13 @@ export const Pages: CollectionConfig = {
   },
   endpoints: [pagePreview],
   hooks: {
+    // The address fills in from the title when it is left empty, drafts included (it is required, and checked before the hooks below run).
+    beforeValidate: [
+      ({ data, originalDoc }) => {
+        if (data && !data.slug && !originalDoc?.slug && typeof data.title === 'string' && data.title.trim()) data.slug = slugify(data.title)
+        return data
+      },
+    ],
     beforeChange: [
       async ({ data, originalDoc, req }) => {
         const slug = slugify(String(data.slug ?? originalDoc?.slug ?? data.title ?? ''))

@@ -309,6 +309,8 @@ async function renderDocument(env: Env, input: DocumentInput): Promise<Response>
             `<script type="application/json" id="page-data">${jsonForScript({ area: input.area, data: input.data, path: input.path })}</script>`,
         );
     if (input.htmlAttributes) html = html.replace('<html lang="en-AU">', `<html lang="en-AU" ${input.htmlAttributes}>`);
+    // The headings' font is preloaded (vite.config.ts preloadFonts) only where it's used: the projects-first design.
+    if (!input.htmlAttributes?.includes("site-v2")) html = html.replace(/\s*<link rel="preload"[^>]*data-design="projects"[^>]*>/g, "");
     // The projects-first design uses the Daly logo pack's icons (public/brand) and navy browser chrome in dark mode.
     if (input.htmlAttributes?.includes("site-v2"))
         html = html

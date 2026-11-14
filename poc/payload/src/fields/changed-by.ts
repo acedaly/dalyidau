@@ -8,7 +8,7 @@ export const changedByField: Field = {
   label: 'Last changed by',
   type: 'text',
   access: { create: () => false, update: () => false },
-  admin: { readOnly: true, position: 'sidebar', description: 'Recorded with every save. Earlier versions, with who made them and when, are under Versions.' },
+  admin: { readOnly: true, position: 'sidebar', condition: (data) => Boolean(data?.changedBy), description: 'Recorded with every save. Earlier versions, with who made them and when, are under Versions.' },
 }
 
 export const recordChangedBy: GlobalBeforeChangeHook = ({ data, req }) => {

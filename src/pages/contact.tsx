@@ -1,9 +1,17 @@
-import { Mail01, Rss01 } from "@untitledui/icons";
+import type { FC } from "react";
+import { Link01, Mail01, Rss01 } from "@untitledui/icons";
 import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
+import { GitHub, Instagram, LinkedIn, X, YouTube } from "@/components/foundations/social-icons";
 import { useSite } from "@/providers/site-content";
+import { useSiteFrame } from "@/providers/site-frame";
+
+// Each place gets its own mark (they all showed an envelope before).
+const SOCIAL_ICONS = { github: GitHub, linkedin: LinkedIn, x: X, instagram: Instagram, youtube: YouTube } as const;
+type Channel = { icon: FC<{ className?: string }>; title: string; description: string; href: string; label: string; external?: boolean };
 
 export const ContactPage = () => {
     const site = useSite();
+    const { projects } = useSiteFrame();
     const channels = [
         site.email && {
             icon: Mail01,
@@ -14,19 +22,20 @@ export const ContactPage = () => {
         },
         {
             icon: Rss01,
-            title: "Follow the blog",
+            title: projects ? "Follow the writing" : "Follow the blog",
             description: "Get new articles in your feed reader as soon as they're published.",
             href: "/feed.xml",
             label: "Subscribe via RSS",
         },
         ...site.socials.map((social) => ({
-            icon: Mail01,
+            icon: (SOCIAL_ICONS as Record<string, FC<{ className?: string }>>)[social.kind] ?? Link01,
+            external: true,
             title: social.label,
             description: `Find me on ${social.label}.`,
             href: social.href,
             label: social.href.replace(/^https?:\/\/(www\.)?/, ""),
         })),
-    ].filter(Boolean) as { icon: typeof Mail01; title: string; description: string; href: string; label: string }[];
+    ].filter(Boolean) as Channel[];
 
     return (
         <div className="mx-auto max-w-container px-4 pt-12 pb-16 md:px-8 md:pt-20 md:pb-24">
@@ -45,6 +54,8 @@ export const ContactPage = () => {
                         </div>
                         <a
                             href={channel.href}
+                            // A profile elsewhere: opened without handing this page to it, and marked as mine.
+                            rel={channel.external ? "me noopener noreferrer" : undefined}
                             className="text-md font-semibold break-all text-brand-secondary outline-focus-ring hover:text-brand-secondary_hover focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2"
                         >
                             {channel.label}

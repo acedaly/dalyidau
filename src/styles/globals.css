@@ -14,6 +14,7 @@
 @source "../app.tsx";
 @source "../entry-client.tsx";
 @source "../shared/site-content.ts";
+@source "../shared/image-variants.ts";
 @source "../pages";
 @source "../providers";
 @source "../utils";

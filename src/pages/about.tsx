@@ -1,7 +1,7 @@
 import { ArrowRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { ContentSectionSimple01 } from "@/components/marketing/content/content-section-simple-01";
-import { useImageSrcSet } from "@/providers/site-frame";
+import { useImageSrcSet, usePreviewHref, useSiteFrame } from "@/providers/site-frame";
 import type { PublicPage } from "@/shared/site-content";
 
 /**
@@ -11,6 +11,8 @@ import type { PublicPage } from "@/shared/site-content";
  */
 export const CmsPage = ({ page }: { page: PublicPage }) => {
     const srcSet = useImageSrcSet()(page.image);
+    const { projects } = useSiteFrame();
+    const href = usePreviewHref();
     return (
         <ContentSectionSimple01 title={page.title} lede={page.lede ?? ""}>
             {page.image && (
@@ -33,10 +35,22 @@ export const CmsPage = ({ page }: { page: PublicPage }) => {
             )}
             {page.showButtons && (
                 <div className="not-prose mt-10 flex flex-col gap-3 border-t border-secondary pt-8 sm:flex-row">
-                    <Button href="/blog" size="lg" iconTrailing={ArrowRight}>
-                        Read the blog
-                    </Button>
-                    <Button href="/contact" color="secondary" size="lg">
+                    {/* The projects-first design leads with the work; the writing is its second link. */}
+                    {projects ? (
+                        <>
+                            <Button href={href("/projects")} size="lg" iconTrailing={ArrowRight}>
+                                See the projects
+                            </Button>
+                            <Button href="/blog" color="secondary" size="lg">
+                                Read the writing
+                            </Button>
+                        </>
+                    ) : (
+                        <Button href="/blog" size="lg" iconTrailing={ArrowRight}>
+                            Read the blog
+                        </Button>
+                    )}
+                    <Button href="/contact" color={projects ? "tertiary" : "secondary"} size="lg">
                         Say hello
                     </Button>
                 </div>

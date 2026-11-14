@@ -276,12 +276,39 @@ type ProjectDoc = {
   deletedAt?: string | null
 }
 
+type Node = { type?: string; tag?: string; text?: string; children?: Node[] }
+const hasText = (node: Node): boolean => (node.type === 'text' ? Boolean(node.text?.trim()) : node.type === 'upload' || (node.children ?? []).some(hasText))
+
+/**
+ * A project's write-up without the sections nobody filled in. A new project starts with suggested headings
+ * (collections/Projects.ts projectTemplate); one left with nothing under it would otherwise be published as a
+ * bare heading. A heading is dropped when it, or everything between it and the next heading, is empty.
+ */
+export function withoutEmptySections(content: ProjectInput['content']): ProjectInput['content'] {
+  const nodes = (content?.root?.children ?? []) as Node[]
+  if (!nodes.some((n) => n.type === 'heading')) return content
+  const kept: Node[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    if (node.type !== 'heading') {
+      kept.push(node)
+      continue
+    }
+    let end = i + 1
+    while (end < nodes.length && nodes[end].type !== 'heading') end++
+    // Kept: a heading with words of its own and something under it.
+    if (hasText(node) && nodes.slice(i + 1, end).some(hasText)) kept.push(node)
+    else i = end - 1
+  }
+  return { ...content, root: { ...content!.root, children: kept } } as ProjectInput['content']
+}
+
 export const projectInput = (doc: ProjectDoc): ProjectInput => ({
   id: doc.id,
   slug: doc.slug ?? '',
   title: doc.title ?? '',
   summary: doc.summary,
-  content: doc.content ?? null,
+  content: withoutEmptySections(doc.content ?? null),
   heroMediaId: idOf(doc.heroImage),
   gallery: (doc.gallery ?? []).map((g) => ({ mediaId: idOf(g.image), caption: g.caption })),
   status: doc.status,

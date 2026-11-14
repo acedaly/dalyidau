@@ -486,6 +486,55 @@ await redirects(OWNER, []);
 for (const [collection, docId] of [["pages", plainId], ["posts", seoPost.json?.doc?.id], ["media", share?.id]]) if (docId) await call("DELETE", `/api/${collection}/${docId}`, OWNER);
 expect("cleaned up after the Phase 2b checks, and the site still matches Payload", (await page("/old-address")).status === 404 && (await page("/search-check")).status === 404 && (await sync()).json?.inStep === true);
 
+// P5. The editor's side: an image in use can't be deleted, the address fills in from the title, and a new
+// project's suggested headings aren't published empty.
+const used = await upload("in-use.png", PNG_OK);
+const user = await call("POST", "/api/pages?draft=true", people.admin, { title: "Uses An Image", heroImage: used?.id, content: lexical("Words.") });
+expect("a draft's address fills in from its title", user.status === 201 && user.json?.doc?.slug === "uses-an-image", `${user.status} ${user.text.slice(0, 200)}`);
+const refusedDelete = await call("DELETE", `/api/media/${used?.id}`, OWNER);
+expect(
+    "deleting an image that a page uses (even a draft) is refused, naming the page",
+    refusedDelete.status === 400 && /Uses An Image/.test(refusedDelete.text) && (await call("GET", `/api/media/${used?.id}`, OWNER)).status === 200,
+    `${refusedDelete.status} ${refusedDelete.text.slice(0, 200)}`,
+);
+const inText = await upload("in-text.png", PNG_OK);
+const withInline = lexical("Before the picture.");
+withInline.root.children.push({ type: "upload", relationTo: "media", value: inText?.id, fields: {}, format: "", version: 3 });
+const inlineUser = await call("POST", "/api/posts?draft=true", people.admin, { title: "Has a picture in it", slug: "has-a-picture", content: withInline });
+const refusedInline = await call("DELETE", `/api/media/${inText?.id}`, OWNER);
+expect("…and so is one that's only inside an article's text", inlineUser.status === 201 && refusedInline.status === 400 && /Has a picture in it/.test(refusedInline.text), `${inlineUser.status} ${refusedInline.status} ${refusedInline.text.slice(0, 200)}`);
+await call("DELETE", `/api/pages/${user.json?.doc?.id}`, OWNER);
+await call("DELETE", `/api/posts/${inlineUser.json?.doc?.id}`, OWNER);
+// In Trash it still counts (it can be restored): moved there, the page still holds the image.
+const trashed = await call("POST", "/api/pages?draft=true", people.admin, { title: "Uses it from the Trash", heroImage: used?.id, content: lexical("Words.") });
+await call("PATCH", `/api/pages/${trashed.json?.doc?.id}`, OWNER, { deletedAt: new Date().toISOString() });
+expect("an image used by something in Trash still can't be deleted", (await call("DELETE", `/api/media/${used?.id}`, OWNER)).status === 400);
+await call("DELETE", `/api/pages/${trashed.json?.doc?.id}?trash=true`, OWNER);
+// Once nothing uses it (the page and the post are deleted for good), the image is free.
+const freed = [await call("DELETE", `/api/media/${used?.id}`, OWNER), await call("DELETE", `/api/media/${inText?.id}`, OWNER)];
+expect("then it can be deleted", freed.every((r) => r.status === 200), freed.map((r) => `${r.status} ${r.text.slice(0, 120)}`).join(" | "));
+expect("only the people who edit the website can list the media library", (await call("GET", "/api/media", people.viewer)).status === 403 && (await call("GET", "/api/media", people.editor)).status === 403 && (await call("GET", "/api/media", people.admin)).status === 200);
+
+await call("POST", "/api/globals/homepage?draft=false", OWNER, { _status: "published" });
+const templated = await call("POST", "/api/projects?draft=false", people.admin, { title: "Template check", summary: "A project made without a description.", _status: "published" });
+const templateHeadings = (templated.json?.doc?.content?.root?.children ?? []).filter((n) => n.type === "heading").map((n) => n.children?.[0]?.text);
+const templatedPage = await call("GET", "/portal/preview/projects/template-check", OWNER);
+expect(
+    "a new project starts with suggested headings, and none of them is published while it has nothing under it",
+    templated.status === 201 && templateHeadings.length === 4 && templatedPage.status === 200 && templateHeadings.every((h) => !templatedPage.text.includes(`>${h}<`)),
+    `${templated.status} ${JSON.stringify(templateHeadings)} ${templatedPage.status}`,
+);
+const filled = templated.json.doc.content;
+filled.root.children[1] = lexical("It is a check.").root.children[0];
+const partly = await call("PATCH", `/api/projects/${templated.json.doc.id}?draft=false`, people.admin, { content: filled });
+const partlyPage = (await call("GET", "/portal/preview/projects/template-check", OWNER)).text;
+expect(
+    "a heading with something under it is published; the ones still empty aren't",
+    partly.status === 200 && partlyPage.includes(templateHeadings[0]) && partlyPage.includes("It is a check.") && !partlyPage.includes(`>${templateHeadings[1]}<`),
+    `${partly.status} ${partly.text.slice(0, 200)}`,
+);
+await call("DELETE", `/api/projects/${templated.json.doc.id}`, OWNER);
+
 // Put the homepage and settings back for later suites.
 await call("POST", "/api/globals/homepage?draft=false", OWNER, { heading: "Some things are worth", _status: "published" });
 await call("POST", "/api/globals/site-settings", OWNER, { footerText: "", contact: { heading: "Get in touch" } });
